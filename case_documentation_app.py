@@ -18,8 +18,10 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 import requests
 
+VERSION = "0.1.4"
+
 # ─────────────────────────── CONFIG ────────────────────────────
-st.set_page_config(page_title="Kiroshi V0.1.0", layout="centered")
+st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="centered")
 
 ASCII_LOGO = r"""
 <pre style='font-family:monospace'>
@@ -43,7 +45,7 @@ ASCII_LOGO = r"""
 """
 
 st.markdown(ASCII_LOGO, unsafe_allow_html=True)
-st.markdown("### Kiroshi V0.1.0 – IT Support Case Builder")
+st.markdown(f"### Kiroshi V{VERSION} – IT Support Case Builder")
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
