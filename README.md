@@ -81,6 +81,7 @@ used behind such company proxies. Be aware that this weakens transport security
 and should only be enabled in trusted environments.
 
 
+=======
 ## Build executable
 
 To create a standalone executable, first install the dependencies and run the build script:
