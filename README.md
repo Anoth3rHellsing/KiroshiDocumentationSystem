@@ -41,6 +41,18 @@ bundle supporting files.
 For API usage, supply an OpenAI API key in the *API* tab before generating an
 email.
 
+
+## Build executable
+
+To create a standalone executable, first install the dependencies and run the build script:
+
+```bash
+pip install -r requirements.txt
+./build.sh
+```
+
+The resulting binary will be placed in the `dist/` directory.
+
 ## Documentation
 
 See the [`docs/`](docs/README.md) directory for a more detailed explanation of
