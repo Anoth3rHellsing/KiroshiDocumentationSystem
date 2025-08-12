@@ -17,6 +17,13 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 import requests
+import urllib3
+
+# Some corporate networks perform SSL interception with a self-signed
+# certificate, which breaks standard certificate validation.  Disable
+# warnings and certificate verification for outbound requests so the
+# ChatGPT API can still be reached.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
 
@@ -24,7 +31,6 @@ VERSION = "0.1.4"
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="centered")
 
 ASCII_LOGO = r"""
-<pre style='font-family:monospace'>
        /\
       /  \
      /\ \ \
@@ -41,10 +47,9 @@ ASCII_LOGO = r"""
      \ \ \/
       \  /
        \/
-</pre>
 """
 
-st.markdown(ASCII_LOGO, unsafe_allow_html=True)
+st.text(ASCII_LOGO)
 st.markdown(f"### Kiroshi V{VERSION} – IT Support Case Builder")
 
 # ────────────────────── SESSION STATE ────────────────────────
@@ -190,26 +195,17 @@ tab_case, tab_email, tab_hw, tab_notes, tab_api = st.tabs(
 
 # ================== CASE TAB =================
 with tab_case:
+    prog, miss = compute_progress(D)
     left, right = st.columns([1, 2], gap="medium")
-    with left:
-        st.subheader("Documentation Preview – Copy‑friendly Tables")
-        for cat in CATEGORY_MAP:
-            st.markdown(f"**{cat}**")
-            st.dataframe(category_dataframe(cat, D), use_container_width=True)
-        prog, miss = compute_progress(D)
-        st.markdown("---")
+    with right:
+        st.subheader("Build title")
+        st.code(build_title(D))
         st.subheader("Progress by category")
         st.bar_chart(
             pd.DataFrame({"Category": prog.keys(), "Done": prog.values()}).set_index(
                 "Category"
             )
         )
-        todo = [
-            f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
-        ]
-        st.markdown("### To‑do" if todo else "All mandatory info filled.")
-        [st.markdown(f"- {t}") for t in todo]
-    with right:
         st.subheader("Case Header")
         D.company_name = st.text_input("Company name", D.company_name)
         D.subscription_id = st.text_input("Subscription ID", D.subscription_id)
@@ -248,6 +244,17 @@ with tab_case:
             file_name=f"{D.case_id or 'case'}.pdf",
             mime="application/pdf",
         )
+    with left:
+        st.subheader("Documentation Preview – Copy‑friendly Tables")
+        for cat in CATEGORY_MAP:
+            st.markdown(f"**{cat}**")
+            st.dataframe(category_dataframe(cat, D), use_container_width=True)
+        st.markdown("---")
+        todo = [
+            f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
+        ]
+        st.markdown("### To‑do" if todo else "All mandatory info filled.")
+        [st.markdown(f"- {t}") for t in todo]
 
 # ================== EMAIL TAB =================
 with tab_email:
@@ -513,6 +520,7 @@ with tab_api:
                             "temperature": 0.7,
                         },
                         timeout=30,
+                        verify=False,
                     )
                     if response.status_code == 200:
                         result = response.json()
