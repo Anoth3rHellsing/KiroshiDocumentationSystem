@@ -12,6 +12,7 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
   customer recaps or escalation notes.
 - **Hardware tab** – record PC and scanner hardware details.
 - **Notes tab** – scratchpad for temporary notes.
+- **PDF export** – download a formatted summary of the case.
 - **Attachments** – upload screenshots or logs and export everything as a ZIP
   bundle.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the
