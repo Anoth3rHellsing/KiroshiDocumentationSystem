@@ -80,6 +80,7 @@ disables certificate checks for requests to the OpenAI ChatGPT API so it can be
 used behind such company proxies. Be aware that this weakens transport security
 and should only be enabled in trusted environments.
 
+=======
 
 ## Build executable
 
