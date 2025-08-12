@@ -3,4 +3,4 @@
 # This script requires PyInstaller to be installed.
 
 set -e
-pyinstaller --onefile --name KiroshiDocumentationSystem run_app.py
+pyinstaller --onefile --name KiroshiDocumentationSystem --collect-all streamlit run_app.py
