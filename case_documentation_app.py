@@ -17,14 +17,20 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 import requests
+import urllib3
+
+# Some corporate networks perform SSL interception with a self-signed
+# certificate, which breaks standard certificate validation.  Disable
+# warnings and certificate verification for outbound requests so the
+# ChatGPT API can still be reached.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
 
 # ─────────────────────────── CONFIG ────────────────────────────
-st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="centered")
+st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
 
-ASCII_LOGO = r"""
-<pre style='font-family:monospace'>
+ASCII_LOGO_RAW = r"""
        /\
       /  \
      /\ \ \
@@ -41,10 +47,17 @@ ASCII_LOGO = r"""
      \ \ \/
       \  /
        \/
-</pre>
 """
 
-st.markdown(ASCII_LOGO, unsafe_allow_html=True)
+
+def _wide_ascii(art: str) -> str:
+    lines = []
+    for line in art.strip("\n").splitlines():
+        lines.append("  ".join(list(line)))
+    return "\n".join(lines)
+
+
+st.text(_wide_ascii(ASCII_LOGO_RAW))
 st.markdown(f"### Kiroshi V{VERSION} – IT Support Case Builder")
 
 # ────────────────────── SESSION STATE ────────────────────────
@@ -58,6 +71,7 @@ _init_state("uploads", [])
 _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
+_init_state("include_hw", False)
 
 # ───────────────── DATA MODEL ──────────────────
 @dataclass
@@ -101,7 +115,7 @@ if isinstance(st.session_state.case, dict):
     st.session_state.case = CaseData(**st.session_state.case)
 D: CaseData = st.session_state.case
 
-CATEGORY_MAP = {
+BASE_CATEGORY_MAP = {
     "HEADER": ["company_name", "subscription_id", "brief_description", "case_id"],
     "DESCRIPTION": ["description"],
     "PHONECALL": [
@@ -116,7 +130,9 @@ CATEGORY_MAP = {
     "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
     "REMOTE SESSION": ["remote_steps"],
     "CONCLUSION": ["root_cause", "solution"],
-    # new hardware categories
+}
+
+HW_CATEGORY_MAP = {
     "PC HARDWARE": [
         "service_tag",
         "pc_model",
@@ -129,6 +145,13 @@ CATEGORY_MAP = {
     "SCANNER HARDWARE": ["scanner_sn", "base_sn", "trios_module_version"],
 }
 
+
+def active_category_map():
+    cm = BASE_CATEGORY_MAP.copy()
+    if st.session_state.get("include_hw"):
+        cm.update(HW_CATEGORY_MAP)
+    return cm
+
 # ────────── HELPERS ──────────
 
 def build_title(d: CaseData) -> str:
@@ -136,10 +159,10 @@ def build_title(d: CaseData) -> str:
     return f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|{d.case_id}|"
 
 
-def compute_progress(d: CaseData):
+def compute_progress(d: CaseData, cat_map):
     """Compute completion progress for each category."""
     prog, miss = {}, {}
-    for cat, flds in CATEGORY_MAP.items():
+    for cat, flds in cat_map.items():
         vals = [getattr(d, f) for f in flds]
         done = sum(bool(v) for v in vals)
         prog[cat] = int(done / len(flds) * 100)
@@ -147,15 +170,15 @@ def compute_progress(d: CaseData):
     return prog, miss
 
 
-def category_dataframe(cat: str, d: CaseData) -> pd.DataFrame:
+def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
     """Return a DataFrame with human readable field names for a category."""
     rows = []
-    for fld in CATEGORY_MAP[cat]:
+    for fld in cat_map[cat]:
         rows.append({"Field": fld.replace("_", " ").title(), "Value": getattr(d, fld)})
     return pd.DataFrame(rows)
 
 
-def make_pdf(d: CaseData) -> bytes:
+def make_pdf(d: CaseData, cat_map) -> bytes:
     """Generate a PDF summary of the case details."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -163,9 +186,9 @@ def make_pdf(d: CaseData) -> bytes:
     )
     styles = getSampleStyleSheet()
     elems = []
-    for cat in CATEGORY_MAP:
+    for cat in cat_map:
         elems.append(Paragraph(cat, styles["Heading4"]))
-        data = [["Field", "Value"]] + category_dataframe(cat, d).values.tolist()
+        data = [["Field", "Value"]] + category_dataframe(cat, d, cat_map).values.tolist()
         t = Table(data, colWidths=[150, 350])
         t.setStyle(
             TableStyle(
@@ -184,20 +207,28 @@ def make_pdf(d: CaseData) -> bytes:
     return buf.read()
 
 # ──────────── TABS ───────────
-tab_case, tab_email, tab_hw, tab_notes, tab_api = st.tabs(
-    ["Case", "Email", "Hardware Issues", "Notes", "API"]
+st.session_state.include_hw = st.checkbox(
+    "Include hardware issue fields", st.session_state.include_hw
 )
+cat_map = active_category_map()
+
+tab_labels = ["Case", "Email"]
+if st.session_state.include_hw:
+    tab_labels.append("Hardware Issues")
+tab_labels += ["Notes", "Tables", "API"]
+tabs = st.tabs(tab_labels)
+if st.session_state.include_hw:
+    tab_case, tab_email, tab_hw, tab_notes, tab_tables, tab_api = tabs
+else:
+    tab_case, tab_email, tab_notes, tab_tables, tab_api = tabs
 
 # ================== CASE TAB =================
 with tab_case:
+    prog, miss = compute_progress(D, cat_map)
     left, right = st.columns([1, 2], gap="medium")
-    with left:
-        st.subheader("Documentation Preview – Copy‑friendly Tables")
-        for cat in CATEGORY_MAP:
-            st.markdown(f"**{cat}**")
-            st.dataframe(category_dataframe(cat, D), use_container_width=True)
-        prog, miss = compute_progress(D)
-        st.markdown("---")
+    with right:
+        st.subheader("Build title")
+        st.code(build_title(D))
         st.subheader("Progress by category")
         st.bar_chart(
             pd.DataFrame({"Category": prog.keys(), "Done": prog.values()}).set_index(
@@ -209,7 +240,6 @@ with tab_case:
         ]
         st.markdown("### To‑do" if todo else "All mandatory info filled.")
         [st.markdown(f"- {t}") for t in todo]
-    with right:
         st.subheader("Case Header")
         D.company_name = st.text_input("Company name", D.company_name)
         D.subscription_id = st.text_input("Subscription ID", D.subscription_id)
@@ -244,10 +274,17 @@ with tab_case:
         st.markdown("---")
         st.download_button(
             "Download PDF",
-            make_pdf(D),
+            make_pdf(D, cat_map),
             file_name=f"{D.case_id or 'case'}.pdf",
             mime="application/pdf",
         )
+    with left:
+        st.subheader("Documentation Preview – Copy‑friendly Tables")
+        for cat in cat_map:
+            st.markdown(f"**{cat}**")
+            st.dataframe(
+                category_dataframe(cat, D, cat_map), use_container_width=True
+            )
 
 # ================== EMAIL TAB =================
 with tab_email:
@@ -416,30 +453,31 @@ List each question and provide any known answer beneath it, ready for the custom
     st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300)
 
 # ================== HARDWARE ISSUES TAB =================
-with tab_hw:
-    st.subheader("PC Hardware Issue")
-    col_pc1, col_pc2 = st.columns(2)
-    D.service_tag = col_pc1.text_input("Service Tag", D.service_tag)
-    D.pc_model = col_pc2.text_input("PC Model", D.pc_model)
-    D.windows_version = col_pc1.text_input("Windows version", D.windows_version)
-    D.bios_version = col_pc2.text_input("BIOS version", D.bios_version)
-    D.graphics_card = col_pc1.text_input("Graphics Card", D.graphics_card)
-    D.processor = col_pc2.text_input("Processor", D.processor)
-    D.warranty = st.text_input("Warranty", D.warranty)
-    st.dataframe(
-        category_dataframe("PC HARDWARE", D), use_container_width=True
-    )
+if st.session_state.include_hw:
+    with tab_hw:
+        st.subheader("PC Hardware Issue")
+        col_pc1, col_pc2 = st.columns(2)
+        D.service_tag = col_pc1.text_input("Service Tag", D.service_tag)
+        D.pc_model = col_pc2.text_input("PC Model", D.pc_model)
+        D.windows_version = col_pc1.text_input("Windows version", D.windows_version)
+        D.bios_version = col_pc2.text_input("BIOS version", D.bios_version)
+        D.graphics_card = col_pc1.text_input("Graphics Card", D.graphics_card)
+        D.processor = col_pc2.text_input("Processor", D.processor)
+        D.warranty = st.text_input("Warranty", D.warranty)
+        st.dataframe(
+            category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+        )
 
-    st.markdown("---")
-    st.subheader("Scanner Hardware Issue")
-    D.scanner_sn = st.text_input("Scanner S/N", D.scanner_sn)
-    D.base_sn = st.text_input("Base S/N", D.base_sn)
-    D.trios_module_version = st.text_input(
-        "TRIOS MODULE Version", D.trios_module_version
-    )
-    st.dataframe(
-        category_dataframe("SCANNER HARDWARE", D), use_container_width=True
-    )
+        st.markdown("---")
+        st.subheader("Scanner Hardware Issue")
+        D.scanner_sn = st.text_input("Scanner S/N", D.scanner_sn)
+        D.base_sn = st.text_input("Base S/N", D.base_sn)
+        D.trios_module_version = st.text_input(
+            "TRIOS MODULE Version", D.trios_module_version
+        )
+        st.dataframe(
+            category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+        )
 
 # ================== NOTES TAB =================
 with tab_notes:
@@ -447,6 +485,15 @@ with tab_notes:
     st.session_state.scratch = st.text_area(
         "Temporary notes", st.session_state.scratch, height=400
     )
+
+# ================== TABLES TAB =================
+with tab_tables:
+    st.subheader("Copy all tables")
+    combined_md = []
+    for cat in cat_map:
+        df = category_dataframe(cat, D, cat_map)
+        combined_md.append(f"### {cat}\n" + df.to_markdown(index=False))
+    st.text_area("Markdown", "\n\n".join(combined_md), height=400)
 
 # ================== FILE UPLOADS & EXPORTS =================
 st.markdown("---")
@@ -513,6 +560,7 @@ with tab_api:
                             "temperature": 0.7,
                         },
                         timeout=30,
+                        verify=False,
                     )
                     if response.status_code == 200:
                         result = response.json()
