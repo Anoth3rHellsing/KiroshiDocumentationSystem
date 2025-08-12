@@ -58,7 +58,6 @@ def _wide_ascii(art: str) -> str:
 
 
 st.text(_wide_ascii(ASCII_LOGO_RAW))
-st.markdown(f"### Kiroshi V{VERSION} – IT Support Case Builder")
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
