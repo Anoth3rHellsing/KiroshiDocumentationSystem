@@ -17,6 +17,13 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 import requests
+import urllib3
+
+# Some corporate networks perform SSL interception with a self-signed
+# certificate, which breaks standard certificate validation.  Disable
+# warnings and certificate verification for outbound requests so the
+# ChatGPT API can still be reached.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
 
@@ -513,6 +520,7 @@ with tab_api:
                             "temperature": 0.7,
                         },
                         timeout=30,
+                        verify=False,
                     )
                     if response.status_code == 200:
                         result = response.json()
