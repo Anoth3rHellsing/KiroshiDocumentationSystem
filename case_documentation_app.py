@@ -1,0 +1,529 @@
+# -*- coding: utf-8 -*-
+"""
+Kiroshi V0.1.4 – IT Case Documentation Helper
+Run:
+    streamlit run case_documentation_app.py
+"""
+
+import io
+import json
+import zipfile
+from dataclasses import dataclass, asdict
+
+import pandas as pd
+import streamlit as st
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+import requests
+
+# ─────────────────────────── CONFIG ────────────────────────────
+st.set_page_config(page_title="Kiroshi V0.1.0", layout="centered")
+
+ASCII_LOGO = r"""
+<pre style='font-family:monospace'>
+       /\
+      /  \
+     /\ \ \
+    /\ \ \ \
+   /\ \ \ \/\
+  / /\ \ \/ /\
+ / / /\  / / /\
+/ / /  \/ / /  \
+\  / / /\  / / /
+ \/ / /  \/ / /
+  \/ /\ \ \/ /
+   \/\ \ \ \/
+    \ \ \ \/
+     \ \ \/
+      \  /
+       \/
+</pre>
+"""
+
+st.markdown(ASCII_LOGO, unsafe_allow_html=True)
+st.markdown("### Kiroshi V0.1.0 – IT Support Case Builder")
+
+# ────────────────────── SESSION STATE ────────────────────────
+def _init_state(key, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+_init_state("survey_link", "https://3shape.eu.surveymonkey.com/r/3ShapeSupportSatisfactionSurvey")
+_init_state("case", {})
+_init_state("uploads", [])
+_init_state("scratch", "")
+_init_state("email_type", "Recap (Customer)")
+_init_state("email_extra", {})
+
+# ───────────────── DATA MODEL ──────────────────
+@dataclass
+class CaseData:
+    """Container for case details provided through the UI."""
+
+    # General case
+    company_name: str = ""
+    subscription_id: str = ""
+    brief_description: str = ""
+    case_id: str = ""
+    description: str = ""
+    caller_name: str = ""
+    phone_description: str = ""
+    dongle_number: str = ""
+    phone_number: str = ""
+    teamviewer_id: str = ""
+    teamviewer_password: str = ""
+    email: str = ""
+    internal_helpjuice: str = ""
+    internal_logs: str = ""
+    remote_steps: str = ""
+    root_cause: str = ""
+    solution: str = ""
+    # PC hardware
+    service_tag: str = ""
+    pc_model: str = ""
+    windows_version: str = ""
+    bios_version: str = ""
+    graphics_card: str = ""
+    processor: str = ""
+    warranty: str = ""
+    # Scanner hardware
+    scanner_sn: str = ""
+    base_sn: str = ""
+    trios_module_version: str = ""
+
+
+# convert stored dict to dataclass
+if isinstance(st.session_state.case, dict):
+    st.session_state.case = CaseData(**st.session_state.case)
+D: CaseData = st.session_state.case
+
+CATEGORY_MAP = {
+    "HEADER": ["company_name", "subscription_id", "brief_description", "case_id"],
+    "DESCRIPTION": ["description"],
+    "PHONECALL": [
+        "caller_name",
+        "phone_description",
+        "dongle_number",
+        "phone_number",
+        "teamviewer_id",
+        "teamviewer_password",
+        "email",
+    ],
+    "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
+    "REMOTE SESSION": ["remote_steps"],
+    "CONCLUSION": ["root_cause", "solution"],
+    # new hardware categories
+    "PC HARDWARE": [
+        "service_tag",
+        "pc_model",
+        "windows_version",
+        "bios_version",
+        "graphics_card",
+        "processor",
+        "warranty",
+    ],
+    "SCANNER HARDWARE": ["scanner_sn", "base_sn", "trios_module_version"],
+}
+
+# ────────── HELPERS ──────────
+
+def build_title(d: CaseData) -> str:
+    """Construct a helper string for case titles."""
+    return f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|{d.case_id}|"
+
+
+def compute_progress(d: CaseData):
+    """Compute completion progress for each category."""
+    prog, miss = {}, {}
+    for cat, flds in CATEGORY_MAP.items():
+        vals = [getattr(d, f) for f in flds]
+        done = sum(bool(v) for v in vals)
+        prog[cat] = int(done / len(flds) * 100)
+        miss[cat] = [f for f, v in zip(flds, vals) if not v]
+    return prog, miss
+
+
+def category_dataframe(cat: str, d: CaseData) -> pd.DataFrame:
+    """Return a DataFrame with human readable field names for a category."""
+    rows = []
+    for fld in CATEGORY_MAP[cat]:
+        rows.append({"Field": fld.replace("_", " ").title(), "Value": getattr(d, fld)})
+    return pd.DataFrame(rows)
+
+
+def make_pdf(d: CaseData) -> bytes:
+    """Generate a PDF summary of the case details."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=30
+    )
+    styles = getSampleStyleSheet()
+    elems = []
+    for cat in CATEGORY_MAP:
+        elems.append(Paragraph(cat, styles["Heading4"]))
+        data = [["Field", "Value"]] + category_dataframe(cat, d).values.tolist()
+        t = Table(data, colWidths=[150, 350])
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ]
+            )
+        )
+        elems.extend([t, Spacer(1, 12)])
+    doc.build(elems)
+    buf.seek(0)
+    return buf.read()
+
+# ──────────── TABS ───────────
+tab_case, tab_email, tab_hw, tab_notes, tab_api = st.tabs(
+    ["Case", "Email", "Hardware Issues", "Notes", "API"]
+)
+
+# ================== CASE TAB =================
+with tab_case:
+    left, right = st.columns([1, 2], gap="medium")
+    with left:
+        st.subheader("Documentation Preview – Copy‑friendly Tables")
+        for cat in CATEGORY_MAP:
+            st.markdown(f"**{cat}**")
+            st.dataframe(category_dataframe(cat, D), use_container_width=True)
+        prog, miss = compute_progress(D)
+        st.markdown("---")
+        st.subheader("Progress by category")
+        st.bar_chart(
+            pd.DataFrame({"Category": prog.keys(), "Done": prog.values()}).set_index(
+                "Category"
+            )
+        )
+        todo = [
+            f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
+        ]
+        st.markdown("### To‑do" if todo else "All mandatory info filled.")
+        [st.markdown(f"- {t}") for t in todo]
+    with right:
+        st.subheader("Case Header")
+        D.company_name = st.text_input("Company name", D.company_name)
+        D.subscription_id = st.text_input("Subscription ID", D.subscription_id)
+        D.brief_description = st.text_input("Brief description", D.brief_description)
+        D.case_id = st.text_input("Case ID", D.case_id)
+        st.subheader("Description (What / When / Where)")
+        D.description = st.text_area("Description", D.description, height=68)
+        st.subheader("Phone-call notes")
+        D.caller_name = st.text_input("Caller name", D.caller_name)
+        D.phone_description = st.text_area(
+            "Caller issue description", D.phone_description, height=68
+        )
+        c1, c2 = st.columns(2)
+        D.dongle_number = c1.text_input("Dongle number", D.dongle_number)
+        D.phone_number = c2.text_input("Phone number", D.phone_number)
+        D.teamviewer_id = c1.text_input("TeamViewer ID", D.teamviewer_id)
+        D.teamviewer_password = c2.text_input(
+            "TeamViewer password", D.teamviewer_password
+        )
+        D.email = st.text_input("Email", D.email)
+        st.subheader("Internal notes")
+        D.internal_helpjuice = st.text_input("Helpjuice link", D.internal_helpjuice)
+        D.internal_logs = st.text_area("Logs / screenshots", D.internal_logs, height=68)
+        st.subheader("Remote session – steps")
+        D.remote_steps = st.text_area("One step per line", D.remote_steps, height=68)
+        st.subheader("Conclusion")
+        D.root_cause = st.text_input("Root cause", D.root_cause)
+        D.solution = st.text_input("Solution", D.solution)
+        st.session_state.survey_link = st.text_input(
+            "Customer satisfaction survey URL", st.session_state.survey_link
+        )
+        st.markdown("---")
+        st.download_button(
+            "Download PDF",
+            make_pdf(D),
+            file_name=f"{D.case_id or 'case'}.pdf",
+            mime="application/pdf",
+        )
+
+# ================== EMAIL TAB =================
+with tab_email:
+    st.subheader("Email Prompt Generator")
+    email_type = st.selectbox(
+        "Select email template",
+        [
+            "Recap (Customer)",
+            "AX Coordinators",
+            "Broken Scanner",
+            "Broken Tip",
+            "Escalation 2nd line",
+        ],
+        index=[
+            "Recap (Customer)",
+            "AX Coordinators",
+            "Broken Scanner",
+            "Broken Tip",
+            "Escalation 2nd line",
+        ].index(st.session_state.email_type),
+    )
+    st.session_state.email_type = email_type
+    ext = st.session_state.email_extra
+
+    prompt = ""
+    if email_type == "Recap (Customer)":
+        greeting = f"Dear {(D.caller_name or 'Customer')}{(' / ' + D.company_name + ' team') if D.company_name else ' team'},"
+        steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
+        prompt = f"""You are a friendly IT‑support agent. Draft a concise email (≤180 words).
+The email must start with: {greeting}
+
+Include only: Case ID, root cause, 1‑3 bullet summary of steps taken, and final solution.
+Close politely, invite questions, and link the survey. Return only the email body.
+
+DATA:
+Case ID: {D.case_id}
+Root cause: {D.root_cause}
+Steps taken:
+{steps_summary}
+Solution: {D.solution}
+Survey link: {st.session_state.survey_link}"""
+
+    elif email_type == "AX Coordinators":
+        st.markdown("#### Additional details")
+        ext["request_issue"] = st.text_area(
+            "Request / Issue", ext.get("request_issue", "")
+        )
+        ext["contact_name"] = st.text_input(
+            "Contact name", ext.get("contact_name", "")
+        )
+        ext["office_ph"] = st.text_input(
+            "Office phone", ext.get("office_ph", "")
+        )
+        ext["direct_ph"] = st.text_input(
+            "Direct phone", ext.get("direct_ph", "")
+        )
+        ext["best_time"] = st.text_input(
+            "Best call‑back time + timezone", ext.get("best_time", "")
+        )
+        ext["patterson"] = st.text_input(
+            "Patterson legacy #", ext.get("patterson", "N/A")
+        )
+        ext["straumann"] = st.text_input(
+            "Straumann ticket #", ext.get("straumann", "N/A")
+        )
+
+        prompt = f"""Compose a brief internal e‑mail for AX coordinators summarising the details below.
+Use bullet points where helpful. Return only the e‑mail body.
+
+Caller name: {D.caller_name}
+Request / Issue: {ext['request_issue']}
+Dongle: {D.dongle_number}
+Contact: {ext['contact_name']}
+Office PH: {ext['office_ph']}
+Direct PH: {ext['direct_ph']}
+Best call‑back: {ext['best_time']}
+Case ID: {D.case_id} | SID: {D.subscription_id}
+Patterson legacy#: {ext['patterson']}
+Straumann ticket#: {ext['straumann']}
+"""
+
+    elif email_type == "Broken Scanner":
+        st.markdown("#### Incident questionnaire (prefill if known)")
+        ext["experience"] = st.text_input(
+            "Experience level (new / experienced)", ext.get("experience", "")
+        )
+        ext["drop_details"] = st.text_area(
+            "Describe how / when scanner was dropped", ext.get("drop_details", "")
+        )
+        ext["cause"] = st.text_area(
+            "What do you think caused the incident?", ext.get("cause", "")
+        )
+        ext["prevention"] = st.text_area(
+            "Ideas to prevent", ext.get("prevention", "")
+        )
+        ext["satisfaction"] = st.text_input(
+            "Are you satisfied with service?", ext.get("satisfaction", "")
+        )
+
+        prompt = f"""Draft a friendly e‑mail asking the customer to confirm / provide the following details about the broken scanner.
+Number the questions 1‑5 and leave blank space after each for their answers.
+
+Questions:
+1. Experience with intra‑oral scanners – {ext['experience']}
+2. How and when was the scanner dropped? – {ext['drop_details']}
+3. What do you think caused the incident? – {ext['cause']}
+4. Ideas on preventing similar incidents – {ext['prevention']}
+5. Satisfaction with our proposed solution – {ext['satisfaction']}
+
+Prefill any answers we already know (shown above) right under each question.
+"""
+
+    elif email_type == "Broken Tip":
+        st.markdown("#### Cleaning questionnaire (prefill if known)")
+        ext["times_autoclaved"] = st.text_input(
+            "Times autoclaved", ext.get("times_autoclaved", "")
+        )
+        ext["bath_number"] = st.text_input(
+            "Tip bath number", ext.get("bath_number", "")
+        )
+        ext["model"] = st.text_input("Autoclave model", ext.get("model", ""))
+        ext["program"] = st.text_input(
+            "Program used", ext.get("program", "")
+        )
+        ext["airtight"] = st.text_input(
+            "Autoclaved in airtight pouch?", ext.get("airtight", "")
+        )
+        ext["other"] = st.text_area(
+            "Other relevant info", ext.get("other", "")
+        )
+
+        prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
+List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
+
+1. Times autoclaved – {ext['times_autoclaved']}
+2. Bath number – {ext['bath_number']}
+3. Autoclave model – {ext['model']}
+4. Program used – {ext['program']}
+5. Autoclaved in airtight pouch? – {ext['airtight']}
+6. Other info – {ext['other']}
+"""
+
+    elif email_type == "Escalation 2nd line":
+        st.markdown("#### Contact details for escalation")
+        ext["esc_name"] = st.text_input(
+            "Name", ext.get("esc_name", ""), key="esc_name_escalation"
+        )
+        ext["esc_ph"] = st.text_input(
+            "Phone", ext.get("esc_ph", ""), key="esc_ph_escalation"
+        )
+        ext["esc_email"] = st.text_input(
+            "Email", ext.get("esc_email", ""), key="esc_email_escalation"
+        )
+
+        prompt = (
+            "Write a short note informing the customer that the case is being escalated to second‑line support to continue verification.\n"
+            "Begin with that exact sentence, then list the following contact details and the Case ID.\n"
+            f"Case ID: {D.case_id}\n"
+            f"Name: {ext['esc_name']}\n"
+            f"Phone: {ext['esc_ph']}\n"
+            f"Email: {ext['esc_email']}\n"
+            "Close politely. Return only the e‑mail body."
+        )
+
+    st.session_state.email_extra = ext
+    st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300)
+
+# ================== HARDWARE ISSUES TAB =================
+with tab_hw:
+    st.subheader("PC Hardware Issue")
+    col_pc1, col_pc2 = st.columns(2)
+    D.service_tag = col_pc1.text_input("Service Tag", D.service_tag)
+    D.pc_model = col_pc2.text_input("PC Model", D.pc_model)
+    D.windows_version = col_pc1.text_input("Windows version", D.windows_version)
+    D.bios_version = col_pc2.text_input("BIOS version", D.bios_version)
+    D.graphics_card = col_pc1.text_input("Graphics Card", D.graphics_card)
+    D.processor = col_pc2.text_input("Processor", D.processor)
+    D.warranty = st.text_input("Warranty", D.warranty)
+    st.dataframe(
+        category_dataframe("PC HARDWARE", D), use_container_width=True
+    )
+
+    st.markdown("---")
+    st.subheader("Scanner Hardware Issue")
+    D.scanner_sn = st.text_input("Scanner S/N", D.scanner_sn)
+    D.base_sn = st.text_input("Base S/N", D.base_sn)
+    D.trios_module_version = st.text_input(
+        "TRIOS MODULE Version", D.trios_module_version
+    )
+    st.dataframe(
+        category_dataframe("SCANNER HARDWARE", D), use_container_width=True
+    )
+
+# ================== NOTES TAB =================
+with tab_notes:
+    st.subheader("Scratchpad")
+    st.session_state.scratch = st.text_area(
+        "Temporary notes", st.session_state.scratch, height=400
+    )
+
+# ================== FILE UPLOADS & EXPORTS =================
+st.markdown("---")
+st.subheader("Exports & attachments")
+new_files = st.file_uploader(
+    "Upload screenshots / logs / videos", accept_multiple_files=True
+)
+if new_files:
+    st.session_state.uploads.extend(new_files)
+if st.session_state.uploads:
+    st.markdown("Files queued:")
+    for f in st.session_state.uploads:
+        st.markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+    if st.button("Create ZIP"):
+        zbuf = io.BytesIO()
+        with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in st.session_state.uploads:
+                z.writestr(f.name, f.getvalue())
+            z.writestr("case.json", json.dumps(asdict(D), indent=2))
+        zbuf.seek(0)
+        st.download_button(
+            "Download attachments.zip",
+            zbuf,
+            file_name=f"{D.case_id or 'case'}_attachments.zip",
+            mime="application/zip",
+        )
+
+# ================== API TAB =================
+with tab_api:
+    st.subheader("ChatGPT API Integration")
+    api_key = st.text_input("OpenAI API Key", type="password", key="openai_api_key")
+    model = st.selectbox("Model", ["gpt-3.5-turbo", "gpt-4"], key="openai_model")
+    prompt_for_api = st.session_state.get("last_prompt", "")
+
+    # Optionally, let user edit the prompt before sending
+    prompt_for_api = st.text_area(
+        "Prompt to send", prompt_for_api, height=200, key="api_prompt_area"
+    )
+
+    if st.button("Convert to Email (ChatGPT API)"):
+        if not api_key:
+            st.error("Please enter your OpenAI API key.")
+        elif not prompt_for_api.strip():
+            st.error("Prompt is empty.")
+        else:
+            with st.spinner("Contacting ChatGPT..."):
+                try:
+                    response = requests.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": model,
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": "You are a helpful assistant.",
+                                },
+                                {"role": "user", "content": prompt_for_api},
+                            ],
+                            "max_tokens": 600,
+                            "temperature": 0.7,
+                        },
+                        timeout=30,
+                    )
+                    if response.status_code == 200:
+                        result = response.json()
+                        email_text = result["choices"][0]["message"]["content"]
+                        st.success("Email generated!")
+                        st.text_area("Generated Email", email_text, height=300)
+                    else:
+                        st.error(
+                            f"API Error: {response.status_code}\n{response.text}"
+                        )
+                except Exception as e:  # pragma: no cover - just in case
+                    st.error(f"Request failed: {e}")
+
+    # Save the last prompt from the Email tab for convenience
+    if "prompt" in locals() and prompt:
+        st.session_state["last_prompt"] = prompt
