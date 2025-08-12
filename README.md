@@ -10,8 +10,9 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
   progress.
 - **Email tab** – generate prompts for different e‑mail templates such as
   customer recaps or escalation notes.
-- **Hardware tab** – record PC and scanner hardware details.
+- **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Notes tab** – scratchpad for temporary notes.
+- **Tables tab** – shows all categories in one copy‑friendly markdown block.
 - **PDF export** – download a formatted summary of the case.
 - **Attachments** – upload screenshots or logs and export everything as a ZIP
   bundle.
@@ -66,7 +67,9 @@ streamlit run case_documentation_app.py
 
 A browser window will open with tabs for entering case information. The "Download
 PDF" button exports a formatted summary, and the attachment section lets you
-bundle supporting files.
+bundle supporting files. Use the checkbox at the top to toggle hardware tabs and
+fields. The *Tables* tab provides a full markdown dump of all case data for easy
+copying.
 
 For API usage, supply an OpenAI API key in the *API* tab before generating an
 email.
@@ -80,7 +83,6 @@ disables certificate checks for requests to the OpenAI ChatGPT API so it can be
 used behind such company proxies. Be aware that this weakens transport security
 and should only be enabled in trusted environments.
 
-=======
 
 ## Build executable
 
