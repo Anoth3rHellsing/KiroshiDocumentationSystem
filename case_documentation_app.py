@@ -401,11 +401,11 @@ with tab_email:
     if email_type == "Recap (Customer)":
         greeting = f"Dear {(D.caller_name or 'Customer')}{(' / ' + D.company_name + ' team') if D.company_name else ' team'},"
         steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
-        prompt = f"""You are a friendly IT‑support agent. Draft a concise email (≤180 words).
+        prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and encourages the customer to complete a short satisfaction survey to help improve our service.
 The email must start with: {greeting}
 
-Include only: Case ID, root cause, 1‑3 bullet summary of steps taken, and final solution.
-Close politely, invite questions, and link the survey. Return only the email body.
+Include: Case ID, root cause, a brief 1‑3 bullet summary of the steps taken, and the final solution.
+Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey. Return only the email body.
 
 DATA:
 Case ID: {D.case_id}
@@ -621,6 +621,16 @@ with tab_api:
         "Prompt to send", prompt_for_api, height=200, key="api_prompt_area"
     )
 
+    include_helpjuice = st.checkbox(
+        "Helpjuice tutorial", key="api_helpjuice"
+    )
+    include_restart = st.checkbox(
+        "Restart the computer", key="api_restart"
+    )
+    include_scan_time = st.checkbox(
+        "Scan time warning", key="api_scan_time"
+    )
+
     if st.button("Convert to Email (ChatGPT API)"):
         if not api_key:
             st.error("Please enter your OpenAI API key.")
@@ -629,6 +639,23 @@ with tab_api:
         else:
             with st.spinner("Contacting ChatGPT..."):
                 try:
+                    augmented_prompt = prompt_for_api
+                    extras = []
+                    if include_helpjuice:
+                        link = D.internal_helpjuice or "https://helpjuice.com"
+                        extras.append(
+                            f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
+                        )
+                    if include_restart:
+                        extras.append(
+                            "And recommend to the customer to restart the computer after the end of every shift."
+                        )
+                    if include_scan_time:
+                        extras.append(
+                            "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
+                        )
+                    if extras:
+                        augmented_prompt += "\n\n" + "\n".join(extras)
                     response = requests.post(
                         "https://api.openai.com/v1/chat/completions",
                         headers={
@@ -642,7 +669,7 @@ with tab_api:
                                     "role": "system",
                                     "content": "You are a helpful assistant.",
                                 },
-                                {"role": "user", "content": prompt_for_api},
+                                {"role": "user", "content": augmented_prompt},
                             ],
                             "max_tokens": 600,
                             "temperature": 0.7,
