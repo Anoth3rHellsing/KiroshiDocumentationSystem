@@ -9,6 +9,7 @@ import io
 import json
 import zipfile
 from dataclasses import dataclass, asdict
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -26,6 +27,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
+TODAY_STR = f"{datetime.now().month}{datetime.now().day}{datetime.now().year}"
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
@@ -95,6 +97,11 @@ class CaseData:
     remote_steps: str = ""
     root_cause: str = ""
     solution: str = ""
+    # Additional information
+    antivirus: str = ""
+    firewalls_enabled: str = ""
+    update_history: str = ""
+    related_case_id: str = ""
     # PC hardware
     service_tag: str = ""
     pc_model: str = ""
@@ -129,6 +136,12 @@ BASE_CATEGORY_MAP = {
     "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
     "REMOTE SESSION": ["remote_steps"],
     "CONCLUSION": ["root_cause", "solution"],
+    "ADDITIONAL INFORMATION": [
+        "antivirus",
+        "firewalls_enabled",
+        "update_history",
+        "related_case_id",
+    ],
 }
 
 HW_CATEGORY_MAP = {
@@ -175,6 +188,10 @@ def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
     for fld in cat_map[cat]:
         rows.append({"Field": fld.replace("_", " ").title(), "Value": getattr(d, fld)})
     return pd.DataFrame(rows)
+
+
+def table_title(cat: str) -> str:
+    return f"PHONECALL{TODAY_STR}" if cat == "PHONECALL" else f"INT - {TODAY_STR}"
 
 
 def make_pdf(d: CaseData, cat_map) -> bytes:
@@ -270,6 +287,36 @@ with tab_case:
         st.session_state.survey_link = st.text_input(
             "Customer satisfaction survey URL", st.session_state.survey_link
         )
+        st.subheader("Additional information")
+        av_check = st.checkbox(
+            "Customer uses antivirus?", value=bool(D.antivirus)
+        )
+        if av_check:
+            D.antivirus = st.text_input("What antivirus?", D.antivirus)
+        else:
+            D.antivirus = ""
+        fw_check = st.checkbox(
+            "Firewalls are turned on?", value=D.firewalls_enabled == "Yes"
+        )
+        D.firewalls_enabled = "Yes" if fw_check else "No"
+        upd_check = st.checkbox(
+            "Any update was made?", value=bool(D.update_history)
+        )
+        if upd_check:
+            D.update_history = st.text_input(
+                "From what version to what version?", D.update_history
+            )
+        else:
+            D.update_history = ""
+        rel_check = st.checkbox(
+            "Is there any related case?", value=bool(D.related_case_id)
+        )
+        if rel_check:
+            D.related_case_id = st.text_input(
+                "Related case number", D.related_case_id
+            )
+        else:
+            D.related_case_id = ""
         st.markdown("---")
         st.download_button(
             "Download PDF",
@@ -280,7 +327,7 @@ with tab_case:
     with left:
         st.subheader("Documentation Preview – Copy‑friendly Tables")
         for cat in cat_map:
-            st.markdown(f"**{cat}**")
+            st.markdown(f"**{table_title(cat)}**")
             st.dataframe(
                 category_dataframe(cat, D, cat_map), use_container_width=True
             )
@@ -491,7 +538,7 @@ with tab_tables:
     combined_md = []
     for cat in cat_map:
         df = category_dataframe(cat, D, cat_map)
-        combined_md.append(f"### {cat}\n" + df.to_markdown(index=False))
+        combined_md.append(f"### {table_title(cat)}\n" + df.to_markdown(index=False))
     st.text_area("Markdown", "\n\n".join(combined_md), height=400)
 
 # ================== FILE UPLOADS & EXPORTS =================
