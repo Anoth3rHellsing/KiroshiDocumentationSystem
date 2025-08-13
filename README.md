@@ -12,12 +12,15 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
   customer recaps or escalation notes.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Notes tab** – scratchpad for temporary notes.
-- **Tables tab** – shows all categories in one copy‑friendly markdown block.
+- **Tables tab** – displays each category in an Excel‑style table with a title
+  indicating Phonecall or Int plus the current date, making it easy to copy
+  into spreadsheets.
 - **PDF export** – download a formatted summary of the case.
 - **Attachments** – upload screenshots or logs and export everything as a ZIP
   bundle.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the
   generated response.
+- **Debug tab** – internal diagnostics protected by an `admin`/`admin` login.
 
 ## Requirements
 
@@ -74,7 +77,8 @@ A browser window will open with tabs for entering case information. The "Downloa
 PDF" button exports a formatted summary, and the attachment section lets you
 bundle supporting files. Use the checkbox at the top to toggle hardware tabs and
 fields. The *Tables* tab provides a full markdown dump of all case data for easy
-copying.
+copying. An internal *Debug* tab is available after logging in with username and
+password `admin`.
 
 For API usage, supply an OpenAI API key in the *API* tab before generating an
 email.

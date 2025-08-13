@@ -27,7 +27,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
-TODAY_STR = f"{datetime.now().month}{datetime.now().day}{datetime.now().year}"
+TODAY_STR = datetime.now().strftime("%d%m%Y")
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
@@ -73,6 +73,7 @@ _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_hw", False)
+_init_state("debug_auth", False)
 
 # ───────────────── DATA MODEL ──────────────────
 @dataclass
@@ -195,7 +196,9 @@ def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
 
 
 def table_title(cat: str) -> str:
-    return f"PHONECALL{TODAY_STR}" if cat == "PHONECALL" else f"INT - {TODAY_STR}"
+    """Return a formatted table title with type and current date."""
+    label = "Phonecall" if cat == "PHONECALL" else "Int"
+    return f"{cat} ({label}){TODAY_STR}"
 
 
 def make_pdf(d: CaseData, cat_map) -> bytes:
@@ -235,12 +238,12 @@ cat_map = active_category_map()
 tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "API"]
+tab_labels += ["Notes", "Tables", "API", "Debug"]
 tabs = st.tabs(tab_labels)
 if st.session_state.include_hw:
-    tab_case, tab_email, tab_hw, tab_notes, tab_tables, tab_api = tabs
+    tab_case, tab_email, tab_hw, tab_notes, tab_tables, tab_api, tab_debug = tabs
 else:
-    tab_case, tab_email, tab_notes, tab_tables, tab_api = tabs
+    tab_case, tab_email, tab_notes, tab_tables, tab_api, tab_debug = tabs
 
 # ================== CASE TAB =================
 with tab_case:
@@ -577,11 +580,9 @@ with tab_notes:
 # ================== TABLES TAB =================
 with tab_tables:
     st.subheader("Copy all tables")
-    combined_md = []
     for cat in cat_map:
-        df = category_dataframe(cat, D, cat_map)
-        combined_md.append(f"### {table_title(cat)}\n" + df.to_markdown(index=False))
-    st.text_area("Markdown", "\n\n".join(combined_md), height=400)
+        st.markdown(f"**{table_title(cat)}**")
+        st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
 
 # ================== FILE UPLOADS & EXPORTS =================
 st.markdown("---")
@@ -692,3 +693,18 @@ with tab_api:
     # Save the last prompt from the Email tab for convenience
     if "prompt" in locals() and prompt:
         st.session_state["last_prompt"] = prompt
+
+# ================== DEBUG TAB =================
+with tab_debug:
+    if st.session_state.debug_auth:
+        st.subheader("Debug")
+        st.write(tabs)
+        st.write(st.session_state)
+    else:
+        user = st.text_input("Username", key="debug_user")
+        pw = st.text_input("Password", type="password", key="debug_pass")
+        if st.button("Login", key="debug_login"):
+            if user == "admin" and pw == "admin":
+                st.session_state.debug_auth = True
+            else:
+                st.error("Invalid credentials")
