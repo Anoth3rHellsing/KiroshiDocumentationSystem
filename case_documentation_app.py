@@ -9,6 +9,7 @@ import io
 import json
 import zipfile
 from dataclasses import dataclass, asdict
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -26,6 +27,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
+TODAY_STR = f"{datetime.now().month}{datetime.now().day}{datetime.now().year}"
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
@@ -95,6 +97,13 @@ class CaseData:
     remote_steps: str = ""
     root_cause: str = ""
     solution: str = ""
+    # Additional information
+    antivirus: str = ""
+    firewalls_enabled: str = ""
+    update_history: str = ""
+    related_case_id: str = ""
+    possible_cause: str = ""
+    performance_issue: str = ""
     # PC hardware
     service_tag: str = ""
     pc_model: str = ""
@@ -129,6 +138,14 @@ BASE_CATEGORY_MAP = {
     "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
     "REMOTE SESSION": ["remote_steps"],
     "CONCLUSION": ["root_cause", "solution"],
+    "ADDITIONAL INFORMATION": [
+        "antivirus",
+        "firewalls_enabled",
+        "update_history",
+        "related_case_id",
+        "possible_cause",
+        "performance_issue",
+    ],
 }
 
 HW_CATEGORY_MAP = {
@@ -175,6 +192,10 @@ def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
     for fld in cat_map[cat]:
         rows.append({"Field": fld.replace("_", " ").title(), "Value": getattr(d, fld)})
     return pd.DataFrame(rows)
+
+
+def table_title(cat: str) -> str:
+    return f"PHONECALL{TODAY_STR}" if cat == "PHONECALL" else f"INT - {TODAY_STR}"
 
 
 def make_pdf(d: CaseData, cat_map) -> bytes:
@@ -270,6 +291,74 @@ with tab_case:
         st.session_state.survey_link = st.text_input(
             "Customer satisfaction survey URL", st.session_state.survey_link
         )
+        st.subheader("Additional information")
+        av_check = st.checkbox(
+            "Customer uses antivirus?", value=D.antivirus.startswith("Customer uses")
+        )
+        if av_check:
+            av_name = st.text_input(
+                "What antivirus?", D.antivirus.replace("Customer uses antivirus: ", "")
+            )
+            D.antivirus = f"Customer uses antivirus: {av_name}" if av_name else "Customer uses antivirus:"
+        else:
+            D.antivirus = "Customer does not use antivirus."
+        fw_check = st.checkbox(
+            "Firewalls are turned on?", value=D.firewalls_enabled.startswith("Firewalls are turned on")
+        )
+        D.firewalls_enabled = (
+            "Firewalls are turned on." if fw_check else "Firewalls are not turned on."
+        )
+        upd_check = st.checkbox(
+            "Any update was made?", value=not D.update_history.startswith("No updates") and bool(D.update_history)
+        )
+        if upd_check:
+            upd_text = st.text_input(
+                "From what version to what version?",
+                D.update_history.replace("An update was made: ", ""),
+            )
+            D.update_history = (
+                f"An update was made: {upd_text}" if upd_text else "An update was made:"
+            )
+        else:
+            D.update_history = "No updates were made."
+        rel_check = st.checkbox(
+            "Is there any related case?", value=D.related_case_id.startswith("There is a related case")
+        )
+        if rel_check:
+            rel_id = st.text_input(
+                "Related case number", D.related_case_id.replace("There is a related case: ", "")
+            )
+            D.related_case_id = (
+                f"There is a related case: {rel_id}" if rel_id else "There is a related case:"
+            )
+        else:
+            D.related_case_id = "There are no related cases."
+        cause_check = st.checkbox(
+            "Any possible cause why it happened?",
+            value=D.possible_cause.startswith("Possible cause"),
+        )
+        if cause_check:
+            cause_text = st.text_input(
+                "Why?", D.possible_cause.replace("Possible cause: ", "")
+            )
+            D.possible_cause = (
+                f"Possible cause: {cause_text}" if cause_text else "Possible cause:"
+            )
+        else:
+            D.possible_cause = "There is no known possible cause."
+        perf_check = st.checkbox(
+            "Performance related issue?",
+            value=D.performance_issue.startswith("It is a performance related issue"),
+        )
+        if perf_check:
+            perf_text = st.text_input(
+                "Why?", D.performance_issue.replace("It is a performance related issue: ", "")
+            )
+            D.performance_issue = (
+                f"It is a performance related issue: {perf_text}" if perf_text else "It is a performance related issue:"
+            )
+        else:
+            D.performance_issue = "It is not a performance related issue."
         st.markdown("---")
         st.download_button(
             "Download PDF",
@@ -280,7 +369,7 @@ with tab_case:
     with left:
         st.subheader("Documentation Preview – Copy‑friendly Tables")
         for cat in cat_map:
-            st.markdown(f"**{cat}**")
+            st.markdown(f"**{table_title(cat)}**")
             st.dataframe(
                 category_dataframe(cat, D, cat_map), use_container_width=True
             )
@@ -491,7 +580,7 @@ with tab_tables:
     combined_md = []
     for cat in cat_map:
         df = category_dataframe(cat, D, cat_map)
-        combined_md.append(f"### {cat}\n" + df.to_markdown(index=False))
+        combined_md.append(f"### {table_title(cat)}\n" + df.to_markdown(index=False))
     st.text_area("Markdown", "\n\n".join(combined_md), height=400)
 
 # ================== FILE UPLOADS & EXPORTS =================
