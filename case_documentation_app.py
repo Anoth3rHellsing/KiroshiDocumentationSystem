@@ -27,7 +27,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
-TODAY_STR = f"{datetime.now().month}{datetime.now().day}{datetime.now().year}"
+TODAY_STR = datetime.now().strftime("%d%m%Y")
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
@@ -195,7 +195,9 @@ def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
 
 
 def table_title(cat: str) -> str:
-    return f"PHONECALL{TODAY_STR}" if cat == "PHONECALL" else f"INT - {TODAY_STR}"
+    """Return a formatted table title with type and current date."""
+    label = "Phonecall" if cat == "PHONECALL" else "Int"
+    return f"{cat} ({label}){TODAY_STR}"
 
 
 def make_pdf(d: CaseData, cat_map) -> bytes:
@@ -577,11 +579,9 @@ with tab_notes:
 # ================== TABLES TAB =================
 with tab_tables:
     st.subheader("Copy all tables")
-    combined_md = []
     for cat in cat_map:
-        df = category_dataframe(cat, D, cat_map)
-        combined_md.append(f"### {table_title(cat)}\n" + df.to_markdown(index=False))
-    st.text_area("Markdown", "\n\n".join(combined_md), height=400)
+        st.markdown(f"**{table_title(cat)}**")
+        st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
 
 # ================== FILE UPLOADS & EXPORTS =================
 st.markdown("---")
