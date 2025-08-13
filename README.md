@@ -21,9 +21,12 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
 
 ## Requirements
 
-Install the dependencies:
+Install the dependencies from the project directory. If you just cloned or
+downloaded the repository, first change into its folder with `cd` and then run
+`pip`:
 
 ```bash
+cd /path/to/KiroshiDocumentationSystem
 pip install -r requirements.txt
 ```
 
@@ -59,9 +62,11 @@ streamlit --version
 
 ## Usage
 
-Run the Streamlit app from the repository root:
+Run the Streamlit app from the repository root. If you are not already in the
+project folder, navigate there first with `cd`:
 
 ```bash
+cd /path/to/KiroshiDocumentationSystem
 streamlit run case_documentation_app.py
 ```
 
@@ -86,9 +91,11 @@ and should only be enabled in trusted environments.
 
 ## Build executable
 
-To create a standalone executable, first install the dependencies and run the build script:
+To create a standalone executable, make sure you're in the project directory,
+install the dependencies, and run the build script:
 
 ```bash
+cd /path/to/KiroshiDocumentationSystem
 pip install -r requirements.txt
 ./build.sh
 ```
