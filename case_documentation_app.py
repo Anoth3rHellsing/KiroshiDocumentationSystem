@@ -9,6 +9,7 @@ import io
 import json
 import zipfile
 from dataclasses import dataclass, asdict
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -26,6 +27,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
+TODAY_STR = f"{datetime.now().month}{datetime.now().day}{datetime.now().year}"
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
@@ -188,6 +190,10 @@ def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def table_title(cat: str) -> str:
+    return f"PHONECALL{TODAY_STR}" if cat == "PHONECALL" else f"INT - {TODAY_STR}"
+
+
 def make_pdf(d: CaseData, cat_map) -> bytes:
     """Generate a PDF summary of the case details."""
     buf = io.BytesIO()
@@ -321,7 +327,7 @@ with tab_case:
     with left:
         st.subheader("Documentation Preview – Copy‑friendly Tables")
         for cat in cat_map:
-            st.markdown(f"**{cat}**")
+            st.markdown(f"**{table_title(cat)}**")
             st.dataframe(
                 category_dataframe(cat, D, cat_map), use_container_width=True
             )
@@ -532,7 +538,7 @@ with tab_tables:
     combined_md = []
     for cat in cat_map:
         df = category_dataframe(cat, D, cat_map)
-        combined_md.append(f"### {cat}\n" + df.to_markdown(index=False))
+        combined_md.append(f"### {table_title(cat)}\n" + df.to_markdown(index=False))
     st.text_area("Markdown", "\n\n".join(combined_md), height=400)
 
 # ================== FILE UPLOADS & EXPORTS =================
