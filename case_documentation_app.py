@@ -32,26 +32,21 @@ TODAY_STR = datetime.now().strftime("%d%m%Y")
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
 
-ASCII_LOGO_RAW = r"""
-       /\
-      /  \
-     /\ \ \
-    /\ \ \ \
-   /\ \ \ \/\
-  / /\ \ \/ /\
- / / /\  / / /\
-/ / /  \/ / /  \
-\  / / /\  / / /
- \/ / /  \/ / /
-  \/ /\ \ \/ /
-   \/\ \ \ \/
-    \ \ \ \/
-     \ \ \/
-      \  /
-       \/
-"""
-
-st.text(ASCII_LOGO_RAW)
+st.markdown(
+    f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=ADLaM+Display&display=swap');
+    .title {
+        font-family: 'ADLaM Display', cursive;
+        font-size: 48px;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    </style>
+    <div class="title">KIROSHI D.S. ({VERSION})</div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
