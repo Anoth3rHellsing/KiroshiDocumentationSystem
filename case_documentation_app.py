@@ -51,15 +51,7 @@ ASCII_LOGO_RAW = r"""
        \/
 """
 
-
-def _wide_ascii(art: str) -> str:
-    lines = []
-    for line in art.strip("\n").splitlines():
-        lines.append("  ".join(list(line)))
-    return "\n".join(lines)
-
-
-st.text(_wide_ascii(ASCII_LOGO_RAW))
+st.text(ASCII_LOGO_RAW)
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -239,11 +231,25 @@ tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
 tab_labels += ["Notes", "Tables", "API", "Debug"]
-tabs = st.tabs(tab_labels)
 if st.session_state.include_hw:
-    tab_case, tab_email, tab_hw, tab_notes, tab_tables, tab_api, tab_debug = tabs
+    (
+        tab_case,
+        tab_email,
+        tab_hw,
+        tab_notes,
+        tab_tables,
+        tab_api,
+        tab_debug,
+    ) = st.tabs(tab_labels)
 else:
-    tab_case, tab_email, tab_notes, tab_tables, tab_api, tab_debug = tabs
+    (
+        tab_case,
+        tab_email,
+        tab_notes,
+        tab_tables,
+        tab_api,
+        tab_debug,
+    ) = st.tabs(tab_labels)
 
 # ================== CASE TAB =================
 with tab_case:
@@ -262,7 +268,8 @@ with tab_case:
             f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
         ]
         st.markdown("### To‑do" if todo else "All mandatory info filled.")
-        [st.markdown(f"- {t}") for t in todo]
+        for t in todo:
+            st.markdown(f"- {t}")
         st.subheader("Case Header")
         D.company_name = st.text_input("Company name", D.company_name)
         D.subscription_id = st.text_input("Subscription ID", D.subscription_id)
@@ -698,8 +705,7 @@ with tab_api:
 with tab_debug:
     if st.session_state.debug_auth:
         st.subheader("Debug")
-        st.write(tabs)
-        st.write(st.session_state)
+        st.json(st.session_state)
     else:
         user = st.text_input("Username", key="debug_user")
         pw = st.text_input("Password", type="password", key="debug_pass")
@@ -708,3 +714,4 @@ with tab_debug:
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
+
