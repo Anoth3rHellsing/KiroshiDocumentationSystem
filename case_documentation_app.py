@@ -229,12 +229,26 @@ cat_map = active_category_map()
 tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "API"]
-tabs = st.tabs(tab_labels)
+tab_labels += ["Notes", "Tables", "API", "Debug"]
 if st.session_state.include_hw:
-    tab_case, tab_email, tab_hw, tab_notes, tab_tables, tab_api = tabs
+    (
+        tab_case,
+        tab_email,
+        tab_hw,
+        tab_notes,
+        tab_tables,
+        tab_api,
+        tab_debug,
+    ) = st.tabs(tab_labels)
 else:
-    tab_case, tab_email, tab_notes, tab_tables, tab_api = tabs
+    (
+        tab_case,
+        tab_email,
+        tab_notes,
+        tab_tables,
+        tab_api,
+        tab_debug,
+    ) = st.tabs(tab_labels)
 
 # ================== CASE TAB =================
 with tab_case:
@@ -691,8 +705,7 @@ with tab_api:
 with tab_debug:
     if st.session_state.debug_auth:
         st.subheader("Debug")
-        st.write(tabs)
-        st.write(st.session_state)
+        st.json(st.session_state)
     else:
         user = st.text_input("Username", key="debug_user")
         pw = st.text_input("Password", type="password", key="debug_pass")
@@ -701,3 +714,4 @@ with tab_debug:
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
+
