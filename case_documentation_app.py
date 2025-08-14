@@ -686,3 +686,18 @@ with tab_api:
     if "prompt" in locals() and prompt:
         st.session_state["last_prompt"] = prompt
 
+
+# ================== DEBUG TAB =================
+with tab_debug:
+    if st.session_state.debug_auth:
+        st.subheader("Debug")
+        st.write(tabs)
+        st.write(st.session_state)
+    else:
+        user = st.text_input("Username", key="debug_user")
+        pw = st.text_input("Password", type="password", key="debug_pass")
+        if st.button("Login", key="debug_login"):
+            if user == "admin" and pw == "admin":
+                st.session_state.debug_auth = True
+            else:
+                st.error("Invalid credentials")
