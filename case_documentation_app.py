@@ -55,7 +55,10 @@ ASCII_LOGO_RAW = r"""
 def _wide_ascii(art: str) -> str:
     lines = []
     for line in art.strip("\n").splitlines():
-        lines.append("  ".join(list(line)))
+        widened = []
+        for ch in line:
+            widened.append(ch + " " if ch != " " else " ")
+        lines.append("".join(widened).rstrip())
     return "\n".join(lines)
 
 
