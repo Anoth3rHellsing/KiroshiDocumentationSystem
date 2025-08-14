@@ -60,6 +60,7 @@ _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_hw", False)
+_init_state("debug_auth", False)
 
 # ───────────────── DATA MODEL ──────────────────
 @dataclass
