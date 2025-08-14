@@ -55,7 +55,10 @@ ASCII_LOGO_RAW = r"""
 def _wide_ascii(art: str) -> str:
     lines = []
     for line in art.strip("\n").splitlines():
-        lines.append("  ".join(list(line)))
+        widened = []
+        for ch in line:
+            widened.append(ch + " " if ch != " " else " ")
+        lines.append("".join(widened).rstrip())
     return "\n".join(lines)
 
 
@@ -262,7 +265,8 @@ with tab_case:
             f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
         ]
         st.markdown("### To‑do" if todo else "All mandatory info filled.")
-        [st.markdown(f"- {t}") for t in todo]
+        for t in todo:
+            st.markdown(f"- {t}")
         st.subheader("Case Header")
         D.company_name = st.text_input("Company name", D.company_name)
         D.subscription_id = st.text_input("Subscription ID", D.subscription_id)
@@ -708,3 +712,4 @@ with tab_debug:
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
+
