@@ -35,13 +35,13 @@ st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
 st.markdown(
     f"""
     <style>
-    @import url('https://fonts.cdnfonts.com/css/nemesys');
-    .title {{
-        font-family: 'NEMESYS', sans-serif;
+    @import url('https://fonts.googleapis.com/css2?family=ADLaM+Display&display=swap');
+    .title {
+        font-family: 'ADLaM Display', cursive;
         font-size: 48px;
         text-align: center;
         margin-bottom: 1rem;
-    }}
+    }
     </style>
     <div class="title">KIROSHI D.S. ({VERSION})</div>
     """,
