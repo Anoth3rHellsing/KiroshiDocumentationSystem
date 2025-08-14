@@ -51,18 +51,7 @@ ASCII_LOGO_RAW = r"""
        \/
 """
 
-
-def _wide_ascii(art: str) -> str:
-    lines = []
-    for line in art.strip("\n").splitlines():
-        widened = []
-        for ch in line:
-            widened.append(ch + " " if ch != " " else " ")
-        lines.append("".join(widened).rstrip())
-    return "\n".join(lines)
-
-
-st.text(_wide_ascii(ASCII_LOGO_RAW))
+st.text(ASCII_LOGO_RAW)
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -76,7 +65,6 @@ _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_hw", False)
-_init_state("debug_auth", False)
 
 # ───────────────── DATA MODEL ──────────────────
 @dataclass
@@ -241,12 +229,12 @@ cat_map = active_category_map()
 tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "API", "Debug"]
+tab_labels += ["Notes", "Tables", "API"]
 tabs = st.tabs(tab_labels)
 if st.session_state.include_hw:
-    tab_case, tab_email, tab_hw, tab_notes, tab_tables, tab_api, tab_debug = tabs
+    tab_case, tab_email, tab_hw, tab_notes, tab_tables, tab_api = tabs
 else:
-    tab_case, tab_email, tab_notes, tab_tables, tab_api, tab_debug = tabs
+    tab_case, tab_email, tab_notes, tab_tables, tab_api = tabs
 
 # ================== CASE TAB =================
 with tab_case:
@@ -698,6 +686,7 @@ with tab_api:
     if "prompt" in locals() and prompt:
         st.session_state["last_prompt"] = prompt
 
+
 # ================== DEBUG TAB =================
 with tab_debug:
     if st.session_state.debug_auth:
@@ -712,4 +701,3 @@ with tab_debug:
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
-
