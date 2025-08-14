@@ -65,7 +65,6 @@ _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_hw", False)
-_init_state("debug_auth", False)
 
 # ───────────────── DATA MODEL ──────────────────
 @dataclass
@@ -700,6 +699,7 @@ with tab_api:
     # Save the last prompt from the Email tab for convenience
     if "prompt" in locals() and prompt:
         st.session_state["last_prompt"] = prompt
+
 
 # ================== DEBUG TAB =================
 with tab_debug:
