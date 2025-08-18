@@ -441,11 +441,15 @@ with tab_email:
     if email_type == "Recap (Customer)":
         greeting = f"Dear {(D.caller_name or 'Customer')}{(' / ' + D.company_name + ' team') if D.company_name else ' team'},"
         steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
-        prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and encourages the customer to complete a short satisfaction survey to help improve our service.
+        prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
+motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
 The email must start with: {greeting}
 
 Include: Case ID, root cause, a brief 1‑3 bullet summary of the steps taken, and the final solution.
-Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey. Return only the email body.
+Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
+Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
+
+Return only the email body.
 
 DATA:
 Case ID: {D.case_id}
@@ -454,7 +458,6 @@ Steps taken:
 {steps_summary}
 Solution: {D.solution}
 Survey link: {st.session_state.survey_link}"""
-
     elif email_type == "AX Coordinators":
         st.markdown("#### Additional details")
         ext["request_issue"] = st.text_area(
