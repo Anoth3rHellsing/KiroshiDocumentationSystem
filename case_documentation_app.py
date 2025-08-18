@@ -10,14 +10,22 @@ import json
 import os
 import zipfile
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, date, timedelta
+import time
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+)
 import requests
 import urllib3
 
@@ -69,6 +77,14 @@ _init_state("email_extra", {})
 _init_state("include_hw", False)
 _init_state("debug_auth", False)
 _init_state("_autosave_loaded", False)
+_init_state("timers", {})
+_init_state("break_alarm_time", None)
+_init_state("lunch_alarm_time", None)
+_init_state("break_alarm_notified", False)
+_init_state("lunch_alarm_notified_pre", False)
+_init_state("lunch_alarm_notified", False)
+_init_state("break_alarm_date", None)
+_init_state("lunch_alarm_date", None)
 
 
 def load_autosave():
@@ -218,6 +234,63 @@ def table_title(cat: str) -> str:
     return f"{cat} ({label}){TODAY_STR}"
 
 
+def format_duration(seconds: float) -> str:
+    """Format seconds as H:MM:SS or M:SS."""
+    seconds = int(seconds)
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def js_notify(title: str, message: str) -> None:
+    """Trigger a browser notification with a short beep."""
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            function play() {{
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1);
+                osc.stop(ctx.currentTime + 1);
+            }}
+            function notify() {{
+                if (Notification.permission === 'granted') {{
+                    new Notification({json.dumps(title)}, {{ body: {json.dumps(message)} }});
+                    play();
+                }} else if (Notification.permission !== 'denied') {{
+                    Notification.requestPermission().then(function(p) {{
+                        if (p === 'granted') {{
+                            new Notification({json.dumps(title)}, {{ body: {json.dumps(message)} }});
+                            play();
+                        }}
+                    }});
+                }}
+            }}
+            notify();
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def rerun_in(ms: int) -> None:
+    """Trigger a rerun of the app after a given delay in milliseconds."""
+    components.html(
+        f"<script>setTimeout(function(){{window.parent.postMessage({{type:'streamlit:rerun'}}, '*');}},{ms});</script>",
+        height=0,
+        key=f"rerun_{ms}_{int(time.time()*1000)}",
+    )
+
+
 def make_pdf(d: CaseData, cat_map) -> bytes:
     """Generate a PDF summary of the case details."""
     buf = io.BytesIO()
@@ -260,7 +333,7 @@ cat_map = active_category_map()
 tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "API", "Debug"]
+tab_labels += ["Notes", "Tables", "Timers", "Alarms", "API", "Debug"]
 if st.session_state.include_hw:
     (
         tab_case,
@@ -268,6 +341,8 @@ if st.session_state.include_hw:
         tab_hw,
         tab_notes,
         tab_tables,
+        tab_timers,
+        tab_alarms,
         tab_api,
         tab_debug,
     ) = st.tabs(tab_labels)
@@ -277,6 +352,8 @@ else:
         tab_email,
         tab_notes,
         tab_tables,
+        tab_timers,
+        tab_alarms,
         tab_api,
         tab_debug,
     ) = st.tabs(tab_labels)
@@ -649,6 +726,133 @@ if st.session_state.uploads:
             file_name=f"{D.case_id or 'case'}_attachments.zip",
             mime="application/zip",
         )
+
+# ================== TIMERS TAB =================
+with tab_timers:
+    default = {
+        "Break": 15 * 60,
+        "Lunch": 60 * 60,
+        "Hold": 5 * 60,
+        "ACW": 3 * 60,
+    }
+    active = False
+    for name, secs in default.items():
+        timer = st.session_state.timers.get(name)
+        c1, c2, c3 = st.columns([2, 1, 1])
+        display = format_duration(secs)
+        if timer:
+            if timer.get("active"):
+                elapsed = time.time() - timer["start"]
+                remain = timer["duration"] - elapsed
+                active = True
+                if remain > 0:
+                    display = format_duration(remain)
+                else:
+                    display = f"Overdue: {format_duration(-remain)}"
+                    if not timer.get("notified"):
+                        js_notify(f"{name} timer", f"{name} timer finished")
+                        timer["notified"] = True
+            else:
+                display = "Stopped"
+        c1.write(f"{name}: {display}")
+        if c2.button("Start", key=f"{name}_start"):
+            st.session_state.timers[name] = {
+                "duration": secs,
+                "start": time.time(),
+                "active": True,
+                "notified": False,
+            }
+        if c3.button("Stop", key=f"{name}_stop") and timer:
+            timer["active"] = False
+
+    st.markdown("### Custom timer")
+    coln1, coln2, coln3, coln4 = st.columns([2, 1, 1, 1])
+    label = coln1.text_input("Label", key="custom_label")
+    mins = coln2.number_input("Min", min_value=0, step=1, key="custom_min")
+    secs = coln3.number_input("Sec", min_value=0, step=1, key="custom_sec")
+    if coln4.button("Start", key="custom_start"):
+        total = mins * 60 + secs
+        if total > 0:
+            cname = label or f"Custom {len([k for k in st.session_state.timers if k.startswith('Custom')]) + 1}"
+            st.session_state.timers[cname] = {
+                "duration": total,
+                "start": time.time(),
+                "active": True,
+                "notified": False,
+            }
+
+    for name in list(st.session_state.timers.keys()):
+        if name in default:
+            continue
+        timer = st.session_state.timers[name]
+        c1, c2, c3 = st.columns([2, 1, 1])
+        if timer.get("active"):
+            elapsed = time.time() - timer["start"]
+            remain = timer["duration"] - elapsed
+            active = True
+            if remain > 0:
+                display = format_duration(remain)
+            else:
+                display = f"Overdue: {format_duration(-remain)}"
+                if not timer.get("notified"):
+                    js_notify(f"{name} timer", f"{name} timer finished")
+                    timer["notified"] = True
+        else:
+            display = "Stopped"
+        c1.write(f"{name}: {display}")
+        if c2.button("Start", key=f"{name}_start"):
+            st.session_state.timers[name] = {
+                "duration": timer["duration"],
+                "start": time.time(),
+                "active": True,
+                "notified": False,
+            }
+        if c3.button("Stop", key=f"{name}_stop"):
+            timer["active"] = False
+
+    if active:
+        rerun_in(1000)
+
+# ================== ALARMS TAB =================
+with tab_alarms:
+    now = datetime.now()
+    today = date.today()
+    if st.session_state.break_alarm_date != today:
+        st.session_state.break_alarm_notified = False
+        st.session_state.break_alarm_date = today
+    if st.session_state.lunch_alarm_date != today:
+        st.session_state.lunch_alarm_notified_pre = False
+        st.session_state.lunch_alarm_notified = False
+        st.session_state.lunch_alarm_date = today
+
+    b_time = st.time_input("Break time", st.session_state.break_alarm_time)
+    l_time = st.time_input("Lunch time", st.session_state.lunch_alarm_time)
+    st.session_state.break_alarm_time = b_time
+    st.session_state.lunch_alarm_time = l_time
+
+    if b_time:
+        b_dt = datetime.combine(today, b_time)
+        if now >= b_dt and not st.session_state.break_alarm_notified:
+            js_notify("Break", "Time to take a break")
+            st.session_state.break_alarm_notified = True
+        elif now < b_dt:
+            st.write(f"Break in {format_duration((b_dt - now).total_seconds())}")
+
+    if l_time:
+        l_dt = datetime.combine(today, l_time)
+        pre_dt = l_dt - timedelta(minutes=15)
+        if now >= pre_dt and not st.session_state.lunch_alarm_notified_pre:
+            js_notify("Lunch soon", "Lunch in 15 minutes")
+            st.session_state.lunch_alarm_notified_pre = True
+        if now >= l_dt and not st.session_state.lunch_alarm_notified:
+            js_notify("Lunch", "Time for lunch")
+            st.session_state.lunch_alarm_notified = True
+        elif now < pre_dt:
+            st.write(f"Lunch in {format_duration((l_dt - now).total_seconds())}")
+
+    if b_time or l_time:
+        rerun_in(60000)
+
 
 # ================== API TAB =================
 with tab_api:
