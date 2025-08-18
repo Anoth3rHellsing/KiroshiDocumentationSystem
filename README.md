@@ -15,6 +15,10 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
 - **Tables tab** – displays each category in an Excel‑style table with a title
   indicating Phonecall or Int plus the current date, making it easy to copy
   into spreadsheets.
+- **Timers tab** – run multiple countdown timers (Break, Lunch, Hold, ACW or
+  custom) with sound and browser notifications and overdue tracking.
+- **Alarms tab** – schedule daily break and lunch reminders, including an
+  alert 15 minutes before lunch.
 - **PDF export** – download a formatted summary of the case with wrapped table
   text so long values stay within the page.
 - **Attachments** – upload screenshots or logs and export everything as a ZIP
