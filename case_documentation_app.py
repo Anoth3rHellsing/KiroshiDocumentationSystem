@@ -7,6 +7,7 @@ Run:
 
 import io
 import json
+import os
 import zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -28,6 +29,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "0.1.4"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
+AUTOSAVE_FILE = "autosave.json"
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
@@ -66,6 +68,24 @@ _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_hw", False)
 _init_state("debug_auth", False)
+_init_state("_autosave_loaded", False)
+
+
+def load_autosave():
+    if st.session_state._autosave_loaded:
+        return
+    if os.path.exists(AUTOSAVE_FILE):
+        try:
+            with open(AUTOSAVE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            st.session_state.case = data.get("case", {})
+            st.session_state.scratch = data.get("scratch", "")
+        except Exception:
+            pass
+    st.session_state._autosave_loaded = True
+
+
+load_autosave()
 
 # ───────────────── DATA MODEL ──────────────────
 @dataclass
@@ -115,6 +135,11 @@ class CaseData:
 if isinstance(st.session_state.case, dict):
     st.session_state.case = CaseData(**st.session_state.case)
 D: CaseData = st.session_state.case
+
+
+def autosave():
+    with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
 
 BASE_CATEGORY_MAP = {
     "HEADER": ["company_name", "subscription_id", "brief_description", "case_id"],
@@ -200,10 +225,15 @@ def make_pdf(d: CaseData, cat_map) -> bytes:
         buf, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=30
     )
     styles = getSampleStyleSheet()
+    body_style = styles["BodyText"]
+    header_style = styles["Heading5"]
     elems = []
     for cat in cat_map:
         elems.append(Paragraph(cat, styles["Heading4"]))
-        data = [["Field", "Value"]] + category_dataframe(cat, d, cat_map).values.tolist()
+        df = category_dataframe(cat, d, cat_map)
+        data = [[Paragraph("Field", header_style), Paragraph("Value", header_style)]]
+        for field, value in df.values.tolist():
+            data.append([Paragraph(field, body_style), Paragraph(str(value), body_style)])
         t = Table(data, colWidths=[150, 350])
         t.setStyle(
             TableStyle(
@@ -716,3 +746,4 @@ with tab_debug:
             else:
                 st.error("Invalid credentials")
 
+autosave()

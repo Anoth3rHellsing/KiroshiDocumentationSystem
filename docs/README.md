@@ -14,7 +14,8 @@ by computing how many fields in each category are filled in.
 
 ### Case
 Collects all general information about the support case. A progress bar shows
-completion for each category, and the data can be exported as a PDF.
+completion for each category, and the data can be exported as a PDF with
+wrapped table text.
 
 ### Email
 Generates prompts for several e‑mail templates:
@@ -36,6 +37,11 @@ A simple scratchpad for temporary information.
 ### API
 Allows the prompt from the Email tab to be sent to the OpenAI ChatGPT API. The
 response is displayed directly in the UI.
+
+## Autosave
+Case information and scratchpad notes are written to an `autosave.json` file
+after every interaction, so progress is preserved even if the browser is
+closed.
 
 ## Exports & Attachments
 

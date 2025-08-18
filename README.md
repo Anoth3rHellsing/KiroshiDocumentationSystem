@@ -15,9 +15,12 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
 - **Tables tab** – displays each category in an Excel‑style table with a title
   indicating Phonecall or Int plus the current date, making it easy to copy
   into spreadsheets.
-- **PDF export** – download a formatted summary of the case.
+- **PDF export** – download a formatted summary of the case with wrapped table
+  text so long values stay within the page.
 - **Attachments** – upload screenshots or logs and export everything as a ZIP
   bundle.
+- **Real-time autosave** – case data and notes are persisted to `autosave.json`
+  on every interaction to prevent data loss.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the
   generated response.
 - **Debug tab** – internal diagnostics protected by an `admin`/`admin` login.
