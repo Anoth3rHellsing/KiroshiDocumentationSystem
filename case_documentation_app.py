@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiroshi V0.1.4 – IT Case Documentation Helper
+Kiroshi V1.0.0 – IT Case Documentation Helper
 Run:
     streamlit run case_documentation_app.py
 """
@@ -11,11 +11,10 @@ import os
 import zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, date
-import time
+import logging
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -36,10 +35,21 @@ from aatom_chat import load_memory, save_memory, query_atom
 # ChatGPT API can still be reached.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-VERSION = "0.1.4"
+VERSION = "1.0.0"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+LOG_FILE = "app.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(),
+    ],
+)
+logging.info("Kiroshi app started")
 
 # Remote logo assets
 KIROSHI_LOGO_URL = (
@@ -74,9 +84,6 @@ _init_state("email_extra", {})
 _init_state("include_hw", False)
 _init_state("debug_auth", False)
 _init_state("_autosave_loaded", False)
-_init_state("break_alarm_time", None)
-_init_state("break_alarm_notified", False)
-_init_state("break_alarm_date", None)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
 _init_state("api_helpjuice", False)
@@ -101,6 +108,14 @@ def load_autosave():
 
 
 load_autosave()
+
+
+def tail_log(path: str, lines: int = 100) -> str:
+    """Return the last N lines from a log file."""
+    if not os.path.exists(path):
+        return "Log file not found."
+    with open(path, "r", encoding="utf-8") as f:
+        return "".join(f.readlines()[-lines:])
 
 # ───────────────── DATA MODEL ──────────────────
 @dataclass
@@ -233,68 +248,6 @@ def table_title(cat: str) -> str:
     return f"{cat} ({label}){TODAY_STR}"
 
 
-def format_duration(seconds: float) -> str:
-    """Format seconds as H:MM:SS or M:SS."""
-    seconds = int(seconds)
-    m, s = divmod(seconds, 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h:02d}:{m:02d}:{s:02d}"
-    return f"{m:02d}:{s:02d}"
-
-
-def js_notify(title: str, message: str) -> None:
-    """Trigger a browser notification with a short beep."""
-    components.html(
-        f"""
-        <script>
-        (function() {{
-            function play() {{
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.type = 'sine';
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1);
-                osc.stop(ctx.currentTime + 1);
-            }}
-            function notify() {{
-                if (Notification.permission === 'granted') {{
-                    new Notification({json.dumps(title)}, {{ body: {json.dumps(message)} }});
-                    play();
-                }} else if (Notification.permission !== 'denied') {{
-                    Notification.requestPermission().then(function(p) {{
-                        if (p === 'granted') {{
-                            new Notification({json.dumps(title)}, {{ body: {json.dumps(message)} }});
-                            play();
-                        }}
-                    }});
-                }}
-            }}
-            notify();
-        }})();
-        </script>
-        """,
-        height=0,
-    )
-
-
-def rerun_in(ms: int) -> None:
-    """Trigger a rerun of the app after a given delay in milliseconds."""
-    try:
-        # Streamlit no longer responds to the old ``window.parent.postMessage``
-        # approach.  Instead, wait for the desired interval and call the
-        # built-in ``st.rerun`` API to refresh the app.  This keeps alarm inputs
-        # updating automatically without requiring the user to
-        # manually refresh the page.
-        time.sleep(ms / 1000)
-        st.rerun()
-    except Exception:
-        pass
-
-
 def make_pdf(d: CaseData, cat_map) -> bytes:
     """Generate a PDF summary of the case details."""
     buf = io.BytesIO()
@@ -337,7 +290,7 @@ cat_map = active_category_map()
 tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "Atom Chat", "Alarms", "Debug"]
+tab_labels += ["Notes", "Tables", "Atom Chat", "Debug"]
 if st.session_state.include_hw:
     (
         tab_case,
@@ -346,7 +299,6 @@ if st.session_state.include_hw:
         tab_notes,
         tab_tables,
         tab_atom,
-        tab_alarms,
         tab_debug,
     ) = st.tabs(tab_labels)
 else:
@@ -356,16 +308,15 @@ else:
         tab_notes,
         tab_tables,
         tab_atom,
-        tab_alarms,
         tab_debug,
     ) = st.tabs(tab_labels)
 
 # ================== CASE TAB =================
 with tab_case:
-    ai_col1, ai_col2 = st.columns(2)
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
-    if ai_col1.button("Verify"):
+    if st.button("Verify"):
+        logging.info("Verify button clicked")
         if not api_key:
             st.error("Please set your OpenAI API key in the Debug tab.")
         else:
@@ -388,32 +339,6 @@ with tab_case:
                 st.session_state.atom_history.append({"role": "assistant", "content": reply})
                 save_memory(st.session_state.atom_history)
                 st.session_state.verify_result = reply
-    if ai_col2.button("AI Assistance"):
-        if not api_key:
-            st.error("Please set your OpenAI API key in the Debug tab.")
-        else:
-            case_dict = asdict(D)
-            user_message = (
-                "Using all available case data below, craft a concise 'brief_description' (max 10 words) and a detailed 'description' paragraph summarizing the issue. Respond only with JSON: {\"brief_description\": \"...\", \"description\": \"...\"}.\n\n"
-                + json.dumps(case_dict, indent=2)
-            )
-            try:
-                reply = query_atom(
-                    user_message,
-                    st.session_state.atom_history,
-                    api_key,
-                    model,
-                )
-                data = json.loads(reply)
-            except Exception as e:
-                st.error(str(e))
-            else:
-                st.session_state.atom_history.append({"role": "user", "content": user_message})
-                st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                save_memory(st.session_state.atom_history)
-                D.brief_description = data.get("brief_description", D.brief_description)
-                D.description = data.get("description", D.description)
-                st.success("Descriptions updated.")
     if st.session_state.verify_result:
         st.text_area(
             "A.A.T.O.M. Verification",
@@ -882,27 +807,6 @@ if st.session_state.uploads:
             mime="application/zip",
         )
 
-# ================== ALARMS TAB =================
-with tab_alarms:
-    now = datetime.now()
-    today = date.today()
-    if st.session_state.break_alarm_date != today:
-        st.session_state.break_alarm_notified = False
-        st.session_state.break_alarm_date = today
-
-    b_time = st.time_input("Break time", st.session_state.break_alarm_time)
-    st.session_state.break_alarm_time = b_time
-
-    if b_time:
-        b_dt = datetime.combine(today, b_time)
-        if now >= b_dt and not st.session_state.break_alarm_notified:
-            js_notify("Break", "Time to take a break")
-            st.session_state.break_alarm_notified = True
-        elif now < b_dt:
-            st.write(f"Break in {format_duration((b_dt - now).total_seconds())}")
-        rerun_in(60000)
-
-
 # ================== DEBUG TAB =================
 with tab_debug:
     if st.session_state.debug_auth:
@@ -910,6 +814,8 @@ with tab_debug:
         st.text_input("OpenAI API Key", type="password", key="openai_api_key")
         st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
         st.json(st.session_state)
+        st.subheader("Logs")
+        st.text(tail_log(LOG_FILE))
     else:
         user = st.text_input("Username", key="debug_user")
         pw = st.text_input("Password", type="password", key="debug_pass")

@@ -15,7 +15,6 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
 - **Tables tab** – displays each category in an Excel‑style table with a title
   indicating Phonecall or Int plus the current date, making it easy to copy
   into spreadsheets.
-- **Alarms tab** – schedule daily break reminders.
 - **PDF export** – download a formatted summary of the case with wrapped table
   text so long values stay within the page.
 - **Attachments** – upload screenshots or logs and export everything as a ZIP
@@ -24,10 +23,10 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
   on every interaction to prevent data loss.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the
   generated response.
-- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details and
-  "AI Assistance" auto-fills descriptions; a separate chat interface is also
-  available with persistent memory.
-- **Debug tab** – internal diagnostics protected by an `admin`/`admin` login.
+- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a
+  separate chat interface is also available with persistent memory.
+- **Debug tab** – internal diagnostics with a log viewer (last 100 lines)
+  protected by an `admin`/`admin` login.
 
 ## Requirements
 
@@ -88,8 +87,7 @@ copying. An internal *Debug* tab is available after logging in with username and
 password `admin`.
 
 Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify**
-button to highlight missing documentation and an **AI Assistance** button that
-auto-fills the brief and detailed descriptions based on existing data.
+button to highlight missing documentation.
 
 To experiment with the A.A.T.O.M. chatbox, run the dedicated script:
 
