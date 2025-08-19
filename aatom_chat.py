@@ -7,6 +7,12 @@ import urllib3
 # Disable SSL warnings for corporate environments with interception proxies
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Configure Streamlit page
+ATOM_LOGO_URL = (
+    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/atom_logo.png"
+)
+st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=ATOM_LOGO_URL)
+
 MEMORY_FILE = "atom_memory.json"
 
 SYSTEM_PROMPT = """Project A.A.T.O.M. — Personality Construct V.0.0.1 “Coffee”
@@ -264,6 +270,7 @@ def query_atom(user_message, history, api_key, model):
 
 
 def main():
+    st.image(ATOM_LOGO_URL, width=120)
     st.title("A.A.T.O.M. Chat")
 
     if "atom_history" not in st.session_state:
