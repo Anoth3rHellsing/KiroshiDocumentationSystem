@@ -26,7 +26,7 @@ Generates prompts for several e‑mail templates:
 - Broken tip questionnaire
 - Escalation to second‑line support
 
-The generated prompt can be copied or sent directly to the API tab.
+The generated prompt can be copied or sent directly to the ChatGPT API to produce the full e‑mail.
 
 ### Hardware Issues
 Stores PC and scanner hardware details and displays them in copy‑friendly tables.
@@ -34,9 +34,9 @@ Stores PC and scanner hardware details and displays them in copy‑friendly tabl
 ### Notes
 A simple scratchpad for temporary information.
 
-### API
-Allows the prompt from the Email tab to be sent to the OpenAI ChatGPT API. The
-response is displayed directly in the UI.
+### Debug
+Stores the OpenAI API key and model selection and displays the current session
+state for troubleshooting.
 
 ## Autosave
 Case information and scratchpad notes are written to an `autosave.json` file
