@@ -75,7 +75,7 @@ def _init_state(key, default):
     if key not in st.session_state:
         st.session_state[key] = default
 
-_init_state("survey_link", "https://3shape.eu.surveymonkey.com/r/3ShapeSupportSatisfactionSurvey")
+_init_state("survey_link", "")
 _init_state("case", {})
 _init_state("uploads", [])
 _init_state("scratch", "")
@@ -165,6 +165,22 @@ class CaseData:
 if isinstance(st.session_state.case, dict):
     st.session_state.case = CaseData(**st.session_state.case)
 D: CaseData = st.session_state.case
+
+# Button to clear all case data and reset form
+if st.button("Clear all"):
+    st.session_state.case = CaseData()
+    st.session_state.scratch = ""
+    st.session_state.uploads = []
+    st.session_state.email_extra = {}
+    st.session_state.email_type = "Recap (Customer)"
+    st.session_state.include_hw = False
+    st.session_state.survey_link = ""
+    if os.path.exists(AUTOSAVE_FILE):
+        try:
+            os.remove(AUTOSAVE_FILE)
+        except OSError:
+            pass
+    st.experimental_rerun()
 
 
 def autosave():
