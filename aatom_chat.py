@@ -3,15 +3,15 @@ import json
 import requests
 import streamlit as st
 import urllib3
+from pathlib import Path
 
 # Disable SSL warnings for corporate environments with interception proxies
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configure Streamlit page
-ATOM_LOGO_URL = (
-    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/atom_logo.png"
-)
-st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=ATOM_LOGO_URL)
+ASSETS_DIR = Path(__file__).parent
+ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
+st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=str(ATOM_LOGO_PATH))
 
 MEMORY_FILE = "atom_memory.json"
 
@@ -270,7 +270,7 @@ def query_atom(user_message, history, api_key, model):
 
 
 def main():
-    st.image(ATOM_LOGO_URL, width=120)
+    st.image(str(ATOM_LOGO_PATH), width=120)
     st.title("A.A.T.O.M. Chat")
 
     if "atom_history" not in st.session_state:

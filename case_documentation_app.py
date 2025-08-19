@@ -12,6 +12,7 @@ import zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, date
 import logging
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -51,24 +52,21 @@ logging.basicConfig(
 )
 logging.info("Kiroshi app started")
 
-# Remote logo assets
-KIROSHI_LOGO_URL = (
-    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/kiroshi_logo.png"
-)
-ATOM_LOGO_URL = (
-    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/atom_logo.png"
-)
+# Local logo assets from repository
+ASSETS_DIR = Path(__file__).parent
+KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
+ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
     page_title=f"Kiroshi V{VERSION}",
     layout="wide",
-    page_icon=KIROSHI_LOGO_URL,
+    page_icon=str(KIROSHI_LOGO_PATH),
 )
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.image(KIROSHI_LOGO_URL)
+    st.image(str(KIROSHI_LOGO_PATH))
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -766,7 +764,7 @@ with tab_tables:
 
 # ================== ATOM CHAT TAB =================
 with tab_atom:
-    st.image(ATOM_LOGO_URL, width=80)
+    st.image(str(ATOM_LOGO_PATH), width=80)
     st.subheader("A.A.T.O.M. Chat")
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
