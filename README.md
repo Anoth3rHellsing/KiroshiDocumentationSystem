@@ -27,6 +27,9 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
   on every interaction to prevent data loss.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the
   generated response.
+- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details and
+  "AI Assistance" auto-fills descriptions; a separate chat interface is also
+  available with persistent memory.
 - **Debug tab** – internal diagnostics protected by an `admin`/`admin` login.
 
 ## Requirements
@@ -86,6 +89,20 @@ bundle supporting files. Use the checkbox at the top to toggle hardware tabs and
 fields. The *Tables* tab provides a full markdown dump of all case data for easy
 copying. An internal *Debug* tab is available after logging in with username and
 password `admin`.
+
+Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify**
+button to highlight missing documentation and an **AI Assistance** button that
+auto-fills the brief and detailed descriptions based on existing data.
+
+To experiment with the A.A.T.O.M. chatbox, run the dedicated script:
+
+```bash
+cd /path/to/KiroshiDocumentationSystem
+streamlit run aatom_chat.py
+```
+
+The chat history is saved to `atom_memory.json` so conversations persist across
+sessions.
 
 For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for
 demonstration, and GPT-4o is selected by default for fast, high-quality
