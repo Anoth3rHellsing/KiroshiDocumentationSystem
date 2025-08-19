@@ -39,33 +39,26 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 VERSION = "0.1.4"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
-DEFAULT_OPENAI_API_KEY = (
-    "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"
+DEFAULT_OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+# Remote logo assets
+KIROSHI_LOGO_URL = (
+    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/kiroshi_logo.png"
+)
+ATOM_LOGO_URL = (
+    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/atom_logo.png"
 )
 
 # ─────────────────────────── CONFIG ────────────────────────────
-st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
-
-st.markdown(
-    f"""
-    <style>
-    @font-face {{
-        font-family: 'NEMESYS';
-        font-style: normal;
-        font-weight: 400;
-        src: url('https://fonts.cdnfonts.com/s/125590/NEMESYS-Regular.woff') format('woff');
-    }}
-    .title {{
-        font-family: 'NEMESYS', sans-serif;
-        font-size: 48px;
-        text-align: center;
-        margin-bottom: 1rem;
-    }}
-    </style>
-    <div class="title">KIROSHI D.S. ({VERSION})</div>
-    """,
-    unsafe_allow_html=True,
+st.set_page_config(
+    page_title=f"Kiroshi V{VERSION}",
+    layout="wide",
+    page_icon=KIROSHI_LOGO_URL,
 )
+
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.image(KIROSHI_LOGO_URL)
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -344,7 +337,7 @@ cat_map = active_category_map()
 tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "Alarms", "Debug"]
+tab_labels += ["Notes", "Tables", "Atom Chat", "Alarms", "Debug"]
 if st.session_state.include_hw:
     (
         tab_case,
@@ -352,6 +345,7 @@ if st.session_state.include_hw:
         tab_hw,
         tab_notes,
         tab_tables,
+        tab_atom,
         tab_alarms,
         tab_debug,
     ) = st.tabs(tab_labels)
@@ -361,6 +355,7 @@ else:
         tab_email,
         tab_notes,
         tab_tables,
+        tab_atom,
         tab_alarms,
         tab_debug,
     ) = st.tabs(tab_labels)
@@ -827,6 +822,39 @@ with tab_tables:
     for cat in cat_map:
         st.markdown(f"**{table_title(cat)}**")
         st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
+
+# ================== ATOM CHAT TAB =================
+with tab_atom:
+    st.image(ATOM_LOGO_URL, width=80)
+    st.subheader("A.A.T.O.M. Chat")
+    api_key = st.session_state.openai_api_key
+    model = st.session_state.openai_model
+    if not api_key:
+        st.info("Set your OpenAI API key in the Debug tab.")
+    for msg in st.session_state.atom_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+    if user_msg := st.chat_input("Message", key="atom_chat_input"):
+        if not api_key:
+            st.error("Please set your OpenAI API key in the Debug tab.")
+        else:
+            st.session_state.atom_history.append({"role": "user", "content": user_msg})
+            with st.chat_message("user"):
+                st.markdown(user_msg)
+            try:
+                reply = query_atom(user_msg, st.session_state.atom_history[:-1], api_key, model)
+            except Exception as e:
+                with st.chat_message("assistant"):
+                    st.error(str(e))
+            else:
+                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                with st.chat_message("assistant"):
+                    st.markdown(reply)
+                save_memory(st.session_state.atom_history)
+    if st.button("Clear memory", key="atom_clear"):
+        st.session_state.atom_history = []
+        save_memory([])
+        st.experimental_rerun()
 
 # ================== FILE UPLOADS & EXPORTS =================
 st.markdown("---")
