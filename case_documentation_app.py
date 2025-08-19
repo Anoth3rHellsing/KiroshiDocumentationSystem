@@ -293,11 +293,13 @@ def js_notify(title: str, message: str) -> None:
 def rerun_in(ms: int) -> None:
     """Trigger a rerun of the app after a given delay in milliseconds."""
     try:
-        components.html(
-            f"<script>setTimeout(function(){{window.parent.postMessage({{type:'streamlit:rerun'}}, '*');}},{ms});</script>",
-            height=0,
-            key=f"rerun_{ms}_{int(time.time()*1000)}",
-        )
+        # Streamlit no longer responds to the old ``window.parent.postMessage``
+        # approach.  Instead, wait for the desired interval and call the
+        # built-in ``st.rerun`` API to refresh the app.  This keeps the timers
+        # and alarm inputs updating automatically without requiring the user to
+        # manually refresh the page.
+        time.sleep(ms / 1000)
+        st.rerun()
     except Exception:
         pass
 
