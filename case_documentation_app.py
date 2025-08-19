@@ -28,7 +28,7 @@ from reportlab.platypus import (
 )
 import requests
 import urllib3
-from aatom_chat import load_memory, save_memory, query_atom
+from aatom_chat import load_memory, save_memory, query_atom, SYSTEM_PROMPT
 
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
@@ -92,6 +92,8 @@ _init_state("api_restart", False)
 _init_state("api_scan_time", False)
 _init_state("atom_history", load_memory())
 _init_state("verify_result", "")
+_init_state("ask_result", "")
+_init_state("system_prompt", SYSTEM_PROMPT)
 
 
 def load_autosave():
@@ -141,6 +143,17 @@ class CaseData:
     remote_steps: str = ""
     root_cause: str = ""
     solution: str = ""
+    # Escalation details
+    request_issue: str = ""
+    contact_name: str = ""
+    office_ph: str = ""
+    direct_ph: str = ""
+    best_time: str = ""
+    patterson: str = ""
+    straumann: str = ""
+    esc_name: str = ""
+    esc_ph: str = ""
+    esc_email: str = ""
     # Additional information
     antivirus: str = ""
     firewalls_enabled: str = ""
@@ -169,13 +182,9 @@ D: CaseData = st.session_state.case
 
 # Button to clear all case data and reset form
 if st.button("Clear all"):
-    st.session_state.case = CaseData()
-    st.session_state.scratch = ""
-    st.session_state.uploads = []
-    st.session_state.email_extra = {}
-    st.session_state.email_type = "Recap (Customer)"
-    st.session_state.include_hw = False
-    st.session_state.survey_link = ""
+    api_key = st.session_state.get("openai_api_key", "")
+    st.session_state.clear()
+    st.session_state.openai_api_key = api_key
     if os.path.exists(AUTOSAVE_FILE):
         try:
             os.remove(AUTOSAVE_FILE)
@@ -203,6 +212,16 @@ BASE_CATEGORY_MAP = {
     "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
     "REMOTE SESSION": ["remote_steps"],
     "CONCLUSION": ["root_cause", "solution"],
+    "AX COORDINATORS": [
+        "request_issue",
+        "contact_name",
+        "office_ph",
+        "direct_ph",
+        "best_time",
+        "patterson",
+        "straumann",
+    ],
+    "ESCALATION 2ND LINE": ["esc_name", "esc_ph", "esc_email"],
     "ADDITIONAL INFORMATION": [
         "antivirus",
         "firewalls_enabled",
@@ -304,13 +323,14 @@ st.session_state.include_hw = st.checkbox(
 )
 cat_map = active_category_map()
 
-tab_labels = ["Case", "Email"]
+tab_labels = ["Case", "Escalations", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
 tab_labels += ["Notes", "Tables", "Atom Chat", "Debug"]
 if st.session_state.include_hw:
     (
         tab_case,
+        tab_escalations,
         tab_email,
         tab_hw,
         tab_notes,
@@ -321,6 +341,7 @@ if st.session_state.include_hw:
 else:
     (
         tab_case,
+        tab_escalations,
         tab_email,
         tab_notes,
         tab_tables,
@@ -332,48 +353,98 @@ else:
 with tab_case:
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
-    if st.button("Verify"):
-        logging.info("Verify button clicked")
-        if not api_key:
-            st.error("Please set your OpenAI API key in the Debug tab.")
-        else:
-            case_dict = asdict(D)
-            if not st.session_state.include_hw:
-                for fld in [
-                    "service_tag",
-                    "pc_model",
-                    "windows_version",
-                    "bios_version",
-                    "graphics_card",
-                    "processor",
-                    "warranty",
-                    "scanner_sn",
-                    "base_sn",
-                    "trios_module_version",
-                ]:
-                    case_dict.pop(fld, None)
-            user_message = (
-                "Review the following case data and list any missing or incomplete information needed to complete the case documentation.\n\n"
-                + json.dumps(case_dict, indent=2)
-            )
-            try:
-                reply = query_atom(
-                    user_message,
-                    st.session_state.atom_history,
-                    api_key,
-                    model,
-                )
-            except Exception as e:
-                st.error(str(e))
+    verify_col, ask_col = st.columns(2)
+    with verify_col:
+        if st.button("Verify"):
+            logging.info("Verify button clicked")
+            if not api_key:
+                st.error("Please set your OpenAI API key in the Debug tab.")
             else:
-                st.session_state.atom_history.append({"role": "user", "content": user_message})
-                st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                save_memory(st.session_state.atom_history)
-                st.session_state.verify_result = reply
+                case_dict = asdict(D)
+                if not st.session_state.include_hw:
+                    for fld in [
+                        "service_tag",
+                        "pc_model",
+                        "windows_version",
+                        "bios_version",
+                        "graphics_card",
+                        "processor",
+                        "warranty",
+                        "scanner_sn",
+                        "base_sn",
+                        "trios_module_version",
+                    ]:
+                        case_dict.pop(fld, None)
+                user_message = (
+                    "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
+                    + json.dumps(case_dict, indent=2)
+                )
+                try:
+                    reply = query_atom(
+                        user_message,
+                        st.session_state.atom_history,
+                        api_key,
+                        model,
+                    )
+                except Exception as e:
+                    st.error(str(e))
+                else:
+                    st.session_state.atom_history.append({"role": "user", "content": user_message})
+                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                    save_memory(st.session_state.atom_history)
+                    st.session_state.verify_result = reply
+    with ask_col:
+        if st.button("Ask"):
+            logging.info("Ask button clicked")
+            if not api_key:
+                st.error("Please set your OpenAI API key in the Debug tab.")
+            else:
+                case_dict = asdict(D)
+                if not st.session_state.include_hw:
+                    for fld in [
+                        "service_tag",
+                        "pc_model",
+                        "windows_version",
+                        "bios_version",
+                        "graphics_card",
+                        "processor",
+                        "warranty",
+                        "scanner_sn",
+                        "base_sn",
+                        "trios_module_version",
+                    ]:
+                        case_dict.pop(fld, None)
+                findings = st.session_state.verify_result
+                user_message = (
+                    "Based on the following case data"
+                    + (f" and previous findings: {findings}" if findings else "")
+                    + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
+                    + json.dumps(case_dict, indent=2)
+                )
+                try:
+                    reply = query_atom(
+                        user_message,
+                        st.session_state.atom_history,
+                        api_key,
+                        model,
+                    )
+                except Exception as e:
+                    st.error(str(e))
+                else:
+                    st.session_state.atom_history.append({"role": "user", "content": user_message})
+                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                    save_memory(st.session_state.atom_history)
+                    st.session_state.ask_result = reply
     if st.session_state.verify_result:
         st.text_area(
             "A.A.T.O.M. Verification",
             st.session_state.verify_result,
+            height=150,
+        )
+    if st.session_state.ask_result:
+        st.text_area(
+            "A.A.T.O.M. Suggestions",
+            st.session_state.ask_result,
             height=150,
         )
     prog, miss = compute_progress(D, cat_map)
@@ -507,25 +578,84 @@ with tab_case:
                 category_dataframe(cat, D, cat_map), use_container_width=True
             )
 
+# ================== ESCALATIONS TAB =================
+with tab_escalations:
+    st.subheader("AX Coordinators")
+    st.text_area("Request / Issue", D.description, disabled=True)
+    D.request_issue = D.description
+    D.contact_name = st.text_input(
+        "Contact name", D.contact_name or D.caller_name
+    )
+    D.office_ph = D.phone_number
+    st.text_input("Office phone", D.office_ph, disabled=True)
+    D.direct_ph = D.phone_number
+    st.text_input("Direct phone", D.direct_ph, disabled=True)
+    best_cb = st.checkbox(
+        "Specify best call-back time",
+        D.best_time not in ("", "ASAP"),
+    )
+    if best_cb:
+        D.best_time = st.text_input(
+            "Best call-back time + timezone",
+            D.best_time if D.best_time not in ("", "ASAP") else "",
+        )
+    else:
+        D.best_time = "ASAP"
+    pat_cb = st.checkbox(
+        "Patterson legacy #",
+        D.patterson not in ("", "N/A"),
+    )
+    if pat_cb:
+        D.patterson = st.text_input(
+            "Patterson legacy #",
+            D.patterson if D.patterson not in ("", "N/A") else "",
+        )
+    else:
+        D.patterson = "N/A"
+    str_cb = st.checkbox(
+        "Straumann ticket #",
+        D.straumann not in ("", "N/A"),
+    )
+    if str_cb:
+        D.straumann = st.text_input(
+            "Straumann ticket #",
+            D.straumann if D.straumann not in ("", "N/A") else "",
+        )
+    else:
+        D.straumann = "N/A"
+    st.markdown("#### AX Coordinators Table")
+    st.dataframe(
+        category_dataframe("AX COORDINATORS", D, cat_map),
+        use_container_width=True,
+    )
+    st.markdown("---")
+    st.subheader("Escalation 2nd line")
+    D.esc_name = st.text_input(
+        "Name", D.esc_name or D.caller_name, key="esc_name_tab"
+    )
+    D.esc_ph = st.text_input(
+        "Phone", D.esc_ph or D.phone_number, key="esc_ph_tab"
+    )
+    D.esc_email = st.text_input(
+        "Email", D.esc_email or D.email, key="esc_email_tab"
+    )
+    st.markdown("#### Escalation 2nd line Table")
+    st.dataframe(
+        category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+        use_container_width=True,
+    )
+
 # ================== EMAIL TAB =================
 with tab_email:
     st.subheader("Email Prompt Generator")
+    email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
     email_type = st.selectbox(
         "Select email template",
-        [
-            "Recap (Customer)",
-            "AX Coordinators",
-            "Broken Scanner",
-            "Broken Tip",
-            "Escalation 2nd line",
-        ],
-        index=[
-            "Recap (Customer)",
-            "AX Coordinators",
-            "Broken Scanner",
-            "Broken Tip",
-            "Escalation 2nd line",
-        ].index(st.session_state.email_type),
+        email_choices,
+        index=
+        email_choices.index(st.session_state.email_type)
+        if st.session_state.email_type in email_choices
+        else 0,
     )
     st.session_state.email_type = email_type
     ext = st.session_state.email_extra
@@ -551,45 +681,6 @@ Steps taken:
 {steps_summary}
 Solution: {D.solution}
 Survey link: {st.session_state.survey_link}"""
-    elif email_type == "AX Coordinators":
-        st.markdown("#### Additional details")
-        ext["request_issue"] = st.text_area(
-            "Request / Issue", ext.get("request_issue", "")
-        )
-        ext["contact_name"] = st.text_input(
-            "Contact name", ext.get("contact_name", "")
-        )
-        ext["office_ph"] = st.text_input(
-            "Office phone", ext.get("office_ph", "")
-        )
-        ext["direct_ph"] = st.text_input(
-            "Direct phone", ext.get("direct_ph", "")
-        )
-        ext["best_time"] = st.text_input(
-            "Best call‑back time + timezone", ext.get("best_time", "")
-        )
-        ext["patterson"] = st.text_input(
-            "Patterson legacy #", ext.get("patterson", "N/A")
-        )
-        ext["straumann"] = st.text_input(
-            "Straumann ticket #", ext.get("straumann", "N/A")
-        )
-
-        prompt = f"""Compose a brief internal e‑mail for AX coordinators summarising the details below.
-Use bullet points where helpful. Return only the e‑mail body.
-
-Caller name: {D.caller_name}
-Request / Issue: {ext['request_issue']}
-Dongle: {D.dongle_number}
-Contact: {ext['contact_name']}
-Office PH: {ext['office_ph']}
-Direct PH: {ext['direct_ph']}
-Best call‑back: {ext['best_time']}
-Case ID: {D.case_id} | SID: {D.subscription_id}
-Patterson legacy#: {ext['patterson']}
-Straumann ticket#: {ext['straumann']}
-"""
-
     elif email_type == "Broken Scanner":
         st.markdown("#### Incident questionnaire (prefill if known)")
         ext["experience"] = st.text_input(
@@ -650,28 +741,6 @@ List each question and provide any known answer beneath it, ready for the custom
 5. Autoclaved in airtight pouch? – {ext['airtight']}
 6. Other info – {ext['other']}
 """
-
-    elif email_type == "Escalation 2nd line":
-        st.markdown("#### Contact details for escalation")
-        ext["esc_name"] = st.text_input(
-            "Name", ext.get("esc_name", ""), key="esc_name_escalation"
-        )
-        ext["esc_ph"] = st.text_input(
-            "Phone", ext.get("esc_ph", ""), key="esc_ph_escalation"
-        )
-        ext["esc_email"] = st.text_input(
-            "Email", ext.get("esc_email", ""), key="esc_email_escalation"
-        )
-
-        prompt = (
-            "Write a short note informing the customer that the case is being escalated to second‑line support to continue verification.\n"
-            "Begin with that exact sentence, then list the following contact details and the Case ID.\n"
-            f"Case ID: {D.case_id}\n"
-            f"Name: {ext['esc_name']}\n"
-            f"Phone: {ext['esc_ph']}\n"
-            f"Email: {ext['esc_email']}\n"
-            "Close politely. Return only the e‑mail body."
-        )
 
     st.session_state.email_extra = ext
     st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
@@ -783,6 +852,12 @@ with tab_tables:
 with tab_atom:
     st.image(str(ATOM_LOGO_PATH), width=80)
     st.subheader("A.A.T.O.M. Chat")
+    with st.expander("Personality Construct"):
+        st.text_area(
+            "System Prompt",
+            st.session_state.get("system_prompt", SYSTEM_PROMPT),
+            height=300,
+        )
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
     if not api_key:

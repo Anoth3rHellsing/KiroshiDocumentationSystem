@@ -66,7 +66,7 @@ OUTPUT PRINCIPLES
 PERSONALITY
 ================
 Default Mode → {personality_mode}="utility"
-  - Tone: concise, professional, minimal charm.
+  - Tone: concise, professional, and slightly warm.
 Coffee Mode → {personality_mode}="coffee"
   - Tone: still concise; brief, dry one-liners after successes. Never at the cost of clarity.
 
@@ -237,9 +237,11 @@ def load_memory():
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
                 return data.get("history", [])
         except Exception:
             pass
+    st.session_state["system_prompt"] = SYSTEM_PROMPT
     return []
 
 
@@ -247,7 +249,15 @@ def save_memory(history):
     """Persist conversation history to disk."""
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump({"history": history}, f, ensure_ascii=False, indent=2)
+            json.dump(
+                {
+                    "history": history,
+                    "system_prompt": st.session_state.get("system_prompt", SYSTEM_PROMPT),
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
     except Exception:
         pass
 
@@ -279,6 +289,12 @@ def main():
 
     if "atom_history" not in st.session_state:
         st.session_state.atom_history = load_memory()
+    with st.expander("Personality Construct"):
+        st.text_area(
+            "System Prompt",
+            st.session_state.get("system_prompt", SYSTEM_PROMPT),
+            height=300,
+        )
 
     api_key = st.text_input(
         "OpenAI API Key", type="password", value=DEFAULT_OPENAI_API_KEY
