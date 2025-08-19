@@ -39,7 +39,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 VERSION = "1.0.0"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
-DEFAULT_OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+DEFAULT_OPENAI_API_KEY = os.environ.get(
+    "OPENAI_API_KEY",
+    "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",
+)
 LOG_FILE = "app.log"
 
 logging.basicConfig(
