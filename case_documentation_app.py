@@ -66,10 +66,7 @@ st.set_page_config(
     layout="wide",
     page_icon=str(KIROSHI_LOGO_PATH),
 )
-
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.image(str(KIROSHI_LOGO_PATH))
+st.image(str(KIROSHI_LOGO_PATH))
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -83,6 +80,7 @@ _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_hw", False)
+_init_state("include_escalations", False)
 _init_state("debug_auth", False)
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
@@ -191,8 +189,6 @@ if st.button("Clear all"):
         except OSError:
             pass
     st.experimental_rerun()
-
-
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
         json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
@@ -248,6 +244,9 @@ HW_CATEGORY_MAP = {
 
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
+    if not st.session_state.get("include_escalations", True):
+        cm.pop("AX COORDINATORS", None)
+        cm.pop("ESCALATION 2ND LINE", None)
     if st.session_state.get("include_hw"):
         cm.update(HW_CATEGORY_MAP)
     return cm
@@ -318,42 +317,38 @@ def make_pdf(d: CaseData, cat_map) -> bytes:
     return buf.read()
 
 # ──────────── TABS ───────────
+st.session_state.include_escalations = st.checkbox(
+    "Include escalations", st.session_state.include_escalations
+)
 st.session_state.include_hw = st.checkbox(
     "Include hardware issue fields", st.session_state.include_hw
 )
 cat_map = active_category_map()
 
-tab_labels = ["Case", "Escalations", "Email"]
+tab_labels = ["Case"]
+if st.session_state.include_escalations:
+    tab_labels.append("Escalations")
+tab_labels.append("Email")
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
 tab_labels += ["Notes", "Tables", "Atom Chat", "Debug"]
-if st.session_state.include_hw:
-    (
-        tab_case,
-        tab_escalations,
-        tab_email,
-        tab_hw,
-        tab_notes,
-        tab_tables,
-        tab_atom,
-        tab_debug,
-    ) = st.tabs(tab_labels)
-else:
-    (
-        tab_case,
-        tab_escalations,
-        tab_email,
-        tab_notes,
-        tab_tables,
-        tab_atom,
-        tab_debug,
-    ) = st.tabs(tab_labels)
+
+tabs = st.tabs(tab_labels)
+tab_iter = iter(tabs)
+tab_case = next(tab_iter)
+tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
+tab_email = next(tab_iter)
+tab_hw = next(tab_iter) if st.session_state.include_hw else None
+tab_notes = next(tab_iter)
+tab_tables = next(tab_iter)
+tab_atom = next(tab_iter)
+tab_debug = next(tab_iter)
 
 # ================== CASE TAB =================
 with tab_case:
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
-    verify_col, ask_col = st.columns(2)
+    verify_col, ask_col, clear_col = st.columns(3)
     with verify_col:
         if st.button("Verify"):
             logging.info("Verify button clicked")
@@ -373,6 +368,20 @@ with tab_case:
                         "scanner_sn",
                         "base_sn",
                         "trios_module_version",
+                    ]:
+                        case_dict.pop(fld, None)
+                if not st.session_state.include_escalations:
+                    for fld in [
+                        "request_issue",
+                        "contact_name",
+                        "office_ph",
+                        "direct_ph",
+                        "best_time",
+                        "patterson",
+                        "straumann",
+                        "esc_name",
+                        "esc_ph",
+                        "esc_email",
                     ]:
                         case_dict.pop(fld, None)
                 user_message = (
@@ -414,6 +423,20 @@ with tab_case:
                         "trios_module_version",
                     ]:
                         case_dict.pop(fld, None)
+                if not st.session_state.include_escalations:
+                    for fld in [
+                        "request_issue",
+                        "contact_name",
+                        "office_ph",
+                        "direct_ph",
+                        "best_time",
+                        "patterson",
+                        "straumann",
+                        "esc_name",
+                        "esc_ph",
+                        "esc_email",
+                    ]:
+                        case_dict.pop(fld, None)
                 findings = st.session_state.verify_result
                 user_message = (
                     "Based on the following case data"
@@ -435,6 +458,18 @@ with tab_case:
                     st.session_state.atom_history.append({"role": "assistant", "content": reply})
                     save_memory(st.session_state.atom_history)
                     st.session_state.ask_result = reply
+    with clear_col:
+        if st.button("Clear all"):
+            logging.info("Clear all button clicked")
+            api_key = st.session_state.get("openai_api_key", "")
+            st.session_state.clear()
+            st.session_state.openai_api_key = api_key
+            if os.path.exists(AUTOSAVE_FILE):
+                try:
+                    os.remove(AUTOSAVE_FILE)
+                except OSError:
+                    pass
+            st.experimental_rerun()
     if st.session_state.verify_result:
         st.text_area(
             "A.A.T.O.M. Verification",
@@ -579,71 +614,68 @@ with tab_case:
             )
 
 # ================== ESCALATIONS TAB =================
-with tab_escalations:
-    st.subheader("AX Coordinators")
-    st.text_area("Request / Issue", D.description, disabled=True)
-    D.request_issue = D.description
-    D.contact_name = st.text_input(
-        "Contact name", D.contact_name or D.caller_name
-    )
-    D.office_ph = D.phone_number
-    st.text_input("Office phone", D.office_ph, disabled=True)
-    D.direct_ph = D.phone_number
-    st.text_input("Direct phone", D.direct_ph, disabled=True)
-    best_cb = st.checkbox(
-        "Specify best call-back time",
-        D.best_time not in ("", "ASAP"),
-    )
-    if best_cb:
-        D.best_time = st.text_input(
-            "Best call-back time + timezone",
-            D.best_time if D.best_time not in ("", "ASAP") else "",
+if tab_escalations:
+    with tab_escalations:
+        st.subheader("AX Coordinators")
+        st.text_area("Request / Issue", D.description, disabled=True)
+        D.request_issue = D.description
+        D.contact_name = D.caller_name
+        st.text_input("Contact name", D.contact_name, disabled=True)
+        D.office_ph = D.phone_number
+        st.text_input("Office phone", D.office_ph, disabled=True)
+        D.direct_ph = D.phone_number
+        st.text_input("Direct phone", D.direct_ph, disabled=True)
+        best_cb = st.checkbox(
+            "Specify best call-back time",
+            D.best_time not in ("", "ASAP"),
         )
-    else:
-        D.best_time = "ASAP"
-    pat_cb = st.checkbox(
-        "Patterson legacy #",
-        D.patterson not in ("", "N/A"),
-    )
-    if pat_cb:
-        D.patterson = st.text_input(
+        if best_cb:
+            D.best_time = st.text_input(
+                "Best call-back time + timezone",
+                D.best_time if D.best_time not in ("", "ASAP") else "",
+            )
+        else:
+            D.best_time = "ASAP"
+        pat_cb = st.checkbox(
             "Patterson legacy #",
-            D.patterson if D.patterson not in ("", "N/A") else "",
+            D.patterson not in ("", "N/A"),
         )
-    else:
-        D.patterson = "N/A"
-    str_cb = st.checkbox(
-        "Straumann ticket #",
-        D.straumann not in ("", "N/A"),
-    )
-    if str_cb:
-        D.straumann = st.text_input(
+        if pat_cb:
+            D.patterson = st.text_input(
+                "Patterson legacy #",
+                D.patterson if D.patterson not in ("", "N/A") else "",
+            )
+        else:
+            D.patterson = "N/A"
+        str_cb = st.checkbox(
             "Straumann ticket #",
-            D.straumann if D.straumann not in ("", "N/A") else "",
+            D.straumann not in ("", "N/A"),
         )
-    else:
-        D.straumann = "N/A"
-    st.markdown("#### AX Coordinators Table")
-    st.dataframe(
-        category_dataframe("AX COORDINATORS", D, cat_map),
-        use_container_width=True,
-    )
-    st.markdown("---")
-    st.subheader("Escalation 2nd line")
-    D.esc_name = st.text_input(
-        "Name", D.esc_name or D.caller_name, key="esc_name_tab"
-    )
-    D.esc_ph = st.text_input(
-        "Phone", D.esc_ph or D.phone_number, key="esc_ph_tab"
-    )
-    D.esc_email = st.text_input(
-        "Email", D.esc_email or D.email, key="esc_email_tab"
-    )
-    st.markdown("#### Escalation 2nd line Table")
-    st.dataframe(
-        category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-        use_container_width=True,
-    )
+        if str_cb:
+            D.straumann = st.text_input(
+                "Straumann ticket #",
+                D.straumann if D.straumann not in ("", "N/A") else "",
+            )
+        else:
+            D.straumann = "N/A"
+        st.markdown("#### AX Coordinators Table")
+        st.dataframe(
+            category_dataframe("AX COORDINATORS", D, cat_map),
+            use_container_width=True,
+        )
+        st.markdown("---")
+        st.subheader("Escalation 2nd line")
+        D.esc_name = D.caller_name
+        st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
+        D.esc_ph = D.phone_number
+        st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
+        D.esc_email = D.email
+        st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
+        st.markdown("#### Escalation 2nd line Table")
+        st.dataframe(
+            category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+            use_container_width=True,
+        )
 
 # ================== EMAIL TAB =================
 with tab_email:
