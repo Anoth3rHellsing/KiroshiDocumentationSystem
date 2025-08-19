@@ -14,6 +14,10 @@ ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=str(ATOM_LOGO_PATH))
 
 MEMORY_FILE = "atom_memory.json"
+DEFAULT_OPENAI_API_KEY = os.environ.get(
+    "OPENAI_API_KEY",
+    "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",
+)
 
 SYSTEM_PROMPT = """Project A.A.T.O.M. — Personality Construct V.0.0.1 “Coffee”
 Beta Build: 19082025
@@ -276,7 +280,9 @@ def main():
     if "atom_history" not in st.session_state:
         st.session_state.atom_history = load_memory()
 
-    api_key = st.text_input("OpenAI API Key", type="password")
+    api_key = st.text_input(
+        "OpenAI API Key", type="password", value=DEFAULT_OPENAI_API_KEY
+    )
     model = st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], index=0)
 
     for msg in st.session_state.atom_history:
