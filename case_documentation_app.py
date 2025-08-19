@@ -38,6 +38,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 VERSION = "0.1.4"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
+DEFAULT_OPENAI_API_KEY = (
+    "sk-proj-uYyUuta9smMK1XCSyWcerDRTrV9GT7PbGgn7uaghXBAJ_zGC2pfQBcdEylgEgd"
+    "VumqVdvPGofTT3BlbkFJqWhEVlWpKX7QTJuOhM4bxe5hk49mJXba3hlF11b9zI5GMUvSlzEe"
+    "PmRcjj3533merqtuAdJooA"
+)
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(page_title=f"Kiroshi V{VERSION}", layout="wide")
@@ -85,6 +90,11 @@ _init_state("lunch_alarm_notified_pre", False)
 _init_state("lunch_alarm_notified", False)
 _init_state("break_alarm_date", None)
 _init_state("lunch_alarm_date", None)
+_init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
+_init_state("openai_model", "gpt-3.5-turbo")
+_init_state("api_helpjuice", False)
+_init_state("api_restart", False)
+_init_state("api_scan_time", False)
 
 
 def load_autosave():
@@ -284,11 +294,14 @@ def js_notify(title: str, message: str) -> None:
 
 def rerun_in(ms: int) -> None:
     """Trigger a rerun of the app after a given delay in milliseconds."""
-    components.html(
-        f"<script>setTimeout(function(){{window.parent.postMessage({{type:'streamlit:rerun'}}, '*');}},{ms});</script>",
-        height=0,
-        key=f"rerun_{ms}_{int(time.time()*1000)}",
-    )
+    try:
+        components.html(
+            f"<script>setTimeout(function(){{window.parent.postMessage({{type:'streamlit:rerun'}}, '*');}},{ms});</script>",
+            height=0,
+            key=f"rerun_{ms}_{int(time.time()*1000)}",
+        )
+    except Exception:
+        pass
 
 
 def make_pdf(d: CaseData, cat_map) -> bytes:
@@ -333,7 +346,7 @@ cat_map = active_category_map()
 tab_labels = ["Case", "Email"]
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "Timers", "Alarms", "API", "Debug"]
+tab_labels += ["Notes", "Tables", "Timers", "Alarms", "Debug"]
 if st.session_state.include_hw:
     (
         tab_case,
@@ -343,7 +356,6 @@ if st.session_state.include_hw:
         tab_tables,
         tab_timers,
         tab_alarms,
-        tab_api,
         tab_debug,
     ) = st.tabs(tab_labels)
 else:
@@ -354,7 +366,6 @@ else:
         tab_tables,
         tab_timers,
         tab_alarms,
-        tab_api,
         tab_debug,
     ) = st.tabs(tab_labels)
 
@@ -658,7 +669,69 @@ List each question and provide any known answer beneath it, ready for the custom
         )
 
     st.session_state.email_extra = ext
-    st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300)
+    st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
+    st.session_state["last_prompt"] = prompt
+
+    include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
+    include_restart = st.checkbox("Restart the computer", key="api_restart")
+    include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
+
+    if st.button("Generate Email (ChatGPT API)"):
+        api_key = st.session_state.openai_api_key
+        model = st.session_state.openai_model
+        if not api_key:
+            st.error("Please set your OpenAI API key in the Debug tab.")
+        elif not prompt.strip():
+            st.error("Prompt is empty.")
+        else:
+            with st.spinner("Contacting ChatGPT..."):
+                try:
+                    augmented_prompt = prompt
+                    extras = []
+                    if include_helpjuice:
+                        link = D.internal_helpjuice or "https://helpjuice.com"
+                        extras.append(
+                            f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
+                        )
+                    if include_restart:
+                        extras.append(
+                            "And recommend to the customer to restart the computer after the end of every shift."
+                        )
+                    if include_scan_time:
+                        extras.append(
+                            "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
+                        )
+                    if extras:
+                        augmented_prompt += "\n\n" + "\n".join(extras)
+                    response = requests.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": model,
+                            "messages": [
+                                {"role": "system", "content": "You are a helpful assistant."},
+                                {"role": "user", "content": augmented_prompt},
+                            ],
+                            "max_tokens": 600,
+                            "temperature": 0.7,
+                        },
+                        timeout=30,
+                        verify=False,
+                    )
+                    if response.status_code == 200:
+                        result = response.json()
+                        email_text = result["choices"][0]["message"]["content"]
+                        st.success("Email generated!")
+                        st.text_area("Generated Email", email_text, height=300, key="generated_email")
+                    else:
+                        st.error(
+                            f"API Error: {response.status_code}\n{response.text}"
+                        )
+                except Exception as e:  # pragma: no cover - just in case
+                    st.error(f"Request failed: {e}")
 
 # ================== HARDWARE ISSUES TAB =================
 if st.session_state.include_hw:
@@ -854,95 +927,12 @@ with tab_alarms:
         rerun_in(60000)
 
 
-# ================== API TAB =================
-with tab_api:
-    st.subheader("ChatGPT API Integration")
-    api_key = st.text_input("OpenAI API Key", type="password", key="openai_api_key")
-    model = st.selectbox("Model", ["gpt-3.5-turbo", "gpt-4"], key="openai_model")
-    prompt_for_api = st.session_state.get("last_prompt", "")
-
-    # Optionally, let user edit the prompt before sending
-    prompt_for_api = st.text_area(
-        "Prompt to send", prompt_for_api, height=200, key="api_prompt_area"
-    )
-
-    include_helpjuice = st.checkbox(
-        "Helpjuice tutorial", key="api_helpjuice"
-    )
-    include_restart = st.checkbox(
-        "Restart the computer", key="api_restart"
-    )
-    include_scan_time = st.checkbox(
-        "Scan time warning", key="api_scan_time"
-    )
-
-    if st.button("Convert to Email (ChatGPT API)"):
-        if not api_key:
-            st.error("Please enter your OpenAI API key.")
-        elif not prompt_for_api.strip():
-            st.error("Prompt is empty.")
-        else:
-            with st.spinner("Contacting ChatGPT..."):
-                try:
-                    augmented_prompt = prompt_for_api
-                    extras = []
-                    if include_helpjuice:
-                        link = D.internal_helpjuice or "https://helpjuice.com"
-                        extras.append(
-                            f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
-                        )
-                    if include_restart:
-                        extras.append(
-                            "And recommend to the customer to restart the computer after the end of every shift."
-                        )
-                    if include_scan_time:
-                        extras.append(
-                            "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
-                        )
-                    if extras:
-                        augmented_prompt += "\n\n" + "\n".join(extras)
-                    response = requests.post(
-                        "https://api.openai.com/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": model,
-                            "messages": [
-                                {
-                                    "role": "system",
-                                    "content": "You are a helpful assistant.",
-                                },
-                                {"role": "user", "content": augmented_prompt},
-                            ],
-                            "max_tokens": 600,
-                            "temperature": 0.7,
-                        },
-                        timeout=30,
-                        verify=False,
-                    )
-                    if response.status_code == 200:
-                        result = response.json()
-                        email_text = result["choices"][0]["message"]["content"]
-                        st.success("Email generated!")
-                        st.text_area("Generated Email", email_text, height=300)
-                    else:
-                        st.error(
-                            f"API Error: {response.status_code}\n{response.text}"
-                        )
-                except Exception as e:  # pragma: no cover - just in case
-                    st.error(f"Request failed: {e}")
-
-    # Save the last prompt from the Email tab for convenience
-    if "prompt" in locals() and prompt:
-        st.session_state["last_prompt"] = prompt
-
-
 # ================== DEBUG TAB =================
 with tab_debug:
     if st.session_state.debug_auth:
         st.subheader("Debug")
+        st.text_input("OpenAI API Key", type="password", key="openai_api_key")
+        st.selectbox("Model", ["gpt-3.5-turbo", "gpt-4"], key="openai_model")
         st.json(st.session_state)
     else:
         user = st.text_input("Username", key="debug_user")
