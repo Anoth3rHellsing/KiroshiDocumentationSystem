@@ -350,7 +350,7 @@ with tab_case:
     model = st.session_state.openai_model
     verify_col, ask_col, clear_col = st.columns(3)
     with verify_col:
-        if st.button("Verify"):
+        if st.button("Verify", key="verify_button"):
             logging.info("Verify button clicked")
             if not api_key:
                 st.error("Please set your OpenAI API key in the Debug tab.")
@@ -403,7 +403,7 @@ with tab_case:
                     save_memory(st.session_state.atom_history)
                     st.session_state.verify_result = reply
     with ask_col:
-        if st.button("Ask"):
+        if st.button("Ask", key="ask_button"):
             logging.info("Ask button clicked")
             if not api_key:
                 st.error("Please set your OpenAI API key in the Debug tab.")
@@ -459,7 +459,7 @@ with tab_case:
                     save_memory(st.session_state.atom_history)
                     st.session_state.ask_result = reply
     with clear_col:
-        if st.button("Clear all"):
+        if st.button("Clear all", key="clear_all_button"):
             logging.info("Clear all button clicked")
             api_key = st.session_state.get("openai_api_key", "")
             st.session_state.clear()
