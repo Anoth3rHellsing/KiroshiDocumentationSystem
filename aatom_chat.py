@@ -326,7 +326,7 @@ def main():
     if st.button("Clear memory"):
         st.session_state.atom_history = []
         save_memory([])
-        st.experimental_rerun()
+        st.rerun()
 
 
 if __name__ == "__main__":

@@ -179,16 +179,6 @@ if isinstance(st.session_state.case, dict):
 D: CaseData = st.session_state.case
 
 # Button to clear all case data and reset form
-if st.button("Clear all"):
-    api_key = st.session_state.get("openai_api_key", "")
-    st.session_state.clear()
-    st.session_state.openai_api_key = api_key
-    if os.path.exists(AUTOSAVE_FILE):
-        try:
-            os.remove(AUTOSAVE_FILE)
-        except OSError:
-            pass
-    st.experimental_rerun()
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
         json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
@@ -469,7 +459,7 @@ with tab_case:
                     os.remove(AUTOSAVE_FILE)
                 except OSError:
                     pass
-            st.experimental_rerun()
+            st.rerun()
     if st.session_state.verify_result:
         st.text_area(
             "A.A.T.O.M. Verification",
@@ -911,11 +901,11 @@ with tab_atom:
                 st.session_state.atom_history.append({"role": "user", "content": user_msg})
                 st.session_state.atom_history.append({"role": "assistant", "content": reply})
             save_memory(st.session_state.atom_history)
-            st.experimental_rerun()
+            st.rerun()
     if st.button("Clear memory", key="atom_clear"):
         st.session_state.atom_history = []
         save_memory([])
-        st.experimental_rerun()
+        st.rerun()
 
 # ================== FILE UPLOADS & EXPORTS =================
 st.markdown("---")
