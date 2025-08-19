@@ -28,6 +28,7 @@ from reportlab.platypus import (
 )
 import requests
 import urllib3
+from aatom_chat import load_memory, save_memory, query_atom
 
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
@@ -93,6 +94,8 @@ _init_state("openai_model", "gpt-4o")
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
+_init_state("atom_history", load_memory())
+_init_state("verify_result", "")
 
 
 def load_autosave():
@@ -371,6 +374,64 @@ else:
 
 # ================== CASE TAB =================
 with tab_case:
+    ai_col1, ai_col2 = st.columns(2)
+    api_key = st.session_state.openai_api_key
+    model = st.session_state.openai_model
+    if ai_col1.button("Verify"):
+        if not api_key:
+            st.error("Please set your OpenAI API key in the Debug tab.")
+        else:
+            case_dict = asdict(D)
+            user_message = (
+                "Review the following case data and list any missing or incomplete information needed to complete the case documentation.\n\n"
+                + json.dumps(case_dict, indent=2)
+            )
+            try:
+                reply = query_atom(
+                    user_message,
+                    st.session_state.atom_history,
+                    api_key,
+                    model,
+                )
+            except Exception as e:
+                st.error(str(e))
+            else:
+                st.session_state.atom_history.append({"role": "user", "content": user_message})
+                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                save_memory(st.session_state.atom_history)
+                st.session_state.verify_result = reply
+    if ai_col2.button("AI Assistance"):
+        if not api_key:
+            st.error("Please set your OpenAI API key in the Debug tab.")
+        else:
+            case_dict = asdict(D)
+            user_message = (
+                "Using all available case data below, craft a concise 'brief_description' (max 10 words) and a detailed 'description' paragraph summarizing the issue. Respond only with JSON: {\"brief_description\": \"...\", \"description\": \"...\"}.\n\n"
+                + json.dumps(case_dict, indent=2)
+            )
+            try:
+                reply = query_atom(
+                    user_message,
+                    st.session_state.atom_history,
+                    api_key,
+                    model,
+                )
+                data = json.loads(reply)
+            except Exception as e:
+                st.error(str(e))
+            else:
+                st.session_state.atom_history.append({"role": "user", "content": user_message})
+                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                save_memory(st.session_state.atom_history)
+                D.brief_description = data.get("brief_description", D.brief_description)
+                D.description = data.get("description", D.description)
+                st.success("Descriptions updated.")
+    if st.session_state.verify_result:
+        st.text_area(
+            "A.A.T.O.M. Verification",
+            st.session_state.verify_result,
+            height=150,
+        )
     prog, miss = compute_progress(D, cat_map)
     left, right = st.columns([1, 2], gap="medium")
     with right:
