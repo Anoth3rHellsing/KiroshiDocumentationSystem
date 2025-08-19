@@ -179,6 +179,16 @@ if isinstance(st.session_state.case, dict):
 D: CaseData = st.session_state.case
 
 # Button to clear all case data and reset form
+if st.button("Clear all"):
+    api_key = st.session_state.get("openai_api_key", "")
+    st.session_state.clear()
+    st.session_state.openai_api_key = api_key
+    if os.path.exists(AUTOSAVE_FILE):
+        try:
+            os.remove(AUTOSAVE_FILE)
+        except OSError:
+            pass
+    st.experimental_rerun()
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
         json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
