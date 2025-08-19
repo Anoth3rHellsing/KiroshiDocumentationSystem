@@ -36,7 +36,8 @@ A simple scratchpad for temporary information.
 
 ### Debug
 Stores the OpenAI API key and model selection and displays the current session
-state for troubleshooting.
+state for troubleshooting. A nonfunctional placeholder key is preloaded for
+demonstration purposes.
 
 ## Autosave
 Case information and scratchpad notes are written to an `autosave.json` file
