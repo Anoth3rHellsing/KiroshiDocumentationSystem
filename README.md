@@ -87,7 +87,7 @@ fields. The *Tables* tab provides a full markdown dump of all case data for easy
 copying. An internal *Debug* tab is available after logging in with username and
 password `admin`.
 
-For API usage, supply an OpenAI API key in the *API* tab before generating an
+For API usage, supply an OpenAI API key in the *Debug* tab before generating an
 email.
 
 

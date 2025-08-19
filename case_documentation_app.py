@@ -290,11 +290,14 @@ def js_notify(title: str, message: str) -> None:
 
 def rerun_in(ms: int) -> None:
     """Trigger a rerun of the app after a given delay in milliseconds."""
-    components.html(
-        f"<script>setTimeout(function(){{window.parent.postMessage({{type:'streamlit:rerun'}}, '*');}},{ms});</script>",
-        height=0,
-        key=f"rerun_{ms}_{int(time.time()*1000)}",
-    )
+    try:
+        components.html(
+            f"<script>setTimeout(function(){{window.parent.postMessage({{type:'streamlit:rerun'}}, '*');}},{ms});</script>",
+            height=0,
+            key=f"rerun_{ms}_{int(time.time()*1000)}",
+        )
+    except Exception:
+        pass
 
 
 def make_pdf(d: CaseData, cat_map) -> bytes:
