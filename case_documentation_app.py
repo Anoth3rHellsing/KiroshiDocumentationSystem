@@ -89,7 +89,7 @@ _init_state("lunch_alarm_notified", False)
 _init_state("break_alarm_date", None)
 _init_state("lunch_alarm_date", None)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
-_init_state("openai_model", "gpt-3.5-turbo")
+_init_state("openai_model", "gpt-4o")
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
@@ -930,7 +930,7 @@ with tab_debug:
     if st.session_state.debug_auth:
         st.subheader("Debug")
         st.text_input("OpenAI API Key", type="password", key="openai_api_key")
-        st.selectbox("Model", ["gpt-3.5-turbo", "gpt-4"], key="openai_model")
+        st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
         st.json(st.session_state)
     else:
         user = st.text_input("Username", key="debug_user")

@@ -37,7 +37,8 @@ A simple scratchpad for temporary information.
 ### Debug
 Stores the OpenAI API key and model selection and displays the current session
 state for troubleshooting. A nonfunctional placeholder key is preloaded for
-demonstration purposes.
+demonstration purposes, and GPT-4o is selected by default for quick, high-quality
+responses.
 
 ## Autosave
 Case information and scratchpad notes are written to an `autosave.json` file
