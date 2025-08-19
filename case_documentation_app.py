@@ -12,6 +12,7 @@ import zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, date
 import logging
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -51,24 +52,21 @@ logging.basicConfig(
 )
 logging.info("Kiroshi app started")
 
-# Remote logo assets
-KIROSHI_LOGO_URL = (
-    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/kiroshi_logo.png"
-)
-ATOM_LOGO_URL = (
-    "https://raw.githubusercontent.com/Anoth3rHellsing/KiroshiDocumentationSystem/main/docs/atom_logo.png"
-)
+# Local logo assets from repository
+ASSETS_DIR = Path(__file__).parent
+KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
+ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
     page_title=f"Kiroshi V{VERSION}",
     layout="wide",
-    page_icon=KIROSHI_LOGO_URL,
+    page_icon=str(KIROSHI_LOGO_PATH),
 )
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.image(KIROSHI_LOGO_URL)
+    st.image(str(KIROSHI_LOGO_PATH))
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -337,6 +335,20 @@ with tab_case:
             st.error("Please set your OpenAI API key in the Debug tab.")
         else:
             case_dict = asdict(D)
+            if not st.session_state.include_hw:
+                for fld in [
+                    "service_tag",
+                    "pc_model",
+                    "windows_version",
+                    "bios_version",
+                    "graphics_card",
+                    "processor",
+                    "warranty",
+                    "scanner_sn",
+                    "base_sn",
+                    "trios_module_version",
+                ]:
+                    case_dict.pop(fld, None)
             user_message = (
                 "Review the following case data and list any missing or incomplete information needed to complete the case documentation.\n\n"
                 + json.dumps(case_dict, indent=2)
@@ -766,7 +778,7 @@ with tab_tables:
 
 # ================== ATOM CHAT TAB =================
 with tab_atom:
-    st.image(ATOM_LOGO_URL, width=80)
+    st.image(str(ATOM_LOGO_PATH), width=80)
     st.subheader("A.A.T.O.M. Chat")
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
@@ -779,19 +791,17 @@ with tab_atom:
         if not api_key:
             st.error("Please set your OpenAI API key in the Debug tab.")
         else:
-            st.session_state.atom_history.append({"role": "user", "content": user_msg})
-            with st.chat_message("user"):
-                st.markdown(user_msg)
+            history = st.session_state.atom_history.copy()
             try:
-                reply = query_atom(user_msg, st.session_state.atom_history[:-1], api_key, model)
+                reply = query_atom(user_msg, history, api_key, model)
             except Exception as e:
-                with st.chat_message("assistant"):
-                    st.error(str(e))
+                st.session_state.atom_history.append({"role": "user", "content": user_msg})
+                st.session_state.atom_history.append({"role": "assistant", "content": str(e)})
             else:
+                st.session_state.atom_history.append({"role": "user", "content": user_msg})
                 st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                with st.chat_message("assistant"):
-                    st.markdown(reply)
-                save_memory(st.session_state.atom_history)
+            save_memory(st.session_state.atom_history)
+            st.experimental_rerun()
     if st.button("Clear memory", key="atom_clear"):
         st.session_state.atom_history = []
         save_memory([])
