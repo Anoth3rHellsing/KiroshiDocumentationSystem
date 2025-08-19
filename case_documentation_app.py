@@ -335,6 +335,20 @@ with tab_case:
             st.error("Please set your OpenAI API key in the Debug tab.")
         else:
             case_dict = asdict(D)
+            if not st.session_state.include_hw:
+                for fld in [
+                    "service_tag",
+                    "pc_model",
+                    "windows_version",
+                    "bios_version",
+                    "graphics_card",
+                    "processor",
+                    "warranty",
+                    "scanner_sn",
+                    "base_sn",
+                    "trios_module_version",
+                ]:
+                    case_dict.pop(fld, None)
             user_message = (
                 "Review the following case data and list any missing or incomplete information needed to complete the case documentation.\n\n"
                 + json.dumps(case_dict, indent=2)
@@ -777,19 +791,17 @@ with tab_atom:
         if not api_key:
             st.error("Please set your OpenAI API key in the Debug tab.")
         else:
-            st.session_state.atom_history.append({"role": "user", "content": user_msg})
-            with st.chat_message("user"):
-                st.markdown(user_msg)
+            history = st.session_state.atom_history.copy()
             try:
-                reply = query_atom(user_msg, st.session_state.atom_history[:-1], api_key, model)
+                reply = query_atom(user_msg, history, api_key, model)
             except Exception as e:
-                with st.chat_message("assistant"):
-                    st.error(str(e))
+                st.session_state.atom_history.append({"role": "user", "content": user_msg})
+                st.session_state.atom_history.append({"role": "assistant", "content": str(e)})
             else:
+                st.session_state.atom_history.append({"role": "user", "content": user_msg})
                 st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                with st.chat_message("assistant"):
-                    st.markdown(reply)
-                save_memory(st.session_state.atom_history)
+            save_memory(st.session_state.atom_history)
+            st.experimental_rerun()
     if st.button("Clear memory", key="atom_clear"):
         st.session_state.atom_history = []
         save_memory([])
