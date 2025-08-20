@@ -14,10 +14,6 @@ ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 st.set_page_config(
     page_title="A.A.T.O.M. Chat",
     page_icon=str(ATOM_LOGO_PATH),
-    theme={
-        "base": "dark",
-        "backgroundColor": "#00020f",
-    },
 )
 
 MEMORY_FILE = "atom_memory.json"
