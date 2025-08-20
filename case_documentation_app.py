@@ -183,6 +183,30 @@ def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
         json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
 
+
+def _update_field(field: str):
+    """Update dataclass field from session state and persist."""
+    setattr(D, field, st.session_state[field])
+    autosave()
+
+
+def auto_text_input(label: str, field: str, container=st, **kwargs):
+    """Text input that saves on every change."""
+    kwargs.setdefault("key", field)
+    value = container.text_input(
+        label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
+    )
+    setattr(D, field, value)
+
+
+def auto_text_area(label: str, field: str, container=st, **kwargs):
+    """Text area that saves on every change."""
+    kwargs.setdefault("key", field)
+    value = container.text_area(
+        label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
+    )
+    setattr(D, field, value)
+
 BASE_CATEGORY_MAP = {
     "HEADER": ["company_name", "subscription_id", "brief_description", "case_id"],
     "DESCRIPTION": ["description"],
@@ -490,35 +514,38 @@ with tab_case:
         for t in todo:
             st.markdown(f"- {t}")
         st.subheader("Case Header")
-        D.company_name = st.text_input("Company name", D.company_name)
-        D.subscription_id = st.text_input("Subscription ID", D.subscription_id)
-        D.brief_description = st.text_input("Brief description", D.brief_description)
-        D.case_id = st.text_input("Case ID", D.case_id)
+        auto_text_input("Company name", "company_name")
+        auto_text_input("Subscription ID", "subscription_id")
+        auto_text_input("Brief description", "brief_description")
+        auto_text_input("Case ID", "case_id")
         st.subheader("Description (What / When / Where)")
-        D.description = st.text_area("Description", D.description, height=68)
+        auto_text_area("Description", "description", height=68)
         st.subheader("Phone-call notes")
-        D.caller_name = st.text_input("Caller name", D.caller_name)
-        D.phone_description = st.text_area(
-            "Caller issue description", D.phone_description, height=68
-        )
+        auto_text_input("Caller name", "caller_name")
+        auto_text_area("Caller issue description", "phone_description", height=68)
         c1, c2 = st.columns(2)
-        D.dongle_number = c1.text_input("Dongle number", D.dongle_number)
-        D.phone_number = c2.text_input("Phone number", D.phone_number)
-        D.teamviewer_id = c1.text_input("TeamViewer ID", D.teamviewer_id)
-        D.teamviewer_password = c2.text_input(
-            "TeamViewer password", D.teamviewer_password
+        auto_text_input("Dongle number", "dongle_number", container=c1)
+        auto_text_input("Phone number", "phone_number", container=c2)
+        auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
+        auto_text_input(
+            "TeamViewer password",
+            "teamviewer_password",
+            container=c2,
         )
-        D.email = st.text_input("Email", D.email)
+        auto_text_input("Email", "email")
         st.subheader("Internal notes")
-        D.internal_helpjuice = st.text_input("Helpjuice link", D.internal_helpjuice)
-        D.internal_logs = st.text_area("Logs / screenshots", D.internal_logs, height=68)
+        auto_text_input("Helpjuice link", "internal_helpjuice")
+        auto_text_area("Logs / screenshots", "internal_logs", height=68)
         st.subheader("Remote session – steps")
-        D.remote_steps = st.text_area("One step per line", D.remote_steps, height=68)
+        auto_text_area("One step per line", "remote_steps", height=68)
         st.subheader("Conclusion")
-        D.root_cause = st.text_input("Root cause", D.root_cause)
-        D.solution = st.text_input("Solution", D.solution)
+        auto_text_input("Root cause", "root_cause")
+        auto_text_input("Solution", "solution")
         st.session_state.survey_link = st.text_input(
-            "Customer satisfaction survey URL", st.session_state.survey_link
+            "Customer satisfaction survey URL",
+            value=st.session_state.survey_link,
+            key="survey_link",
+            on_change=autosave,
         )
         st.subheader("Additional information")
         av_check = st.checkbox(
@@ -526,17 +553,26 @@ with tab_case:
         )
         if av_check:
             av_name = st.text_input(
-                "What antivirus?", D.antivirus.replace("Customer uses antivirus: ", "")
+                "What antivirus?",
+                D.antivirus.replace("Customer uses antivirus: ", ""),
+                key="antivirus_name",
+                on_change=autosave,
             )
-            D.antivirus = f"Customer uses antivirus: {av_name}" if av_name else "Customer uses antivirus:"
+            D.antivirus = (
+                f"Customer uses antivirus: {av_name}"
+                if av_name
+                else "Customer uses antivirus:"
+            )
         else:
             D.antivirus = "Customer does not use antivirus."
+        autosave()
         fw_check = st.checkbox(
             "Firewalls are turned on?", value=D.firewalls_enabled.startswith("Firewalls are turned on")
         )
         D.firewalls_enabled = (
             "Firewalls are turned on." if fw_check else "Firewalls are not turned on."
         )
+        autosave()
         upd_check = st.checkbox(
             "Any update was made?", value=not D.update_history.startswith("No updates") and bool(D.update_history)
         )
@@ -544,50 +580,73 @@ with tab_case:
             upd_text = st.text_input(
                 "From what version to what version?",
                 D.update_history.replace("An update was made: ", ""),
+                key="update_history",
+                on_change=autosave,
             )
             D.update_history = (
-                f"An update was made: {upd_text}" if upd_text else "An update was made:"
+                f"An update was made: {upd_text}"
+                if upd_text
+                else "An update was made:"
             )
         else:
             D.update_history = "No updates were made."
+        autosave()
         rel_check = st.checkbox(
             "Is there any related case?", value=D.related_case_id.startswith("There is a related case")
         )
         if rel_check:
             rel_id = st.text_input(
-                "Related case number", D.related_case_id.replace("There is a related case: ", "")
+                "Related case number",
+                D.related_case_id.replace("There is a related case: ", ""),
+                key="related_case_id",
+                on_change=autosave,
             )
             D.related_case_id = (
-                f"There is a related case: {rel_id}" if rel_id else "There is a related case:"
+                f"There is a related case: {rel_id}"
+                if rel_id
+                else "There is a related case:"
             )
         else:
             D.related_case_id = "There are no related cases."
+        autosave()
         cause_check = st.checkbox(
             "Any possible cause why it happened?",
             value=D.possible_cause.startswith("Possible cause"),
         )
         if cause_check:
             cause_text = st.text_input(
-                "Why?", D.possible_cause.replace("Possible cause: ", "")
+                "Why?",
+                D.possible_cause.replace("Possible cause: ", ""),
+                key="possible_cause",
+                on_change=autosave,
             )
             D.possible_cause = (
                 f"Possible cause: {cause_text}" if cause_text else "Possible cause:"
             )
         else:
             D.possible_cause = "There is no known possible cause."
+        autosave()
         perf_check = st.checkbox(
             "Performance related issue?",
             value=D.performance_issue.startswith("It is a performance related issue"),
         )
         if perf_check:
             perf_text = st.text_input(
-                "Why?", D.performance_issue.replace("It is a performance related issue: ", "")
+                "Why?",
+                D.performance_issue.replace(
+                    "It is a performance related issue: ", ""
+                ),
+                key="performance_issue",
+                on_change=autosave,
             )
             D.performance_issue = (
-                f"It is a performance related issue: {perf_text}" if perf_text else "It is a performance related issue:"
+                f"It is a performance related issue: {perf_text}"
+                if perf_text
+                else "It is a performance related issue:"
             )
         else:
             D.performance_issue = "It is not a performance related issue."
+        autosave()
         st.markdown("---")
         st.download_button(
             "Download PDF",
@@ -620,34 +679,37 @@ if tab_escalations:
             D.best_time not in ("", "ASAP"),
         )
         if best_cb:
-            D.best_time = st.text_input(
+            auto_text_input(
                 "Best call-back time + timezone",
-                D.best_time if D.best_time not in ("", "ASAP") else "",
+                "best_time",
             )
         else:
             D.best_time = "ASAP"
+            autosave()
         pat_cb = st.checkbox(
             "Patterson legacy #",
             D.patterson not in ("", "N/A"),
         )
         if pat_cb:
-            D.patterson = st.text_input(
+            auto_text_input(
                 "Patterson legacy #",
-                D.patterson if D.patterson not in ("", "N/A") else "",
+                "patterson",
             )
         else:
             D.patterson = "N/A"
+            autosave()
         str_cb = st.checkbox(
             "Straumann ticket #",
             D.straumann not in ("", "N/A"),
         )
         if str_cb:
-            D.straumann = st.text_input(
+            auto_text_input(
                 "Straumann ticket #",
-                D.straumann if D.straumann not in ("", "N/A") else "",
+                "straumann",
             )
         else:
             D.straumann = "N/A"
+            autosave()
         st.markdown("#### AX Coordinators Table")
         st.dataframe(
             category_dataframe("AX COORDINATORS", D, cat_map),
@@ -834,24 +896,24 @@ if st.session_state.include_hw:
     with tab_hw:
         st.subheader("PC Hardware Issue")
         col_pc1, col_pc2 = st.columns(2)
-        D.service_tag = col_pc1.text_input("Service Tag", D.service_tag)
-        D.pc_model = col_pc2.text_input("PC Model", D.pc_model)
-        D.windows_version = col_pc1.text_input("Windows version", D.windows_version)
-        D.bios_version = col_pc2.text_input("BIOS version", D.bios_version)
-        D.graphics_card = col_pc1.text_input("Graphics Card", D.graphics_card)
-        D.processor = col_pc2.text_input("Processor", D.processor)
-        D.warranty = st.text_input("Warranty", D.warranty)
+        auto_text_input("Service Tag", "service_tag", container=col_pc1)
+        auto_text_input("PC Model", "pc_model", container=col_pc2)
+        auto_text_input(
+            "Windows version", "windows_version", container=col_pc1
+        )
+        auto_text_input("BIOS version", "bios_version", container=col_pc2)
+        auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
+        auto_text_input("Processor", "processor", container=col_pc2)
+        auto_text_input("Warranty", "warranty")
         st.dataframe(
             category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
         )
 
         st.markdown("---")
         st.subheader("Scanner Hardware Issue")
-        D.scanner_sn = st.text_input("Scanner S/N", D.scanner_sn)
-        D.base_sn = st.text_input("Base S/N", D.base_sn)
-        D.trios_module_version = st.text_input(
-            "TRIOS MODULE Version", D.trios_module_version
-        )
+        auto_text_input("Scanner S/N", "scanner_sn")
+        auto_text_input("Base S/N", "base_sn")
+        auto_text_input("TRIOS MODULE Version", "trios_module_version")
         st.dataframe(
             category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
         )
@@ -860,7 +922,11 @@ if st.session_state.include_hw:
 with tab_notes:
     st.subheader("Scratchpad")
     st.session_state.scratch = st.text_area(
-        "Temporary notes", st.session_state.scratch, height=400
+        "Temporary notes",
+        st.session_state.scratch,
+        height=400,
+        key="scratch",
+        on_change=autosave,
     )
 
 # ================== TABLES TAB =================
