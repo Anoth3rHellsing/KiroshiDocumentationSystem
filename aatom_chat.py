@@ -11,7 +11,14 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Configure Streamlit page
 ASSETS_DIR = Path(__file__).parent
 ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
-st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=str(ATOM_LOGO_PATH))
+st.set_page_config(
+    page_title="A.A.T.O.M. Chat",
+    page_icon=str(ATOM_LOGO_PATH),
+    theme={
+        "base": "dark",
+        "backgroundColor": "#00020f",
+    },
+)
 
 MEMORY_FILE = "atom_memory.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
