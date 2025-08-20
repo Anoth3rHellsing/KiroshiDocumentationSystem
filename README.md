@@ -24,7 +24,7 @@ creating email prompts or full e‑mails via the OpenAI ChatGPT API.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the
   generated response.
 - **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a
-  separate chat interface is also available with persistent memory.
+  separate chat interface offers persistent memory, gentle reassurance when you're overwhelmed, and humorous escalation quips.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines)
   protected by an `admin`/`admin` login.
 
