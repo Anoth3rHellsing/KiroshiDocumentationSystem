@@ -65,6 +65,10 @@ st.set_page_config(
     page_title=f"Kiroshi V{VERSION}",
     layout="wide",
     page_icon=str(KIROSHI_LOGO_PATH),
+    theme={
+        "base": "dark",
+        "backgroundColor": "#00020f",
+    },
 )
 st.image(str(KIROSHI_LOGO_PATH))
 
