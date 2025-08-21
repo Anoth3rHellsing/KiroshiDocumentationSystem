@@ -541,7 +541,12 @@ with tab_case:
         st.subheader("Conclusion")
         auto_text_input("Root cause", "root_cause")
         auto_text_input("Solution", "solution")
-        auto_text_input("Customer satisfaction survey URL", "survey_link")
+        st.session_state.survey_link = st.text_input(
+            "Customer satisfaction survey URL",
+            value=st.session_state.survey_link,
+            key="survey_link",
+            on_change=autosave,
+        )
         st.subheader("Additional information")
         av_check = st.checkbox(
             "Customer uses antivirus?", value=D.antivirus.startswith("Customer uses")
