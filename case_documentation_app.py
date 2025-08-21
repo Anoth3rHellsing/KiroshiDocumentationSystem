@@ -73,7 +73,6 @@ def _init_state(key, default):
     if key not in st.session_state:
         st.session_state[key] = default
 
-_init_state("survey_link", "")
 _init_state("case", {})
 _init_state("uploads", [])
 _init_state("scratch", "")
@@ -141,6 +140,7 @@ class CaseData:
     remote_steps: str = ""
     root_cause: str = ""
     solution: str = ""
+    survey_link: str = ""
     # Escalation details
     request_issue: str = ""
     contact_name: str = ""
@@ -764,7 +764,7 @@ Root cause: {D.root_cause}
 Steps taken:
 {steps_summary}
 Solution: {D.solution}
-Survey link: {st.session_state.survey_link}"""
+Survey link: {D.survey_link}"""
     elif email_type == "Broken Scanner":
         st.markdown("#### Incident questionnaire (prefill if known)")
         ext["experience"] = st.text_input(
@@ -921,7 +921,7 @@ if st.session_state.include_hw:
 # ================== NOTES TAB =================
 with tab_notes:
     st.subheader("Scratchpad")
-    st.session_state.scratch = st.text_area(
+    st.text_area(
         "Temporary notes",
         st.session_state.scratch,
         height=400,
