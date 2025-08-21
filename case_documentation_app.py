@@ -178,6 +178,10 @@ if isinstance(st.session_state.case, dict):
     st.session_state.case = CaseData(**st.session_state.case)
 D: CaseData = st.session_state.case
 
+# Ensure the survey link widget has an initial value to prevent
+# "attribute missing" errors before the first user interaction.
+_init_state("survey_link", D.survey_link)
+
 # Button to clear all case data and reset form
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
@@ -541,12 +545,7 @@ with tab_case:
         st.subheader("Conclusion")
         auto_text_input("Root cause", "root_cause")
         auto_text_input("Solution", "solution")
-        st.session_state.survey_link = st.text_input(
-            "Customer satisfaction survey URL",
-            value=st.session_state.survey_link,
-            key="survey_link",
-            on_change=autosave,
-        )
+        auto_text_input("Customer satisfaction survey URL", "survey_link")
         st.subheader("Additional information")
         av_check = st.checkbox(
             "Customer uses antivirus?", value=D.antivirus.startswith("Customer uses")
