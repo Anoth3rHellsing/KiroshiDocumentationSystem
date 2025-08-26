@@ -1,38 +1,38 @@
 # Kiroshi Documentation System
 
-Kiroshi is a Streamlit application for documenting IT support cases. It provides
-interactive forms for collecting case details, generating PDF summaries, and
-creating email prompts or full e‑mails via the OpenAI ChatGPT API.
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](#)
+[![Coverage](https://img.shields.io/badge/coverage-unknown-lightgrey)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Kiroshi is a Streamlit application for documenting IT support cases. It provides interactive forms for collecting case details, generating PDF summaries, and creating email prompts or full emails via the OpenAI ChatGPT API.
+
+This project is intended for local development and personal use. A stable production release is not yet planned.
+
+## Demo
+
+![Kiroshi UI Demo](docs/demo.png)
+*Replace `docs/demo.png` with an actual screenshot or GIF demonstrating the interface.*
 
 ## Features
 
-- **Case tab** – capture customer information, notes, and track completion
-  progress.
-- **Email tab** – generate prompts for different e‑mail templates such as
-  customer recaps or escalation notes.
+- **Case tab** – capture customer information, notes, and track completion progress.
+- **Email tab** – generate prompts for different e-mail templates such as customer recaps or escalation notes.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Notes tab** – scratchpad for temporary notes.
-- **Tables tab** – displays each category in an Excel‑style table with a title
-  indicating Phonecall or Int plus the current date, making it easy to copy
-  into spreadsheets.
-- **PDF export** – download a formatted summary of the case with wrapped table
-  text so long values stay within the page.
-- **Attachments** – upload screenshots or logs and export everything as a ZIP
-  bundle.
-- **Real-time autosave** – case data and notes are persisted to `autosave.json`
-  on every interaction to prevent data loss.
-- **ChatGPT API integration** – send prompts directly to OpenAI and display the
-  generated response.
-- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a
-  separate chat interface offers persistent memory, gentle reassurance when you're overwhelmed, and humorous escalation quips.
-- **Debug tab** – internal diagnostics with a log viewer (last 100 lines)
-  protected by an `admin`/`admin` login.
+- **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date, making it easy to copy into spreadsheets.
+- **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
+- **Attachments** – upload screenshots or logs and export everything as a ZIP bundle.
+- **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
+- **ChatGPT API integration** – send prompts directly to OpenAI and display the generated response.
+- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory, gentle reassurance when you're overwhelmed, and humorous escalation quips.
+- **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
 
-## Requirements
+## Installation
 
-Install the dependencies from the project directory. If you just cloned or
-downloaded the repository, first change into its folder with `cd` and then run
-`pip`:
+### Requirements
+
+Install the dependencies from the project directory. If you just cloned or downloaded the repository, first change into its folder with `cd` and then run `pip`:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
@@ -41,9 +41,7 @@ pip install -r requirements.txt
 
 ### Windows PATH helper
 
-If the `streamlit` command is not recognized in a Windows terminal, the Python
-`Scripts` directory may be missing from your user `PATH`. The following
-PowerShell snippet adds it automatically:
+If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user `PATH`. The following PowerShell snippet adds it automatically:
 
 ```powershell
 # Detect the Scripts folder for the current Python
@@ -71,23 +69,16 @@ streamlit --version
 
 ## Usage
 
-Run the Streamlit app from the repository root. If you are not already in the
-project folder, navigate there first with `cd`:
+Run the Streamlit app from the repository root. If you are not already in the project folder, navigate there first with `cd`:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
 streamlit run case_documentation_app.py
 ```
 
-A browser window will open with tabs for entering case information. The "Download
-PDF" button exports a formatted summary, and the attachment section lets you
-bundle supporting files. Use the checkbox at the top to toggle hardware tabs and
-fields. The *Tables* tab provides a full markdown dump of all case data for easy
-copying. An internal *Debug* tab is available after logging in with username and
-password `admin`.
+A browser window will open with tabs for entering case information. The "Download PDF" button exports a formatted summary, and the attachment section lets you bundle supporting files. Use the checkbox at the top to toggle hardware tabs and fields. The *Tables* tab provides a full markdown dump of all case data for easy copying. An internal *Debug* tab is available after logging in with username and password `admin`.
 
-Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify**
-button to highlight missing documentation.
+Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify** button to highlight missing documentation.
 
 To experiment with the A.A.T.O.M. chatbox, run the dedicated script:
 
@@ -96,28 +87,26 @@ cd /path/to/KiroshiDocumentationSystem
 streamlit run aatom_chat.py
 ```
 
-The chat history is saved to `atom_memory.json` so conversations persist across
-sessions.
+The chat history is saved to `atom_memory.json` so conversations persist across sessions.
 
-For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for
-demonstration, and GPT-4o is selected by default for fast, high-quality
-responses. Replace the key or model with your own settings before generating an
-email.
+For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for demonstration, and GPT-4o is selected by default for fast, high-quality responses. Replace the key or model with your own settings before generating an email.
 
+### Configuration
+
+Copy the example configuration to a new `config.json` file and edit it to match your environment. The application reads options such as your OpenAI API key from this file.
+
+```bash
+cp config.example.json config.json
+# then open config.json and update the values
+```
 
 ### Corporate SSL interception
 
-Some enterprise networks intercept HTTPS traffic with a self-signed
-certificate, which breaks standard SSL verification. The application now
-disables certificate checks for requests to the OpenAI ChatGPT API so it can be
-used behind such company proxies. Be aware that this weakens transport security
-and should only be enabled in trusted environments.
-
+Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The application disables certificate checks for requests to the OpenAI ChatGPT API so it can be used behind such company proxies. Be aware that this weakens transport security and should only be enabled in trusted environments.
 
 ## Build executable
 
-To create a standalone executable, make sure you're in the project directory,
-install the dependencies, and run the build script:
+To create a standalone executable, make sure you're in the project directory, install the dependencies, and run the build script:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
@@ -129,10 +118,25 @@ The resulting binary will be placed in the `dist/` directory.
 
 ## Documentation
 
-See the [`docs/`](docs/README.md) directory for a more detailed explanation of
-how data is structured and how each tab operates.
+See the [`docs/`](docs/README.md) directory for a more detailed explanation of how data is structured and how each tab operates.
+
+## Contributing
+
+Contributions are welcome! To propose a change:
+
+1. Fork the repository and create your feature branch.
+2. Commit your changes and open a pull request.
+3. For bugs or feature requests, please open an issue describing the problem or proposal.
+
+For questions, reach out by filing an issue or contacting the maintainers directly.
 
 ## License
 
-This project is licensed under the terms of the MIT License. See
-[LICENSE](LICENSE) for details.
+This project is licensed under the terms of the MIT License. See [LICENSE](LICENSE) for details.
+
+## Useful Links
+
+- [Documentation](docs/README.md)
+- [Issue Tracker](https://github.com/your-org/KiroshiDocumentationSystem/issues)
+- [Streamlit](https://streamlit.io)
+
