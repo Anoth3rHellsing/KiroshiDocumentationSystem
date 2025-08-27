@@ -91,6 +91,8 @@ _init_state("atom_history", load_memory())
 _init_state("verify_result", "")
 _init_state("ask_result", "")
 _init_state("system_prompt", SYSTEM_PROMPT)
+_init_state("personality_mode", "utility")
+_init_state("ai_assist_result", "")
 
 
 def load_autosave():
@@ -366,7 +368,7 @@ tab_debug = next(tab_iter)
 with tab_case:
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
-    verify_col, ask_col, clear_col = st.columns(3)
+    verify_col, ask_col, assist_col, clear_col = st.columns(4)
     with verify_col:
         if st.button("Verify", key="verify_button"):
             logging.info("Verify button clicked")
@@ -476,6 +478,74 @@ with tab_case:
                     st.session_state.atom_history.append({"role": "assistant", "content": reply})
                     save_memory(st.session_state.atom_history)
                     st.session_state.ask_result = reply
+    with assist_col:
+        if st.button("AI Assistance", key="assist_button"):
+            logging.info("AI Assistance button clicked")
+            if not api_key:
+                st.error("Please set your OpenAI API key in the Debug tab.")
+            else:
+                case_dict = asdict(D)
+                if not st.session_state.include_hw:
+                    for fld in [
+                        "service_tag",
+                        "pc_model",
+                        "windows_version",
+                        "bios_version",
+                        "graphics_card",
+                        "processor",
+                        "warranty",
+                        "scanner_sn",
+                        "base_sn",
+                        "trios_module_version",
+                    ]:
+                        case_dict.pop(fld, None)
+                if not st.session_state.include_escalations:
+                    for fld in [
+                        "request_issue",
+                        "contact_name",
+                        "office_ph",
+                        "direct_ph",
+                        "best_time",
+                        "patterson",
+                        "straumann",
+                        "esc_name",
+                        "esc_ph",
+                        "esc_email",
+                    ]:
+                        case_dict.pop(fld, None)
+                _, miss = compute_progress(D, cat_map)
+                missing = [f for flds in miss.values() for f in flds]
+                user_message = (
+                    "Use the available case data to infer values for missing fields."
+                    " Return a JSON object mapping field names to inferred values."
+                    " Omit fields that cannot be inferred.\n\n"
+                    + json.dumps(case_dict, indent=2)
+                    + "\nMissing fields:\n"
+                    + json.dumps(missing)
+                )
+                try:
+                    reply = query_atom(
+                        user_message,
+                        st.session_state.atom_history,
+                        api_key,
+                        model,
+                    )
+                except Exception as e:
+                    st.error(str(e))
+                else:
+                    st.session_state.atom_history.append({"role": "user", "content": user_message})
+                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                    save_memory(st.session_state.atom_history)
+                    st.session_state.ai_assist_result = reply
+                    try:
+                        suggestions = json.loads(reply)
+                    except json.JSONDecodeError:
+                        st.error("AI Assistance did not return valid JSON.")
+                    else:
+                        for fld, val in suggestions.items():
+                            if hasattr(D, fld) and not getattr(D, fld):
+                                setattr(D, fld, val)
+                        autosave()
     with clear_col:
         if st.button("Clear all", key="clear_all_button"):
             logging.info("Clear all button clicked")
@@ -498,6 +568,12 @@ with tab_case:
         st.text_area(
             "A.A.T.O.M. Suggestions",
             st.session_state.ask_result,
+            height=150,
+        )
+    if st.session_state.ai_assist_result:
+        st.text_area(
+            "AI Assistance",
+            st.session_state.ai_assist_result,
             height=150,
         )
     prog, miss = compute_progress(D, cat_map)
@@ -1004,6 +1080,7 @@ with tab_debug:
         st.subheader("Debug")
         st.text_input("OpenAI API Key", type="password", key="openai_api_key")
         st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+        st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
         st.json(st.session_state)
         st.subheader("Logs")
         st.text(tail_log(LOG_FILE))

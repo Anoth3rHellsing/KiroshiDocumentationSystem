@@ -245,9 +245,11 @@ END OF SPEC
 """
 
 
-# Public helpers that can be safely imported by other modules.
-__all__ = ["load_memory", "save_memory", "query_atom", "SYSTEM_PROMPT"]
-
+def build_system_prompt():
+    """Return system prompt with current personality mode."""
+    prompt = st.session_state.get("system_prompt", SYSTEM_PROMPT)
+    mode = st.session_state.get("personality_mode", "utility")
+    return prompt.replace("{personality_mode}", mode)
 
 def load_memory():
     """Load persistent memory from disk."""
@@ -256,10 +258,12 @@ def load_memory():
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
+                st.session_state["personality_mode"] = data.get("personality_mode", "utility")
                 return data.get("history", [])
         except Exception:
             pass
     st.session_state["system_prompt"] = SYSTEM_PROMPT
+    st.session_state["personality_mode"] = "utility"
     return []
 
 
@@ -271,6 +275,7 @@ def save_memory(history):
                 {
                     "history": history,
                     "system_prompt": st.session_state.get("system_prompt", SYSTEM_PROMPT),
+                    "personality_mode": st.session_state.get("personality_mode", "utility"),
                 },
                 f,
                 ensure_ascii=False,
@@ -282,7 +287,7 @@ def save_memory(history):
 
 def query_atom(user_message, history, api_key, model):
     """Send a message to the A.A.T.O.M. API and return the reply."""
-    messages = ([{"role": "system", "content": SYSTEM_PROMPT}] + history + [
+    messages = ([{"role": "system", "content": build_system_prompt()}] + history + [
         {"role": "user", "content": user_message}
     ])
     response = requests.post(
@@ -313,6 +318,12 @@ def main():
             "System Prompt",
             st.session_state.get("system_prompt", SYSTEM_PROMPT),
             height=300,
+            key="system_prompt",
+        )
+        st.selectbox(
+            "Personality mode",
+            ["utility", "coffee"],
+            key="personality_mode",
         )
 
     api_key = st.text_input(
