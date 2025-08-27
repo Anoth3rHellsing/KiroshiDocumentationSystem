@@ -8,13 +8,18 @@ from pathlib import Path
 # Disable SSL warnings for corporate environments with interception proxies
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configure Streamlit page
+# Asset paths used by the Streamlit UI.  They are defined at import time so
+# other modules can reference them, but the actual page configuration is
+# deferred until the app is executed.  This prevents unwanted side effects
+# (such as "set_page_config can only be called once" errors) when this module
+# is imported purely for its helper functions.
 ASSETS_DIR = Path(__file__).parent
 ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
-st.set_page_config(
-    page_title="A.A.T.O.M. Chat",
-    page_icon=str(ATOM_LOGO_PATH),
-)
+
+
+def configure_page() -> None:
+    """Configure the Streamlit page when running the standalone chat app."""
+    st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=str(ATOM_LOGO_PATH))
 
 MEMORY_FILE = "atom_memory.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
@@ -240,6 +245,10 @@ END OF SPEC
 """
 
 
+# Public helpers that can be safely imported by other modules.
+__all__ = ["load_memory", "save_memory", "query_atom", "SYSTEM_PROMPT"]
+
+
 def load_memory():
     """Load persistent memory from disk."""
     if os.path.exists(MEMORY_FILE):
@@ -293,6 +302,7 @@ def query_atom(user_message, history, api_key, model):
 
 
 def main():
+    configure_page()
     st.image(str(ATOM_LOGO_PATH), width=120)
     st.title("A.A.T.O.M. Chat")
 
