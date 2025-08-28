@@ -28,7 +28,15 @@ from reportlab.platypus import (
 )
 import requests
 import urllib3
-from aatom_chat import load_memory, save_memory, query_atom, SYSTEM_PROMPT
+from aatom_chat import (
+    load_memory,
+    save_memory,
+    query_atom,
+    SYSTEM_PROMPT,
+    load_manual_docs,
+    save_manual_docs,
+    search_manual_docs,
+)
 
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
@@ -88,11 +96,13 @@ _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
 _init_state("atom_history", load_memory())
+_init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
 _init_state("ask_result", "")
 _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
+_init_state("db_search_result", "")
 
 
 def load_autosave():
@@ -1025,6 +1035,54 @@ with tab_atom:
     model = st.session_state.openai_model
     if not api_key:
         st.info("Set your OpenAI API key in the Debug tab.")
+
+    with st.expander("Manual Documents Database"):
+        if st.session_state.manual_docs:
+            st.markdown("**Stored documents:**")
+            for doc in st.session_state.manual_docs:
+                st.markdown(f"- {doc['title']}")
+        doc_file = st.file_uploader("Add document", type=["txt"], key="doc_file")
+        doc_title = st.text_input("Title", key="doc_title")
+        if st.button("Save document", key="save_doc"):
+            if doc_file and doc_title:
+                content = doc_file.getvalue().decode("utf-8", errors="ignore")
+                st.session_state.manual_docs.append({"title": doc_title, "content": content})
+                save_manual_docs(st.session_state.manual_docs)
+                st.success("Document saved.")
+            else:
+                st.error("Provide both title and document.")
+
+    st.subheader("Search manual database")
+    search_query = st.text_input("Search query", key="db_query")
+    if st.button("Search in database", key="db_search_button"):
+        if not api_key:
+            st.error("Please set your OpenAI API key in the Debug tab.")
+        elif not search_query:
+            st.error("Enter a search query.")
+        else:
+            matches = search_manual_docs(search_query, st.session_state.manual_docs)
+            if matches:
+                context = "\n\n".join(f"{m['title']}:\n{m['content']}" for m in matches)
+                message = (
+                    "Use the following documents to answer the question. "
+                    "Cite document titles.\n\n"
+                    + context
+                    + f"\n\nQuestion: {search_query}"
+                )
+                try:
+                    reply = query_atom(message, st.session_state.atom_history, api_key, model)
+                except Exception as e:
+                    st.session_state.db_search_result = str(e)
+                else:
+                    st.session_state.atom_history.append({"role": "user", "content": f"[DB Search] {search_query}"})
+                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                    save_memory(st.session_state.atom_history)
+                    st.session_state.db_search_result = reply
+            else:
+                st.session_state.db_search_result = "No documents matched your query."
+    if st.session_state.db_search_result:
+        st.text_area("Search result", st.session_state.db_search_result, height=150)
+
     for msg in st.session_state.atom_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
