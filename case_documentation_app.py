@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, date
 import logging
 from pathlib import Path
+import re
 
 import pandas as pd
 import streamlit as st
@@ -547,9 +548,23 @@ with tab_case:
                     st.session_state.atom_history.append({"role": "assistant", "content": reply})
                     save_memory(st.session_state.atom_history)
                     st.session_state.ai_assist_result = reply
+                    suggestions = None
                     try:
                         suggestions = json.loads(reply)
                     except json.JSONDecodeError:
+                        match = re.search(
+                            r"```(?:json)?\s*(\{.*?\})\s*```",
+                            reply,
+                            re.DOTALL,
+                        )
+                        if not match:
+                            match = re.search(r"\{.*\}", reply, re.DOTALL)
+                        if match:
+                            try:
+                                suggestions = json.loads(match.group(1) if match.lastindex else match.group())
+                            except json.JSONDecodeError:
+                                pass
+                    if suggestions is None:
                         st.error("AI Assistance did not return valid JSON.")
                     else:
                         for fld, val in suggestions.items():
