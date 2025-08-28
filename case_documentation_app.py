@@ -1055,7 +1055,11 @@ new_files = st.file_uploader(
     "Upload screenshots / logs / videos", accept_multiple_files=True
 )
 if new_files:
-    st.session_state.uploads.extend(new_files)
+    existing_names = {f.name for f in st.session_state.uploads}
+    for nf in new_files:
+        if nf.name not in existing_names:
+            st.session_state.uploads.append(nf)
+            existing_names.add(nf.name)
 if st.session_state.uploads:
     st.markdown("Files queued:")
     for f in st.session_state.uploads:
