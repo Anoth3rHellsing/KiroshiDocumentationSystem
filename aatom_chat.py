@@ -22,6 +22,7 @@ def configure_page() -> None:
     st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=str(ATOM_LOGO_PATH))
 
 MEMORY_FILE = "atom_memory.json"
+MANUAL_DOCS_FILE = "manual_memory.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     "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",
@@ -283,6 +284,36 @@ def save_memory(history):
             )
     except Exception:
         pass
+
+
+def load_manual_docs():
+    """Load manual reference documents from disk."""
+    if os.path.exists(MANUAL_DOCS_FILE):
+        try:
+            with open(MANUAL_DOCS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def save_manual_docs(docs):
+    """Persist manual reference documents to disk."""
+    try:
+        with open(MANUAL_DOCS_FILE, "w", encoding="utf-8") as f:
+            json.dump(docs, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def search_manual_docs(query, docs):
+    """Return docs whose title or content includes the query string."""
+    q = query.lower()
+    return [
+        d
+        for d in docs
+        if q in d.get("title", "").lower() or q in d.get("content", "").lower()
+    ]
 
 
 def query_atom(user_message, history, api_key, model):
