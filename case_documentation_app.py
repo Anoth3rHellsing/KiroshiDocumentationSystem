@@ -54,6 +54,8 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
 )
 LOG_FILE = "app.log"
 
+VERSION_NOT_RELEVANT = "Version not relevant for this case"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -296,7 +298,10 @@ def active_category_map():
 
 def build_title(d: CaseData) -> str:
     """Construct a helper string for case titles."""
-    return f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|{d.case_id}|"
+    return (
+        f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|"
+        f"{d.application_version}|{d.case_id}|"
+    )
 
 
 def compute_progress(d: CaseData, cat_map):
@@ -700,12 +705,12 @@ with tab_case:
         auto_text_input("Brief description", "brief_description")
         auto_text_input("Case ID", "case_id")
         version_nr = st.checkbox(
-            "Version not relevant for this case",
-            D.application_version == "Version not relevant for this case",
+            VERSION_NOT_RELEVANT,
+            D.application_version == VERSION_NOT_RELEVANT,
             key="application_version_not_relevant",
         )
         if version_nr:
-            st.session_state.application_version = "Version not relevant for this case"
+            st.session_state.application_version = VERSION_NOT_RELEVANT
             _update_field("application_version")
         auto_text_input(
             "Application and version",
