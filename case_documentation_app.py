@@ -54,6 +54,8 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
 )
 LOG_FILE = "app.log"
 
+VERSION_NOT_RELEVANT = "Version not relevant for this case"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -140,6 +142,7 @@ class CaseData:
     subscription_id: str = ""
     brief_description: str = ""
     case_id: str = ""
+    application_version: str = ""
     description: str = ""
     caller_name: str = ""
     phone_description: str = ""
@@ -225,7 +228,13 @@ def auto_text_area(label: str, field: str, container=st, **kwargs):
     setattr(D, field, value)
 
 BASE_CATEGORY_MAP = {
-    "HEADER": ["company_name", "subscription_id", "brief_description", "case_id"],
+    "HEADER": [
+        "company_name",
+        "subscription_id",
+        "brief_description",
+        "case_id",
+        "application_version",
+    ],
     "DESCRIPTION": ["description"],
     "PHONECALL": [
         "caller_name",
@@ -286,7 +295,10 @@ def active_category_map():
 
 def build_title(d: CaseData) -> str:
     """Construct a helper string for case titles."""
-    return f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|{d.case_id}|"
+    return (
+        f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|"
+        f"{d.application_version}|{d.case_id}|"
+    )
 
 
 def compute_progress(d: CaseData, cat_map):
@@ -623,6 +635,21 @@ with tab_case:
         auto_text_input("Subscription ID", "subscription_id")
         auto_text_input("Brief description", "brief_description")
         auto_text_input("Case ID", "case_id")
+        version_nr = st.checkbox(
+            VERSION_NOT_RELEVANT,
+            D.application_version == VERSION_NOT_RELEVANT,
+            key="application_version_not_relevant",
+        )
+        if version_nr:
+            st.session_state.application_version = VERSION_NOT_RELEVANT
+            _update_field("application_version")
+        auto_text_input(
+            "Application and version",
+            "application_version",
+            placeholder="e.g., Unite 1.8.10.1",
+            help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
+            disabled=version_nr,
+        )
         st.subheader("Description (What / When / Where)")
         auto_text_area("Description", "description", height=68)
         st.subheader("Phone-call notes")
