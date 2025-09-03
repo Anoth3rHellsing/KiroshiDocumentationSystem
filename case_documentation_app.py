@@ -1023,6 +1023,8 @@ if tab_escalations:
 with tab_email:
     st.subheader("Email Prompt Generator")
     email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
+    if st.session_state.second_line_mode:
+        email_choices.append("Callback Email")
     email_type = st.selectbox(
         "Select email template",
         email_choices,
@@ -1116,15 +1118,7 @@ List each question and provide any known answer beneath it, ready for the custom
 6. Other info – {ext['other']}
 """
 
-    st.session_state.email_extra = ext
-    st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
-    st.session_state["last_prompt"] = prompt
-
-    include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
-    include_restart = st.checkbox("Restart the computer", key="api_restart")
-    include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
-
-    if st.session_state.second_line_mode:
+    elif email_type == "Callback Email":
         st.markdown("#### Callback email options")
         st.session_state.callback_remote = st.checkbox(
             "Need remote session?", st.session_state.callback_remote
@@ -1155,52 +1149,59 @@ List each question and provide any known answer beneath it, ready for the custom
                 st.session_state.callback_equipment,
             )
 
-        if st.button("Generate Callback Email"):
-            caller = D.caller_name or ""
-            if st.session_state.callback_address:
-                equip = (
-                    st.session_state.callback_equipment or "(equipment)"
-                )
-                email_text = (
-                    "Subject: Address Confirmation Request - CAS\n\n"
-                    f"Dear {caller}\n\n"
-                    "Thank you for emailing us regarding this situation. To better assist you, we will send you a "
-                    f"{equip} we need you to please confirm the following information for us to fully assist you:\n"
-                    "Address (please include a suite if there is any)\n"
-                    "City\nState\nZip Code/Postal Code\n"
-                    f"Full name of person responsible of receiving the {equip}\n"
-                    "Best phone number to contact the responsible person.\n"
-                    "Email to contact the responsible person.\n\n"
-                    "We look forward to your reply."
+        caller = D.caller_name or "Customer"
+        if st.session_state.callback_address:
+            equip = st.session_state.callback_equipment or "(equipment)"
+            prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
+List the following fields for them to fill in:
+Address (include suite if any)
+City
+State
+Zip Code/Postal Code
+Full name of the recipient
+Best phone number to contact the recipient
+Email to contact the recipient
+
+Start the email with: Dear {caller}
+End with: We look forward to your reply."""
+        else:
+            if st.session_state.callback_needed:
+                base_request = (
+                    "provide us with the best time for a callback, including your time zone, "
+                    "or alternatively TeamViewer access so we may connect directly to the computer."
                 )
             else:
-                email_text = (
-                    "Subject: Callback Request - CAS\n\n"
-                    f"Dear {caller}\n\n"
-                    "Thank you for emailing us regarding this situation. To better assist you, could you please provide us with the best time for a callback, or alternatively, TeamViewer access so we may connect directly to the computer?\n\n"
-                    "Additionally, please let us know the best time to call you with your time zone so we can schedule this at the most convenient time for you.\n\n"
-                    "We look forward to your reply."
+                base_request = (
+                    "provide us with TeamViewer access so we may connect directly to the computer."
                 )
-                if st.session_state.callback_contact:
-                    email_text += "\n\nPlease provide your contact information."
-                if st.session_state.callback_clarify:
-                    email_text += "\n\nCould you please clarify what happened?"
-                if (
-                    st.session_state.callback_remote
-                    and st.session_state.callback_remote_text.strip()
-                ):
-                    email_text += (
-                        "\n\n" + st.session_state.callback_remote_text.strip()
-                    )
-            st.session_state.callback_email_output = email_text
-
-        if st.session_state.get("callback_email_output"):
-            st.text_area(
-                "Callback Email",
-                st.session_state.callback_email_output,
-                height=300,
-                key="callback_email_output",
+            prompt = (
+                f"Draft a polite email asking the customer to {base_request}\n"
+                f"Start the email with: Dear {caller}\n"
+                "End with: We look forward to your reply."
             )
+            extras = []
+            if st.session_state.callback_contact:
+                extras.append("Ask them to provide their contact information.")
+            if st.session_state.callback_clarify:
+                extras.append("Ask them to clarify what happened.")
+            if (
+                st.session_state.callback_remote
+                and st.session_state.callback_remote_text.strip()
+            ):
+                extras.append(
+                    "Include the following additional details:\n"
+                    + st.session_state.callback_remote_text.strip()
+                )
+            if extras:
+                prompt += "\n\n" + "\n".join(extras)
+
+    st.session_state.email_extra = ext
+    st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
+    st.session_state["last_prompt"] = prompt
+
+    include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
+    include_restart = st.checkbox("Restart the computer", key="api_restart")
+    include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
 
     if st.button("Generate Email (ChatGPT API)"):
         api_key = st.session_state.openai_api_key
