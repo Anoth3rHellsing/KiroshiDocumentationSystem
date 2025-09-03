@@ -281,6 +281,10 @@ if isinstance(st.session_state.case, dict):
     st.session_state.case = CaseData(**st.session_state.case)
 D: CaseData = st.session_state.case
 
+# Ensure session state mirrors the current case data before any widgets are created
+for key, value in asdict(D).items():
+    st.session_state[key] = value
+
 # Ensure the survey link widget has an initial value to prevent
 # "attribute missing" errors before the first user interaction.
 _init_state("survey_link", D.survey_link)
@@ -1324,8 +1328,6 @@ with tab_settings:
             data = {k: v for k, v in data.items() if k in CaseData.__annotations__}
             st.session_state.case = CaseData(**data)
             D = st.session_state.case
-            for key, value in asdict(D).items():
-                st.session_state[key] = value
             autosave()
             st.success("Case loaded successfully.")
             st.rerun()
