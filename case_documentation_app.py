@@ -31,6 +31,7 @@ from reportlab.platypus import (
 )
 import requests
 import urllib3
+import pyautogui
 from aatom_chat import (
     load_memory,
     save_memory,
@@ -114,6 +115,7 @@ def _init_state(key, default):
 _init_state("case", {})
 _init_state("uploads", [])
 _init_state("log_uploads", [])
+_init_state("screenshots", [])
 _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
@@ -198,6 +200,7 @@ class CaseData:
     internal_logs: str = ""
     remote_steps: str = ""
     root_cause: str = ""
+
     solution: str = ""
     survey_link: str = ""
     # Escalation details
@@ -230,6 +233,17 @@ class CaseData:
     scanner_sn: str = ""
     base_sn: str = ""
     trios_module_version: str = ""
+
+
+@dataclass
+class InMemoryUploadedFile:
+    """Simple file-like container for generated screenshots."""
+
+    name: str
+    data: bytes
+
+    def getvalue(self) -> bytes:
+        return self.data
 
 
 # convert stored dict to dataclass
@@ -1373,7 +1387,26 @@ if log_files:
             st.session_state.log_uploads.append(lf)
             existing_log_names.add(lf.name)
 
-if st.session_state.uploads or st.session_state.log_uploads:
+screenshot_name = st.text_input("Screenshot name", key="screenshot_name")
+if st.button("Take Screenshot"):
+    if screenshot_name:
+        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
+        img = pyautogui.screenshot()
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        st.session_state.screenshots.append(
+            InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue())
+        )
+        st.success(f"Captured screenshot: {safe_name}")
+    else:
+        st.error("Please provide a screenshot name before capturing.")
+
+if (
+    st.session_state.uploads
+    or st.session_state.log_uploads
+    or st.session_state.screenshots
+):
     if st.session_state.uploads:
         st.markdown("Files queued:")
         for f in st.session_state.uploads:
@@ -1382,6 +1415,10 @@ if st.session_state.uploads or st.session_state.log_uploads:
         st.markdown("Logs queued:")
         for f in st.session_state.log_uploads:
             st.markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+    if st.session_state.screenshots:
+        st.markdown("Screenshots captured:")
+        for s in st.session_state.screenshots:
+            st.markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
     if st.button("Create ZIP"):
         zbuf = io.BytesIO()
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1389,6 +1426,8 @@ if st.session_state.uploads or st.session_state.log_uploads:
                 z.writestr(f.name, f.getvalue())
             for f in st.session_state.log_uploads:
                 z.writestr(f"logs/{f.name}", f.getvalue())
+            for s in st.session_state.screenshots:
+                z.writestr(f"Screenshots/{s.name}", s.getvalue())
             z.writestr("case.json", json.dumps(asdict(D), indent=2))
         zbuf.seek(0)
         st.download_button(
