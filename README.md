@@ -77,6 +77,14 @@ cd /path/to/KiroshiDocumentationSystem
 streamlit run case_documentation_app.py
 ```
 
+Alternatively, use the provided wrapper script:
+
+```bash
+python run_app.py
+```
+
+This helper sets up the correct Streamlit arguments and is the entry point used when packaging the project into an executable.
+
 A browser window will open with tabs for entering case information. The "Download PDF" button exports a formatted summary, and the attachment section lets you bundle supporting files. Use the checkbox at the top to toggle hardware tabs and fields. The *Tables* tab provides a full markdown dump of all case data for easy copying. An internal *Debug* tab is available after logging in with username and password `admin`.
 
 Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify** button to highlight missing documentation.
@@ -115,7 +123,7 @@ pip install -r requirements.txt
 ./build.sh
 ```
 
-The resulting binary will be placed in the `dist/` directory.
+The resulting binary will be placed in the `dist/` directory. The script bundles the `run_app.py` entry point so the executable launches the Streamlit interface directly.
 
 ## Documentation
 
