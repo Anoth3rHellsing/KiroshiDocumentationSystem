@@ -1464,21 +1464,33 @@ if (
 ):
     if st.session_state.uploads:
         st.markdown("Files queued:")
-        for f in st.session_state.uploads:
-            st.markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+        for i, f in enumerate(st.session_state.uploads):
+            cols = st.columns([8, 1])
+            cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+            if cols[1].button("Remove", key=f"rem_upload_{i}"):
+                st.session_state.uploads.pop(i)
+                st.rerun()
     if st.session_state.log_uploads:
         st.markdown("Logs queued:")
-        for f in st.session_state.log_uploads:
-            st.markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+        for i, f in enumerate(st.session_state.log_uploads):
+            cols = st.columns([8, 1])
+            cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+            if cols[1].button("Remove", key=f"rem_log_{i}"):
+                st.session_state.log_uploads.pop(i)
+                st.rerun()
     if st.session_state.screenshots:
         st.markdown("Screenshots captured:")
-        for s in st.session_state.screenshots:
-            st.markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
+        for i, s in enumerate(st.session_state.screenshots):
+            cols = st.columns([8, 1])
+            cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
+            if cols[1].button("Remove", key=f"rem_shot_{i}"):
+                st.session_state.screenshots.pop(i)
+                st.rerun()
     if st.button("Create ZIP"):
         zbuf = io.BytesIO()
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
             for f in st.session_state.uploads:
-                z.writestr(f.name, f.getvalue())
+                z.writestr(f"Screenshots/{f.name}", f.getvalue())
             for f in st.session_state.log_uploads:
                 z.writestr(f"logs/{f.name}", f.getvalue())
             for s in st.session_state.screenshots:
