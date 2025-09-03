@@ -22,7 +22,7 @@ This project is intended for local development and personal use. A stable produc
 - **Notes tab** – scratchpad for temporary notes.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date, making it easy to copy into spreadsheets.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
-- **Attachments** – upload screenshots or logs and export everything as a ZIP bundle.
+- **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/` folder.
 - **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the generated response.
 - **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory, gentle reassurance when you're overwhelmed, and humorous escalation quips.
