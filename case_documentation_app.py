@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiroshi V1.0.0 – IT Case Documentation Helper
+Kiroshi V1.5.2 Beta Build 932025 – IT Case Documentation Helper
 Run:
     streamlit run case_documentation_app.py
 """
@@ -49,7 +49,7 @@ from aatom_chat import (
 # ChatGPT API can still be reached.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-VERSION = "1.0.0"
+VERSION = "1.5.2 Beta Build 932025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
