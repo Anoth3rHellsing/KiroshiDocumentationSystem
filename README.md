@@ -1,7 +1,7 @@
 # Kiroshi Documentation System
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](#)
+[![Version](https://img.shields.io/badge/version-1.5.2%20Beta%20Build%20932025-blue)](#)
 [![Coverage](https://img.shields.io/badge/coverage-unknown-lightgrey)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
