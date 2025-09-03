@@ -14,9 +14,11 @@ from datetime import datetime, date
 import logging
 from pathlib import Path
 import re
+import base64
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -77,7 +79,32 @@ st.set_page_config(
     layout="wide",
     page_icon=str(KIROSHI_LOGO_PATH),
 )
-st.image(str(KIROSHI_LOGO_PATH))
+
+
+def render_logo():
+    logo_bytes = KIROSHI_LOGO_PATH.read_bytes()
+    b64 = base64.b64encode(logo_bytes).decode()
+    prompt = (
+        "Disable Debug mode?" if st.session_state.get("debug_mode") else "Enable Debug mode?"
+    )
+    action_flag = "disable" if st.session_state.get("debug_mode") else "enable"
+    html = f"""
+    <img id='kiroshi-logo' src='data:image/png;base64,{b64}' style='width:200px;'>
+    <script>
+    const img = document.getElementById('kiroshi-logo');
+    img.addEventListener('contextmenu', function(e){{
+        e.preventDefault();
+        if (confirm('{prompt}')) {{
+            Streamlit.setComponentValue('{action_flag}');
+        }}
+    }});
+    </script>
+    """
+    action = components.html(html, height=200)
+    if action == "enable":
+        st.session_state.debug_mode = True
+    elif action == "disable":
+        st.session_state.debug_mode = False
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -92,6 +119,7 @@ _init_state("email_extra", {})
 _init_state("include_hw", False)
 _init_state("include_escalations", False)
 _init_state("debug_auth", False)
+_init_state("debug_mode", False)
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
@@ -109,6 +137,17 @@ _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
 _init_state("taxonomy_block", "")
 _init_state("signals_config", "")
+# 2nd line mode and callback e‑mail options
+_init_state("second_line_mode", False)
+_init_state("callback_remote", False)
+_init_state("callback_contact", False)
+_init_state("callback_clarify", False)
+_init_state("callback_needed", True)
+_init_state("callback_address", False)
+_init_state("callback_remote_text", "")
+_init_state("callback_equipment", "")
+
+render_logo()
 
 
 def load_autosave():
@@ -377,7 +416,9 @@ if st.session_state.include_escalations:
 tab_labels.append("Email")
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "Atom Chat", "Debug"]
+tab_labels += ["Notes", "Tables", "Settings", "Atom Chat"]
+if st.session_state.debug_mode:
+    tab_labels.append("Debug")
 
 tabs = st.tabs(tab_labels)
 tab_iter = iter(tabs)
@@ -387,8 +428,9 @@ tab_email = next(tab_iter)
 tab_hw = next(tab_iter) if st.session_state.include_hw else None
 tab_notes = next(tab_iter)
 tab_tables = next(tab_iter)
+tab_settings = next(tab_iter)
 tab_atom = next(tab_iter)
-tab_debug = next(tab_iter)
+tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
 # ================== CASE TAB =================
 with tab_case:
@@ -1037,6 +1079,84 @@ List each question and provide any known answer beneath it, ready for the custom
     include_restart = st.checkbox("Restart the computer", key="api_restart")
     include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
 
+    if st.session_state.second_line_mode:
+        st.markdown("#### Callback email options")
+        st.session_state.callback_remote = st.checkbox(
+            "Need remote session?", st.session_state.callback_remote
+        )
+        if st.session_state.callback_remote:
+            st.session_state.callback_remote_text = st.text_area(
+                "Remote session details",
+                st.session_state.callback_remote_text,
+            )
+        st.session_state.callback_contact = st.checkbox(
+            "Need contact information?",
+            st.session_state.callback_contact,
+        )
+        st.session_state.callback_clarify = st.checkbox(
+            "Need to clarify what happened?",
+            st.session_state.callback_clarify,
+        )
+        st.session_state.callback_needed = st.checkbox(
+            "Callback needed?",
+            st.session_state.callback_needed,
+        )
+        st.session_state.callback_address = st.checkbox(
+            "Request address?", st.session_state.callback_address
+        )
+        if st.session_state.callback_address:
+            st.session_state.callback_equipment = st.text_input(
+                "Equipment to replace",
+                st.session_state.callback_equipment,
+            )
+
+        if st.button("Generate Callback Email"):
+            caller = D.caller_name or ""
+            if st.session_state.callback_address:
+                equip = (
+                    st.session_state.callback_equipment or "(equipment)"
+                )
+                email_text = (
+                    "Subject: Address Confirmation Request - CAS\n\n"
+                    f"Dear {caller}\n\n"
+                    "Thank you for emailing us regarding this situation. To better assist you, we will send you a "
+                    f"{equip} we need you to please confirm the following information for us to fully assist you:\n"
+                    "Address (please include a suite if there is any)\n"
+                    "City\nState\nZip Code/Postal Code\n"
+                    f"Full name of person responsible of receiving the {equip}\n"
+                    "Best phone number to contact the responsible person.\n"
+                    "Email to contact the responsible person.\n\n"
+                    "We look forward to your reply."
+                )
+            else:
+                email_text = (
+                    "Subject: Callback Request - CAS\n\n"
+                    f"Dear {caller}\n\n"
+                    "Thank you for emailing us regarding this situation. To better assist you, could you please provide us with the best time for a callback, or alternatively, TeamViewer access so we may connect directly to the computer?\n\n"
+                    "Additionally, please let us know the best time to call you with your time zone so we can schedule this at the most convenient time for you.\n\n"
+                    "We look forward to your reply."
+                )
+                if st.session_state.callback_contact:
+                    email_text += "\n\nPlease provide your contact information."
+                if st.session_state.callback_clarify:
+                    email_text += "\n\nCould you please clarify what happened?"
+                if (
+                    st.session_state.callback_remote
+                    and st.session_state.callback_remote_text.strip()
+                ):
+                    email_text += (
+                        "\n\n" + st.session_state.callback_remote_text.strip()
+                    )
+            st.session_state.callback_email_output = email_text
+
+        if st.session_state.get("callback_email_output"):
+            st.text_area(
+                "Callback Email",
+                st.session_state.callback_email_output,
+                height=300,
+                key="callback_email_output",
+            )
+
     if st.button("Generate Email (ChatGPT API)"):
         api_key = st.session_state.openai_api_key
         model = st.session_state.openai_model
@@ -1138,6 +1258,11 @@ with tab_tables:
     for cat in cat_map:
         st.markdown(f"**{table_title(cat)}**")
         st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
+
+# ================== SETTINGS TAB =================
+with tab_settings:
+    st.subheader("Modes")
+    st.checkbox("2nd Line mode", key="second_line_mode")
 
 # ================== ATOM CHAT TAB =================
 with tab_atom:
@@ -1255,24 +1380,25 @@ if st.session_state.uploads:
         )
 
 # ================== DEBUG TAB =================
-with tab_debug:
-    if st.session_state.debug_auth:
-        st.subheader("Debug")
-        st.text_input("OpenAI API Key", type="password", key="openai_api_key")
-        st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
-        st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
-        st.text_area("Allowed categories block", key="taxonomy_block", height=150)
-        st.text_area("Signals config JSON", key="signals_config", height=150)
-        st.json(st.session_state)
-        st.subheader("Logs")
-        st.text(tail_log(LOG_FILE))
-    else:
-        user = st.text_input("Username", key="debug_user")
-        pw = st.text_input("Password", type="password", key="debug_pass")
-        if st.button("Login", key="debug_login"):
-            if user == "admin" and pw == "admin":
-                st.session_state.debug_auth = True
-            else:
-                st.error("Invalid credentials")
+if tab_debug:
+    with tab_debug:
+        if st.session_state.debug_auth:
+            st.subheader("Debug")
+            st.text_input("OpenAI API Key", type="password", key="openai_api_key")
+            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+            st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
+            st.text_area("Allowed categories block", key="taxonomy_block", height=150)
+            st.text_area("Signals config JSON", key="signals_config", height=150)
+            st.json(st.session_state)
+            st.subheader("Logs")
+            st.text(tail_log(LOG_FILE))
+        else:
+            user = st.text_input("Username", key="debug_user")
+            pw = st.text_input("Password", type="password", key="debug_pass")
+            if st.button("Login", key="debug_login"):
+                if user == "admin" and pw == "admin":
+                    st.session_state.debug_auth = True
+                else:
+                    st.error("Invalid credentials")
 
 autosave()
