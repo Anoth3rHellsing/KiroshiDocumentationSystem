@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 import re
 import base64
+import random
 
 import pandas as pd
 import streamlit as st
@@ -74,6 +75,30 @@ ASSETS_DIR = Path(__file__).parent
 KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
 ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 
+MOTD_MESSAGES = [
+    "Good morning! Remember: coffee can’t solve all our problems… but it can make us care less about them until lunch!",
+    "Hard work pays off in the future. Laziness pays off now, so let’s compromise!",
+    "Teamwork makes the dream work… unless your team just wants coffee.",
+    "My office dress code: business on the top, pajamas on the bottom. It’s called hybrid professionalism.",
+    "Coworkers: a group chat you can’t leave, no matter how hard you try.",
+    "Why work harder when you can work smarter… and blame it on your coworkers?",
+    "I’m multitasking: procrastinating and being unproductive at the same time.",
+    "The problem with communication is the other person. Especially on Mondays!",
+    "Sometimes the best part of my job is that the chair swivels.",
+    "If hard work is the key to success, most people would rather pick the lock.",
+    "Doing nothing is hard. You never know when you’re done!",
+    "My idea of a perfect workday is one where no actual work happens.",
+    "A positive attitude may not solve all your problems, but it will annoy enough people to make it worth the effort.",
+    "Overworked and underpaid—is that the modern dream?",
+    "Going to work for a large company is like getting on a train. Are you moving, or is the train just dragging you along?",
+]
+
+
+def get_message_of_the_day() -> str:
+    today = date.today().isoformat()
+    rng = random.Random(today)
+    return rng.choice(MOTD_MESSAGES)
+
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
     page_title=f"Kiroshi V{VERSION}",
@@ -83,29 +108,34 @@ st.set_page_config(
 
 
 def render_logo():
-    logo_bytes = KIROSHI_LOGO_PATH.read_bytes()
-    b64 = base64.b64encode(logo_bytes).decode()
-    prompt = (
-        "Disable Debug mode?" if st.session_state.get("debug_mode") else "Enable Debug mode?"
-    )
-    action_flag = "disable" if st.session_state.get("debug_mode") else "enable"
-    html = f"""
-    <img id='kiroshi-logo' src='data:image/png;base64,{b64}' style='width:200px;'>
-    <script>
-    const img = document.getElementById('kiroshi-logo');
-    img.addEventListener('contextmenu', function(e){{
-        e.preventDefault();
-        if (confirm('{prompt}')) {{
-            Streamlit.setComponentValue('{action_flag}');
-        }}
-    }});
-    </script>
-    """
-    action = components.html(html, height=200)
-    if action == "enable":
-        st.session_state.debug_mode = True
-    elif action == "disable":
-        st.session_state.debug_mode = False
+    motd = get_message_of_the_day()
+    col_logo, col_motd = st.columns([1, 3])
+    with col_logo:
+        logo_bytes = KIROSHI_LOGO_PATH.read_bytes()
+        b64 = base64.b64encode(logo_bytes).decode()
+        prompt = (
+            "Disable Debug mode?" if st.session_state.get("debug_mode") else "Enable Debug mode?"
+        )
+        action_flag = "disable" if st.session_state.get("debug_mode") else "enable"
+        html = f"""
+        <img id='kiroshi-logo' src='data:image/png;base64,{b64}' style='width:200px;'>
+        <script>
+        const img = document.getElementById('kiroshi-logo');
+        img.addEventListener('contextmenu', function(e){{
+            e.preventDefault();
+            if (confirm('{prompt}')) {{
+                Streamlit.setComponentValue('{action_flag}');
+            }}
+        }});
+        </script>
+        """
+        action = components.html(html, height=200)
+        if action == "enable":
+            st.session_state.debug_mode = True
+        elif action == "disable":
+            st.session_state.debug_mode = False
+    with col_motd:
+        st.markdown(f"**Message of the day:** {motd}")
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
