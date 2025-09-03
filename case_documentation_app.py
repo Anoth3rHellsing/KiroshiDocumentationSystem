@@ -113,6 +113,7 @@ def _init_state(key, default):
 
 _init_state("case", {})
 _init_state("uploads", [])
+_init_state("log_uploads", [])
 _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
@@ -1353,7 +1354,7 @@ with tab_atom:
 st.markdown("---")
 st.subheader("Exports & attachments")
 new_files = st.file_uploader(
-    "Upload screenshots / logs / videos", accept_multiple_files=True
+    "Upload screenshots / videos", accept_multiple_files=True
 )
 if new_files:
     existing_names = {f.name for f in st.session_state.uploads}
@@ -1361,15 +1362,33 @@ if new_files:
         if nf.name not in existing_names:
             st.session_state.uploads.append(nf)
             existing_names.add(nf.name)
-if st.session_state.uploads:
-    st.markdown("Files queued:")
-    for f in st.session_state.uploads:
-        st.markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+
+log_files = st.file_uploader(
+    "Upload case logs", accept_multiple_files=True, key="log_files"
+)
+if log_files:
+    existing_log_names = {f.name for f in st.session_state.log_uploads}
+    for lf in log_files:
+        if lf.name not in existing_log_names:
+            st.session_state.log_uploads.append(lf)
+            existing_log_names.add(lf.name)
+
+if st.session_state.uploads or st.session_state.log_uploads:
+    if st.session_state.uploads:
+        st.markdown("Files queued:")
+        for f in st.session_state.uploads:
+            st.markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+    if st.session_state.log_uploads:
+        st.markdown("Logs queued:")
+        for f in st.session_state.log_uploads:
+            st.markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
     if st.button("Create ZIP"):
         zbuf = io.BytesIO()
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
             for f in st.session_state.uploads:
                 z.writestr(f.name, f.getvalue())
+            for f in st.session_state.log_uploads:
+                z.writestr(f"logs/{f.name}", f.getvalue())
             z.writestr("case.json", json.dumps(asdict(D), indent=2))
         zbuf.seek(0)
         st.download_button(
