@@ -1309,6 +1309,28 @@ with tab_settings:
     st.subheader("Modes")
     st.checkbox("2nd Line mode", key="second_line_mode")
 
+    st.subheader("Case JSON")
+    st.download_button(
+        "Download case JSON",
+        json.dumps(asdict(D), indent=2),
+        file_name=f"{D.case_id or 'case'}.json",
+        mime="application/json",
+    )
+    uploaded_case = st.file_uploader("Load case JSON", type="json")
+    if uploaded_case:
+        try:
+            data = json.load(uploaded_case)
+            data = {k: v for k, v in data.items() if k in CaseData.__annotations__}
+            st.session_state.case = CaseData(**data)
+            D = st.session_state.case
+            for key, value in asdict(D).items():
+                st.session_state[key] = value
+            autosave()
+            st.success("Case loaded successfully.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Failed to load case: {e}")
+
 # ================== ATOM CHAT TAB =================
 with tab_atom:
     st.image(str(ATOM_LOGO_PATH), width=80)
