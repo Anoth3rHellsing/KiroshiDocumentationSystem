@@ -842,8 +842,10 @@ with tab_case:
         if st.button("Clear all", key="clear_all_button"):
             logging.info("Clear all button clicked")
             api_key = st.session_state.get("openai_api_key", "")
+            second_line_mode = st.session_state.get("second_line_mode", False)
             st.session_state.clear()
             st.session_state.openai_api_key = api_key
+            st.session_state.second_line_mode = second_line_mode
             if os.path.exists(AUTOSAVE_FILE):
                 try:
                     os.remove(AUTOSAVE_FILE)
