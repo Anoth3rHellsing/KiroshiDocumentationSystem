@@ -2,12 +2,14 @@
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
 [![Version](https://img.shields.io/badge/version-1.5.2%20Beta%20Build%20932025-blue)](#)
-[![Coverage](https://img.shields.io/badge/coverage-unknown-lightgrey)](#)
+[![Coverage](https://img.shields.io/badge/coverage-active-brightgreen)](#)
+[![Updates](https://img.shields.io/badge/updates-daily-blue)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Kiroshi is a Streamlit application for documenting IT support cases. It provides interactive forms for collecting case details, generating PDF summaries, and creating email prompts or full emails via the OpenAI ChatGPT API.
+Kiroshi is a Streamlit application for documenting IT support cases. It provides interactive forms for collecting case details,
+generating PDF summaries, and creating email prompts or full emails via the OpenAI ChatGPT API.
 
-This project is intended for local development and personal use. A stable production release is not yet planned.
+Coverage is actively tracked and the project receives daily updates.
 
 ## Demo
 
@@ -20,21 +22,34 @@ This project is intended for local development and personal use. A stable produc
 - **Email tab** – generate prompts for different e-mail templates such as customer recaps or escalation notes.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Notes tab** – scratchpad for temporary notes.
-- **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date, making it easy to copy into spreadsheets.
+- **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
+  making it easy to copy into spreadsheets.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
-- **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/` folder.
-- **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP under a dedicated `Screenshots/` folder.
+- **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/`
+  folder.
+- **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP
+  under a dedicated `Screenshots/` folder.
 - **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the generated response.
-- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory, gentle reassurance when you're overwhelmed, and humorous escalation quips.
+- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
+  gentle reassurance when you're overwhelmed, and humorous escalation quips.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
-- **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended sessions.
+- **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
+  sessions.
 
 ## Installation
 
-### Requirements
+### Automated installation
 
-Install the dependencies from the project directory. If you just cloned or downloaded the repository, first change into its folder with `cd` and then run `pip`:
+1. Download the repository ZIP from GitHub.
+2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_1-5-2.bat`).
+3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_1-5-2.bat`).
+4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
+
+### Manual installation
+
+Install the dependencies from the project directory. If you just cloned or downloaded the repository, first change into its folder
+with `cd` and then run `pip`:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
@@ -43,7 +58,8 @@ pip install -r requirements.txt
 
 ### Windows PATH helper
 
-If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user `PATH`. The following PowerShell snippet adds it automatically:
+If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user
+`PATH`. The following PowerShell snippet adds it automatically:
 
 ```powershell
 # Detect the Scripts folder for the current Python
@@ -71,7 +87,10 @@ streamlit --version
 
 ## Usage
 
-Run the Streamlit app from the repository root. If you are not already in the project folder, navigate there first with `cd`:
+If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_1-5-2.bat`).
+
+For manual runs from source, execute the Streamlit app from the repository root. If you are not already in the project folder,
+navigate there first with `cd`:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
@@ -86,7 +105,10 @@ python run_app.py
 
 This helper sets up the correct Streamlit arguments and is the entry point used when packaging the project into an executable.
 
-A browser window will open with tabs for entering case information. The "Download PDF" button exports a formatted summary, and the attachment section lets you bundle supporting files. Use the checkbox at the top to toggle hardware tabs and fields. The *Tables* tab provides a full markdown dump of all case data for easy copying. An internal *Debug* tab is available after logging in with username and password `admin`.
+A browser window will open with tabs for entering case information. The "Download PDF" button exports a formatted summary, and the
+attachment section lets you bundle supporting files. Use the checkbox at the top to toggle hardware tabs and fields. The *Tables*
+tab provides a full markdown dump of all case data for easy copying. An internal *Debug* tab is available after logging in with
+username and password `admin`.
 
 Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify** button to highlight missing documentation.
 
@@ -99,11 +121,13 @@ streamlit run aatom_chat.py
 
 The chat history is saved to `atom_memory.json` so conversations persist across sessions.
 
-For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for demonstration, and GPT-4o is selected by default for fast, high-quality responses. Replace the key or model with your own settings before generating an email.
+For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for demonstration, and GPT-4o is selected by default
+for fast, high-quality responses. Replace the key or model with your own settings before generating an email.
 
 ### Configuration
 
-Copy the example configuration to a new `config.json` file and edit it to match your environment. The application reads options such as your OpenAI API key from this file.
+Copy the example configuration to a new `config.json` file and edit it to match your environment. The application reads options
+such as your OpenAI API key from this file.
 
 ```bash
 cp config.example.json config.json
@@ -112,7 +136,9 @@ cp config.example.json config.json
 
 ### Corporate SSL interception
 
-Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The application disables certificate checks for requests to the OpenAI ChatGPT API so it can be used behind such company proxies. Be aware that this weakens transport security and should only be enabled in trusted environments.
+Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The
+application disables certificate checks for requests to the OpenAI ChatGPT API so it can be used behind such company proxies. Be
+aware that this weakens transport security and should only be enabled in trusted environments.
 
 ## Build executable
 
@@ -124,7 +150,8 @@ pip install -r requirements.txt
 ./build.sh
 ```
 
-The resulting binary will be placed in the `dist/` directory. The script bundles the `run_app.py` entry point so the executable launches the Streamlit interface directly.
+The resulting binary will be placed in the `dist/` directory. The script bundles the `run_app.py` entry point so the executable
+launches the Streamlit interface directly.
 
 ## Documentation
 
