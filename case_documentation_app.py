@@ -277,6 +277,10 @@ class CaseData:
     related_case_id: str = ""
     possible_cause: str = ""
     performance_issue: str = ""
+    manual_additional: str = ""
+    recurring_issue: str = ""
+    recent_issue: str = ""
+    last_issue_time: str = ""
     customer_trios_only: bool = False
     support_fee_accepted: bool = False
     hardware_test: bool = False
@@ -385,6 +389,9 @@ BASE_CATEGORY_MAP = {
         "related_case_id",
         "possible_cause",
         "performance_issue",
+        "manual_additional",
+        "recurring_issue",
+        "recent_issue",
     ],
 }
 
@@ -1005,12 +1012,16 @@ with tab_case:
             value=D.possible_cause.startswith("Possible cause"),
         )
         if cause_check:
+            default_cause_text = re.sub(
+                r"^(Possible cause:\s*)+", "", D.possible_cause
+            ).strip()
             cause_text = st.text_input(
                 "Why?",
-                D.possible_cause.replace("Possible cause: ", ""),
+                default_cause_text,
                 key="possible_cause",
                 on_change=autosave,
             )
+            cause_text = re.sub(r"^(Possible cause:\s*)+", "", cause_text).strip()
             D.possible_cause = (
                 f"Possible cause: {cause_text}" if cause_text else "Possible cause:"
             )
@@ -1022,14 +1033,18 @@ with tab_case:
             value=D.performance_issue.startswith("It is a performance related issue"),
         )
         if perf_check:
+            default_perf_text = re.sub(
+                r"^(It is a performance related issue:\s*)+", "", D.performance_issue
+            ).strip()
             perf_text = st.text_input(
                 "Why?",
-                D.performance_issue.replace(
-                    "It is a performance related issue: ", ""
-                ),
+                default_perf_text,
                 key="performance_issue",
                 on_change=autosave,
             )
+            perf_text = re.sub(
+                r"^(It is a performance related issue:\s*)+", "", perf_text
+            ).strip()
             D.performance_issue = (
                 f"It is a performance related issue: {perf_text}"
                 if perf_text
@@ -1037,6 +1052,65 @@ with tab_case:
             )
         else:
             D.performance_issue = "It is not a performance related issue."
+        autosave()
+        manual_check = st.checkbox(
+            "Manual Additional?", value=bool(D.manual_additional)
+        )
+        if manual_check:
+            base_manual = re.sub(
+                r"\n?Last time issue occurred:.*", "", D.manual_additional
+            ).strip()
+            st.session_state.manual_additional = base_manual
+            st.text_area(
+                "Manual additional information",
+                key="manual_additional",
+                on_change=autosave,
+            )
+        recur_check = st.checkbox(
+            "Recurring issue?",
+            value=D.recurring_issue.startswith("This is a recurring issue"),
+        )
+        D.recurring_issue = (
+            "This is a recurring issue."
+            if recur_check
+            else "This is not a recurring issue."
+        )
+        autosave()
+        recent_check = st.checkbox(
+            "Did this issue happen in the last couple months?",
+            value=D.recent_issue.startswith("Issue happened"),
+        )
+        if recent_check:
+            last_time = (
+                st.text_input(
+                    "When was the last time this happened?",
+                    D.last_issue_time,
+                    key="last_issue_time",
+                    on_change=autosave,
+                ).strip()
+            )
+            D.last_issue_time = last_time
+            D.recent_issue = (
+                "Issue happened in the last couple months."
+                if last_time
+                else "Issue happened in the last couple months."
+            )
+        else:
+            D.last_issue_time = ""
+            D.recent_issue = "Issue did not happen in the last couple months."
+        autosave()
+        if manual_check:
+            manual_text = st.session_state.manual_additional.strip()
+            manual_text = re.sub(
+                r"\n?Last time issue occurred:.*", "", manual_text
+            ).strip()
+            if recent_check and D.last_issue_time:
+                manual_text = (
+                    manual_text + "\n" if manual_text else ""
+                ) + f"Last time issue occurred: {D.last_issue_time}"
+            D.manual_additional = manual_text
+        else:
+            D.manual_additional = ""
         autosave()
         st.subheader("Support Fee")
         st.checkbox(
