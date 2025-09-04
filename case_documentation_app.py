@@ -69,6 +69,26 @@ ASSETS_DIR = Path(__file__).parent
 KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
 ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 
+# Default taxonomy and signals for Kiroshi Categorizer
+DEFAULT_TAXONOMY_BLOCK = """\
+• 3Shape Unite / Login — issues with 3Shape Account, tokens, sign-in, credential errors. Positives: "sign in", "3Shape Account", "token". Negatives: hardware calibration.
+• 3Shape Unite / Case Submission / Timeout-Proxy — sending cases, timeouts, proxies, firewalls, TLS handshake. Positives: "Send Case", "proxy", "firewall", "TLS". Negatives: scanner tips.
+• TRIOS / Calibration — scanner calibration steps, tip issues, drift. Positives: "calibrate", "tip", "firmware". Negatives: account login.
+• TRIOS / Scan Quality — margins, occlusion, lack of detail, scanning workflow.
+• Dental System / Performance — slow UI, freezing, crash stacktraces.
+"""
+
+DEFAULT_SIGNALS_CONFIG = """{
+  "unite": {
+    "keywords": ["Unite", "App Store", "Send Case", "Lab Inbox", "Server"],
+    "logs": ["ApplicationInitializer", "TLS", "service start failed"]
+  },
+  "trios": {
+    "keywords": ["TRIOS", "calibrate", "scanner", "tip", "firmware", "dongle"],
+    "logs": ["USB", "driver", "HW", "low detail"]
+  }
+}"""
+
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
     page_title=f"Kiroshi V{VERSION}",
@@ -100,10 +120,13 @@ _init_state("atom_history", load_memory())
 _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
 _init_state("ask_result", "")
+_init_state("categorizer_result", "")
 _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
+_init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
+_init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
 
 
 def load_autosave():
@@ -386,7 +409,7 @@ tab_debug = next(tab_iter)
 with tab_case:
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
-    verify_col, ask_col, assist_col, clear_col = st.columns(4)
+    verify_col, ask_col, categorize_col, assist_col, clear_col = st.columns(5)
     with verify_col:
         if st.button("Verify", key="verify_button"):
             logging.info("Verify button clicked")
@@ -496,6 +519,72 @@ with tab_case:
                     st.session_state.atom_history.append({"role": "assistant", "content": reply})
                     save_memory(st.session_state.atom_history)
                     st.session_state.ask_result = reply
+    with categorize_col:
+        if st.button("Categorize", key="categorize_button"):
+            logging.info("Categorize button clicked")
+            if not api_key:
+                st.error("Please set your OpenAI API key in the Debug tab.")
+            else:
+                taxonomy_block = st.session_state.taxonomy_block
+                signals_config = st.session_state.signals_config
+                if not taxonomy_block or not signals_config:
+                    st.error("Please provide taxonomy and signals config in the Debug tab.")
+                else:
+                    case_dict = asdict(D)
+                    case_input = {
+                        "title": D.brief_description,
+                        "description": D.description,
+                        "artifacts": [f.name for f in st.session_state.uploads],
+                        "meta": {
+                            "product_hint": D.application_version,
+                            "lang": "en",
+                        },
+                        "full_case": case_dict,
+                    }
+                    output_schema = """{
+"product": "string",
+"topic": "string",
+"subtopic": "string|null",
+"confidence": 0.0,
+"reason": "string",
+"signals_used": ["string", ...],
+"top_3_alternatives": [
+{"product":"", "topic":"", "subtopic":null, "why":""},
+{"product":"", "topic":"", "subtopic":null, "why":""},
+{"product":"", "topic":"", "subtopic":null, "why":""}
+]
+}"""
+                    user_message = (
+                        "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
+                        "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
+                        "Taxonomy (authoritative)\n\n"
+                        "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
+                        f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
+                        "Signals dictionary (hints)\n\n"
+                        "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
+                        f"SIGNALS_CONFIG:\n{signals_config}\n\n"
+                        "Output format (STRICT JSON only)\n\n"
+                        "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
+                        f"{output_schema}\n\n"
+                        "Case to classify (runtime payload)\n\n"
+                        f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
+                        "Return\n\n"
+                        "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                    )
+                    try:
+                        reply = query_atom(
+                            user_message,
+                            st.session_state.atom_history,
+                            api_key,
+                            model,
+                        )
+                    except Exception as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.atom_history.append({"role": "user", "content": user_message})
+                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.atom_history)
+                        st.session_state.categorizer_result = reply
     with assist_col:
         if st.button("AI Assistance", key="assist_button"):
             logging.info("AI Assistance button clicked")
@@ -782,6 +871,13 @@ with tab_case:
             st.markdown(f"**{table_title(cat)}**")
             st.dataframe(
                 category_dataframe(cat, D, cat_map), use_container_width=True
+            )
+        if st.session_state.categorizer_result:
+            st.subheader("Kiroshi Categorizer")
+            st.text_area(
+                "Categorization Output",
+                st.session_state.categorizer_result,
+                height=150,
             )
 
 # ================== ESCALATIONS TAB =================
@@ -1180,6 +1276,8 @@ with tab_debug:
         st.text_input("OpenAI API Key", type="password", key="openai_api_key")
         st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
         st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
+        st.text_area("Allowed categories block", key="taxonomy_block", height=150)
+        st.text_area("Signals config JSON", key="signals_config", height=150)
         st.json(st.session_state)
         st.subheader("Logs")
         st.text(tail_log(LOG_FILE))
