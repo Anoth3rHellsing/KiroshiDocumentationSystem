@@ -416,6 +416,8 @@ HW_CATEGORY_MAP = {
 
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
+    if st.session_state.get("second_line_mode"):
+        cm["CASE HEADER"] = ["straumann"] + cm["CASE HEADER"]
     if not st.session_state.get("include_escalations", True):
         cm.pop("AX COORDINATORS", None)
         cm.pop("ESCALATION 2ND LINE", None)
@@ -427,10 +429,13 @@ def active_category_map():
 
 def build_title(d: CaseData) -> str:
     """Construct a helper string for case titles."""
-    return (
+    base = (
         f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|"
         f"{d.application_version}|{d.case_id}|"
     )
+    if st.session_state.get("second_line_mode") and d.straumann not in ("", "N/A"):
+        return f"|{d.straumann}{base}"
+    return base
 
 
 def compute_progress(d: CaseData, cat_map):
@@ -902,6 +907,8 @@ with tab_case:
         for t in todo:
             st.markdown(f"- {t}")
         st.subheader("Case Header")
+        if st.session_state.second_line_mode:
+            auto_text_input("Straumann ticket #", "straumann")
         auto_text_input("Company name", "company_name")
         auto_text_input("Subscription ID", "subscription_id")
         auto_text_input("Brief description", "brief_description")
@@ -1190,14 +1197,12 @@ if tab_escalations:
         else:
             D.patterson = "N/A"
             autosave()
-        str_cb = st.checkbox(
-            "Straumann ticket #",
-            D.straumann not in ("", "N/A"),
-        )
-        if str_cb:
-            auto_text_input(
+        if st.session_state.second_line_mode:
+            st.text_input(
                 "Straumann ticket #",
-                "straumann",
+                D.straumann,
+                disabled=True,
+                key="straumann_tab",
             )
         else:
             D.straumann = "N/A"
