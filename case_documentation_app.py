@@ -58,6 +58,31 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
 )
 LOG_FILE = "app.log"
 
+DEFAULT_TAXONOMY_BLOCK = (
+    "• 3Shape Unite / Login — issues with 3Shape Account, tokens, sign-in, credential errors. "
+    "Positives: \"sign in\", \"3Shape Account\", \"token\". Negatives: hardware calibration.\n"
+    "• 3Shape Unite / Case Submission / Timeout-Proxy — sending cases, timeouts, proxies, firewalls, TLS handshake. "
+    "Positives: \"Send Case\", \"proxy\", \"firewall\", \"TLS\". Negatives: scanner tips.\n"
+    "• TRIOS / Calibration — scanner calibration steps, tip issues, drift. Positives: \"calibrate\", \"tip\", \"firmware\". "
+    "Negatives: account login.\n"
+    "• TRIOS / Scan Quality — margins, occlusion, lack of detail, scanning workflow.\n"
+    "• Dental System / Performance — slow UI, freezing, crash stacktraces."
+)
+
+DEFAULT_SIGNALS_CONFIG = json.dumps(
+    {
+        "unite": {
+            "keywords": ["Unite", "App Store", "Send Case", "Lab Inbox", "Server"],
+            "logs": ["ApplicationInitializer", "TLS", "service start failed"],
+        },
+        "trios": {
+            "keywords": ["TRIOS", "calibrate", "scanner", "tip", "firmware", "dongle"],
+            "logs": ["USB", "driver", "HW", "low detail"],
+        },
+    },
+    indent=2,
+)
+
 VERSION_NOT_RELEVANT = "Version not relevant for this case"
 
 logging.basicConfig(
@@ -168,8 +193,8 @@ _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
-_init_state("taxonomy_block", "")
-_init_state("signals_config", "")
+_init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
+_init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", False)
 _init_state("callback_remote", False)
