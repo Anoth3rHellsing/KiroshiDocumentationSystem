@@ -18,6 +18,7 @@ import base64
 import random
 
 import pandas as pd
+import altair as alt
 import streamlit as st
 import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import letter
@@ -873,11 +874,18 @@ with tab_case:
         st.subheader("Build title")
         st.code(build_title(D))
         st.subheader("Progress by category")
-        st.bar_chart(
-            pd.DataFrame({"Category": prog.keys(), "Done": prog.values()}).set_index(
-                "Category"
+        progress_df = pd.DataFrame(
+            {"Category": list(prog.keys()), "Done": list(prog.values())}
+        )
+        bar_chart = (
+            alt.Chart(progress_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("Category:N", sort=list(prog.keys())),
+                y=alt.Y("Done:Q", scale=alt.Scale(domain=[0, 100])),
             )
         )
+        st.altair_chart(bar_chart, use_container_width=True)
         todo = [
             f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
         ]
