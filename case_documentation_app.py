@@ -417,7 +417,7 @@ HW_CATEGORY_MAP = {
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
     if st.session_state.get("second_line_mode"):
-        cm["CASE HEADER"] = ["straumann"] + cm["CASE HEADER"]
+        cm["HEADER"] = ["straumann"] + cm.get("HEADER", [])
     if not st.session_state.get("include_escalations", True):
         cm.pop("AX COORDINATORS", None)
         cm.pop("ESCALATION 2ND LINE", None)
