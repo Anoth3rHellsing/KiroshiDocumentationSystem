@@ -1,3 +1,5 @@
 [theme]
-base = "dark"
-backgroundColor = "#00020f"
+# Default to the 3Shape light theme with corporate red accents.
+base = "light"
+primaryColor = "#D01E4E"
+backgroundColor = "#FFFFFF"

@@ -28,6 +28,7 @@ This project is intended for local development and personal use. A stable produc
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the generated response.
 - **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory, gentle reassurance when you're overwhelmed, and humorous escalation quips.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
+- **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended sessions.
 
 ## Installation
 
