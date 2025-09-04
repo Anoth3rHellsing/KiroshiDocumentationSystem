@@ -276,6 +276,9 @@ class CaseData:
     related_case_id: str = ""
     possible_cause: str = ""
     performance_issue: str = ""
+    customer_trios_only: bool = False
+    support_fee_accepted: bool = False
+    hardware_test: bool = False
     # PC hardware
     service_tag: str = ""
     pc_model: str = ""
@@ -394,7 +397,12 @@ HW_CATEGORY_MAP = {
         "processor",
         "warranty",
     ],
-    "SCANNER HARDWARE": ["scanner_sn", "base_sn", "trios_module_version"],
+    "SCANNER HARDWARE": [
+        "scanner_sn",
+        "base_sn",
+        "trios_module_version",
+        "hardware_test",
+    ],
 }
 
 
@@ -432,7 +440,10 @@ def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
     """Return a DataFrame with human readable field names for a category."""
     rows = []
     for fld in cat_map[cat]:
-        rows.append({"Field": fld.replace("_", " ").title(), "Value": getattr(d, fld)})
+        value = getattr(d, fld)
+        if isinstance(value, bool):
+            value = "Yes" if value else "No"
+        rows.append({"Field": fld.replace("_", " ").title(), "Value": value})
     return pd.DataFrame(rows)
 
 
@@ -472,6 +483,61 @@ def make_pdf(d: CaseData, cat_map) -> bytes:
         )
         elems.extend([t, Spacer(1, 12)])
     doc.build(elems)
+    buf.seek(0)
+    return buf.read()
+
+
+def make_tables_pdf(d: CaseData) -> bytes:
+    """Generate a PDF with key case information for the Tables tab."""
+    try:
+        cat = json.loads(st.session_state.categorizer_result or "{}")
+    except Exception:
+        cat = {}
+    product = cat.get("product", "")
+    topic = cat.get("topic", "")
+    subtopic = cat.get("subtopic", "") or ""
+    fields = [
+        ("Reportable", "No"),
+        ("Product Family", product),
+        ("Product", topic),
+        ("Sub-product", subtopic),
+        ("Hardware test", "Yes" if d.hardware_test else "No"),
+        ("Customer is TRIOS Only", "Yes" if d.customer_trios_only else "No"),
+        (
+            "Support fee price accepted",
+            "Yes" if d.support_fee_accepted else "No",
+        ),
+        ("Direct payment", "No"),
+        ("Dongle Subscription Info", d.dongle_number),
+        ("Software Version", d.application_version),
+        ("Category", product),
+        ("Category Area", topic),
+        ("Case type", subtopic),
+        ("Responsible contact", d.email),
+    ]
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=30
+    )
+    styles = getSampleStyleSheet()
+    body_style = styles["BodyText"]
+    header_style = styles["Heading5"]
+    data = [[Paragraph("Field", header_style), Paragraph("Value", header_style)]]
+    for field, value in fields:
+        data.append([Paragraph(field, body_style), Paragraph(str(value), body_style)])
+    t = Table(data, colWidths=[180, 320])
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ]
+        )
+    )
+    doc.build([t])
     buf.seek(0)
     return buf.read()
 
@@ -530,6 +596,7 @@ with tab_case:
                         "scanner_sn",
                         "base_sn",
                         "trios_module_version",
+                        "hardware_test",
                     ]:
                         case_dict.pop(fld, None)
                 if not st.session_state.include_escalations:
@@ -583,6 +650,7 @@ with tab_case:
                         "scanner_sn",
                         "base_sn",
                         "trios_module_version",
+                        "hardware_test",
                     ]:
                         case_dict.pop(fld, None)
                 if not st.session_state.include_escalations:
@@ -705,6 +773,7 @@ with tab_case:
                         "scanner_sn",
                         "base_sn",
                         "trios_module_version",
+                        "hardware_test",
                     ]:
                         case_dict.pop(fld, None)
                 if not st.session_state.include_escalations:
@@ -959,6 +1028,26 @@ with tab_case:
         else:
             D.performance_issue = "It is not a performance related issue."
         autosave()
+        st.subheader("Support Fee")
+        st.checkbox(
+            "Customer is TRIOS Only?",
+            value=st.session_state.customer_trios_only,
+            key="customer_trios_only",
+            on_change=_update_field,
+            args=("customer_trios_only",),
+        )
+        if st.session_state.customer_trios_only:
+            st.checkbox(
+                "Support fee price accepted?",
+                value=st.session_state.support_fee_accepted,
+                key="support_fee_accepted",
+                on_change=_update_field,
+                args=("support_fee_accepted",),
+            )
+        else:
+            st.session_state.support_fee_accepted = False
+            D.support_fee_accepted = False
+            autosave()
         st.markdown("---")
         st.download_button(
             "Download PDF",
@@ -1312,6 +1401,13 @@ if st.session_state.include_hw:
         auto_text_input("Scanner S/N", "scanner_sn")
         auto_text_input("Base S/N", "base_sn")
         auto_text_input("TRIOS MODULE Version", "trios_module_version")
+        st.checkbox(
+            "Hardware test performed?",
+            value=st.session_state.hardware_test,
+            key="hardware_test",
+            on_change=_update_field,
+            args=("hardware_test",),
+        )
         st.dataframe(
             category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
         )
@@ -1330,6 +1426,12 @@ with tab_notes:
 # ================== TABLES TAB =================
 with tab_tables:
     st.subheader("Copy all tables")
+    st.download_button(
+        "Download Case Info PDF",
+        make_tables_pdf(D),
+        file_name=f"{D.case_id or 'case'}_info.pdf",
+        mime="application/pdf",
+    )
     for cat in cat_map:
         st.markdown(f"**{table_title(cat)}**")
         st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
