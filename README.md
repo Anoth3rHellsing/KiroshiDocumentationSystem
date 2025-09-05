@@ -30,6 +30,7 @@ Coverage is actively tracked and the project receives daily updates.
 - **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP
   under a dedicated `Screenshots/` folder.
 - **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
+- **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
 - **ChatGPT API integration** – send prompts directly to OpenAI and display the generated response.
 - **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
   gentle reassurance when you're overwhelmed, and humorous escalation quips.

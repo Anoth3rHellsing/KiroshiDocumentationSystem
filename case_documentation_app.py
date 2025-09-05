@@ -59,6 +59,15 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
 )
 LOG_FILE = "app.log"
 
+if os.name == "nt":
+    DATABASE_DIR = Path("C:/ProgramFiles/KiroshiDatabase")
+else:
+    DATABASE_DIR = Path.home() / "KiroshiDatabase"
+DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+RECENT_CASES_PATH = DATABASE_DIR / "recent_cases.json"
+if not RECENT_CASES_PATH.exists():
+    RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
+
 DEFAULT_TAXONOMY_BLOCK = (
     "• 3Shape Unite / Login — issues with 3Shape Account, tokens, sign-in, credential errors. "
     "Positives: \"sign in\", \"3Shape Account\", \"token\". Negatives: hardware calibration.\n"
@@ -208,6 +217,7 @@ _init_state("callback_needed", True)
 _init_state("callback_address", False)
 _init_state("callback_remote_text", "")
 _init_state("callback_equipment", "")
+_init_state("pending_load", None)
 
 render_logo()
 
@@ -329,6 +339,87 @@ _init_state("survey_link", D.survey_link)
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
         json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
+
+
+def load_recent_cases() -> list:
+    try:
+        return json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def update_recent_cases(case_id: str, path: str) -> None:
+    recents = [c for c in load_recent_cases() if c.get("path") != path]
+    recents.insert(0, {"case_id": case_id, "path": path})
+    RECENT_CASES_PATH.write_text(json.dumps(recents[:10], indent=2), encoding="utf-8")
+
+
+def save_case_to_database(case: CaseData) -> None:
+    if not case.case_id:
+        st.error("Case ID is required to save.")
+        return
+    file_path = DATABASE_DIR / f"{case.case_id}.json"
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(asdict(case), f, indent=2)
+    update_recent_cases(case.case_id, str(file_path))
+    st.success(f"Case saved to {file_path}")
+
+
+def load_case_from_path(path: str) -> None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data = {k: v for k, v in data.items() if k in CaseData.__annotations__}
+        st.session_state.case = CaseData(**data)
+        global D
+        D = st.session_state.case
+        autosave()
+        update_recent_cases(st.session_state.case.case_id, path)
+        st.success("Case loaded successfully.")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Failed to load case: {e}")
+
+
+def load_case_from_bytes(data: bytes) -> None:
+    try:
+        payload = json.loads(data.decode("utf-8"))
+        payload = {k: v for k, v in payload.items() if k in CaseData.__annotations__}
+        st.session_state.case = CaseData(**payload)
+        global D
+        D = st.session_state.case
+        autosave()
+        st.success("Case loaded successfully.")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Failed to load case: {e}")
+
+
+def has_unsaved_sections(case: CaseData) -> bool:
+    header_fields = [
+        "company_name",
+        "subscription_id",
+        "brief_description",
+        "case_id",
+        "application_version",
+    ]
+    phone_fields = ["phone_description"]
+    remote_fields = ["remote_steps"]
+    return any(getattr(case, f) for f in header_fields + phone_fields + remote_fields)
+
+
+def request_load_from_path(path: str) -> None:
+    if has_unsaved_sections(D):
+        st.session_state.pending_load = {"path": path}
+    else:
+        load_case_from_path(path)
+
+
+def request_load_from_bytes(data: bytes) -> None:
+    if has_unsaved_sections(D):
+        st.session_state.pending_load = {"data": data}
+    else:
+        load_case_from_bytes(data)
 
 
 def _update_field(field: str):
@@ -590,7 +681,7 @@ if st.session_state.include_escalations:
 tab_labels.append("Email")
 if st.session_state.include_hw:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "Settings", "Atom Chat"]
+tab_labels += ["Notes", "Tables", "Save/Load", "Settings", "Atom Chat"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
 
@@ -602,6 +693,7 @@ tab_email = next(tab_iter)
 tab_hw = next(tab_iter) if st.session_state.include_hw else None
 tab_notes = next(tab_iter)
 tab_tables = next(tab_iter)
+tab_save_load = next(tab_iter)
 tab_settings = next(tab_iter)
 tab_atom = next(tab_iter)
 tab_debug = next(tab_iter) if st.session_state.debug_mode else None
@@ -1576,30 +1668,44 @@ with tab_tables:
         st.markdown(f"**{table_title(cat)}**")
         st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
 
+# ================== SAVE/LOAD TAB =================
+with tab_save_load:
+    st.subheader("Save / Load")
+    col_save, col_load = st.columns(2)
+    with col_save:
+        if st.button("Save", key="save_case_button"):
+            save_case_to_database(D)
+    with col_load:
+        uploaded_case = st.file_uploader(
+            "Select case JSON", type="json", key="load_case_uploader"
+        )
+        if uploaded_case and st.button("Load", key="load_case_button"):
+            request_load_from_bytes(uploaded_case.getvalue())
+
+    st.subheader("Recent cases")
+    for idx, case in enumerate(load_recent_cases()):
+        info_col, btn_col = st.columns([3, 1])
+        info_col.write(f"{case['case_id']} - {case['path']}")
+        if btn_col.button("Load", key=f"recent_load_{idx}"):
+            request_load_from_path(case["path"])
+
+    pending = st.session_state.get("pending_load")
+    if pending:
+        st.error("Remember to save your information before loading a new case")
+        col_i, col_s = st.columns(2)
+        if col_i.button("Ignore and load", key="ignore_and_load"):
+            if "path" in pending:
+                load_case_from_path(pending["path"])
+            else:
+                load_case_from_bytes(pending["data"])
+            st.session_state.pending_load = None
+        if col_s.button("Save", key="save_before_loading"):
+            save_case_to_database(D)
+
 # ================== SETTINGS TAB =================
 with tab_settings:
     st.subheader("Modes")
     st.checkbox("2nd Line mode", key="second_line_mode")
-
-    st.subheader("Case JSON")
-    st.download_button(
-        "Download case JSON",
-        json.dumps(asdict(D), indent=2),
-        file_name=f"{D.case_id or 'case'}.json",
-        mime="application/json",
-    )
-    uploaded_case = st.file_uploader("Load case JSON", type="json")
-    if uploaded_case:
-        try:
-            data = json.load(uploaded_case)
-            data = {k: v for k, v in data.items() if k in CaseData.__annotations__}
-            st.session_state.case = CaseData(**data)
-            D = st.session_state.case
-            autosave()
-            st.success("Case loaded successfully.")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Failed to load case: {e}")
 
 # ================== ATOM CHAT TAB =================
 with tab_atom:
