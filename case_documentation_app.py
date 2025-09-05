@@ -1898,6 +1898,10 @@ with tab_save_load:
 with tab_settings:
     st.subheader("Modes")
     st.checkbox("2nd Line mode", key="second_line_mode")
+    prev_debug = st.session_state.debug_mode
+    st.checkbox("Show Debug tab", key="debug_mode")
+    if prev_debug and not st.session_state.debug_mode:
+        st.session_state.debug_auth = False
 
 # ================== ATOM CHAT TAB =================
 with tab_atom:
@@ -2083,6 +2087,7 @@ if tab_debug:
             st.subheader("Logs")
             st.text(tail_log(LOG_FILE))
         else:
+            st.info("Use Username: admin Password: admin")
             user = st.text_input("Username", key="debug_user")
             pw = st.text_input("Password", type="password", key="debug_pass")
             if st.button("Login", key="debug_login"):
