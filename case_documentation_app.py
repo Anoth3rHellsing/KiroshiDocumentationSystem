@@ -375,19 +375,36 @@ def load_tracked_cases() -> list:
     return cases
 
 
+def untrack_case(path: str) -> None:
+    """Move an active tracking file into the main database and refresh the page."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        case_id = data.get("case_id")
+        if case_id:
+            dest = DATABASE_DIR / f"{case_id}.json"
+            Path(path).rename(dest)
+    except Exception:
+        st.error("Failed to untrack case.")
+
+
 def render_tracking_table(cases: list, columns: list) -> None:
-    """Render a tracking table with per-row load buttons."""
-    weights = [2] * len(columns) + [1]
+    """Render a tracking table with per-row load and untrack buttons."""
+    weights = [2] * len(columns) + [1, 1]
     header_cols = st.columns(weights)
     for col, (label, _) in zip(header_cols, columns):
         col.write(f"**{label}**")
-    header_cols[-1].write("**Load**")
+    header_cols[-2].write("**Load**")
+    header_cols[-1].write("**Untrack**")
     for c in cases:
         row_cols = st.columns(weights)
-        for col, (_, key) in zip(row_cols[:-1], columns):
+        for col, (_, key) in zip(row_cols[:-2], columns):
             col.write(c.get(key, ""))
-        if row_cols[-1].button("Load", key=f"load_{Path(c['path']).stem}"):
+        if row_cols[-2].button("Load", key=f"load_{Path(c['path']).stem}"):
             request_load_from_path(c["path"])
+        if row_cols[-1].button("Untrack", key=f"untrack_{Path(c['path']).stem}"):
+            untrack_case(c["path"])
+            st.rerun()
+
 
 def recent_tracked_files() -> list:
     files = sorted(
