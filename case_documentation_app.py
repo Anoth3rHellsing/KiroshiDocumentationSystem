@@ -2079,7 +2079,7 @@ if tab_bored:
         st.markdown(f"Power ranking: {game['power_ranking']}")
 
         st.subheader("Secret Arena")
-        if st.button("Launch arena"):
+        if st.button("Launch arena", key="launch_arena"):
             game_path = Path(__file__).parent / "doom_game.py"
             subprocess.Popen([sys.executable, str(game_path)])
 
@@ -2119,7 +2119,7 @@ if tab_debug:
             st.subheader("Logs")
             st.text(tail_log(LOG_FILE))
             st.divider()
-            if st.button("I'm bored"):
+            if st.button("I'm bored", key="debug_bored"):
                 st.session_state.show_bored = True
                 st.rerun()
         else:
