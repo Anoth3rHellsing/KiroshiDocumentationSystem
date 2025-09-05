@@ -60,7 +60,8 @@ def main():
     pg.init()
     sc = pg.display.set_mode((WIDTH, HEIGHT))
     clock = pg.time.Clock()
-    pos = [HALF_WIDTH, HALF_HEIGHT]
+    # start inside the open area of the map instead of within a wall
+    pos = [TILE + TILE // 2, TILE + TILE // 2]
     angle = 0
     while True:
         for event in pg.event.get():
