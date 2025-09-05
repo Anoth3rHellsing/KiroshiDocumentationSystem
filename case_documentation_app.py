@@ -1541,8 +1541,7 @@ if tab_email:
         include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
         include_restart = st.checkbox("Restart the computer", key="api_restart")
         include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
-
-        if st.button("Generate Email (ChatGPT API)"):
+ if st.button("Use GPT-OSS"):
             api_key = st.session_state.openai_api_key
             model = st.session_state.openai_model
             base_url = st.session_state.ai_base_url
@@ -1551,7 +1550,7 @@ if tab_email:
             elif not prompt.strip():
                 st.error("Prompt is empty.")
             else:
-                with st.spinner("Contacting ChatGPT..."):
+                with st.spinner("Contacting GPT-OSS..."):
                     try:
                         augmented_prompt = prompt
                         extras = []
