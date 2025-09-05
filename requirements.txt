@@ -10,3 +10,4 @@ pyinstaller
 pyautogui
 transformers
 torch
+pygame

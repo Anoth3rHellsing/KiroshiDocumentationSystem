@@ -16,6 +16,8 @@ from pathlib import Path
 import re
 import base64
 import random
+import subprocess
+import sys
 
 import pandas as pd
 import altair as alt
@@ -237,6 +239,18 @@ _init_state("callback_address", False)
 _init_state("callback_remote_text", "")
 _init_state("callback_equipment", "")
 _init_state("pending_load", None)
+_init_state("show_bored", False)
+_init_state(
+    "bored_game",
+    {
+        "gold": 0,
+        "exp": 0,
+        "lexp": 0,
+        "level": 0,
+        "power_ranking": "The Village Punchbag (It's a job, i guess )",
+        "story": "",
+    },
+)
 
 render_logo()
 
@@ -756,6 +770,8 @@ tab_labels += [
     "Settings",
     "Atom Chat",
 ]
+if st.session_state.show_bored:
+    tab_labels.append("I'm bored")
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
 
@@ -773,6 +789,7 @@ tab_tables = next(tab_iter)
 tab_save_load = next(tab_iter)
 tab_settings = next(tab_iter)
 tab_atom = next(tab_iter)
+tab_bored = next(tab_iter) if st.session_state.show_bored else None
 tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
 # ================== 2ND LINE MODE TAB =================
@@ -1725,6 +1742,10 @@ with tab_settings:
     st.checkbox("Show Debug tab", key="debug_mode")
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
+    st.divider()
+    if st.button("I'm bored"):
+        st.session_state.show_bored = True
+        st.rerun()
 
 # ================== ATOM CHAT TAB =================
 with tab_atom:
@@ -1898,6 +1919,169 @@ if (
             file_name=f"{D.case_id or 'case'}_attachments.zip",
             mime="application/zip",
         )
+
+# ================== BORED TAB =================
+if tab_bored:
+    with tab_bored:
+        st.subheader("One Click RPG")
+        game = st.session_state.bored_game
+        area = [
+            "Forest of the Chaos Harlequins ",
+            "Forgotten Graveyard of Endal",
+            "Castle of the Blackest Knight",
+            "Haunted Farm of Yondor",
+            "Deathtrap Dungeon of Borgon",
+            " Mysterious Swampland of Kuluth",
+            "Swamp of the Slimy Hobbits",
+            "Darkest Dungeons",
+            "Ruins of the Fallen Gods",
+            "Forlorn Islands of Lost Souls",
+            "Hidden Hideout of Ninedeadeyes",
+            "Wildlands of Lady L Moore",
+            " Woods of Ypres",
+            "Heart of Darkness",
+            "Doomville",
+            "The Red Jester's Torture Chamber",
+            "The Goblins Fortress of Snikrik,",
+            " Temple of Apshai",
+            " Dungeons of Doom",
+            "Mountains of the Wild Berserker",
+            "Stronghold of Daggerfall",
+            "Walking Hills of Cthulhu",
+        ]
+        monster = [
+            "orcs",
+            "goblins",
+            "dragons",
+            "demons",
+            "kobolds",
+            "blobs",
+            "hobbits",
+            "zombies",
+            "gnomes",
+            "vampires",
+            "beholders",
+            "trolls",
+            "hill giants",
+            "ettins",
+            "mimics",
+            "succubuses",
+            "bone devils",
+            "clay golems",
+            "drows",
+            "gnolls",
+            "swamp hags",
+            " night goblins",
+            "half-ogres",
+            "hobgoblins",
+            "bog imps",
+            "owlbears",
+            "ponies",
+            "winter wolves",
+            "harlequin",
+            "abomination",
+        ]
+        description = [
+            "stupid",
+            "horny",
+            "heart broken",
+            "deranged",
+            "morbid",
+            "tiny",
+            "suicidal",
+            "sexy",
+            "skinny",
+            "racist",
+            "peaceful",
+            "silly",
+            "drunk",
+            "sadistic",
+            "young",
+            "shy",
+            "talkative",
+            "lovestruck",
+            "sarcastic",
+            "homophobic",
+            "forelorn",
+            "happy",
+            "friendly",
+            "psychopathic",
+            "optimistic",
+            "mysterious",
+            "beautiful",
+            "malnourish",
+            "zealous",
+            "hot-headed",
+        ]
+        if st.button("Explore", key="bored_explore"):
+            adventure = random.choice(area)
+            encounter = random.choice(monster)
+            descript = random.choice(description)
+            number = random.randrange(2, 5)
+            reward = random.randrange(1, 10)
+            exp = random.randrange(1, 20)
+            game["gold"] += reward
+            game["exp"] += exp
+            game["lexp"] += exp
+            if game["lexp"] > 123 + (game["level"] * 10):
+                game["level"] += 1
+                game["lexp"] = 0
+            lvl = game["level"]
+            if lvl > 2 and lvl < 4:
+                game["power_ranking"] = "The Cannon Fodder (Ready to die ? ) "
+            if lvl > 4 and lvl < 6:
+                game["power_ranking"] = "The Weakling Avenger (At least you tried )"
+            if lvl > 6 and lvl < 8:
+                game["power_ranking"] = "The Nice Guy (This is no compliment )"
+            if lvl > 8 and lvl < 10:
+                game["power_ranking"] = "The Beta Warrior (Well.. You won't die first, I guess )"
+            if lvl > 10 and lvl < 12:
+                game["power_ranking"] = "The Mighty Beta Warrior (Some nerds respect you )"
+            if lvl > 12 and lvl < 14:
+                game["power_ranking"] = "The Average Chump (Nothing to see here ) "
+            if lvl > 14 and lvl < 16:
+                game["power_ranking"] = "The Man with a Stick (Fear my wood )  "
+            if lvl > 16 and lvl < 18:
+                game["power_ranking"] = "The Man with a Big Stick (MORE WOOD )"
+            if lvl > 18 and lvl < 20:
+                game["power_ranking"] = "The Town's Guard (Obey my authority ) "
+            if lvl > 20 and lvl < 24:
+                game["power_ranking"] = "The Try-Hard Hero (You win some, you lose more )"
+            if lvl > 24 and lvl < 26:
+                game["power_ranking"] = "The Goblin Slayer (Your reputation grows )"
+            if lvl > 26 and lvl < 28:
+                game["power_ranking"] = "The Orc Breaker (Orcs cower in your presence )"
+            if lvl > 28 and lvl < 30:
+                game["power_ranking"] = " The Average Hero (Good but not great,keep fighting )"
+            if lvl > 30 and lvl < 32:
+                game["power_ranking"] = " The Demon Demolisher (Guts will be proud of you )"
+            if lvl > 32 and lvl < 34:
+                game["power_ranking"] = " The Master Killer (A black belt in DEATH )"
+            if lvl > 34 and lvl < 40:
+                game["power_ranking"] = " The Champion of Man (The best a man can be )"
+            if lvl > 40 and lvl < 70:
+                game["power_ranking"] = " Legendary Hero (Well done. You can retire now )"
+            if lvl > 70 and lvl < 90:
+                game["power_ranking"] = " Old Warrior (Why are you still playing ? )"
+            if lvl > 90 and lvl < 100:
+                game["power_ranking"] = "It's Over 9000 !! ( Seriously, quit it )"
+            if lvl > 100:
+                game["power_ranking"] = "God (We bow down to your greatness )"
+            story = (
+                f"You explore the {adventure}. You encounter {number} {descript} {encounter}. "
+                f"You slay the {encounter}. You gain {reward} gold and {exp} exp."
+            )
+            game["story"] = story
+        st.write(game["story"])
+        st.markdown(
+            f"Gold:{game['gold']}    EXP:{game['exp']}    LEVEL:{game['level']}",
+        )
+        st.markdown(f"Power ranking: {game['power_ranking']}")
+
+        st.subheader("DOOM-style Game")
+        if st.button("Launch DOOM-style game"):
+            game_path = Path(__file__).parent / "doom_game.py"
+            subprocess.Popen([sys.executable, str(game_path)])
 
 # ================== DEBUG TAB =================
 if tab_debug:
