@@ -8,3 +8,5 @@ tabulate
 
 pyinstaller
 pyautogui
+transformers
+torch
