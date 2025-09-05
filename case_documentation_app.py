@@ -86,13 +86,23 @@ DEFAULT_SIGNALS_CONFIG = json.dumps(
 
 VERSION_NOT_RELEVANT = "Version not relevant for this case"
 
+# Configure logging to write to a user-writable directory.  Fall back to
+# console-only logging if the log file cannot be created (e.g. due to
+# permissions on ProgramData when running without admin rights).
+LOG_DIR = Path.home() / "Kiroshi Documentation"
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_handlers = [
+        logging.FileHandler(LOG_DIR / LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(),
+    ]
+except OSError:
+    log_handlers = [logging.StreamHandler()]
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler(),
-    ],
+    handlers=log_handlers,
 )
 logging.info("Kiroshi app started")
 
