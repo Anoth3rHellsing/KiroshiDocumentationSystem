@@ -19,7 +19,7 @@ Coverage is actively tracked and the project receives daily updates.
 ## Features
 
 - **Case tab** – capture customer information, notes, and track completion progress.
-- **2nd Line Mode Dashboard** – monitor active Dell and FedEx tracked cases, browse recent tracked files, and load or untrack any case directly from the tracking tables.
+- **2nd Line Mode Dashboard** – when 2nd Line mode is enabled, monitor active Dell and FedEx tracked cases, browse recent tracked files, and load or untrack any case directly from the tracking tables.
 - **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Notes tab** – scratchpad for temporary notes.

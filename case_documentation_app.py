@@ -741,7 +741,10 @@ st.session_state.include_hw = st.checkbox(
     "Include hardware issue fields", st.session_state.include_hw
 )
 cat_map = active_category_map()
-tab_labels = ["2nd Line Mode", "Case"]
+tab_labels = []
+if st.session_state.second_line_mode:
+    tab_labels.append("2nd Line Mode")
+tab_labels.append("Case")
 if st.session_state.track_case:
     tab_labels.append("Tracking")
 if st.session_state.include_escalations:
@@ -755,7 +758,7 @@ if st.session_state.debug_mode:
 
 tabs = st.tabs(tab_labels)
 tab_iter = iter(tabs)
-tab_dashboard = next(tab_iter)
+tab_dashboard = next(tab_iter) if st.session_state.second_line_mode else None
 tab_case = next(tab_iter)
 tab_tracking = next(tab_iter) if st.session_state.track_case else None
 tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
@@ -769,50 +772,50 @@ tab_atom = next(tab_iter)
 tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
 # ================== 2ND LINE MODE TAB =================
-with tab_dashboard:
-    st.header("2nd Line Mode Dashboard")
-    main_col, recent_col = st.columns([3, 1])
-    with recent_col:
-        st.subheader("Recent Tracked Cases")
-        recent_box = st.container(height=400)
-        for p in recent_tracked_files():
-            recent_box.write(p.stem)
-    with main_col:
-        st.subheader("Case Status & Tracking")
-        cases = load_tracked_cases()
-        dell_cases = [c for c in cases if c.get("type") == "Dell"]
-        st.markdown("### Dell Case Tracking")
-        if dell_cases:
-            render_tracking_table(
-                dell_cases,
-                [
-                    ("Company", "company"),
-                    ("End User", "end_user"),
-                    ("Creation day", "creation_day"),
-                    ("Ticket Number", "ticket_number"),
-                    ("Service Tag", "service_tag"),
-                    ("Status", "status"),
-                ],
-            )
-        else:
-            st.write("No Dell cases being tracked.")
-        st.markdown("### FedEx Case Tracking")
-        fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
-        if fedex_cases:
-            render_tracking_table(
-                fedex_cases,
-                [
-                    ("Company", "company"),
-                    ("End User", "end_user"),
-                    ("Creation day", "creation_day"),
-                    ("Ticket Number", "ticket_number"),
-                    ("Expected arrival date", "expected_arrival_date"),
-                    ("Status", "status"),
-                ],
-            )
-        else:
-            st.write("No FedEx cases being tracked.")
-
+if tab_dashboard:
+    with tab_dashboard:
+        st.header("2nd Line Mode Dashboard")
+        main_col, recent_col = st.columns([3, 1])
+        with recent_col:
+            st.subheader("Recent Tracked Cases")
+            recent_box = st.container(height=400)
+            for p in recent_tracked_files():
+                recent_box.write(p.stem)
+        with main_col:
+            st.subheader("Case Status & Tracking")
+            cases = load_tracked_cases()
+            dell_cases = [c for c in cases if c.get("type") == "Dell"]
+            st.markdown("### Dell Case Tracking")
+            if dell_cases:
+                render_tracking_table(
+                    dell_cases,
+                    [
+                        ("Company", "company"),
+                        ("End User", "end_user"),
+                        ("Creation day", "creation_day"),
+                        ("Ticket Number", "ticket_number"),
+                        ("Service Tag", "service_tag"),
+                        ("Status", "status"),
+                    ],
+                )
+            else:
+                st.write("No Dell cases being tracked.")
+            st.markdown("### FedEx Case Tracking")
+            fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
+            if fedex_cases:
+                render_tracking_table(
+                    fedex_cases,
+                    [
+                        ("Company", "company"),
+                        ("End User", "end_user"),
+                        ("Creation day", "creation_day"),
+                        ("Ticket Number", "ticket_number"),
+                        ("Expected arrival date", "expected_arrival_date"),
+                        ("Status", "status"),
+                    ],
+                )
+            else:
+                st.write("No FedEx cases being tracked.")
 # ================== CASE TAB =================
 with tab_case:
     api_key = st.session_state.openai_api_key
