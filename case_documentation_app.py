@@ -816,7 +816,6 @@ if tab_dashboard:
                 )
             else:
                 st.write("No FedEx cases being tracked.")
-
 # ================== CASE TAB =================
 with tab_case:
     api_key = st.session_state.openai_api_key
