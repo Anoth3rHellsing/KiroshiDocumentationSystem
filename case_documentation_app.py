@@ -16,6 +16,8 @@ from pathlib import Path
 import re
 import base64
 import random
+import subprocess
+import sys
 
 import pandas as pd
 import altair as alt
@@ -2075,6 +2077,11 @@ if tab_bored:
             f"Gold:{game['gold']}    EXP:{game['exp']}    LEVEL:{game['level']}",
         )
         st.markdown(f"Power ranking: {game['power_ranking']}")
+
+        st.subheader("DOOM-style Game")
+        if st.button("Launch DOOM-style game"):
+            game_path = Path(__file__).parent / "doom_game.py"
+            subprocess.Popen([sys.executable, str(game_path)])
 
 # ================== DEBUG TAB =================
 if tab_debug:
