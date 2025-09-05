@@ -58,6 +58,13 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "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",
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
+DEFAULT_AI_MODE = (
+    "Local Model"
+    if not DEFAULT_AI_BASE_URL
+    else (
+        "Cloud" if DEFAULT_AI_BASE_URL.startswith("https://api.openai.com") else "Local API"
+    )
+)
 LOG_FILE = "app.log"
 
 if os.name == "nt":
@@ -202,6 +209,7 @@ _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
 _init_state("ai_base_url", DEFAULT_AI_BASE_URL)
+_init_state("ai_mode", DEFAULT_AI_MODE)
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
@@ -1541,7 +1549,7 @@ if tab_email:
         include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
         include_restart = st.checkbox("Restart the computer", key="api_restart")
         include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
- if st.button("Use GPT-OSS"):
+        if st.button("Use GPT-OSS"):
             api_key = st.session_state.openai_api_key
             model = st.session_state.openai_model
             base_url = st.session_state.ai_base_url
@@ -1894,8 +1902,29 @@ if tab_debug:
     with tab_debug:
         if st.session_state.debug_auth:
             st.subheader("Debug")
-            st.text_input("OpenAI API Key", type="password", key="openai_api_key")
-            st.text_input("AI Base URL", key="ai_base_url")
+            st.selectbox(
+                "AI Mode",
+                ["Cloud", "Local API", "Local Model"],
+                key="ai_mode",
+            )
+            if st.session_state.ai_mode == "Cloud":
+                st.text_input(
+                    "OpenAI API Key", type="password", key="openai_api_key"
+                )
+                st.text_input("AI Base URL", key="ai_base_url")
+            elif st.session_state.ai_mode == "Local API":
+                st.text_input(
+                    "AI Base URL", key="ai_base_url", value=st.session_state.ai_base_url
+                )
+                st.text_input(
+                    "API Key (optional)", type="password", key="openai_api_key"
+                )
+            else:
+                st.session_state.ai_base_url = ""
+                st.session_state.openai_api_key = ""
+                st.info(
+                    "Using local transformers model; no API key or Base URL required."
+                )
             st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
             st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
             st.text_area("Allowed categories block", key="taxonomy_block", height=150)

@@ -28,6 +28,13 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "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",
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
+DEFAULT_AI_MODE = (
+    "Local Model"
+    if not DEFAULT_AI_BASE_URL
+    else (
+        "Cloud" if DEFAULT_AI_BASE_URL.startswith("https://api.openai.com") else "Local API"
+    )
+)
 
 SYSTEM_PROMPT = """Project A.A.T.O.M. — Personality Construct V.0.0.1 “Coffee”
 Beta Build: 19082025
@@ -372,20 +379,48 @@ def main():
             key="personality_mode",
         )
 
-    base_url = st.text_input(
-        "AI Base URL", value=st.session_state.get("ai_base_url", DEFAULT_AI_BASE_URL), key="ai_base_url"
+    if "ai_mode" not in st.session_state:
+        st.session_state.ai_mode = DEFAULT_AI_MODE
+    backend = st.selectbox(
+        "AI Mode", ["Cloud", "Local API", "Local Model"], key="ai_mode"
     )
-    api_key = st.text_input(
-        "OpenAI API Key", type="password", value=DEFAULT_OPENAI_API_KEY
+    if backend == "Cloud":
+        base_url = st.text_input(
+            "AI Base URL",
+            key="ai_base_url",
+            value=st.session_state.get("ai_base_url", DEFAULT_AI_BASE_URL),
+        )
+        api_key = st.text_input(
+            "OpenAI API Key",
+            type="password",
+            key="openai_api_key",
+            value=st.session_state.get("openai_api_key", DEFAULT_OPENAI_API_KEY),
+        )
+    elif backend == "Local API":
+        base_url = st.text_input(
+            "AI Base URL",
+            key="ai_base_url",
+            value=st.session_state.get("ai_base_url", "http://localhost:8000/v1"),
+        )
+        api_key = st.text_input(
+            "API Key (optional)", type="password", key="openai_api_key"
+        )
+    else:
+        st.session_state.ai_base_url = ""
+        st.session_state.openai_api_key = ""
+        base_url = ""
+        api_key = ""
+        st.info("Using local transformers model; no API key or URL needed.")
+    model = st.selectbox(
+        "Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], index=0, key="openai_model"
     )
-    model = st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], index=0)
 
     for msg in st.session_state.atom_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
     if user_msg := st.chat_input("Message"):
-        if not api_key and base_url.startswith("https://api.openai.com"):
+        if not api_key and st.session_state.ai_mode == "Cloud":
             st.error("Please provide your OpenAI API key.")
         else:
             st.session_state.atom_history.append({"role": "user", "content": user_msg})
