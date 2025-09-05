@@ -26,7 +26,7 @@ Generates prompts for several e‑mail templates:
 - Callback email
 - Custom request email
 
-The generated prompt can be copied or sent directly to the ChatGPT API to produce the full e‑mail.
+The generated prompt can be copied or sent directly to the ChatGPT API to produce the full e‑mail. All templates automatically begin with the customer's name, company, case number, and a short description of the issue for consistent recaps.
 
 ### Hardware Issues
 Stores PC and scanner hardware details and displays them in copy‑friendly tables.

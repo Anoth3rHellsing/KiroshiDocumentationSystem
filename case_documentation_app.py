@@ -449,6 +449,24 @@ def compute_progress(d: CaseData, cat_map):
     return prog, miss
 
 
+def build_email_intro(d: CaseData) -> str:
+    """Standard opening for customer emails.
+
+    Includes the contact name, company, brief description of the issue and the
+    case number so every e‑mail automatically contains the required recap
+    information for EC.
+    """
+    caller = d.caller_name or "Customer"
+    company = f" from {d.company_name}" if d.company_name else ""
+    brief = d.brief_description or "the reported issue"
+    case_no = d.case_id or "your case"
+    return (
+        f"Dear {caller}{company},\n\n"
+        f"I hope this email finds you well. I wanted to recap your recent call to our customer service center regarding the case you had about {brief}.\n"
+        f"This was registered under the ticket {case_no}.\n"
+    )
+
+
 def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
     """Return a DataFrame with human readable field names for a category."""
     rows = []
@@ -1246,12 +1264,12 @@ with tab_email:
 
     prompt = ""
     if email_type == "Recap (Customer)":
-        greeting = f"Dear {(D.caller_name or 'Customer')}{(' / ' + D.company_name + ' team') if D.company_name else ' team'},"
+        intro = build_email_intro(D)
         steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
         prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
 motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
-The email must start with: {greeting}
-
+Start the email with:
+{intro}
 Include: Case ID, root cause, a brief 1‑3 bullet summary of the steps taken, and the final solution.
 Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
 Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
@@ -1283,7 +1301,10 @@ Survey link: {D.survey_link}"""
             "Are you satisfied with service?", ext.get("satisfaction", "")
         )
 
+        intro = build_email_intro(D)
         prompt = f"""Draft a friendly e‑mail asking the customer to confirm / provide the following details about the broken scanner.
+Start the email with:
+{intro}
 Number the questions 1‑5 and leave blank space after each for their answers.
 
 Questions:
@@ -1315,7 +1336,10 @@ Prefill any answers we already know (shown above) right under each question.
             "Other relevant info", ext.get("other", "")
         )
 
+        intro = build_email_intro(D)
         prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
+Start the email with:
+{intro}
 List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
 
 1. Times autoclaved – {ext['times_autoclaved']}
@@ -1337,14 +1361,15 @@ List each question and provide any known answer beneath it, ready for the custom
         ext["request"] = st.text_area(
             "What do we need from the customer?", ext.get("request", "")
         )
-        caller = D.caller_name or "Customer"
+        intro = build_email_intro(D)
         case_id = D.case_id or "N/A"
         prompt = f"""You are an IT support agent working on case {case_id}.
 Reason: {ext['reason']}.
 Objective: {ext['objective']}.
 Clearly request the following from the customer: {ext['request']}.
 Use any relevant case details for context.
-Start the email with: Dear {caller}
+Start the email with:
+{intro}
 End with: We look forward to your reply."""
 
     elif email_type == "Callback Email":
@@ -1378,10 +1403,12 @@ End with: We look forward to your reply."""
                 st.session_state.callback_equipment,
             )
 
-        caller = D.caller_name or "Customer"
+        intro = build_email_intro(D)
         if st.session_state.callback_address:
             equip = st.session_state.callback_equipment or "(equipment)"
             prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
+Start the email with:
+{intro}
 List the following fields for them to fill in:
 Address (include suite if any)
 City
@@ -1391,7 +1418,6 @@ Full name of the recipient
 Best phone number to contact the recipient
 Email to contact the recipient
 
-Start the email with: Dear {caller}
 End with: We look forward to your reply."""
         else:
             if st.session_state.callback_needed:
@@ -1405,7 +1431,7 @@ End with: We look forward to your reply."""
                 )
             prompt = (
                 f"Draft a polite email asking the customer to {base_request}\n"
-                f"Start the email with: Dear {caller}\n"
+                f"Start the email with:\n{intro}\n"
                 "End with: We look forward to your reply."
             )
             extras = []
