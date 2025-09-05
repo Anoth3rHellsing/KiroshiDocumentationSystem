@@ -57,6 +57,8 @@ with `cd` and then run `pip`:
 ```bash
 cd /path/to/KiroshiDocumentationSystem
 pip install -r requirements.txt
+# Optional: install mini-game and local model dependencies
+pip install -r requirements-bored.txt
 ```
 
 ### Windows PATH helper
@@ -150,9 +152,9 @@ streamlit run case_documentation_app.py
 ```
 
 If `AI_BASE_URL` is unset (the "Local Model" option), Kiroshi falls back to a
-minimal `transformers` pipeline (requires the `transformers` and `torch`
-packages and an available model) to generate text without making HTTP
-requests.
+minimal `transformers` pipeline (install the optional `transformers` and
+`torch` packages from `requirements-bored.txt` and supply an available model)
+to generate text without making HTTP requests.
 
 ### Corporate SSL interception
 
@@ -167,6 +169,8 @@ To create a standalone executable, make sure you're in the project directory, in
 ```bash
 cd /path/to/KiroshiDocumentationSystem
 pip install -r requirements.txt
+# Optional: install mini-game and local model dependencies
+pip install -r requirements-bored.txt
 ./build.sh
 ```
 
