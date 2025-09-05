@@ -137,6 +137,21 @@ cp config.example.json config.json
 # then open config.json and update the values
 ```
 
+The backend endpoint is configurable via the `AI_BASE_URL` environment variable
+or the "AI Base URL" field in the Debug tab. By default it targets OpenAI's
+service, but you can point it at any OpenAI-compatible server. When using a
+local server, the `OPENAI_API_KEY` may be left blank.
+
+```bash
+export AI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=""
+streamlit run case_documentation_app.py
+```
+
+If `AI_BASE_URL` is unset, Kiroshi falls back to a minimal `transformers`
+pipeline (requires the `transformers` package and an available model) to
+generate text without making HTTP requests.
+
 ### Corporate SSL interception
 
 Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The

@@ -57,6 +57,7 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     "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",
 )
+DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 LOG_FILE = "app.log"
 
 if os.name == "nt":
@@ -200,6 +201,7 @@ _init_state("debug_mode", False)
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
+_init_state("ai_base_url", DEFAULT_AI_BASE_URL)
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
@@ -813,11 +815,12 @@ if tab_dashboard:
 with tab_case:
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
+    base_url = st.session_state.ai_base_url
     verify_col, ask_col, categorize_col, assist_col, clear_col, track_col = st.columns(6)
     with verify_col:
         if st.button("Verify", key="verify_button"):
             logging.info("Verify button clicked")
-            if not api_key:
+            if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
                 case_dict = asdict(D)
@@ -845,6 +848,7 @@ with tab_case:
                         st.session_state.atom_history,
                         api_key,
                         model,
+                        base_url,
                     )
                 except Exception as e:
                     st.error(str(e))
@@ -856,7 +860,7 @@ with tab_case:
     with ask_col:
         if st.button("Ask", key="ask_button"):
             logging.info("Ask button clicked")
-            if not api_key:
+            if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
                 case_dict = asdict(D)
@@ -887,6 +891,7 @@ with tab_case:
                         st.session_state.atom_history,
                         api_key,
                         model,
+                        base_url,
                     )
                 except Exception as e:
                     st.error(str(e))
@@ -898,7 +903,7 @@ with tab_case:
     with categorize_col:
         if st.button("Categorize", key="categorize_button"):
             logging.info("Categorize button clicked")
-            if not api_key:
+            if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
                 taxonomy_block = st.session_state.taxonomy_block
@@ -953,6 +958,7 @@ with tab_case:
                             st.session_state.atom_history,
                             api_key,
                             model,
+                            base_url,
                         )
                     except Exception as e:
                         st.error(str(e))
@@ -964,7 +970,7 @@ with tab_case:
     with assist_col:
         if st.button("AI Assistance", key="assist_button"):
             logging.info("AI Assistance button clicked")
-            if not api_key:
+            if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
                 case_dict = asdict(D)
@@ -998,6 +1004,7 @@ with tab_case:
                         st.session_state.atom_history,
                         api_key,
                         model,
+                        base_url,
                     )
                 except Exception as e:
                     st.error(str(e))
@@ -1534,11 +1541,12 @@ if tab_email:
         include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
         include_restart = st.checkbox("Restart the computer", key="api_restart")
         include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
-    
+
         if st.button("Generate Email (ChatGPT API)"):
             api_key = st.session_state.openai_api_key
             model = st.session_state.openai_model
-            if not api_key:
+            base_url = st.session_state.ai_base_url
+            if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
             elif not prompt.strip():
                 st.error("Prompt is empty.")
@@ -1562,33 +1570,46 @@ if tab_email:
                             )
                         if extras:
                             augmented_prompt += "\n\n" + "\n".join(extras)
-                        response = requests.post(
-                            "https://api.openai.com/v1/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {api_key}",
-                                "Content-Type": "application/json",
-                            },
-                            json={
-                                "model": model,
-                                "messages": [
-                                    {"role": "system", "content": "You are a helpful assistant."},
-                                    {"role": "user", "content": augmented_prompt},
-                                ],
-                                "max_tokens": 600,
-                                "temperature": 0.7,
-                            },
-                            timeout=30,
-                            verify=False,
-                        )
-                        if response.status_code == 200:
-                            result = response.json()
-                            email_text = result["choices"][0]["message"]["content"]
-                            st.success("Email generated!")
-                            st.text_area("Generated Email", email_text, height=300, key="generated_email")
-                        else:
-                            st.error(
-                                f"API Error: {response.status_code}\n{response.text}"
+                        if base_url:
+                            headers = {"Content-Type": "application/json"}
+                            if api_key:
+                                headers["Authorization"] = f"Bearer {api_key}"
+                            response = requests.post(
+                                base_url.rstrip("/") + "/chat/completions",
+                                headers=headers,
+                                json={
+                                    "model": model,
+                                    "messages": [
+                                        {"role": "system", "content": "You are a helpful assistant."},
+                                        {"role": "user", "content": augmented_prompt},
+                                    ],
+                                    "max_tokens": 600,
+                                    "temperature": 0.7,
+                                },
+                                timeout=30,
+                                verify=False,
                             )
+                            if response.status_code == 200:
+                                result = response.json()
+                                email_text = result["choices"][0]["message"]["content"]
+                                st.success("Email generated!")
+                                st.text_area("Generated Email", email_text, height=300, key="generated_email")
+                            else:
+                                st.error(
+                                    f"API Error: {response.status_code}\n{response.text}"
+                                )
+                        else:
+                            from transformers import pipeline  # type: ignore
+
+                            generator = pipeline("text-generation", model="gpt2")
+                            result = generator(augmented_prompt, max_new_tokens=200)[0]["generated_text"]
+                            st.text_area(
+                                "Generated Email",
+                                result[len(augmented_prompt):].strip(),
+                                height=300,
+                                key="generated_email",
+                            )
+                            st.success("Email generated locally!")
                     except Exception as e:  # pragma: no cover - just in case
                         st.error(f"Request failed: {e}")
     
@@ -1708,7 +1729,8 @@ with tab_atom:
         )
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
-    if not api_key:
+    base_url = st.session_state.ai_base_url
+    if not api_key and base_url.startswith("https://api.openai.com"):
         st.info("Set your OpenAI API key in the Debug tab.")
 
     with st.expander("Manual Documents Database"):
@@ -1730,7 +1752,7 @@ with tab_atom:
     st.subheader("Search manual database")
     search_query = st.text_input("Search query", key="db_query")
     if st.button("Search in database", key="db_search_button"):
-        if not api_key:
+        if not api_key and base_url.startswith("https://api.openai.com"):
             st.error("Please set your OpenAI API key in the Debug tab.")
         elif not search_query:
             st.error("Enter a search query.")
@@ -1745,7 +1767,9 @@ with tab_atom:
                     + f"\n\nQuestion: {search_query}"
                 )
                 try:
-                    reply = query_atom(message, st.session_state.atom_history, api_key, model)
+                    reply = query_atom(
+                        message, st.session_state.atom_history, api_key, model, base_url
+                    )
                 except Exception as e:
                     st.session_state.db_search_result = str(e)
                 else:
@@ -1762,12 +1786,12 @@ with tab_atom:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
     if user_msg := st.chat_input("Message", key="atom_chat_input"):
-        if not api_key:
+        if not api_key and base_url.startswith("https://api.openai.com"):
             st.error("Please set your OpenAI API key in the Debug tab.")
         else:
             history = st.session_state.atom_history.copy()
             try:
-                reply = query_atom(user_msg, history, api_key, model)
+                reply = query_atom(user_msg, history, api_key, model, base_url)
             except Exception as e:
                 st.session_state.atom_history.append({"role": "user", "content": user_msg})
                 st.session_state.atom_history.append({"role": "assistant", "content": str(e)})
@@ -1872,6 +1896,7 @@ if tab_debug:
         if st.session_state.debug_auth:
             st.subheader("Debug")
             st.text_input("OpenAI API Key", type="password", key="openai_api_key")
+            st.text_input("AI Base URL", key="ai_base_url")
             st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
             st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
             st.text_area("Allowed categories block", key="taxonomy_block", height=150)

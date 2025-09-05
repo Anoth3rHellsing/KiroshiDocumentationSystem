@@ -27,6 +27,7 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     "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",
 )
+DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 
 SYSTEM_PROMPT = """Project A.A.T.O.M. — Personality Construct V.0.0.1 “Coffee”
 Beta Build: 19082025
@@ -316,17 +317,30 @@ def search_manual_docs(query, docs):
     ]
 
 
-def query_atom(user_message, history, api_key, model):
-    """Send a message to the A.A.T.O.M. API and return the reply."""
+def query_atom(user_message, history, api_key, model, base_url=None):
+    """Send a message to the A.A.T.O.M. API or a local model and return the reply."""
+    base_url = base_url or DEFAULT_AI_BASE_URL
     messages = ([{"role": "system", "content": build_system_prompt()}] + history + [
         {"role": "user", "content": user_message}
     ])
+    # Local pipeline fallback when no base URL is provided
+    if not base_url:
+        try:
+            from transformers import pipeline
+
+            prompt = "\n".join(m["content"] for m in messages)
+            generator = pipeline("text-generation", model="gpt2")
+            result = generator(prompt, max_new_tokens=200)[0]["generated_text"]
+            return result[len(prompt):].strip()
+        except Exception as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(f"Local model error: {exc}")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    url = base_url.rstrip("/") + "/chat/completions"
     response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        url,
+        headers=headers,
         json={"model": model, "messages": messages, "temperature": 0.7},
         timeout=30,
         verify=False,
@@ -357,6 +371,9 @@ def main():
             key="personality_mode",
         )
 
+    base_url = st.text_input(
+        "AI Base URL", value=st.session_state.get("ai_base_url", DEFAULT_AI_BASE_URL), key="ai_base_url"
+    )
     api_key = st.text_input(
         "OpenAI API Key", type="password", value=DEFAULT_OPENAI_API_KEY
     )
@@ -367,14 +384,20 @@ def main():
             st.markdown(msg["content"])
 
     if user_msg := st.chat_input("Message"):
-        if not api_key:
+        if not api_key and base_url.startswith("https://api.openai.com"):
             st.error("Please provide your OpenAI API key.")
         else:
             st.session_state.atom_history.append({"role": "user", "content": user_msg})
             with st.chat_message("user"):
                 st.markdown(user_msg)
             try:
-                reply = query_atom(user_msg, st.session_state.atom_history[:-1], api_key, model)
+                reply = query_atom(
+                    user_msg,
+                    st.session_state.atom_history[:-1],
+                    api_key,
+                    model,
+                    base_url,
+                )
             except Exception as e:
                 with st.chat_message("assistant"):
                     st.error(str(e))

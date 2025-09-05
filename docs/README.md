@@ -59,3 +59,22 @@ streamlit run case_documentation_app.py
 ```
 
 Ensure that the dependencies listed in `requirements.txt` are installed.
+
+## Local model configuration
+
+Kiroshi can talk to any OpenAI-compatible text generation server. Set the
+`AI_BASE_URL` environment variable or update the "AI Base URL" field in the
+Debug tab to point to your endpoint. When using a self-hosted server, the
+`OPENAI_API_KEY` may be left blank.
+
+To run against a local model server exposing an OpenAI-style API:
+
+```bash
+export AI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=""  # no key required for local servers
+streamlit run case_documentation_app.py
+```
+
+If `AI_BASE_URL` is unset, Kiroshi falls back to a lightweight
+`transformers` pipeline (requires the `transformers` package and a local
+model) to generate responses directly in Python.
