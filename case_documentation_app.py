@@ -147,30 +147,20 @@ def render_logo():
     motd = get_message_of_the_day()
     col_logo, col_motd = st.columns([1, 3])
     with col_logo:
-        logo_bytes = KIROSHI_LOGO_PATH.read_bytes()
-        b64 = base64.b64encode(logo_bytes).decode()
-        prompt = (
-            "Disable Debug mode?" if st.session_state.get("debug_mode") else "Enable Debug mode?"
-        )
-        action_flag = "disable" if st.session_state.get("debug_mode") else "enable"
+        st.image(str(KIROSHI_LOGO_PATH), width=200)
+    with col_motd:
         html = f"""
-        <img id='kiroshi-logo' src='data:image/png;base64,{b64}' style='width:200px;'>
+        <span style='font-weight:bold;'>Message of the d<span id="motd-debug" style="cursor:pointer;">a</span>y:</span> {motd}
         <script>
-        const img = document.getElementById('kiroshi-logo');
-        img.addEventListener('click', function(e){{
-            if (confirm('{prompt}')) {{
-                Streamlit.setComponentValue('{action_flag}');
-            }}
+        const dbg = document.getElementById('motd-debug');
+        dbg.addEventListener('click', function(e){{
+            Streamlit.setComponentValue('open-debug');
         }});
         </script>
         """
-        action = components.html(html, height=200)
-        if action == "enable":
+        action = components.html(html, height=60)
+        if action == "open-debug":
             st.session_state.debug_mode = True
-        elif action == "disable":
-            st.session_state.debug_mode = False
-    with col_motd:
-        st.markdown(f"**Message of the day:** {motd}")
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
