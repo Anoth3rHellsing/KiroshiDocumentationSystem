@@ -152,6 +152,15 @@ MOTD_MESSAGES = [
     "A positive attitude may not solve all your problems, but it will annoy enough people to make it worth the effort.",
     "Overworked and underpaid—is that the modern dream?",
     "Going to work for a large company is like getting on a train. Are you moving, or is the train just dragging you along?",
+    "Today's plan: pretend the plan is going to plan.",
+    "Our Wi-Fi spirit animal is a sloth on a coffee break.",
+    "Work-life balance: work on the left, life on the right monitor.",
+    "Yes, we sell solutions. No, they don’t come with patience included.",
+    "Your scanner is overheating? Try flossing the fan.",
+    "Remember: one click by you = one headache for IT.",
+    "If the scanner sounds like a drill, maybe it wants to be one.",
+    "Yes, we’ll fix it. No, the reseller won’t help.",
+    "Your device is down. At least your gums aren’t.",
 ]
 
 
