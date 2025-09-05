@@ -2078,8 +2078,8 @@ if tab_bored:
         )
         st.markdown(f"Power ranking: {game['power_ranking']}")
 
-        st.subheader("DOOM-style Game")
-        if st.button("Launch DOOM-style game"):
+        st.subheader("Secret Arena")
+        if st.button("Launch arena"):
             game_path = Path(__file__).parent / "doom_game.py"
             subprocess.Popen([sys.executable, str(game_path)])
 
@@ -2118,8 +2118,11 @@ if tab_debug:
             st.json(st.session_state)
             st.subheader("Logs")
             st.text(tail_log(LOG_FILE))
+            st.divider()
+            if st.button("I'm bored"):
+                st.session_state.show_bored = True
+                st.rerun()
         else:
-            st.info("Use Username: admin Password: admin")
             user = st.text_input("Username", key="debug_user")
             pw = st.text_input("Password", type="password", key="debug_pass")
             if st.button("Login", key="debug_login"):
