@@ -1179,7 +1179,16 @@ with tab_case:
         auto_text_input("Solution", "solution")
         auto_text_input("Customer satisfaction survey URL", "survey_link")
         st.subheader("Additional information")
-        auto_text_area("Additional details", "additional_info", height=400)
+        auto_text_area(
+            "Additional details",
+            "additional_info",
+            height=400,
+            help=(
+                "Include details such as antivirus, firewalls enabled, update history, "
+                "related case ID, possible cause, performance issues, manual additional notes, "
+                "recurring issues, and recent issues."
+            ),
+        )
         st.subheader("Support Fee")
         st.checkbox(
             "Customer is TRIOS Only?",
