@@ -1629,11 +1629,6 @@ with tab_remote:
     st.subheader("Remote session – steps")
     auto_text_area("One step per line", "remote_steps", height=400)
 
-# ================== REMOTE SESSION TAB =================
-with tab_remote:
-    st.subheader("Remote session – steps")
-    auto_text_area("One step per line", "remote_steps", height=400)
-
 # ================== NOTES TAB =================
 with tab_notes:
     st.subheader("Scratchpad")
