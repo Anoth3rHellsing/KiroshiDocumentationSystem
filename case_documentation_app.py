@@ -9,7 +9,7 @@ import io
 import json
 import os
 import zipfile
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 from datetime import datetime, date
 import logging
 from pathlib import Path
@@ -193,8 +193,8 @@ _init_state("screenshots", [])
 _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
-_init_state("include_hw", False)
 _init_state("include_escalations", False)
+_init_state("include_hardware", False)
 _init_state("debug_auth", False)
 _init_state("debug_mode", False)
 _init_state("_autosave_loaded", False)
@@ -293,16 +293,7 @@ class CaseData:
     esc_ph: str = ""
     esc_email: str = ""
     # Additional information
-    antivirus: str = ""
-    firewalls_enabled: str = ""
-    update_history: str = ""
-    related_case_id: str = ""
-    possible_cause: str = ""
-    performance_issue: str = ""
-    manual_additional: str = ""
-    recurring_issue: str = ""
-    recent_issue: str = ""
-    last_issue_time: str = ""
+    additional_info: str = ""
     customer_trios_only: bool = False
     support_fee_accepted: bool = False
     hardware_test: bool = False
@@ -331,9 +322,11 @@ class InMemoryUploadedFile:
         return self.data
 
 
-# convert stored dict to dataclass
+# convert stored dict to dataclass, ignoring unexpected fields
 if isinstance(st.session_state.case, dict):
-    st.session_state.case = CaseData(**st.session_state.case)
+    allowed = {f.name for f in fields(CaseData)}
+    filtered = {k: v for k, v in st.session_state.case.items() if k in allowed}
+    st.session_state.case = CaseData(**filtered)
 D: CaseData = st.session_state.case
 
 # Ensure session state mirrors the current case data before any widgets are created
@@ -543,17 +536,7 @@ BASE_CATEGORY_MAP = {
         "straumann",
     ],
     "ESCALATION 2ND LINE": ["esc_name", "esc_ph", "esc_email"],
-    "ADDITIONAL INFORMATION": [
-        "antivirus",
-        "firewalls_enabled",
-        "update_history",
-        "related_case_id",
-        "possible_cause",
-        "performance_issue",
-        "manual_additional",
-        "recurring_issue",
-        "recent_issue",
-    ],
+    "ADDITIONAL INFORMATION": ["additional_info"],
 }
 
 HW_CATEGORY_MAP = {
@@ -582,7 +565,7 @@ def active_category_map():
     if not st.session_state.get("include_escalations", True):
         cm.pop("AX COORDINATORS", None)
         cm.pop("ESCALATION 2ND LINE", None)
-    if st.session_state.get("include_hw"):
+    if st.session_state.get("include_hardware"):
         cm.update(HW_CATEGORY_MAP)
     return cm
 
@@ -734,12 +717,15 @@ def make_tables_pdf(d: CaseData) -> bytes:
     return buf.read()
 
 # ──────────── TABS ───────────
-st.session_state.include_escalations = st.checkbox(
-    "Include escalations", st.session_state.include_escalations
-)
-st.session_state.include_hw = st.checkbox(
-    "Include hardware issue fields", st.session_state.include_hw
-)
+col_escal, col_hw = st.columns(2)
+with col_escal:
+    st.session_state.include_escalations = st.checkbox(
+        "Include escalations", st.session_state.include_escalations
+    )
+with col_hw:
+    st.session_state.include_hardware = st.checkbox(
+        "Include hardware issues", st.session_state.include_hardware
+    )
 cat_map = active_category_map()
 tab_labels = []
 if st.session_state.second_line_mode:
@@ -750,9 +736,16 @@ if st.session_state.track_case:
 if st.session_state.include_escalations:
     tab_labels.append("Escalations")
 tab_labels.append("Email")
-if st.session_state.include_hw:
+if st.session_state.include_hardware:
     tab_labels.append("Hardware Issues")
-tab_labels += ["Notes", "Tables", "Save/Load", "Settings", "Atom Chat"]
+tab_labels += [
+    "Remote Session",
+    "Notes",
+    "Tables",
+    "Save/Load",
+    "Settings",
+    "Atom Chat",
+]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
 
@@ -763,7 +756,8 @@ tab_case = next(tab_iter)
 tab_tracking = next(tab_iter) if st.session_state.track_case else None
 tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
 tab_email = next(tab_iter)
-tab_hw = next(tab_iter) if st.session_state.include_hw else None
+tab_hw = next(tab_iter) if st.session_state.include_hardware else None
+tab_remote = next(tab_iter)
 tab_notes = next(tab_iter)
 tab_tables = next(tab_iter)
 tab_save_load = next(tab_iter)
@@ -828,21 +822,6 @@ with tab_case:
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
                 case_dict = asdict(D)
-                if not st.session_state.include_hw:
-                    for fld in [
-                        "service_tag",
-                        "pc_model",
-                        "windows_version",
-                        "bios_version",
-                        "graphics_card",
-                        "processor",
-                        "warranty",
-                        "scanner_sn",
-                        "base_sn",
-                        "trios_module_version",
-                        "hardware_test",
-                    ]:
-                        case_dict.pop(fld, None)
                 if not st.session_state.include_escalations:
                     for fld in [
                         "request_issue",
@@ -882,21 +861,6 @@ with tab_case:
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
                 case_dict = asdict(D)
-                if not st.session_state.include_hw:
-                    for fld in [
-                        "service_tag",
-                        "pc_model",
-                        "windows_version",
-                        "bios_version",
-                        "graphics_card",
-                        "processor",
-                        "warranty",
-                        "scanner_sn",
-                        "base_sn",
-                        "trios_module_version",
-                        "hardware_test",
-                    ]:
-                        case_dict.pop(fld, None)
                 if not st.session_state.include_escalations:
                     for fld in [
                         "request_issue",
@@ -1005,21 +969,6 @@ with tab_case:
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
                 case_dict = asdict(D)
-                if not st.session_state.include_hw:
-                    for fld in [
-                        "service_tag",
-                        "pc_model",
-                        "windows_version",
-                        "bios_version",
-                        "graphics_card",
-                        "processor",
-                        "warranty",
-                        "scanner_sn",
-                        "base_sn",
-                        "trios_module_version",
-                        "hardware_test",
-                    ]:
-                        case_dict.pop(fld, None)
                 if not st.session_state.include_escalations:
                     for fld in [
                         "request_issue",
@@ -1183,179 +1132,21 @@ with tab_case:
         st.subheader("Internal notes")
         auto_text_input("Helpjuice link", "internal_helpjuice")
         auto_text_area("Logs / screenshots", "internal_logs", height=68)
-        st.subheader("Remote session – steps")
-        auto_text_area("One step per line", "remote_steps", height=68)
         st.subheader("Conclusion")
         auto_text_input("Root cause", "root_cause")
         auto_text_input("Solution", "solution")
         auto_text_input("Customer satisfaction survey URL", "survey_link")
         st.subheader("Additional information")
-        av_check = st.checkbox(
-            "Customer uses antivirus?", value=D.antivirus.startswith("Customer uses")
+        auto_text_area(
+            "Additional details",
+            "additional_info",
+            height=400,
+            help=(
+                "Include details such as antivirus, firewalls enabled, update history, "
+                "related case ID, possible cause, performance issues, manual additional notes, "
+                "recurring issues, and recent issues."
+            ),
         )
-        if av_check:
-            av_name = st.text_input(
-                "What antivirus?",
-                D.antivirus.replace("Customer uses antivirus: ", ""),
-                key="antivirus_name",
-                on_change=autosave,
-            )
-            D.antivirus = (
-                f"Customer uses antivirus: {av_name}"
-                if av_name
-                else "Customer uses antivirus:"
-            )
-        else:
-            D.antivirus = "Customer does not use antivirus."
-        autosave()
-        fw_check = st.checkbox(
-            "Firewalls are turned on?", value=D.firewalls_enabled.startswith("Firewalls are turned on")
-        )
-        D.firewalls_enabled = (
-            "Firewalls are turned on." if fw_check else "Firewalls are not turned on."
-        )
-        autosave()
-        upd_check = st.checkbox(
-            "Any update was made?", value=not D.update_history.startswith("No updates") and bool(D.update_history)
-        )
-        if upd_check:
-            upd_text = st.text_input(
-                "From what version to what version?",
-                D.update_history.replace("An update was made: ", ""),
-                key="update_history",
-                on_change=autosave,
-            )
-            D.update_history = (
-                f"An update was made: {upd_text}"
-                if upd_text
-                else "An update was made:"
-            )
-        else:
-            D.update_history = "No updates were made."
-        autosave()
-        rel_check = st.checkbox(
-            "Is there any related case?", value=D.related_case_id.startswith("There is a related case")
-        )
-        if rel_check:
-            rel_id = st.text_input(
-                "Related case number",
-                D.related_case_id.replace("There is a related case: ", ""),
-                key="related_case_id",
-                on_change=autosave,
-            )
-            D.related_case_id = (
-                f"There is a related case: {rel_id}"
-                if rel_id
-                else "There is a related case:"
-            )
-        else:
-            D.related_case_id = "There are no related cases."
-        autosave()
-        cause_check = st.checkbox(
-            "Any possible cause why it happened?",
-            value=D.possible_cause.startswith("Possible cause"),
-        )
-        if cause_check:
-            default_cause_text = re.sub(
-                r"^(Possible cause:\s*)+", "", D.possible_cause
-            ).strip()
-            cause_text = st.text_input(
-                "Why?",
-                default_cause_text,
-                key="possible_cause",
-                on_change=autosave,
-            )
-            cause_text = re.sub(r"^(Possible cause:\s*)+", "", cause_text).strip()
-            D.possible_cause = (
-                f"Possible cause: {cause_text}" if cause_text else "Possible cause:"
-            )
-        else:
-            D.possible_cause = "There is no known possible cause."
-        autosave()
-        perf_check = st.checkbox(
-            "Performance related issue?",
-            value=D.performance_issue.startswith("It is a performance related issue"),
-        )
-        if perf_check:
-            default_perf_text = re.sub(
-                r"^(It is a performance related issue:\s*)+", "", D.performance_issue
-            ).strip()
-            perf_text = st.text_input(
-                "Why?",
-                default_perf_text,
-                key="performance_issue",
-                on_change=autosave,
-            )
-            perf_text = re.sub(
-                r"^(It is a performance related issue:\s*)+", "", perf_text
-            ).strip()
-            D.performance_issue = (
-                f"It is a performance related issue: {perf_text}"
-                if perf_text
-                else "It is a performance related issue:"
-            )
-        else:
-            D.performance_issue = "It is not a performance related issue."
-        autosave()
-        manual_check = st.checkbox(
-            "Manual Additional?", value=bool(D.manual_additional)
-        )
-        if manual_check:
-            base_manual = re.sub(
-                r"\n?Last time issue occurred:.*", "", D.manual_additional
-            ).strip()
-            st.session_state.manual_additional = base_manual
-            st.text_area(
-                "Manual additional information",
-                key="manual_additional",
-                on_change=autosave,
-            )
-        recur_check = st.checkbox(
-            "Recurring issue?",
-            value=D.recurring_issue.startswith("This is a recurring issue"),
-        )
-        D.recurring_issue = (
-            "This is a recurring issue."
-            if recur_check
-            else "This is not a recurring issue."
-        )
-        autosave()
-        recent_check = st.checkbox(
-            "Did this issue happen in the last couple months?",
-            value=D.recent_issue.startswith("Issue happened"),
-        )
-        if recent_check:
-            last_time = (
-                st.text_input(
-                    "When was the last time this happened?",
-                    D.last_issue_time,
-                    key="last_issue_time",
-                    on_change=autosave,
-                ).strip()
-            )
-            D.last_issue_time = last_time
-            D.recent_issue = (
-                "Issue happened in the last couple months."
-                if last_time
-                else "Issue happened in the last couple months."
-            )
-        else:
-            D.last_issue_time = ""
-            D.recent_issue = "Issue did not happen in the last couple months."
-        autosave()
-        if manual_check:
-            manual_text = st.session_state.manual_additional.strip()
-            manual_text = re.sub(
-                r"\n?Last time issue occurred:.*", "", manual_text
-            ).strip()
-            if recent_check and D.last_issue_time:
-                manual_text = (
-                    manual_text + "\n" if manual_text else ""
-                ) + f"Last time issue occurred: {D.last_issue_time}"
-            D.manual_additional = manual_text
-        else:
-            D.manual_additional = ""
-        autosave()
         st.subheader("Support Fee")
         st.checkbox(
             "Customer is TRIOS Only?",
@@ -1532,21 +1323,22 @@ if tab_escalations:
         )
 
 # ================== EMAIL TAB =================
-with tab_email:
-    st.subheader("Email Prompt Generator")
-    email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
-    if st.session_state.second_line_mode:
-        email_choices.append("Callback Email")
-    email_choices.append("Custom Request")
-    email_type = st.selectbox(
-        "Select email template",
-        email_choices,
-        index=
-        email_choices.index(st.session_state.email_type)
-        if st.session_state.email_type in email_choices
-        else 0,
-    )
-    st.session_state.email_type = email_type
+if tab_email:
+    with tab_email:
+        st.subheader("Email Prompt Generator")
+        email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
+        if st.session_state.second_line_mode:
+            email_choices.append("Callback Email")
+        email_choices.append("Custom Request")
+        email_type = st.selectbox(
+            "Select email template",
+            email_choices,
+            index=
+            email_choices.index(st.session_state.email_type)
+            if st.session_state.email_type in email_choices
+            else 0,
+        )
+        st.session_state.email_type = email_type
     ext = st.session_state.email_extra
 
     prompt = ""
@@ -1803,15 +1595,13 @@ End with: We look forward to your reply."""
                     st.error(f"Request failed: {e}")
 
 # ================== HARDWARE ISSUES TAB =================
-if st.session_state.include_hw:
+if tab_hw:
     with tab_hw:
         st.subheader("PC Hardware Issue")
         col_pc1, col_pc2 = st.columns(2)
         auto_text_input("Service Tag", "service_tag", container=col_pc1)
         auto_text_input("PC Model", "pc_model", container=col_pc2)
-        auto_text_input(
-            "Windows version", "windows_version", container=col_pc1
-        )
+        auto_text_input("Windows version", "windows_version", container=col_pc1)
         auto_text_input("BIOS version", "bios_version", container=col_pc2)
         auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
         auto_text_input("Processor", "processor", container=col_pc2)
@@ -1835,6 +1625,11 @@ if st.session_state.include_hw:
         st.dataframe(
             category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
         )
+
+# ================== REMOTE SESSION TAB =================
+with tab_remote:
+    st.subheader("Remote session – steps")
+    auto_text_area("One step per line", "remote_steps", height=400)
 
 # ================== NOTES TAB =================
 with tab_notes:
