@@ -19,7 +19,7 @@ Coverage is actively tracked and the project receives daily updates.
 ## Features
 
 - **Case tab** – capture customer information, notes, and track completion progress.
-- **Email tab** – generate prompts for different e-mail templates such as customer recaps or escalation notes.
+- **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Notes tab** – scratchpad for temporary notes.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,

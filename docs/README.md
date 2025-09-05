@@ -21,10 +21,10 @@ wrapped table text.
 Generates prompts for several e‑mail templates:
 
 - Recap for the customer
-- Internal note for AX coordinators
 - Broken scanner questionnaire
 - Broken tip questionnaire
-- Escalation to second‑line support
+- Callback email
+- Custom request email
 
 The generated prompt can be copied or sent directly to the ChatGPT API to produce the full e‑mail.
 
