@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Kiroshi is a Streamlit application for documenting IT support cases. It provides interactive forms for collecting case details,
-generating PDF summaries, and creating email prompts or full emails via the OpenAI ChatGPT API.
+generating PDF summaries, and creating email prompts or full emails via GPT-OSS (future integration).
 
 Coverage is actively tracked and the project receives daily updates.
 
@@ -33,7 +33,7 @@ Coverage is actively tracked and the project receives daily updates.
 - **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
 - **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
 - **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
-- **ChatGPT API integration** – send prompts directly to OpenAI and display the generated response.
+- **GPT-OSS integration (coming soon)** – send prompts directly to GPT-OSS and display the generated response.
 - **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
   gentle reassurance when you're overwhelmed, and humorous escalation quips.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
@@ -140,7 +140,7 @@ cp config.example.json config.json
 ### Corporate SSL interception
 
 Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The
-application disables certificate checks for requests to the OpenAI ChatGPT API so it can be used behind such company proxies. Be
+application disables certificate checks for requests to GPT-OSS so it can be used behind such company proxies. Be
 aware that this weakens transport security and should only be enabled in trusted environments.
 
 ## Build executable
