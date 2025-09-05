@@ -68,6 +68,12 @@ RECENT_CASES_PATH = DATABASE_DIR / "recent_cases.json"
 if not RECENT_CASES_PATH.exists():
     RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
 
+if os.name == "nt":
+    TRACKED_CASES_DIR = Path("C:/ProgramFiles/KiroshiDatabase/TrackedCases")
+else:
+    TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
+TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+
 DEFAULT_TAXONOMY_BLOCK = (
     "• 3Shape Unite / Login — issues with 3Shape Account, tokens, sign-in, credential errors. "
     "Positives: \"sign in\", \"3Shape Account\", \"token\". Negatives: hardware calibration.\n"
@@ -208,6 +214,9 @@ _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
+# Tracking related state
+_init_state("track_case", False)
+_init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", False)
 _init_state("callback_remote", False)
@@ -354,6 +363,56 @@ def update_recent_cases(case_id: str, path: str) -> None:
     RECENT_CASES_PATH.write_text(json.dumps(recents[:10], indent=2), encoding="utf-8")
 
 
+def load_tracked_cases() -> list:
+    cases = []
+    for p in TRACKED_CASES_DIR.glob("*_Active.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            data["path"] = str(p)
+            cases.append(data)
+        except Exception:
+            continue
+    return cases
+
+
+def tracking_tables():
+    dell_rows = []
+    fedex_rows = []
+    for c in load_tracked_cases():
+        if c.get("type") == "Dell":
+            dell_rows.append(
+                {
+                    "Company": c.get("company", ""),
+                    "End User": c.get("end_user", ""),
+                    "Creation day": c.get("creation_day", ""),
+                    "Ticket Number": c.get("ticket_number", ""),
+                    "Service Tag": c.get("service_tag", ""),
+                    "Status": c.get("status", ""),
+                }
+            )
+        elif c.get("type") == "FedEx":
+            fedex_rows.append(
+                {
+                    "Company": c.get("company", ""),
+                    "End User": c.get("end_user", ""),
+                    "Creation day": c.get("creation_day", ""),
+                    "Ticket Number": c.get("ticket_number", ""),
+                    "Expected arrival date": c.get("expected_arrival_date", ""),
+                    "Status": c.get("status", ""),
+                }
+            )
+    return pd.DataFrame(dell_rows), pd.DataFrame(fedex_rows)
+
+
+def recent_tracked_files() -> list:
+    files = sorted(
+        TRACKED_CASES_DIR.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return files[:20]
+
+
 def save_case_to_database(case: CaseData) -> None:
     if not case.case_id:
         st.error("Case ID is required to save.")
@@ -375,6 +434,12 @@ def load_case_from_path(path: str) -> None:
         D = st.session_state.case
         autosave()
         update_recent_cases(st.session_state.case.case_id, path)
+        # Enable tracking tab if loaded from tracked directory or active file
+        p = Path(path)
+        if p.parent == TRACKED_CASES_DIR or p.name.endswith("_Active.json"):
+            st.session_state.track_case = True
+        else:
+            st.session_state.track_case = False
         st.success("Case loaded successfully.")
         st.rerun()
     except Exception as e:
@@ -674,8 +739,9 @@ st.session_state.include_hw = st.checkbox(
     "Include hardware issue fields", st.session_state.include_hw
 )
 cat_map = active_category_map()
-
-tab_labels = ["Case"]
+tab_labels = ["2nd Line Mode", "Case"]
+if st.session_state.track_case:
+    tab_labels.append("Tracking")
 if st.session_state.include_escalations:
     tab_labels.append("Escalations")
 tab_labels.append("Email")
@@ -687,7 +753,9 @@ if st.session_state.debug_mode:
 
 tabs = st.tabs(tab_labels)
 tab_iter = iter(tabs)
+tab_dashboard = next(tab_iter)
 tab_case = next(tab_iter)
+tab_tracking = next(tab_iter) if st.session_state.track_case else None
 tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
 tab_email = next(tab_iter)
 tab_hw = next(tab_iter) if st.session_state.include_hw else None
@@ -698,11 +766,33 @@ tab_settings = next(tab_iter)
 tab_atom = next(tab_iter)
 tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
+# ================== 2ND LINE MODE TAB =================
+with tab_dashboard:
+    st.header("2nd Line Mode Dashboard")
+    main_col, recent_col = st.columns([3, 1])
+    with recent_col:
+        st.subheader("Recent Tracked Cases")
+        for p in recent_tracked_files():
+            st.write(p.stem)
+    with main_col:
+        st.subheader("Case Status & Tracking")
+        dell_df, fedex_df = tracking_tables()
+        st.markdown("### Dell Case Tracking")
+        if not dell_df.empty:
+            st.dataframe(dell_df)
+        else:
+            st.write("No Dell cases being tracked.")
+        st.markdown("### FedEx Case Tracking")
+        if not fedex_df.empty:
+            st.dataframe(fedex_df)
+        else:
+            st.write("No FedEx cases being tracked.")
+
 # ================== CASE TAB =================
 with tab_case:
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
-    verify_col, ask_col, categorize_col, assist_col, clear_col = st.columns(5)
+    verify_col, ask_col, categorize_col, assist_col, clear_col, track_col = st.columns(6)
     with verify_col:
         if st.button("Verify", key="verify_button"):
             logging.info("Verify button clicked")
@@ -976,6 +1066,12 @@ with tab_case:
                     os.remove(AUTOSAVE_FILE)
                 except OSError:
                     pass
+            st.rerun()
+    with track_col:
+        if st.session_state.track_case:
+            st.button("Tracking enabled", disabled=True)
+        elif st.button("Track case", key="track_case_button"):
+            st.session_state.track_case = True
             st.rerun()
     if st.session_state.verify_result:
         st.text_area(
@@ -1273,6 +1369,74 @@ with tab_case:
                 st.session_state.categorizer_result,
                 height=150,
             )
+
+# ================== TRACKING TAB =================
+if tab_tracking:
+    with tab_tracking:
+        st.subheader("Tracking")
+        tracking_type = st.selectbox("Tracking type", ["Dell", "FedEx"], key="tracking_type")
+        company = st.text_input("Company", key="track_company")
+        end_user = st.text_input("End User", key="track_end_user")
+        creation_day = st.date_input("Creation day", value=date.today(), key="track_creation_day")
+        ticket_number = st.text_input("Ticket Number", key="track_ticket_number")
+        if tracking_type == "Dell":
+            service_tag = st.text_input("Service Tag", key="track_service_tag")
+            status = st.selectbox(
+                "Status",
+                [
+                    "Resolved",
+                    "Waiting for Technician",
+                    "Waiting for clinic to send back PC for review",
+                    "Pending update",
+                ],
+                key="track_status",
+            )
+        else:
+            expected_arrival_date = st.date_input(
+                "Expected arrival date", value=date.today(), key="track_expected_arrival"
+            )
+            status = st.selectbox(
+                "Status",
+                [
+                    "Scanner arrived and waiting for the return",
+                    "Waiting for scanner to arrive",
+                    "waiting for pickup",
+                    "scanner sent",
+                    "waiting to arrive to the doctor's office.",
+                ],
+                key="track_status",
+            )
+        if st.button("Save and track"):
+            info = {
+                "type": tracking_type,
+                "case_id": D.case_id,
+                "company": company,
+                "end_user": end_user,
+                "creation_day": creation_day.isoformat(),
+                "ticket_number": ticket_number,
+                "status": status,
+            }
+            if tracking_type == "Dell":
+                info["service_tag"] = service_tag
+                file_path = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
+            else:
+                info["expected_arrival_date"] = expected_arrival_date.isoformat()
+                file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(info, f, indent=2)
+            st.success("Tracking information saved.")
+        if st.button("Close case & stop tracking"):
+            dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
+            fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+            for f in [dell_file, fedex_file]:
+                if f.exists():
+                    dest = DATABASE_DIR / f"{D.case_id}.json"
+                    try:
+                        f.rename(dest)
+                    except Exception:
+                        pass
+            st.session_state.track_case = False
+            st.rerun()
 
 # ================== ESCALATIONS TAB =================
 if tab_escalations:
