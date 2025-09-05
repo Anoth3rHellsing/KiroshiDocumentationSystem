@@ -1610,21 +1610,26 @@ if tab_hw:
             category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
         )
 
-        st.markdown("---")
-        st.subheader("Scanner Hardware Issue")
-        auto_text_input("Scanner S/N", "scanner_sn")
-        auto_text_input("Base S/N", "base_sn")
-        auto_text_input("TRIOS MODULE Version", "trios_module_version")
-        st.checkbox(
-            "Hardware test performed?",
-            value=st.session_state.hardware_test,
-            key="hardware_test",
-            on_change=_update_field,
-            args=("hardware_test",),
-        )
-        st.dataframe(
-            category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
-        )
+    st.markdown("---")
+    st.subheader("Scanner Hardware Issue")
+    auto_text_input("Scanner S/N", "scanner_sn")
+    auto_text_input("Base S/N", "base_sn")
+    auto_text_input("TRIOS MODULE Version", "trios_module_version")
+    st.checkbox(
+        "Hardware test performed?",
+        value=st.session_state.hardware_test,
+        key="hardware_test",
+        on_change=_update_field,
+        args=("hardware_test",),
+    )
+    st.dataframe(
+        category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+    )
+
+# ================== REMOTE SESSION TAB =================
+with tab_remote:
+    st.subheader("Remote session – steps")
+    auto_text_area("One step per line", "remote_steps", height=400)
 
 # ================== REMOTE SESSION TAB =================
 with tab_remote:
