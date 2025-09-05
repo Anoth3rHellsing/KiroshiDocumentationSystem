@@ -735,25 +735,28 @@ if st.session_state.include_escalations:
     tab_labels.append("Email")
     if st.session_state.include_hw:
         tab_labels.append("Hardware Issues")
-    tab_labels += [
-        "Remote Session",
-        "Notes",
-        "Tables",
-        "Save/Load",
-        "Settings",
-        "Atom Chat",
-    ]
-    if st.session_state.debug_mode:
-        tab_labels.append("Debug")
+tab_labels += [
+    "Remote Session",
+    "Notes",
+    "Tables",
+    "Save/Load",
+    "Settings",
+    "Atom Chat",
+]
+if st.session_state.debug_mode:
+    tab_labels.append("Debug")
 
 tabs = st.tabs(tab_labels)
 tab_iter = iter(tabs)
 tab_dashboard = next(tab_iter) if st.session_state.second_line_mode else None
 tab_case = next(tab_iter)
 tab_tracking = next(tab_iter) if st.session_state.track_case else None
-tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
-tab_email = next(tab_iter)
-tab_hw = next(tab_iter) if st.session_state.include_hw else None
+if st.session_state.include_escalations:
+    tab_escalations = next(tab_iter)
+    tab_email = next(tab_iter)
+    tab_hw = next(tab_iter) if st.session_state.include_hw else None
+else:
+    tab_escalations = tab_email = tab_hw = None
 tab_remote = next(tab_iter)
 tab_notes = next(tab_iter)
 tab_tables = next(tab_iter)
@@ -1365,21 +1368,22 @@ if tab_escalations:
         )
 
 # ================== EMAIL TAB =================
-with tab_email:
-    st.subheader("Email Prompt Generator")
-    email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
-    if st.session_state.second_line_mode:
-        email_choices.append("Callback Email")
-    email_choices.append("Custom Request")
-    email_type = st.selectbox(
-        "Select email template",
-        email_choices,
-        index=
-        email_choices.index(st.session_state.email_type)
-        if st.session_state.email_type in email_choices
-        else 0,
-    )
-    st.session_state.email_type = email_type
+if tab_email:
+    with tab_email:
+        st.subheader("Email Prompt Generator")
+        email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
+        if st.session_state.second_line_mode:
+            email_choices.append("Callback Email")
+        email_choices.append("Custom Request")
+        email_type = st.selectbox(
+            "Select email template",
+            email_choices,
+            index=
+            email_choices.index(st.session_state.email_type)
+            if st.session_state.email_type in email_choices
+            else 0,
+        )
+        st.session_state.email_type = email_type
     ext = st.session_state.email_extra
 
     prompt = ""
@@ -1636,7 +1640,7 @@ End with: We look forward to your reply."""
                     st.error(f"Request failed: {e}")
 
 # ================== HARDWARE ISSUES TAB =================
-if st.session_state.include_hw:
+if tab_hw:
     with tab_hw:
         st.subheader("PC Hardware Issue")
         col_pc1, col_pc2 = st.columns(2)
