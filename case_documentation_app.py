@@ -157,8 +157,7 @@ def render_logo():
         <img id='kiroshi-logo' src='data:image/png;base64,{b64}' style='width:200px;'>
         <script>
         const img = document.getElementById('kiroshi-logo');
-        img.addEventListener('contextmenu', function(e){{
-            e.preventDefault();
+        img.addEventListener('click', function(e){{
             if (confirm('{prompt}')) {{
                 Streamlit.setComponentValue('{action_flag}');
             }}
