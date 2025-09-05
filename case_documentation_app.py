@@ -1742,6 +1742,10 @@ with tab_settings:
     st.checkbox("Show Debug tab", key="debug_mode")
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
+    st.divider()
+    if st.button("I'm bored"):
+        st.session_state.show_bored = True
+        st.rerun()
 
 # ================== ATOM CHAT TAB =================
 with tab_atom:
