@@ -519,6 +519,7 @@ BASE_CATEGORY_MAP = {
     "PHONECALL": [
         "caller_name",
         "phone_description",
+        "email",
         "dongle_number",
         "phone_number",
         "teamviewer_id",
@@ -1125,6 +1126,7 @@ with tab_case:
         st.subheader("Phone-call notes")
         auto_text_input("Caller name", "caller_name")
         auto_text_area("Caller issue description", "phone_description", height=68)
+        auto_text_input("Email", "email")
         c1, c2 = st.columns(2)
         auto_text_input("Dongle number", "dongle_number", container=c1)
         auto_text_input("Phone number", "phone_number", container=c2)
