@@ -375,34 +375,19 @@ def load_tracked_cases() -> list:
     return cases
 
 
-def tracking_tables():
-    dell_rows = []
-    fedex_rows = []
-    for c in load_tracked_cases():
-        if c.get("type") == "Dell":
-            dell_rows.append(
-                {
-                    "Company": c.get("company", ""),
-                    "End User": c.get("end_user", ""),
-                    "Creation day": c.get("creation_day", ""),
-                    "Ticket Number": c.get("ticket_number", ""),
-                    "Service Tag": c.get("service_tag", ""),
-                    "Status": c.get("status", ""),
-                }
-            )
-        elif c.get("type") == "FedEx":
-            fedex_rows.append(
-                {
-                    "Company": c.get("company", ""),
-                    "End User": c.get("end_user", ""),
-                    "Creation day": c.get("creation_day", ""),
-                    "Ticket Number": c.get("ticket_number", ""),
-                    "Expected arrival date": c.get("expected_arrival_date", ""),
-                    "Status": c.get("status", ""),
-                }
-            )
-    return pd.DataFrame(dell_rows), pd.DataFrame(fedex_rows)
-
+def render_tracking_table(cases: list, columns: list) -> None:
+    """Render a tracking table with per-row load buttons."""
+    weights = [2] * len(columns) + [1]
+    header_cols = st.columns(weights)
+    for col, (label, _) in zip(header_cols, columns):
+        col.write(f"**{label}**")
+    header_cols[-1].write("**Load**")
+    for c in cases:
+        row_cols = st.columns(weights)
+        for col, (_, key) in zip(row_cols[:-1], columns):
+            col.write(c.get(key, ""))
+        if row_cols[-1].button("Load", key=f"load_{Path(c['path']).stem}"):
+            request_load_from_path(c["path"])
 
 def recent_tracked_files() -> list:
     files = sorted(
@@ -772,19 +757,42 @@ with tab_dashboard:
     main_col, recent_col = st.columns([3, 1])
     with recent_col:
         st.subheader("Recent Tracked Cases")
+        recent_box = st.container(height=400)
         for p in recent_tracked_files():
-            st.write(p.stem)
+            recent_box.write(p.stem)
     with main_col:
         st.subheader("Case Status & Tracking")
-        dell_df, fedex_df = tracking_tables()
+        cases = load_tracked_cases()
+        dell_cases = [c for c in cases if c.get("type") == "Dell"]
         st.markdown("### Dell Case Tracking")
-        if not dell_df.empty:
-            st.dataframe(dell_df)
+        if dell_cases:
+            render_tracking_table(
+                dell_cases,
+                [
+                    ("Company", "company"),
+                    ("End User", "end_user"),
+                    ("Creation day", "creation_day"),
+                    ("Ticket Number", "ticket_number"),
+                    ("Service Tag", "service_tag"),
+                    ("Status", "status"),
+                ],
+            )
         else:
             st.write("No Dell cases being tracked.")
         st.markdown("### FedEx Case Tracking")
-        if not fedex_df.empty:
-            st.dataframe(fedex_df)
+        fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
+        if fedex_cases:
+            render_tracking_table(
+                fedex_cases,
+                [
+                    ("Company", "company"),
+                    ("End User", "end_user"),
+                    ("Creation day", "creation_day"),
+                    ("Ticket Number", "ticket_number"),
+                    ("Expected arrival date", "expected_arrival_date"),
+                    ("Status", "status"),
+                ],
+            )
         else:
             st.write("No FedEx cases being tracked.")
 
