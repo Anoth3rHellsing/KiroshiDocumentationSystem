@@ -194,6 +194,7 @@ _init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_escalations", False)
+_init_state("include_hardware", False)
 _init_state("debug_auth", False)
 _init_state("debug_mode", False)
 _init_state("_autosave_loaded", False)
@@ -564,7 +565,8 @@ def active_category_map():
     if not st.session_state.get("include_escalations", True):
         cm.pop("AX COORDINATORS", None)
         cm.pop("ESCALATION 2ND LINE", None)
-    cm.update(HW_CATEGORY_MAP)
+    if st.session_state.get("include_hardware"):
+        cm.update(HW_CATEGORY_MAP)
     return cm
 
 # ────────── HELPERS ──────────
@@ -715,9 +717,15 @@ def make_tables_pdf(d: CaseData) -> bytes:
     return buf.read()
 
 # ──────────── TABS ───────────
-st.session_state.include_escalations = st.checkbox(
-    "Include escalations", st.session_state.include_escalations
-)
+col_escal, col_hw = st.columns(2)
+with col_escal:
+    st.session_state.include_escalations = st.checkbox(
+        "Include escalations", st.session_state.include_escalations
+    )
+with col_hw:
+    st.session_state.include_hardware = st.checkbox(
+        "Include hardware issues", st.session_state.include_hardware
+    )
 cat_map = active_category_map()
 tab_labels = []
 if st.session_state.second_line_mode:
@@ -728,7 +736,8 @@ if st.session_state.track_case:
 if st.session_state.include_escalations:
     tab_labels.append("Escalations")
 tab_labels.append("Email")
-tab_labels.append("Hardware Issues")
+if st.session_state.include_hardware:
+    tab_labels.append("Hardware Issues")
 tab_labels += [
     "Remote Session",
     "Notes",
@@ -747,7 +756,7 @@ tab_case = next(tab_iter)
 tab_tracking = next(tab_iter) if st.session_state.track_case else None
 tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
 tab_email = next(tab_iter)
-tab_hw = next(tab_iter)
+tab_hw = next(tab_iter) if st.session_state.include_hardware else None
 tab_remote = next(tab_iter)
 tab_notes = next(tab_iter)
 tab_tables = next(tab_iter)
@@ -1586,19 +1595,20 @@ End with: We look forward to your reply."""
                     st.error(f"Request failed: {e}")
 
 # ================== HARDWARE ISSUES TAB =================
-with tab_hw:
-    st.subheader("PC Hardware Issue")
-    col_pc1, col_pc2 = st.columns(2)
-    auto_text_input("Service Tag", "service_tag", container=col_pc1)
-    auto_text_input("PC Model", "pc_model", container=col_pc2)
-    auto_text_input("Windows version", "windows_version", container=col_pc1)
-    auto_text_input("BIOS version", "bios_version", container=col_pc2)
-    auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
-    auto_text_input("Processor", "processor", container=col_pc2)
-    auto_text_input("Warranty", "warranty")
-    st.dataframe(
-        category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
-    )
+if tab_hw:
+    with tab_hw:
+        st.subheader("PC Hardware Issue")
+        col_pc1, col_pc2 = st.columns(2)
+        auto_text_input("Service Tag", "service_tag", container=col_pc1)
+        auto_text_input("PC Model", "pc_model", container=col_pc2)
+        auto_text_input("Windows version", "windows_version", container=col_pc1)
+        auto_text_input("BIOS version", "bios_version", container=col_pc2)
+        auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
+        auto_text_input("Processor", "processor", container=col_pc2)
+        auto_text_input("Warranty", "warranty")
+        st.dataframe(
+            category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+        )
 
     st.markdown("---")
     st.subheader("Scanner Hardware Issue")
@@ -1615,6 +1625,11 @@ with tab_hw:
     st.dataframe(
         category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
     )
+
+# ================== REMOTE SESSION TAB =================
+with tab_remote:
+    st.subheader("Remote session – steps")
+    auto_text_area("One step per line", "remote_steps", height=400)
 
 # ================== REMOTE SESSION TAB =================
 with tab_remote:
