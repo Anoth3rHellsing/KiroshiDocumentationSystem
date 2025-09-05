@@ -389,7 +389,6 @@ def render_tracking_table(cases: list, columns: list) -> None:
         if row_cols[-1].button("Load", key=f"load_{Path(c['path']).stem}"):
             request_load_from_path(c["path"])
 
-
 def recent_tracked_files() -> list:
     files = sorted(
         TRACKED_CASES_DIR.glob("*.json"),
