@@ -147,20 +147,24 @@ def render_logo():
     motd = get_message_of_the_day()
     col_logo, col_motd = st.columns([1, 3])
     with col_logo:
-        st.image(str(KIROSHI_LOGO_PATH), width=200)
-    with col_motd:
-        html = f"""
-        <span style='font-weight:bold;'>Message of the d<span id="motd-debug" style="cursor:pointer;">a</span>y:</span> {motd}
+        encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
+        html_logo = f"""
+        <img src="data:image/png;base64,{encoded_logo}" width="200" id="kiroshi-logo" style="cursor:pointer;">
         <script>
-        const dbg = document.getElementById('motd-debug');
-        dbg.addEventListener('click', function(e){{
+        const logo = document.getElementById('kiroshi-logo');
+        logo.addEventListener('click', function(){{
             Streamlit.setComponentValue('open-debug');
         }});
         </script>
         """
-        action = components.html(html, height=60)
-        if action == "open-debug":
+        action_logo = components.html(html_logo, height=200)
+        if action_logo == "open-debug":
             st.session_state.debug_mode = True
+    with col_motd:
+        st.markdown(
+            f"<span style='font-weight:bold;'>Message of the day:</span> {motd}",
+            unsafe_allow_html=True,
+        )
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
