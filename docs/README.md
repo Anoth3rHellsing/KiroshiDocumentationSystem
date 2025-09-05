@@ -60,6 +60,9 @@ streamlit run case_documentation_app.py
 
 Ensure that the dependencies listed in `requirements.txt` are installed.
 
+For optional mini-games or running the local transformers model, install the
+extra packages from `requirements-bored.txt`.
+
 ## Local model configuration
 
 Kiroshi can talk to any OpenAI-compatible text generation server. Set the
@@ -77,5 +80,6 @@ streamlit run case_documentation_app.py
 ```
 
 If `AI_BASE_URL` is unset (the "Local Model" option), Kiroshi falls back to a
-lightweight `transformers` pipeline (requires the `transformers` and `torch`
-packages and a local model) to generate responses directly in Python.
+lightweight `transformers` pipeline (install the `transformers` and `torch`
+packages from `requirements-bored.txt` and supply a local model) to generate
+responses directly in Python.
