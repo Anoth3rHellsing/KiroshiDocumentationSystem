@@ -1232,6 +1232,7 @@ with tab_email:
     email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
     if st.session_state.second_line_mode:
         email_choices.append("Callback Email")
+    email_choices.append("Custom Request")
     email_type = st.selectbox(
         "Select email template",
         email_choices,
@@ -1324,6 +1325,27 @@ List each question and provide any known answer beneath it, ready for the custom
 5. Autoclaved in airtight pouch? – {ext['airtight']}
 6. Other info – {ext['other']}
 """
+
+    elif email_type == "Custom Request":
+        st.markdown("#### Custom email options")
+        ext["reason"] = st.text_input(
+            "Reason for contacting the customer", ext.get("reason", "")
+        )
+        ext["objective"] = st.text_input(
+            "Goal of the email", ext.get("objective", "")
+        )
+        ext["request"] = st.text_area(
+            "What do we need from the customer?", ext.get("request", "")
+        )
+        caller = D.caller_name or "Customer"
+        case_id = D.case_id or "N/A"
+        prompt = f"""You are an IT support agent working on case {case_id}.
+Reason: {ext['reason']}.
+Objective: {ext['objective']}.
+Clearly request the following from the customer: {ext['request']}.
+Use any relevant case details for context.
+Start the email with: Dear {caller}
+End with: We look forward to your reply."""
 
     elif email_type == "Callback Email":
         st.markdown("#### Callback email options")
