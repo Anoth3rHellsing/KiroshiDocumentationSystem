@@ -75,6 +75,6 @@ export OPENAI_API_KEY=""  # no key required for local servers
 streamlit run case_documentation_app.py
 ```
 
-If `AI_BASE_URL` is unset, Kiroshi falls back to a lightweight
-`transformers` pipeline (requires the `transformers` package and a local
-model) to generate responses directly in Python.
+If `AI_BASE_URL` is unset or the field is left blank, Kiroshi falls back to a
+lightweight `transformers` pipeline (requires the `transformers` package and a
+local model) to generate responses directly in Python.

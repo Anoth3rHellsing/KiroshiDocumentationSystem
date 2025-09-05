@@ -148,9 +148,9 @@ export OPENAI_API_KEY=""
 streamlit run case_documentation_app.py
 ```
 
-If `AI_BASE_URL` is unset, Kiroshi falls back to a minimal `transformers`
-pipeline (requires the `transformers` package and an available model) to
-generate text without making HTTP requests.
+If `AI_BASE_URL` is unset or the field is left blank, Kiroshi falls back to a
+minimal `transformers` pipeline (requires the `transformers` package and an
+available model) to generate text without making HTTP requests.
 
 ### Corporate SSL interception
 

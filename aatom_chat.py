@@ -319,7 +319,8 @@ def search_manual_docs(query, docs):
 
 def query_atom(user_message, history, api_key, model, base_url=None):
     """Send a message to the A.A.T.O.M. API or a local model and return the reply."""
-    base_url = base_url or DEFAULT_AI_BASE_URL
+    if base_url is None:
+        base_url = DEFAULT_AI_BASE_URL
     messages = ([{"role": "system", "content": build_system_prompt()}] + history + [
         {"role": "user", "content": user_message}
     ])
