@@ -27,6 +27,14 @@ Generates prompts for several e‑mail templates:
 - Custom request email
 
 The generated prompt can be copied or sent directly to GPT-OSS to produce the full e‑mail (feature not yet implemented). All templates automatically begin with the customer's name, company, case number, and a short description of the issue for consistent recaps.
+The opening lines match the standard EC format:
+
+```
+Dear {customer_name} from {company_name},
+
+I hope this email finds you well. I wanted to recap your recent call to our customer service center regarding the case you had about {brief_description}.
+This was registered under the ticket {case_id}.
+```
 
 ### Hardware Issues
 Stores PC and scanner hardware details and displays them in copy‑friendly tables.
