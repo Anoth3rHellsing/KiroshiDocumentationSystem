@@ -1388,17 +1388,17 @@ if tab_email:
             steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
             prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
     motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
-    Start the email with:
+    Start the email exactly with the following lines (do not paraphrase or omit them):
     {intro}
-    Include: Case ID, root cause, a brief 1‑3 bullet summary of the steps taken, and the final solution.
+    Include: Case ID, a brief summary of what happened, and the solution.
     Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
     Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
-    
+
     Return only the email body.
-    
+
     DATA:
     Case ID: {D.case_id}
-    Root cause: {D.root_cause}
+    Summary: {D.brief_description}
     Steps taken:
     {steps_summary}
     Solution: {D.solution}
