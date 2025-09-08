@@ -311,6 +311,7 @@ class CaseData:
     internal_logs: str = ""
     remote_steps: str = ""
     root_cause: str = ""
+    repro_steps: str = ""
 
     solution: str = ""
     survey_link: str = ""
@@ -557,7 +558,7 @@ BASE_CATEGORY_MAP = {
         "teamviewer_password",
     ],
     "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
-    "REMOTE SESSION": ["remote_steps"],
+    "REMOTE SESSION": ["remote_steps", "repro_steps"],
     "CONCLUSION": ["root_cause", "solution"],
     "AX COORDINATORS": [
         "request_issue",
@@ -642,6 +643,53 @@ def build_email_intro(d: CaseData) -> str:
         f"I hope this email finds you well. I wanted to recap your recent call to our customer service center regarding the case you had about {brief}.\n"
         f"This was registered under the ticket {case_no}.\n"
     )
+
+
+def build_third_line_escalation(d: CaseData) -> str:
+    """Generate a third line escalation template using case data."""
+    date_str = datetime.now().strftime("%Y %m %d")
+    return f"""3Q({date_str})
+
+Hello, Advanced support team,
+
+We need your assistance in this case:
+
+{d.brief_description}
+
+HJ article or possible root cause found
+
+{d.root_cause}
+
+How to reproduce it:
+
+{d.repro_steps}
+
+Troubleshoot summary:
+
+{d.remote_steps}
+
+For more specific information, check the TV session.
+
+Comments:
+
+{d.additional_info}
+
+Contact information:
+Reseller Name:
+Reseller Phone Number:
+Reseller Phone Number 2:
+Reseller email:
+Clinic rep name:
+Clinic rep phone number:
+Clinic rep phone number 2:
+TV ID: {d.teamviewer_id}
+TV Customer Pass: {d.teamviewer_password}
+Unite pin: {d.subscription_id}
+
+Find all screenshots and logs on the internal note.
+
+Finally, you can remind the person to add on an attached notepad or over Teams the 3Shape account credentials and the computer password.
+"""
 
 
 def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
@@ -1362,6 +1410,13 @@ if tab_escalations:
             category_dataframe("ESCALATION 2ND LINE", D, cat_map),
             use_container_width=True,
         )
+
+        if st.session_state.second_line_mode:
+            st.markdown("---")
+            st.subheader("Escalation 3rd line")
+            auto_text_area("How to reproduce it", "repro_steps", height=100)
+            msg = build_third_line_escalation(D)
+            st.text_area("Escalation message", msg, height=400)
 
 # ================== EMAIL TAB =================
 if tab_email:
