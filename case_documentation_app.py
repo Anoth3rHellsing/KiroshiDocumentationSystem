@@ -240,13 +240,6 @@ _init_state("track_case", False)
 _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", False)
-_init_state("callback_remote", False)
-_init_state("callback_contact", False)
-_init_state("callback_clarify", False)
-_init_state("callback_needed", True)
-_init_state("callback_address", False)
-_init_state("callback_remote_text", "")
-_init_state("callback_equipment", "")
 _init_state("pending_load", None)
 _init_state("show_bored", False)
 _init_state(
@@ -1459,6 +1452,7 @@ def render_case_ui(case_idx: int):
             best_cb = st.checkbox(
                 "Specify best call-back time",
                 D.best_time not in ("", "ASAP"),
+                key=widget_key("best_cb", case_idx),
             )
             if best_cb:
                 auto_text_input(
@@ -1471,6 +1465,7 @@ def render_case_ui(case_idx: int):
             pat_cb = st.checkbox(
                 "Patterson legacy #",
                 D.patterson not in ("", "N/A"),
+                key=widget_key("pat_cb", case_idx),
             )
             if pat_cb:
                 auto_text_input(
@@ -1647,38 +1642,54 @@ def render_case_ui(case_idx: int):
         
             elif email_type == "Callback Email":
                 st.markdown("#### Callback email options")
-                st.session_state.callback_remote = st.checkbox(
-                    "Need remote session?", st.session_state.callback_remote
+                cb_remote_key = widget_key("callback_remote", case_idx)
+                cb_remote = st.checkbox(
+                    "Need remote session?",
+                    st.session_state.get(cb_remote_key, False),
+                    key=cb_remote_key,
                 )
-                if st.session_state.callback_remote:
-                    st.session_state.callback_remote_text = st.text_area(
+                if cb_remote:
+                    cb_remote_text_key = widget_key("callback_remote_text", case_idx)
+                    st.text_area(
                         "Remote session details",
-                        st.session_state.callback_remote_text,
+                        st.session_state.get(cb_remote_text_key, ""),
+                        key=cb_remote_text_key,
                     )
-                st.session_state.callback_contact = st.checkbox(
+                cb_contact_key = widget_key("callback_contact", case_idx)
+                st.checkbox(
                     "Need contact information?",
-                    st.session_state.callback_contact,
+                    st.session_state.get(cb_contact_key, False),
+                    key=cb_contact_key,
                 )
-                st.session_state.callback_clarify = st.checkbox(
+                cb_clarify_key = widget_key("callback_clarify", case_idx)
+                st.checkbox(
                     "Need to clarify what happened?",
-                    st.session_state.callback_clarify,
+                    st.session_state.get(cb_clarify_key, False),
+                    key=cb_clarify_key,
                 )
-                st.session_state.callback_needed = st.checkbox(
+                cb_needed_key = widget_key("callback_needed", case_idx)
+                st.checkbox(
                     "Callback needed?",
-                    st.session_state.callback_needed,
+                    st.session_state.get(cb_needed_key, True),
+                    key=cb_needed_key,
                 )
-                st.session_state.callback_address = st.checkbox(
-                    "Request address?", st.session_state.callback_address
+                cb_address_key = widget_key("callback_address", case_idx)
+                cb_address = st.checkbox(
+                    "Request address?",
+                    st.session_state.get(cb_address_key, False),
+                    key=cb_address_key,
                 )
-                if st.session_state.callback_address:
-                    st.session_state.callback_equipment = st.text_input(
+                if cb_address:
+                    cb_equipment_key = widget_key("callback_equipment", case_idx)
+                    st.text_input(
                         "Equipment to replace",
-                        st.session_state.callback_equipment,
+                        st.session_state.get(cb_equipment_key, ""),
+                        key=cb_equipment_key,
                     )
-        
+
                 intro = build_email_intro(D)
-                if st.session_state.callback_address:
-                    equip = st.session_state.callback_equipment or "(equipment)"
+                if cb_address:
+                    equip = st.session_state.get(cb_equipment_key, "") or "(equipment)"
                     prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
         Start the email with:
         {intro}
@@ -1690,10 +1701,10 @@ def render_case_ui(case_idx: int):
         Full name of the recipient
         Best phone number to contact the recipient
         Email to contact the recipient
-        
+
         End with: We look forward to your reply."""
                 else:
-                    if st.session_state.callback_needed:
+                    if st.session_state.get(cb_needed_key, True):
                         base_request = (
                             "provide us with the best time for a callback, including your time zone, "
                             "or alternatively TeamViewer access so we may connect directly to the computer."
@@ -1708,17 +1719,17 @@ def render_case_ui(case_idx: int):
                         "End with: We look forward to your reply."
                     )
                     extras = []
-                    if st.session_state.callback_contact:
+                    if st.session_state.get(cb_contact_key):
                         extras.append("Ask them to provide their contact information.")
-                    if st.session_state.callback_clarify:
+                    if st.session_state.get(cb_clarify_key):
                         extras.append("Ask them to clarify what happened.")
                     if (
-                        st.session_state.callback_remote
-                        and st.session_state.callback_remote_text.strip()
+                        st.session_state.get(cb_remote_key)
+                        and st.session_state.get(cb_remote_text_key, "").strip()
                     ):
                         extras.append(
                             "Include the following additional details:\n"
-                            + st.session_state.callback_remote_text.strip()
+                            + st.session_state.get(cb_remote_text_key, "").strip()
                         )
                     if extras:
                         prompt += "\n\n" + "\n".join(extras)
