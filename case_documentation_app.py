@@ -359,9 +359,6 @@ class CaseSession:
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
     screenshots: list = field(default_factory=list)
-    verify_result: str = ""
-    ask_result: str = ""
-    ai_assist_result: str = ""
 
 
 # convert stored dict to dataclass, ignoring unexpected fields
@@ -379,9 +376,6 @@ if "case_sessions" not in st.session_state:
             uploads=st.session_state.uploads,
             log_uploads=st.session_state.log_uploads,
             screenshots=st.session_state.screenshots,
-            verify_result=st.session_state.verify_result,
-            ask_result=st.session_state.ask_result,
-            ai_assist_result=st.session_state.ai_assist_result,
         )
     ]
 
@@ -392,9 +386,6 @@ def load_case_state(idx: int) -> None:
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
     st.session_state.screenshots = cs.screenshots
-    st.session_state.verify_result = cs.verify_result
-    st.session_state.ask_result = cs.ask_result
-    st.session_state.ai_assist_result = cs.ai_assist_result
     global D
     D = st.session_state.case
     for key, value in asdict(D).items():
@@ -409,9 +400,6 @@ def save_case_state(idx: int) -> None:
         uploads=st.session_state.uploads,
         log_uploads=st.session_state.log_uploads,
         screenshots=st.session_state.screenshots,
-        verify_result=st.session_state.verify_result,
-        ask_result=st.session_state.ask_result,
-        ai_assist_result=st.session_state.ai_assist_result,
     )
 
 
@@ -1243,6 +1231,7 @@ def render_case_ui(case_idx: int):
                 "AI Assistance",
                 st.session_state.ai_assist_result,
                 height=150,
+                key=widget_key("ai_assist_output", case_idx),
             )
         prog, miss = compute_progress(D, cat_map)
         left, right = st.columns([1, 2], gap="medium")
@@ -1366,6 +1355,7 @@ def render_case_ui(case_idx: int):
                     "Categorization Output",
                     st.session_state.categorizer_result,
                     height=150,
+                    key=widget_key("categorizer_output", case_idx),
                 )
 
     # ================== TRACKING TAB =================
@@ -1453,7 +1443,12 @@ def render_case_ui(case_idx: int):
     if tab_escalations:
         with tab_escalations:
             st.subheader("AX Coordinators")
-            st.text_area("Request / Issue", D.description, disabled=True)
+            st.text_area(
+                "Request / Issue",
+                D.description,
+                disabled=True,
+                key=widget_key("request_issue", case_idx),
+            )
             D.request_issue = D.description
             D.contact_name = D.caller_name
             st.text_input("Contact name", D.contact_name, disabled=True)
@@ -1521,7 +1516,12 @@ def render_case_ui(case_idx: int):
                 st.subheader("Escalation 3rd line")
                 auto_text_area("How to reproduce it", "repro_steps", height=100)
                 msg = build_third_line_escalation(D)
-                st.text_area("Escalation message", msg, height=400)
+                st.text_area(
+                    "Escalation message",
+                    msg,
+                    height=400,
+                    key=widget_key("esc_message", case_idx),
+                )
 
     # ================== EMAIL TAB =================
     if tab_email:
@@ -1571,12 +1571,15 @@ def render_case_ui(case_idx: int):
                 )
                 ext["drop_details"] = st.text_area(
                     "Describe how / when scanner was dropped", ext.get("drop_details", "")
+                    , key=widget_key("drop_details", case_idx)
                 )
                 ext["cause"] = st.text_area(
                     "What do you think caused the incident?", ext.get("cause", "")
+                    , key=widget_key("cause", case_idx)
                 )
                 ext["prevention"] = st.text_area(
                     "Ideas to prevent", ext.get("prevention", "")
+                    , key=widget_key("prevention", case_idx)
                 )
                 ext["satisfaction"] = st.text_input(
                     "Are you satisfied with service?", ext.get("satisfaction", "")
@@ -1615,6 +1618,7 @@ def render_case_ui(case_idx: int):
                 )
                 ext["other"] = st.text_area(
                     "Other relevant info", ext.get("other", "")
+                    , key=widget_key("other_info", case_idx)
                 )
         
                 intro = build_email_intro(D)
@@ -1641,6 +1645,7 @@ def render_case_ui(case_idx: int):
                 )
                 ext["request"] = st.text_area(
                     "What do we need from the customer?", ext.get("request", "")
+                    , key=widget_key("custom_request", case_idx)
                 )
                 intro = build_email_intro(D)
                 case_id = D.case_id or "N/A"
@@ -1967,6 +1972,7 @@ def render_case_ui(case_idx: int):
                 "System Prompt",
                 st.session_state.get("system_prompt", SYSTEM_PROMPT),
                 height=300,
+                key=widget_key("system_prompt_display", case_idx),
             )
         api_key = st.session_state.openai_api_key
         model = st.session_state.openai_model
@@ -2023,7 +2029,12 @@ def render_case_ui(case_idx: int):
                 else:
                     st.session_state.db_search_result = "No documents matched your query."
         if st.session_state.db_search_result:
-            st.text_area("Search result", st.session_state.db_search_result, height=150)
+            st.text_area(
+                "Search result",
+                st.session_state.db_search_result,
+                height=150,
+                key=widget_key("db_search_result", case_idx),
+            )
 
         for msg in st.session_state.atom_history:
             with st.chat_message(msg["role"]):
