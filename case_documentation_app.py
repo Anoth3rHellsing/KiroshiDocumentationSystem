@@ -1219,14 +1219,12 @@ def render_case_ui(case_idx: int):
                 "A.A.T.O.M. Verification",
                 st.session_state.verify_result,
                 height=150,
-                key=widget_key("verify_output", case_idx),
             )
         if st.session_state.ask_result:
             st.text_area(
                 "A.A.T.O.M. Suggestions",
                 st.session_state.ask_result,
                 height=150,
-                key=widget_key("ask_output", case_idx),
             )
         if st.session_state.ai_assist_result:
             st.text_area(
