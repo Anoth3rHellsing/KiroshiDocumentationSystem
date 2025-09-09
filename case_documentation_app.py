@@ -273,6 +273,7 @@ def load_autosave():
                 data = json.load(f)
             st.session_state.case = data.get("case", {})
             st.session_state.scratch = data.get("scratch", "")
+            st.session_state[widget_key("scratch", 0)] = st.session_state.scratch
         except Exception:
             pass
     st.session_state._autosave_loaded = True
@@ -389,7 +390,6 @@ if "case_sessions" not in st.session_state:
 def load_case_state(idx: int) -> None:
     cs = st.session_state.case_sessions[idx]
     st.session_state.case = cs.case
-    st.session_state.scratch = cs.scratch
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
     st.session_state.screenshots = cs.screenshots
@@ -397,16 +397,25 @@ def load_case_state(idx: int) -> None:
     D = st.session_state.case
     for key, value in asdict(D).items():
         st.session_state[key] = value
+    st.session_state[widget_key("scratch", idx)] = cs.scratch
 
 
 def save_case_state(idx: int) -> None:
     st.session_state.case_sessions[idx] = CaseSession(
         case=st.session_state.case,
-        scratch=st.session_state.scratch,
+        scratch=st.session_state.get(widget_key("scratch", idx), ""),
         uploads=st.session_state.uploads,
         log_uploads=st.session_state.log_uploads,
         screenshots=st.session_state.screenshots,
     )
+
+
+def widget_key(base: str, idx: int) -> str:
+    """Return a Streamlit widget key namespaced to a case index."""
+    return f"{base}_{idx}"
+
+
+CURRENT_CASE_IDX = 0
 
 # Ensure session state mirrors the current case data before any widgets are created
 for key, value in asdict(D).items():
@@ -419,7 +428,16 @@ _init_state("survey_link", D.survey_link)
 # Button to clear all case data and reset form
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
+        json.dump(
+            {
+                "case": asdict(D),
+                "scratch": st.session_state.get(
+                    widget_key("scratch", CURRENT_CASE_IDX), ""
+                ),
+            },
+            f,
+            indent=2,
+        )
 
 
 def load_recent_cases() -> list:
@@ -563,13 +581,15 @@ def request_load_from_bytes(data: bytes) -> None:
 
 def _update_field(field: str):
     """Update dataclass field from session state and persist."""
-    setattr(D, field, st.session_state[field])
+    key = widget_key(field, CURRENT_CASE_IDX)
+    setattr(D, field, st.session_state.get(key))
     autosave()
 
 
 def auto_text_input(label: str, field: str, container=st, **kwargs):
     """Text input that saves on every change."""
-    kwargs.setdefault("key", field)
+    key = widget_key(field, CURRENT_CASE_IDX)
+    kwargs.setdefault("key", key)
     value = container.text_input(
         label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
     )
@@ -578,7 +598,8 @@ def auto_text_input(label: str, field: str, container=st, **kwargs):
 
 def auto_text_area(label: str, field: str, container=st, **kwargs):
     """Text area that saves on every change."""
-    kwargs.setdefault("key", field)
+    key = widget_key(field, CURRENT_CASE_IDX)
+    kwargs.setdefault("key", key)
     value = container.text_area(
         label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
     )
@@ -842,20 +863,23 @@ def make_tables_pdf(d: CaseData) -> bytes:
     buf.seek(0)
     return buf.read()
 
-def render_case_ui():
+def render_case_ui(case_idx: int):
+    global CURRENT_CASE_IDX
+    CURRENT_CASE_IDX = case_idx
     # ──────────── TABS ───────────
-    col_escal, col_hw = st.columns(2)
-    with col_escal:
-        st.session_state.include_escalations = st.checkbox(
-            "Include escalations", st.session_state.include_escalations
-        )
-    with col_hw:
-        st.session_state.include_hardware = st.checkbox(
-            "Include hardware issues", st.session_state.include_hardware
-        )
+    if case_idx == 0:
+        col_escal, col_hw = st.columns(2)
+        with col_escal:
+            st.session_state.include_escalations = st.checkbox(
+                "Include escalations", st.session_state.include_escalations
+            )
+        with col_hw:
+            st.session_state.include_hardware = st.checkbox(
+                "Include hardware issues", st.session_state.include_hardware
+            )
     cat_map = active_category_map()
     tab_labels = []
-    if st.session_state.second_line_mode:
+    if st.session_state.second_line_mode and case_idx == 0:
         tab_labels.append("2nd Line Mode")
     tab_labels.append("Case")
     if st.session_state.track_case:
@@ -880,7 +904,11 @@ def render_case_ui():
 
     tabs = st.tabs(tab_labels)
     tab_iter = iter(tabs)
-    tab_dashboard = next(tab_iter) if st.session_state.second_line_mode else None
+    tab_dashboard = (
+        next(tab_iter)
+        if st.session_state.second_line_mode and case_idx == 0
+        else None
+    )
     tab_case = next(tab_iter)
     tab_tracking = next(tab_iter) if st.session_state.track_case else None
     tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
@@ -947,7 +975,7 @@ def render_case_ui():
         base_url = st.session_state.ai_base_url
         verify_col, ask_col, categorize_col, assist_col, clear_col, track_col = st.columns(6)
         with verify_col:
-            if st.button("Verify", key="verify_button"):
+            if st.button("Verify", key=widget_key("verify_button", case_idx)):
                 logging.info("Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -987,7 +1015,7 @@ def render_case_ui():
                         save_memory(st.session_state.atom_history)
                         st.session_state.verify_result = reply
         with ask_col:
-            if st.button("Ask", key="ask_button"):
+            if st.button("Ask", key=widget_key("ask_button", case_idx)):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -1030,7 +1058,7 @@ def render_case_ui():
                         save_memory(st.session_state.atom_history)
                         st.session_state.ask_result = reply
         with categorize_col:
-            if st.button("Categorize", key="categorize_button"):
+            if st.button("Categorize", key=widget_key("categorize_button", case_idx)):
                 logging.info("Categorize button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -1097,7 +1125,7 @@ def render_case_ui():
                             save_memory(st.session_state.atom_history)
                             st.session_state.categorizer_result = reply
         with assist_col:
-            if st.button("AI Assistance", key="assist_button"):
+            if st.button("AI Assistance", key=widget_key("assist_button", case_idx)):
                 logging.info("AI Assistance button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -1166,7 +1194,7 @@ def render_case_ui():
                                     setattr(D, fld, val)
                             autosave()
         with clear_col:
-            if st.button("Clear all", key="clear_all_button"):
+            if st.button("Clear all", key=widget_key("clear_all_button", case_idx)):
                 logging.info("Clear all button clicked")
                 api_key = st.session_state.get("openai_api_key", "")
                 second_line_mode = st.session_state.get("second_line_mode", False)
@@ -1181,8 +1209,12 @@ def render_case_ui():
                 st.rerun()
         with track_col:
             if st.session_state.track_case:
-                st.button("Tracking enabled", disabled=True)
-            elif st.button("Track case", key="track_case_button"):
+                st.button(
+                    "Tracking enabled",
+                    disabled=True,
+                    key=widget_key("tracking_enabled", case_idx),
+                )
+            elif st.button("Track case", key=widget_key("track_case_button", case_idx)):
                 st.session_state.track_case = True
                 st.rerun()
         if st.session_state.verify_result:
@@ -1237,10 +1269,10 @@ def render_case_ui():
             version_nr = st.checkbox(
                 VERSION_NOT_RELEVANT,
                 D.application_version == VERSION_NOT_RELEVANT,
-                key="application_version_not_relevant",
+                key=widget_key("application_version_not_relevant", case_idx),
             )
             if version_nr:
-                st.session_state.application_version = VERSION_NOT_RELEVANT
+                st.session_state[widget_key("application_version", case_idx)] = VERSION_NOT_RELEVANT
                 _update_field("application_version")
             auto_text_input(
                 "Application and version",
@@ -1283,23 +1315,25 @@ def render_case_ui():
                 ),
             )
             st.subheader("Support Fee")
+            ct_key = widget_key("customer_trios_only", case_idx)
+            sf_key = widget_key("support_fee_accepted", case_idx)
             st.checkbox(
                 "Customer is TRIOS Only?",
-                value=st.session_state.customer_trios_only,
-                key="customer_trios_only",
+                value=st.session_state.get(ct_key, False),
+                key=ct_key,
                 on_change=_update_field,
                 args=("customer_trios_only",),
             )
-            if st.session_state.customer_trios_only:
+            if st.session_state.get(ct_key):
                 st.checkbox(
                     "Support fee price accepted?",
-                    value=st.session_state.support_fee_accepted,
-                    key="support_fee_accepted",
+                    value=st.session_state.get(sf_key, False),
+                    key=sf_key,
                     on_change=_update_field,
                     args=("support_fee_accepted",),
                 )
             else:
-                st.session_state.support_fee_accepted = False
+                st.session_state[sf_key] = False
                 D.support_fee_accepted = False
                 autosave()
             st.markdown("---")
@@ -1308,6 +1342,7 @@ def render_case_ui():
                 make_pdf(D, cat_map),
                 file_name=f"{D.case_id or 'case'}.pdf",
                 mime="application/pdf",
+                key=widget_key("download_pdf", case_idx),
             )
         with left:
             st.subheader("Documentation Preview – Copy‑friendly Tables")
@@ -1328,13 +1363,21 @@ def render_case_ui():
     if tab_tracking:
         with tab_tracking:
             st.subheader("Tracking")
-            tracking_type = st.selectbox("Tracking type", ["Dell", "FedEx"], key="tracking_type")
-            company = st.text_input("Company", key="track_company")
-            end_user = st.text_input("End User", key="track_end_user")
-            creation_day = st.date_input("Creation day", value=date.today(), key="track_creation_day")
-            ticket_number = st.text_input("Ticket Number", key="track_ticket_number")
+            tracking_type = st.selectbox(
+                "Tracking type", ["Dell", "FedEx"], key=widget_key("tracking_type", case_idx)
+            )
+            company = st.text_input("Company", key=widget_key("track_company", case_idx))
+            end_user = st.text_input("End User", key=widget_key("track_end_user", case_idx))
+            creation_day = st.date_input(
+                "Creation day", value=date.today(), key=widget_key("track_creation_day", case_idx)
+            )
+            ticket_number = st.text_input(
+                "Ticket Number", key=widget_key("track_ticket_number", case_idx)
+            )
             if tracking_type == "Dell":
-                service_tag = st.text_input("Service Tag", key="track_service_tag")
+                service_tag = st.text_input(
+                    "Service Tag", key=widget_key("track_service_tag", case_idx)
+                )
                 status = st.selectbox(
                     "Status",
                     [
@@ -1343,11 +1386,13 @@ def render_case_ui():
                         "Waiting for clinic to send back PC for review",
                         "Pending update",
                     ],
-                    key="track_status",
+                    key=widget_key("track_status", case_idx),
                 )
             else:
                 expected_arrival_date = st.date_input(
-                    "Expected arrival date", value=date.today(), key="track_expected_arrival"
+                    "Expected arrival date",
+                    value=date.today(),
+                    key=widget_key("track_expected_arrival", case_idx),
                 )
                 status = st.selectbox(
                     "Status",
@@ -1358,9 +1403,9 @@ def render_case_ui():
                         "scanner sent",
                         "waiting to arrive to the doctor's office.",
                     ],
-                    key="track_status",
+                    key=widget_key("track_status", case_idx),
                 )
-            if st.button("Save and track"):
+            if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
                 info = {
                     "type": tracking_type,
                     "case_id": D.case_id,
@@ -1379,7 +1424,10 @@ def render_case_ui():
                 with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(info, f, indent=2)
                 st.success("Tracking information saved.")
-            if st.button("Close case & stop tracking"):
+            if st.button(
+                "Close case & stop tracking",
+                key=widget_key("close_tracking", case_idx),
+            ):
                 dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
                 fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
                 for f in [dell_file, fedex_file]:
@@ -1433,7 +1481,7 @@ def render_case_ui():
                     "Straumann ticket #",
                     D.straumann,
                     disabled=True,
-                    key="straumann_tab",
+                    key=widget_key("straumann_tab", case_idx),
                 )
             else:
                 D.straumann = "N/A"
@@ -1446,11 +1494,11 @@ def render_case_ui():
             st.markdown("---")
             st.subheader("Escalation 2nd line")
             D.esc_name = D.caller_name
-            st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
+            st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
             D.esc_ph = D.phone_number
-            st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
+            st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
             D.esc_email = D.email
-            st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
+            st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
             st.markdown("#### Escalation 2nd line Table")
             st.dataframe(
                 category_dataframe("ESCALATION 2ND LINE", D, cat_map),
@@ -1672,13 +1720,24 @@ def render_case_ui():
                         prompt += "\n\n" + "\n".join(extras)
         
             st.session_state.email_extra = ext
-            st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
+            st.text_area(
+                "ChatGPT prompt (copy & paste)",
+                prompt,
+                height=300,
+                key=widget_key("api_prompt_area", case_idx),
+            )
             st.session_state["last_prompt"] = prompt
         
-            include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
-            include_restart = st.checkbox("Restart the computer", key="api_restart")
-            include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
-            if st.button("Use GPT-OSS"):
+            include_helpjuice = st.checkbox(
+                "Helpjuice tutorial", key=widget_key("api_helpjuice", case_idx)
+            )
+            include_restart = st.checkbox(
+                "Restart the computer", key=widget_key("api_restart", case_idx)
+            )
+            include_scan_time = st.checkbox(
+                "Scan time warning", key=widget_key("api_scan_time", case_idx)
+            )
+            if st.button("Use GPT-OSS", key=widget_key("use_gpt_oss", case_idx)):
                 api_key = st.session_state.openai_api_key
                 model = st.session_state.openai_model
                 base_url = st.session_state.ai_base_url
@@ -1729,7 +1788,12 @@ def render_case_ui():
                                     result = response.json()
                                     email_text = result["choices"][0]["message"]["content"]
                                     st.success("Email generated!")
-                                    st.text_area("Generated Email", email_text, height=300, key="generated_email")
+                                    st.text_area(
+                                        "Generated Email",
+                                        email_text,
+                                        height=300,
+                                        key=widget_key("generated_email", case_idx),
+                                    )
                                 else:
                                     st.error(
                                         f"API Error: {response.status_code}\n{response.text}"
@@ -1743,7 +1807,7 @@ def render_case_ui():
                                     "Generated Email",
                                     result[len(augmented_prompt):].strip(),
                                     height=300,
-                                    key="generated_email",
+                                    key=widget_key("generated_email", case_idx),
                                 )
                                 st.success("Email generated locally!")
                         except Exception as e:  # pragma: no cover - just in case
@@ -1770,10 +1834,11 @@ def render_case_ui():
         auto_text_input("Scanner S/N", "scanner_sn")
         auto_text_input("Base S/N", "base_sn")
         auto_text_input("TRIOS MODULE Version", "trios_module_version")
+        ht_key = widget_key("hardware_test", case_idx)
         st.checkbox(
             "Hardware test performed?",
-            value=st.session_state.hardware_test,
-            key="hardware_test",
+            value=st.session_state.get(ht_key, False),
+            key=ht_key,
             on_change=_update_field,
             args=("hardware_test",),
         )
@@ -1789,11 +1854,12 @@ def render_case_ui():
     # ================== NOTES TAB =================
     with tab_notes:
         st.subheader("Scratchpad")
+        scr_key = widget_key("scratch", case_idx)
         st.text_area(
             "Temporary notes",
-            st.session_state.scratch,
+            st.session_state.get(scr_key, ""),
             height=400,
-            key="scratch",
+            key=scr_key,
             on_change=autosave,
         )
 
@@ -1805,6 +1871,7 @@ def render_case_ui():
             make_tables_pdf(D),
             file_name=f"{D.case_id or 'case'}_info.pdf",
             mime="application/pdf",
+            key=widget_key("download_info_pdf", case_idx),
         )
         for cat in cat_map:
             st.markdown(f"**{table_title(cat)}**")
@@ -1815,44 +1882,53 @@ def render_case_ui():
         st.subheader("Save / Load")
         col_save, col_load = st.columns(2)
         with col_save:
-            if st.button("Save", key="save_case_button"):
+            if st.button("Save", key=widget_key("save_case_button", case_idx)):
                 save_case_to_database(D)
         with col_load:
             uploaded_case = st.file_uploader(
-                "Select case JSON", type="json", key="load_case_uploader"
+                "Select case JSON",
+                type="json",
+                key=widget_key("load_case_uploader", case_idx),
             )
-            if uploaded_case and st.button("Load", key="load_case_button"):
+            if uploaded_case and st.button(
+                "Load", key=widget_key("load_case_button", case_idx)
+            ):
                 request_load_from_bytes(uploaded_case.getvalue())
 
         st.subheader("Recent cases")
         for idx, case in enumerate(load_recent_cases()):
             info_col, btn_col = st.columns([3, 1])
             info_col.write(f"{case['case_id']} - {case['path']}")
-            if btn_col.button("Load", key=f"recent_load_{idx}"):
+            if btn_col.button(
+                "Load", key=widget_key(f"recent_load_{idx}", case_idx)
+            ):
                 request_load_from_path(case["path"])
 
         pending = st.session_state.get("pending_load")
         if pending:
             st.error("Remember to save your information before loading a new case")
             col_i, col_s = st.columns(2)
-            if col_i.button("Ignore and load", key="ignore_and_load"):
+            if col_i.button("Ignore and load", key=widget_key("ignore_and_load", case_idx)):
                 if "path" in pending:
                     load_case_from_path(pending["path"])
                 else:
                     load_case_from_bytes(pending["data"])
                 st.session_state.pending_load = None
-            if col_s.button("Save", key="save_before_loading"):
+            if col_s.button("Save", key=widget_key("save_before_loading", case_idx)):
                 save_case_to_database(D)
 
     # ================== SETTINGS TAB =================
     with tab_settings:
-        st.subheader("Modes")
-        st.checkbox("2nd Line mode", key="second_line_mode")
-        prev_debug = st.session_state.debug_mode
-        st.checkbox("Show Debug tab", key="debug_mode")
-        if prev_debug and not st.session_state.debug_mode:
-            st.session_state.debug_auth = False
-            st.session_state.show_bored = False
+        if case_idx == 0:
+            st.subheader("Modes")
+            st.checkbox("2nd Line mode", key="second_line_mode")
+            prev_debug = st.session_state.debug_mode
+            st.checkbox("Show Debug tab", key="debug_mode")
+            if prev_debug and not st.session_state.debug_mode:
+                st.session_state.debug_auth = False
+                st.session_state.show_bored = False
+        else:
+            st.info("Settings available in first case tab.")
 
     # ================== ATOM CHAT TAB =================
     with tab_atom:
@@ -1875,9 +1951,11 @@ def render_case_ui():
                 st.markdown("**Stored documents:**")
                 for doc in st.session_state.manual_docs:
                     st.markdown(f"- {doc['title']}")
-            doc_file = st.file_uploader("Add document", type=["txt"], key="doc_file")
-            doc_title = st.text_input("Title", key="doc_title")
-            if st.button("Save document", key="save_doc"):
+            doc_file = st.file_uploader(
+                "Add document", type=["txt"], key=widget_key("doc_file", case_idx)
+            )
+            doc_title = st.text_input("Title", key=widget_key("doc_title", case_idx))
+            if st.button("Save document", key=widget_key("save_doc", case_idx)):
                 if doc_file and doc_title:
                     content = doc_file.getvalue().decode("utf-8", errors="ignore")
                     st.session_state.manual_docs.append({"title": doc_title, "content": content})
@@ -1887,8 +1965,8 @@ def render_case_ui():
                     st.error("Provide both title and document.")
 
         st.subheader("Search manual database")
-        search_query = st.text_input("Search query", key="db_query")
-        if st.button("Search in database", key="db_search_button"):
+        search_query = st.text_input("Search query", key=widget_key("db_query", case_idx))
+        if st.button("Search in database", key=widget_key("db_search_button", case_idx)):
             if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
             elif not search_query:
@@ -1922,7 +2000,9 @@ def render_case_ui():
         for msg in st.session_state.atom_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
-        if user_msg := st.chat_input("Message", key="atom_chat_input"):
+        if user_msg := st.chat_input(
+            "Message", key=widget_key("atom_chat_input", case_idx)
+        ):
             if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
             else:
@@ -1937,7 +2017,7 @@ def render_case_ui():
                     st.session_state.atom_history.append({"role": "assistant", "content": reply})
                 save_memory(st.session_state.atom_history)
                 st.rerun()
-        if st.button("Clear memory", key="atom_clear"):
+        if st.button("Clear memory", key=widget_key("atom_clear", case_idx)):
             st.session_state.atom_history = []
             save_memory([])
             st.rerun()
@@ -1946,7 +2026,9 @@ def render_case_ui():
     st.markdown("---")
     st.subheader("Exports & attachments")
     new_files = st.file_uploader(
-        "Upload screenshots / videos", accept_multiple_files=True
+        "Upload screenshots / videos",
+        accept_multiple_files=True,
+        key=widget_key("new_files", case_idx),
     )
     if new_files:
         existing_names = {f.name for f in st.session_state.uploads}
@@ -1956,7 +2038,9 @@ def render_case_ui():
                 existing_names.add(nf.name)
 
     log_files = st.file_uploader(
-        "Upload case logs", accept_multiple_files=True, key="log_files"
+        "Upload case logs",
+        accept_multiple_files=True,
+        key=widget_key("log_files", case_idx),
     )
     if log_files:
         existing_log_names = {f.name for f in st.session_state.log_uploads}
@@ -1965,8 +2049,10 @@ def render_case_ui():
                 st.session_state.log_uploads.append(lf)
                 existing_log_names.add(lf.name)
 
-    screenshot_name = st.text_input("Screenshot name", key="screenshot_name")
-    if st.button("Take Screenshot"):
+    screenshot_name = st.text_input(
+        "Screenshot name", key=widget_key("screenshot_name", case_idx)
+    )
+    if st.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
         if screenshot_name:
             safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
             img = pyautogui.screenshot()
@@ -1990,7 +2076,9 @@ def render_case_ui():
             for i, f in enumerate(st.session_state.uploads):
                 cols = st.columns([8, 1])
                 cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button("Remove", key=f"rem_upload_{i}"):
+                if cols[1].button(
+                    "Remove", key=widget_key(f"rem_upload_{i}", case_idx)
+                ):
                     st.session_state.uploads.pop(i)
                     st.rerun()
         if st.session_state.log_uploads:
@@ -1998,7 +2086,9 @@ def render_case_ui():
             for i, f in enumerate(st.session_state.log_uploads):
                 cols = st.columns([8, 1])
                 cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button("Remove", key=f"rem_log_{i}"):
+                if cols[1].button(
+                    "Remove", key=widget_key(f"rem_log_{i}", case_idx)
+                ):
                     st.session_state.log_uploads.pop(i)
                     st.rerun()
         if st.session_state.screenshots:
@@ -2006,10 +2096,12 @@ def render_case_ui():
             for i, s in enumerate(st.session_state.screenshots):
                 cols = st.columns([8, 1])
                 cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
-                if cols[1].button("Remove", key=f"rem_shot_{i}"):
+                if cols[1].button(
+                    "Remove", key=widget_key(f"rem_shot_{i}", case_idx)
+                ):
                     st.session_state.screenshots.pop(i)
                     st.rerun()
-        if st.button("Create ZIP"):
+        if st.button("Create ZIP", key=widget_key("create_zip", case_idx)):
             zbuf = io.BytesIO()
             with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
                 for f in st.session_state.uploads:
@@ -2025,6 +2117,7 @@ def render_case_ui():
                 zbuf,
                 file_name=f"{D.case_id or 'case'}_attachments.zip",
                 mime="application/zip",
+                key=widget_key("download_zip", case_idx),
             )
 
     # ================== BORED TAB =================
@@ -2120,7 +2213,7 @@ def render_case_ui():
                 "zealous",
                 "hot-headed",
             ]
-            if st.button("Explore", key="bored_explore"):
+            if st.button("Explore", key=widget_key("bored_explore", case_idx)):
                 adventure = random.choice(area)
                 encounter = random.choice(monster)
                 descript = random.choice(description)
@@ -2186,14 +2279,16 @@ def render_case_ui():
             st.markdown(f"Power ranking: {game['power_ranking']}")
 
             st.subheader("Secret Arena")
-            if st.button("Launch arena", key="launch_arena"):
+            if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
 
     # ================== DEBUG TAB =================
     if tab_debug:
         with tab_debug:
-            if st.session_state.debug_auth:
+            if case_idx != 0:
+                st.info("Debug available in first case tab.")
+            elif st.session_state.debug_auth:
                 st.subheader("Debug")
                 st.selectbox(
                     "AI Mode",
@@ -2218,8 +2313,12 @@ def render_case_ui():
                     st.info(
                         "Using local transformers model; no API key or Base URL required."
                     )
-                st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
-                st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
+                st.selectbox(
+                    "Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model"
+                )
+                st.selectbox(
+                    "Personality mode", ["utility", "coffee"], key="personality_mode"
+                )
                 st.text_area("Allowed categories block", key="taxonomy_block", height=150)
                 st.text_area("Signals config JSON", key="signals_config", height=150)
                 st.json(st.session_state)
@@ -2253,5 +2352,5 @@ for idx, tab in enumerate(case_tabs):
                 st.experimental_rerun()
         else:
             load_case_state(idx)
-            render_case_ui()
+            render_case_ui(idx)
             save_case_state(idx)
