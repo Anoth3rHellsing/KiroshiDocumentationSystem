@@ -359,6 +359,9 @@ class CaseSession:
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
     screenshots: list = field(default_factory=list)
+    verify_result: str = ""
+    ask_result: str = ""
+    ai_assist_result: str = ""
 
 
 # convert stored dict to dataclass, ignoring unexpected fields
@@ -376,6 +379,9 @@ if "case_sessions" not in st.session_state:
             uploads=st.session_state.uploads,
             log_uploads=st.session_state.log_uploads,
             screenshots=st.session_state.screenshots,
+            verify_result=st.session_state.verify_result,
+            ask_result=st.session_state.ask_result,
+            ai_assist_result=st.session_state.ai_assist_result,
         )
     ]
 
@@ -386,6 +392,9 @@ def load_case_state(idx: int) -> None:
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
     st.session_state.screenshots = cs.screenshots
+    st.session_state.verify_result = cs.verify_result
+    st.session_state.ask_result = cs.ask_result
+    st.session_state.ai_assist_result = cs.ai_assist_result
     global D
     D = st.session_state.case
     for key, value in asdict(D).items():
@@ -400,6 +409,9 @@ def save_case_state(idx: int) -> None:
         uploads=st.session_state.uploads,
         log_uploads=st.session_state.log_uploads,
         screenshots=st.session_state.screenshots,
+        verify_result=st.session_state.verify_result,
+        ask_result=st.session_state.ask_result,
+        ai_assist_result=st.session_state.ai_assist_result,
     )
 
 
@@ -1526,6 +1538,7 @@ def render_case_ui(case_idx: int):
                 email_choices.index(st.session_state.email_type)
                 if st.session_state.email_type in email_choices
                 else 0,
+                key=widget_key("email_type", case_idx),
             )
             st.session_state.email_type = email_type
             ext = st.session_state.email_extra
