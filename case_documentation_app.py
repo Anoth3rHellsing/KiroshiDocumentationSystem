@@ -9,7 +9,7 @@ import io
 import json
 import os
 import zipfile
-from dataclasses import dataclass, asdict, fields
+from dataclasses import dataclass, asdict, fields, field
 from datetime import datetime, date
 import logging
 from pathlib import Path
@@ -240,13 +240,6 @@ _init_state("track_case", False)
 _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", False)
-_init_state("callback_remote", False)
-_init_state("callback_contact", False)
-_init_state("callback_clarify", False)
-_init_state("callback_needed", True)
-_init_state("callback_address", False)
-_init_state("callback_remote_text", "")
-_init_state("callback_equipment", "")
 _init_state("pending_load", None)
 _init_state("show_bored", False)
 _init_state(
@@ -273,6 +266,7 @@ def load_autosave():
                 data = json.load(f)
             st.session_state.case = data.get("case", {})
             st.session_state.scratch = data.get("scratch", "")
+            st.session_state[widget_key("scratch", 0)] = st.session_state.scratch
         except Exception:
             pass
     st.session_state._autosave_loaded = True
@@ -356,12 +350,65 @@ class InMemoryUploadedFile:
         return self.data
 
 
+@dataclass
+class CaseSession:
+    """Container for per-case session state."""
+
+    case: CaseData
+    scratch: str = ""
+    uploads: list = field(default_factory=list)
+    log_uploads: list = field(default_factory=list)
+    screenshots: list = field(default_factory=list)
+
+
 # convert stored dict to dataclass, ignoring unexpected fields
 if isinstance(st.session_state.case, dict):
     allowed = {f.name for f in fields(CaseData)}
     filtered = {k: v for k, v in st.session_state.case.items() if k in allowed}
     st.session_state.case = CaseData(**filtered)
 D: CaseData = st.session_state.case
+
+if "case_sessions" not in st.session_state:
+    st.session_state.case_sessions = [
+        CaseSession(
+            case=D,
+            scratch=st.session_state.scratch,
+            uploads=st.session_state.uploads,
+            log_uploads=st.session_state.log_uploads,
+            screenshots=st.session_state.screenshots,
+        )
+    ]
+
+
+def load_case_state(idx: int) -> None:
+    cs = st.session_state.case_sessions[idx]
+    st.session_state.case = cs.case
+    st.session_state.uploads = cs.uploads
+    st.session_state.log_uploads = cs.log_uploads
+    st.session_state.screenshots = cs.screenshots
+    global D
+    D = st.session_state.case
+    for key, value in asdict(D).items():
+        st.session_state[key] = value
+    st.session_state[widget_key("scratch", idx)] = cs.scratch
+
+
+def save_case_state(idx: int) -> None:
+    st.session_state.case_sessions[idx] = CaseSession(
+        case=st.session_state.case,
+        scratch=st.session_state.get(widget_key("scratch", idx), ""),
+        uploads=st.session_state.uploads,
+        log_uploads=st.session_state.log_uploads,
+        screenshots=st.session_state.screenshots,
+    )
+
+
+def widget_key(base: str, idx: int) -> str:
+    """Return a Streamlit widget key namespaced to a case index."""
+    return f"{base}_{idx}"
+
+
+CURRENT_CASE_IDX = 0
 
 # Ensure session state mirrors the current case data before any widgets are created
 for key, value in asdict(D).items():
@@ -374,7 +421,16 @@ _init_state("survey_link", D.survey_link)
 # Button to clear all case data and reset form
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"case": asdict(D), "scratch": st.session_state.scratch}, f, indent=2)
+        json.dump(
+            {
+                "case": asdict(D),
+                "scratch": st.session_state.get(
+                    widget_key("scratch", CURRENT_CASE_IDX), ""
+                ),
+            },
+            f,
+            indent=2,
+        )
 
 
 def load_recent_cases() -> list:
@@ -461,6 +517,8 @@ def load_case_from_path(path: str) -> None:
         st.session_state.case = CaseData(**data)
         global D
         D = st.session_state.case
+        if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+            st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
         update_recent_cases(st.session_state.case.case_id, path)
         # Enable tracking tab if loaded from tracked directory or active file
@@ -482,6 +540,8 @@ def load_case_from_bytes(data: bytes) -> None:
         st.session_state.case = CaseData(**payload)
         global D
         D = st.session_state.case
+        if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+            st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
         st.success("Case loaded successfully.")
         st.rerun()
@@ -518,13 +578,15 @@ def request_load_from_bytes(data: bytes) -> None:
 
 def _update_field(field: str):
     """Update dataclass field from session state and persist."""
-    setattr(D, field, st.session_state[field])
+    key = widget_key(field, CURRENT_CASE_IDX)
+    setattr(D, field, st.session_state.get(key))
     autosave()
 
 
 def auto_text_input(label: str, field: str, container=st, **kwargs):
     """Text input that saves on every change."""
-    kwargs.setdefault("key", field)
+    key = widget_key(field, CURRENT_CASE_IDX)
+    kwargs.setdefault("key", key)
     value = container.text_input(
         label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
     )
@@ -533,7 +595,8 @@ def auto_text_input(label: str, field: str, container=st, **kwargs):
 
 def auto_text_area(label: str, field: str, container=st, **kwargs):
     """Text area that saves on every change."""
-    kwargs.setdefault("key", field)
+    key = widget_key(field, CURRENT_CASE_IDX)
+    kwargs.setdefault("key", key)
     value = container.text_area(
         label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
     )
@@ -797,243 +860,141 @@ def make_tables_pdf(d: CaseData) -> bytes:
     buf.seek(0)
     return buf.read()
 
-# ──────────── TABS ───────────
-col_escal, col_hw = st.columns(2)
-with col_escal:
-    st.session_state.include_escalations = st.checkbox(
-        "Include escalations", st.session_state.include_escalations
-    )
-with col_hw:
-    st.session_state.include_hardware = st.checkbox(
-        "Include hardware issues", st.session_state.include_hardware
-    )
-cat_map = active_category_map()
-tab_labels = []
-if st.session_state.second_line_mode:
-    tab_labels.append("2nd Line Mode")
-tab_labels.append("Case")
-if st.session_state.track_case:
-    tab_labels.append("Tracking")
-if st.session_state.include_escalations:
-    tab_labels.append("Escalations")
-tab_labels.append("Email")
-if st.session_state.include_hardware:
-    tab_labels.append("Hardware Issues")
-tab_labels += [
-    "Remote Session",
-    "Notes",
-    "Tables",
-    "Save/Load",
-    "Settings",
-    "Atom Chat",
-]
-if st.session_state.show_bored:
-    tab_labels.append("I'm bored")
-if st.session_state.debug_mode:
-    tab_labels.append("Debug")
+def render_case_ui(case_idx: int):
+    global CURRENT_CASE_IDX
+    CURRENT_CASE_IDX = case_idx
+    # ──────────── TABS ───────────
+    if case_idx == 0:
+        col_escal, col_hw = st.columns(2)
+        with col_escal:
+            st.session_state.include_escalations = st.checkbox(
+                "Include escalations", st.session_state.include_escalations
+            )
+        with col_hw:
+            st.session_state.include_hardware = st.checkbox(
+                "Include hardware issues", st.session_state.include_hardware
+            )
+    cat_map = active_category_map()
+    tab_labels = []
+    if st.session_state.second_line_mode and case_idx == 0:
+        tab_labels.append("2nd Line Mode")
+    tab_labels.append("Case")
+    if st.session_state.track_case:
+        tab_labels.append("Tracking")
+    if st.session_state.include_escalations:
+        tab_labels.append("Escalations")
+    tab_labels.append("Email")
+    if st.session_state.include_hardware:
+        tab_labels.append("Hardware Issues")
+    tab_labels += [
+        "Remote Session",
+        "Notes",
+        "Tables",
+        "Save/Load",
+        "Settings",
+        "Atom Chat",
+    ]
+    if st.session_state.show_bored:
+        tab_labels.append("I'm bored")
+    if st.session_state.debug_mode:
+        tab_labels.append("Debug")
 
-tabs = st.tabs(tab_labels)
-tab_iter = iter(tabs)
-tab_dashboard = next(tab_iter) if st.session_state.second_line_mode else None
-tab_case = next(tab_iter)
-tab_tracking = next(tab_iter) if st.session_state.track_case else None
-tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
-tab_email = next(tab_iter)
-tab_hw = next(tab_iter) if st.session_state.include_hardware else None
-tab_remote = next(tab_iter)
-tab_notes = next(tab_iter)
-tab_tables = next(tab_iter)
-tab_save_load = next(tab_iter)
-tab_settings = next(tab_iter)
-tab_atom = next(tab_iter)
-tab_bored = next(tab_iter) if st.session_state.show_bored else None
-tab_debug = next(tab_iter) if st.session_state.debug_mode else None
+    tabs = st.tabs(tab_labels)
+    tab_iter = iter(tabs)
+    tab_dashboard = (
+        next(tab_iter)
+        if st.session_state.second_line_mode and case_idx == 0
+        else None
+    )
+    tab_case = next(tab_iter)
+    tab_tracking = next(tab_iter) if st.session_state.track_case else None
+    tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
+    tab_email = next(tab_iter)
+    tab_hw = next(tab_iter) if st.session_state.include_hardware else None
+    tab_remote = next(tab_iter)
+    tab_notes = next(tab_iter)
+    tab_tables = next(tab_iter)
+    tab_save_load = next(tab_iter)
+    tab_settings = next(tab_iter)
+    tab_atom = next(tab_iter)
+    tab_bored = next(tab_iter) if st.session_state.show_bored else None
+    tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
-# ================== 2ND LINE MODE TAB =================
-if tab_dashboard:
-    with tab_dashboard:
-        st.header("2nd Line Mode Dashboard")
-        main_col, recent_col = st.columns([3, 1])
-        with recent_col:
-            st.subheader("Recent Tracked Cases")
-            recent_box = st.container(height=400)
-            for p in recent_tracked_files():
-                recent_box.write(p.stem)
-        with main_col:
-            st.subheader("Case Status & Tracking")
-            cases = load_tracked_cases()
-            dell_cases = [c for c in cases if c.get("type") == "Dell"]
-            st.markdown("### Dell Case Tracking")
-            if dell_cases:
-                render_tracking_table(
-                    dell_cases,
-                    [
-                        ("Company", "company"),
-                        ("End User", "end_user"),
-                        ("Creation day", "creation_day"),
-                        ("Ticket Number", "ticket_number"),
-                        ("Service Tag", "service_tag"),
-                        ("Status", "status"),
-                    ],
-                )
-            else:
-                st.write("No Dell cases being tracked.")
-            st.markdown("### FedEx Case Tracking")
-            fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
-            if fedex_cases:
-                render_tracking_table(
-                    fedex_cases,
-                    [
-                        ("Company", "company"),
-                        ("End User", "end_user"),
-                        ("Creation day", "creation_day"),
-                        ("Ticket Number", "ticket_number"),
-                        ("Expected arrival date", "expected_arrival_date"),
-                        ("Status", "status"),
-                    ],
-                )
-            else:
-                st.write("No FedEx cases being tracked.")
-# ================== CASE TAB =================
-with tab_case:
-    api_key = st.session_state.openai_api_key
-    model = st.session_state.openai_model
-    base_url = st.session_state.ai_base_url
-    verify_col, ask_col, categorize_col, assist_col, clear_col, track_col = st.columns(6)
-    with verify_col:
-        if st.button("Verify", key="verify_button"):
-            logging.info("Verify button clicked")
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            else:
-                case_dict = asdict(D)
-                if not st.session_state.include_escalations:
-                    for fld in [
-                        "request_issue",
-                        "contact_name",
-                        "office_ph",
-                        "direct_ph",
-                        "best_time",
-                        "patterson",
-                        "straumann",
-                        "esc_name",
-                        "esc_ph",
-                        "esc_email",
-                    ]:
-                        case_dict.pop(fld, None)
-                user_message = (
-                    "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
-                    + json.dumps(case_dict, indent=2)
-                )
-                try:
-                    reply = query_atom(
-                        user_message,
-                        st.session_state.atom_history,
-                        api_key,
-                        model,
-                        base_url,
+    # ================== 2ND LINE MODE TAB =================
+    if tab_dashboard:
+        with tab_dashboard:
+            st.header("2nd Line Mode Dashboard")
+            main_col, recent_col = st.columns([3, 1])
+            with recent_col:
+                st.subheader("Recent Tracked Cases")
+                recent_box = st.container(height=400)
+                for p in recent_tracked_files():
+                    recent_box.write(p.stem)
+            with main_col:
+                st.subheader("Case Status & Tracking")
+                cases = load_tracked_cases()
+                dell_cases = [c for c in cases if c.get("type") == "Dell"]
+                st.markdown("### Dell Case Tracking")
+                if dell_cases:
+                    render_tracking_table(
+                        dell_cases,
+                        [
+                            ("Company", "company"),
+                            ("End User", "end_user"),
+                            ("Creation day", "creation_day"),
+                            ("Ticket Number", "ticket_number"),
+                            ("Service Tag", "service_tag"),
+                            ("Status", "status"),
+                        ],
                     )
-                except Exception as e:
-                    st.error(str(e))
                 else:
-                    st.session_state.atom_history.append({"role": "user", "content": user_message})
-                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                    save_memory(st.session_state.atom_history)
-                    st.session_state.verify_result = reply
-    with ask_col:
-        if st.button("Ask", key="ask_button"):
-            logging.info("Ask button clicked")
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            else:
-                case_dict = asdict(D)
-                if not st.session_state.include_escalations:
-                    for fld in [
-                        "request_issue",
-                        "contact_name",
-                        "office_ph",
-                        "direct_ph",
-                        "best_time",
-                        "patterson",
-                        "straumann",
-                        "esc_name",
-                        "esc_ph",
-                        "esc_email",
-                    ]:
-                        case_dict.pop(fld, None)
-                findings = st.session_state.verify_result
-                user_message = (
-                    "Based on the following case data"
-                    + (f" and previous findings: {findings}" if findings else "")
-                    + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
-                    + json.dumps(case_dict, indent=2)
-                )
-                try:
-                    reply = query_atom(
-                        user_message,
-                        st.session_state.atom_history,
-                        api_key,
-                        model,
-                        base_url,
+                    st.write("No Dell cases being tracked.")
+                st.markdown("### FedEx Case Tracking")
+                fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
+                if fedex_cases:
+                    render_tracking_table(
+                        fedex_cases,
+                        [
+                            ("Company", "company"),
+                            ("End User", "end_user"),
+                            ("Creation day", "creation_day"),
+                            ("Ticket Number", "ticket_number"),
+                            ("Expected arrival date", "expected_arrival_date"),
+                            ("Status", "status"),
+                        ],
                     )
-                except Exception as e:
-                    st.error(str(e))
                 else:
-                    st.session_state.atom_history.append({"role": "user", "content": user_message})
-                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                    save_memory(st.session_state.atom_history)
-                    st.session_state.ask_result = reply
-    with categorize_col:
-        if st.button("Categorize", key="categorize_button"):
-            logging.info("Categorize button clicked")
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            else:
-                taxonomy_block = st.session_state.taxonomy_block
-                signals_config = st.session_state.signals_config
-                if not taxonomy_block or not signals_config:
-                    st.error("Please provide taxonomy and signals config in the Debug tab.")
+                    st.write("No FedEx cases being tracked.")
+    # ================== CASE TAB =================
+    with tab_case:
+        api_key = st.session_state.openai_api_key
+        model = st.session_state.openai_model
+        base_url = st.session_state.ai_base_url
+        verify_col, ask_col, categorize_col, assist_col, clear_col, track_col = st.columns(6)
+        with verify_col:
+            if st.button("Verify", key=widget_key("verify_button", case_idx)):
+                logging.info("Verify button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
                     case_dict = asdict(D)
-                    case_input = {
-                        "title": D.brief_description,
-                        "description": D.description,
-                        "artifacts": [f.name for f in st.session_state.uploads],
-                        "meta": {
-                            "product_hint": D.application_version,
-                            "lang": "en",
-                        },
-                        "full_case": case_dict,
-                    }
-                    output_schema = """{
-"product": "string",
-"topic": "string",
-"subtopic": "string|null",
-"confidence": 0.0,
-"reason": "string",
-"signals_used": ["string", ...],
-"top_3_alternatives": [
-{"product":"", "topic":"", "subtopic":null, "why":""},
-{"product":"", "topic":"", "subtopic":null, "why":""},
-{"product":"", "topic":"", "subtopic":null, "why":""}
-]
-}"""
+                    if not st.session_state.include_escalations:
+                        for fld in [
+                            "request_issue",
+                            "contact_name",
+                            "office_ph",
+                            "direct_ph",
+                            "best_time",
+                            "patterson",
+                            "straumann",
+                            "esc_name",
+                            "esc_ph",
+                            "esc_email",
+                        ]:
+                            case_dict.pop(fld, None)
                     user_message = (
-                        "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
-                        "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
-                        "Taxonomy (authoritative)\n\n"
-                        "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
-                        f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
-                        "Signals dictionary (hints)\n\n"
-                        "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
-                        f"SIGNALS_CONFIG:\n{signals_config}\n\n"
-                        "Output format (STRICT JSON only)\n\n"
-                        "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
-                        f"{output_schema}\n\n"
-                        "Case to classify (runtime payload)\n\n"
-                        f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
-                        "Return\n\n"
-                        "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                        "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
+                        + json.dumps(case_dict, indent=2)
                     )
                     try:
                         reply = query_atom(
@@ -1049,1148 +1010,1388 @@ with tab_case:
                         st.session_state.atom_history.append({"role": "user", "content": user_message})
                         st.session_state.atom_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.atom_history)
-                        st.session_state.categorizer_result = reply
-    with assist_col:
-        if st.button("AI Assistance", key="assist_button"):
-            logging.info("AI Assistance button clicked")
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            else:
-                case_dict = asdict(D)
-                if not st.session_state.include_escalations:
-                    for fld in [
-                        "request_issue",
-                        "contact_name",
-                        "office_ph",
-                        "direct_ph",
-                        "best_time",
-                        "patterson",
-                        "straumann",
-                        "esc_name",
-                        "esc_ph",
-                        "esc_email",
-                    ]:
-                        case_dict.pop(fld, None)
-                _, miss = compute_progress(D, cat_map)
-                missing = [f for flds in miss.values() for f in flds]
-                user_message = (
-                    "Use the available case data to infer values for missing fields."
-                    " Return a JSON object mapping field names to inferred values."
-                    " Omit fields that cannot be inferred.\n\n"
-                    + json.dumps(case_dict, indent=2)
-                    + "\nMissing fields:\n"
-                    + json.dumps(missing)
-                )
-                try:
-                    reply = query_atom(
-                        user_message,
-                        st.session_state.atom_history,
-                        api_key,
-                        model,
-                        base_url,
-                    )
-                except Exception as e:
-                    st.error(str(e))
+                        st.session_state.verify_result = reply
+        with ask_col:
+            if st.button("Ask", key=widget_key("ask_button", case_idx)):
+                logging.info("Ask button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    st.session_state.atom_history.append({"role": "user", "content": user_message})
-                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                    save_memory(st.session_state.atom_history)
-                    st.session_state.ai_assist_result = reply
-                    suggestions = None
+                    case_dict = asdict(D)
+                    if not st.session_state.include_escalations:
+                        for fld in [
+                            "request_issue",
+                            "contact_name",
+                            "office_ph",
+                            "direct_ph",
+                            "best_time",
+                            "patterson",
+                            "straumann",
+                            "esc_name",
+                            "esc_ph",
+                            "esc_email",
+                        ]:
+                            case_dict.pop(fld, None)
+                    findings = st.session_state.verify_result
+                    user_message = (
+                        "Based on the following case data"
+                        + (f" and previous findings: {findings}" if findings else "")
+                        + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
+                        + json.dumps(case_dict, indent=2)
+                    )
                     try:
-                        suggestions = json.loads(reply)
-                    except json.JSONDecodeError:
-                        match = re.search(
-                            r"```(?:json)?\s*(\{.*?\})\s*```",
-                            reply,
-                            re.DOTALL,
+                        reply = query_atom(
+                            user_message,
+                            st.session_state.atom_history,
+                            api_key,
+                            model,
+                            base_url,
                         )
-                        if not match:
-                            match = re.search(r"\{.*\}", reply, re.DOTALL)
-                        if match:
-                            try:
-                                suggestions = json.loads(match.group(1) if match.lastindex else match.group())
-                            except json.JSONDecodeError:
-                                pass
-                    if suggestions is None:
-                        st.error("AI Assistance did not return valid JSON.")
+                    except Exception as e:
+                        st.error(str(e))
                     else:
-                        for fld, val in suggestions.items():
-                            if hasattr(D, fld) and not getattr(D, fld):
-                                setattr(D, fld, val)
-                        autosave()
-    with clear_col:
-        if st.button("Clear all", key="clear_all_button"):
-            logging.info("Clear all button clicked")
-            api_key = st.session_state.get("openai_api_key", "")
-            second_line_mode = st.session_state.get("second_line_mode", False)
-            st.session_state.clear()
-            st.session_state.openai_api_key = api_key
-            st.session_state.second_line_mode = second_line_mode
-            if os.path.exists(AUTOSAVE_FILE):
-                try:
-                    os.remove(AUTOSAVE_FILE)
-                except OSError:
-                    pass
-            st.rerun()
-    with track_col:
-        if st.session_state.track_case:
-            st.button("Tracking enabled", disabled=True)
-        elif st.button("Track case", key="track_case_button"):
-            st.session_state.track_case = True
-            st.rerun()
-    if st.session_state.verify_result:
-        st.text_area(
-            "A.A.T.O.M. Verification",
-            st.session_state.verify_result,
-            height=150,
-        )
-    if st.session_state.ask_result:
-        st.text_area(
-            "A.A.T.O.M. Suggestions",
-            st.session_state.ask_result,
-            height=150,
-        )
-    if st.session_state.ai_assist_result:
-        st.text_area(
-            "AI Assistance",
-            st.session_state.ai_assist_result,
-            height=150,
-        )
-    prog, miss = compute_progress(D, cat_map)
-    left, right = st.columns([1, 2], gap="medium")
-    with right:
-        st.subheader("Build title")
-        st.code(build_title(D))
-        st.subheader("Progress by category")
-        progress_df = pd.DataFrame(
-            {"Category": list(prog.keys()), "Done": list(prog.values())}
-        )
-        bar_chart = (
-            alt.Chart(progress_df)
-            .mark_bar()
-            .encode(
-                x=alt.X("Category:N", sort=list(prog.keys())),
-                y=alt.Y("Done:Q", scale=alt.Scale(domain=[0, 100])),
+                        st.session_state.atom_history.append({"role": "user", "content": user_message})
+                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.atom_history)
+                        st.session_state.ask_result = reply
+        with categorize_col:
+            if st.button("Categorize", key=widget_key("categorize_button", case_idx)):
+                logging.info("Categorize button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    taxonomy_block = st.session_state.taxonomy_block
+                    signals_config = st.session_state.signals_config
+                    if not taxonomy_block or not signals_config:
+                        st.error("Please provide taxonomy and signals config in the Debug tab.")
+                    else:
+                        case_dict = asdict(D)
+                        case_input = {
+                            "title": D.brief_description,
+                            "description": D.description,
+                            "artifacts": [f.name for f in st.session_state.uploads],
+                            "meta": {
+                                "product_hint": D.application_version,
+                                "lang": "en",
+                            },
+                            "full_case": case_dict,
+                        }
+                        output_schema = """{
+    "product": "string",
+    "topic": "string",
+    "subtopic": "string|null",
+    "confidence": 0.0,
+    "reason": "string",
+    "signals_used": ["string", ...],
+    "top_3_alternatives": [
+    {"product":"", "topic":"", "subtopic":null, "why":""},
+    {"product":"", "topic":"", "subtopic":null, "why":""},
+    {"product":"", "topic":"", "subtopic":null, "why":""}
+    ]
+    }"""
+                        user_message = (
+                            "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
+                            "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
+                            "Taxonomy (authoritative)\n\n"
+                            "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
+                            f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
+                            "Signals dictionary (hints)\n\n"
+                            "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
+                            f"SIGNALS_CONFIG:\n{signals_config}\n\n"
+                            "Output format (STRICT JSON only)\n\n"
+                            "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
+                            f"{output_schema}\n\n"
+                            "Case to classify (runtime payload)\n\n"
+                            f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
+                            "Return\n\n"
+                            "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                        )
+                        try:
+                            reply = query_atom(
+                                user_message,
+                                st.session_state.atom_history,
+                                api_key,
+                                model,
+                                base_url,
+                            )
+                        except Exception as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state.atom_history.append({"role": "user", "content": user_message})
+                            st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                            save_memory(st.session_state.atom_history)
+                            st.session_state.categorizer_result = reply
+        with assist_col:
+            if st.button("AI Assistance", key=widget_key("assist_button", case_idx)):
+                logging.info("AI Assistance button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = asdict(D)
+                    if not st.session_state.include_escalations:
+                        for fld in [
+                            "request_issue",
+                            "contact_name",
+                            "office_ph",
+                            "direct_ph",
+                            "best_time",
+                            "patterson",
+                            "straumann",
+                            "esc_name",
+                            "esc_ph",
+                            "esc_email",
+                        ]:
+                            case_dict.pop(fld, None)
+                    _, miss = compute_progress(D, cat_map)
+                    missing = [f for flds in miss.values() for f in flds]
+                    user_message = (
+                        "Use the available case data to infer values for missing fields."
+                        " Return a JSON object mapping field names to inferred values."
+                        " Omit fields that cannot be inferred.\n\n"
+                        + json.dumps(case_dict, indent=2)
+                        + "\nMissing fields:\n"
+                        + json.dumps(missing)
+                    )
+                    try:
+                        reply = query_atom(
+                            user_message,
+                            st.session_state.atom_history,
+                            api_key,
+                            model,
+                            base_url,
+                        )
+                    except Exception as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.atom_history.append({"role": "user", "content": user_message})
+                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.atom_history)
+                        st.session_state.ai_assist_result = reply
+                        suggestions = None
+                        try:
+                            suggestions = json.loads(reply)
+                        except json.JSONDecodeError:
+                            match = re.search(
+                                r"```(?:json)?\s*(\{.*?\})\s*```",
+                                reply,
+                                re.DOTALL,
+                            )
+                            if not match:
+                                match = re.search(r"\{.*\}", reply, re.DOTALL)
+                            if match:
+                                try:
+                                    suggestions = json.loads(match.group(1) if match.lastindex else match.group())
+                                except json.JSONDecodeError:
+                                    pass
+                        if suggestions is None:
+                            st.error("AI Assistance did not return valid JSON.")
+                        else:
+                            for fld, val in suggestions.items():
+                                if hasattr(D, fld) and not getattr(D, fld):
+                                    setattr(D, fld, val)
+                            autosave()
+        with clear_col:
+            if st.button("Clear all", key=widget_key("clear_all_button", case_idx)):
+                logging.info("Clear all button clicked")
+                api_key = st.session_state.get("openai_api_key", "")
+                second_line_mode = st.session_state.get("second_line_mode", False)
+                st.session_state.clear()
+                st.session_state.openai_api_key = api_key
+                st.session_state.second_line_mode = second_line_mode
+                if os.path.exists(AUTOSAVE_FILE):
+                    try:
+                        os.remove(AUTOSAVE_FILE)
+                    except OSError:
+                        pass
+                st.rerun()
+        with track_col:
+            if st.session_state.track_case:
+                st.button(
+                    "Tracking enabled",
+                    disabled=True,
+                    key=widget_key("tracking_enabled", case_idx),
+                )
+            elif st.button("Track case", key=widget_key("track_case_button", case_idx)):
+                st.session_state.track_case = True
+                st.rerun()
+        if st.session_state.verify_result:
+            st.text_area(
+                "A.A.T.O.M. Verification",
+                st.session_state.verify_result,
+                height=150,
+                key=widget_key("verify_output", case_idx),
             )
-        )
-        st.altair_chart(bar_chart, use_container_width=True)
-        todo = [
-            f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
-        ]
-        st.markdown("### To‑do" if todo else "All mandatory info filled.")
-        for t in todo:
-            st.markdown(f"- {t}")
-        st.subheader("Case Header")
-        if st.session_state.second_line_mode:
-            auto_text_input("Straumann ticket #", "straumann")
-        auto_text_input("Company name", "company_name")
-        auto_text_input("Subscription ID", "subscription_id")
-        auto_text_input("Brief description", "brief_description")
-        auto_text_input("Case ID", "case_id")
-        version_nr = st.checkbox(
-            VERSION_NOT_RELEVANT,
-            D.application_version == VERSION_NOT_RELEVANT,
-            key="application_version_not_relevant",
-        )
-        if version_nr:
-            st.session_state.application_version = VERSION_NOT_RELEVANT
-            _update_field("application_version")
-        auto_text_input(
-            "Application and version",
-            "application_version",
-            placeholder="e.g., Unite 1.8.10.1",
-            help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
-            disabled=version_nr,
-        )
-        st.subheader("Description (What / When / Where)")
-        auto_text_area("Description", "description", height=68)
-        st.subheader("Phone-call notes")
-        auto_text_input("Caller name", "caller_name")
-        auto_text_area("Caller issue description", "phone_description", height=68)
-        auto_text_input("Email", "email")
-        c1, c2 = st.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=c1)
-        auto_text_input("Phone number", "phone_number", container=c2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
-        auto_text_input(
-            "TeamViewer password",
-            "teamviewer_password",
-            container=c2,
-        )
-        st.subheader("Internal notes")
-        auto_text_input("Helpjuice link", "internal_helpjuice")
-        auto_text_area("Logs / screenshots", "internal_logs", height=68)
-        st.subheader("Conclusion")
-        auto_text_input("Root cause", "root_cause")
-        auto_text_input("Solution", "solution")
-        auto_text_input("Customer satisfaction survey URL", "survey_link")
-        st.subheader("Additional information")
-        auto_text_area(
-            "Additional details",
-            "additional_info",
-            height=400,
-            help=(
-                "Include details such as antivirus, firewalls enabled, update history, "
-                "related case ID, possible cause, performance issues, manual additional notes, "
-                "recurring issues, and recent issues."
-            ),
-        )
-        st.subheader("Support Fee")
-        st.checkbox(
-            "Customer is TRIOS Only?",
-            value=st.session_state.customer_trios_only,
-            key="customer_trios_only",
-            on_change=_update_field,
-            args=("customer_trios_only",),
-        )
-        if st.session_state.customer_trios_only:
+        if st.session_state.ask_result:
+            st.text_area(
+                "A.A.T.O.M. Suggestions",
+                st.session_state.ask_result,
+                height=150,
+                key=widget_key("ask_output", case_idx),
+            )
+        if st.session_state.ai_assist_result:
+            st.text_area(
+                "AI Assistance",
+                st.session_state.ai_assist_result,
+                height=150,
+                key=widget_key("ai_assist_output", case_idx),
+            )
+        prog, miss = compute_progress(D, cat_map)
+        left, right = st.columns([1, 2], gap="medium")
+        with right:
+            st.subheader("Build title")
+            st.code(build_title(D))
+            st.subheader("Progress by category")
+            progress_df = pd.DataFrame(
+                {"Category": list(prog.keys()), "Done": list(prog.values())}
+            )
+            bar_chart = (
+                alt.Chart(progress_df)
+                .mark_bar()
+                .encode(
+                    x=alt.X("Category:N", sort=list(prog.keys())),
+                    y=alt.Y("Done:Q", scale=alt.Scale(domain=[0, 100])),
+                )
+            )
+            st.altair_chart(bar_chart, use_container_width=True)
+            todo = [
+                f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
+            ]
+            st.markdown("### To‑do" if todo else "All mandatory info filled.")
+            for t in todo:
+                st.markdown(f"- {t}")
+            st.subheader("Case Header")
+            if st.session_state.second_line_mode:
+                auto_text_input("Straumann ticket #", "straumann")
+            auto_text_input("Company name", "company_name")
+            auto_text_input("Subscription ID", "subscription_id")
+            auto_text_input("Brief description", "brief_description")
+            auto_text_input("Case ID", "case_id")
+            version_nr = st.checkbox(
+                VERSION_NOT_RELEVANT,
+                D.application_version == VERSION_NOT_RELEVANT,
+                key=widget_key("application_version_not_relevant", case_idx),
+            )
+            if version_nr:
+                st.session_state[widget_key("application_version", case_idx)] = VERSION_NOT_RELEVANT
+                _update_field("application_version")
+            auto_text_input(
+                "Application and version",
+                "application_version",
+                placeholder="e.g., Unite 1.8.10.1",
+                help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
+                disabled=version_nr,
+            )
+            st.subheader("Description (What / When / Where)")
+            auto_text_area("Description", "description", height=68)
+            st.subheader("Phone-call notes")
+            auto_text_input("Caller name", "caller_name")
+            auto_text_area("Caller issue description", "phone_description", height=68)
+            auto_text_input("Email", "email")
+            c1, c2 = st.columns(2)
+            auto_text_input("Dongle number", "dongle_number", container=c1)
+            auto_text_input("Phone number", "phone_number", container=c2)
+            auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
+            auto_text_input(
+                "TeamViewer password",
+                "teamviewer_password",
+                container=c2,
+            )
+            st.subheader("Internal notes")
+            auto_text_input("Helpjuice link", "internal_helpjuice")
+            auto_text_area("Logs / screenshots", "internal_logs", height=68)
+            st.subheader("Conclusion")
+            auto_text_input("Root cause", "root_cause")
+            auto_text_input("Solution", "solution")
+            auto_text_input("Customer satisfaction survey URL", "survey_link")
+            st.subheader("Additional information")
+            auto_text_area(
+                "Additional details",
+                "additional_info",
+                height=400,
+                help=(
+                    "Include details such as antivirus, firewalls enabled, update history, "
+                    "related case ID, possible cause, performance issues, manual additional notes, "
+                    "recurring issues, and recent issues."
+                ),
+            )
+            st.subheader("Support Fee")
+            ct_key = widget_key("customer_trios_only", case_idx)
+            sf_key = widget_key("support_fee_accepted", case_idx)
             st.checkbox(
-                "Support fee price accepted?",
-                value=st.session_state.support_fee_accepted,
-                key="support_fee_accepted",
+                "Customer is TRIOS Only?",
+                value=st.session_state.get(ct_key, False),
+                key=ct_key,
                 on_change=_update_field,
-                args=("support_fee_accepted",),
+                args=("customer_trios_only",),
             )
-        else:
-            st.session_state.support_fee_accepted = False
-            D.support_fee_accepted = False
-            autosave()
+            if st.session_state.get(ct_key):
+                st.checkbox(
+                    "Support fee price accepted?",
+                    value=st.session_state.get(sf_key, False),
+                    key=sf_key,
+                    on_change=_update_field,
+                    args=("support_fee_accepted",),
+                )
+            else:
+                st.session_state[sf_key] = False
+                D.support_fee_accepted = False
+                autosave()
+            st.markdown("---")
+            st.download_button(
+                "Download PDF",
+                make_pdf(D, cat_map),
+                file_name=f"{D.case_id or 'case'}.pdf",
+                mime="application/pdf",
+                key=widget_key("download_pdf", case_idx),
+            )
+        with left:
+            st.subheader("Documentation Preview – Copy‑friendly Tables")
+            for cat in cat_map:
+                st.markdown(f"**{table_title(cat)}**")
+                st.dataframe(
+                    category_dataframe(cat, D, cat_map), use_container_width=True
+                )
+            if st.session_state.categorizer_result:
+                st.subheader("Kiroshi Categorizer")
+                st.text_area(
+                    "Categorization Output",
+                    st.session_state.categorizer_result,
+                    height=150,
+                    key=widget_key("categorizer_output", case_idx),
+                )
+
+    # ================== TRACKING TAB =================
+    if tab_tracking:
+        with tab_tracking:
+            st.subheader("Tracking")
+            tracking_type = st.selectbox(
+                "Tracking type", ["Dell", "FedEx"], key=widget_key("tracking_type", case_idx)
+            )
+            company = st.text_input("Company", key=widget_key("track_company", case_idx))
+            end_user = st.text_input("End User", key=widget_key("track_end_user", case_idx))
+            creation_day = st.date_input(
+                "Creation day", value=date.today(), key=widget_key("track_creation_day", case_idx)
+            )
+            ticket_number = st.text_input(
+                "Ticket Number", key=widget_key("track_ticket_number", case_idx)
+            )
+            if tracking_type == "Dell":
+                service_tag = st.text_input(
+                    "Service Tag", key=widget_key("track_service_tag", case_idx)
+                )
+                status = st.selectbox(
+                    "Status",
+                    [
+                        "Resolved",
+                        "Waiting for Technician",
+                        "Waiting for clinic to send back PC for review",
+                        "Pending update",
+                    ],
+                    key=widget_key("track_status", case_idx),
+                )
+            else:
+                expected_arrival_date = st.date_input(
+                    "Expected arrival date",
+                    value=date.today(),
+                    key=widget_key("track_expected_arrival", case_idx),
+                )
+                status = st.selectbox(
+                    "Status",
+                    [
+                        "Scanner arrived and waiting for the return",
+                        "Waiting for scanner to arrive",
+                        "waiting for pickup",
+                        "scanner sent",
+                        "waiting to arrive to the doctor's office.",
+                    ],
+                    key=widget_key("track_status", case_idx),
+                )
+            if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
+                info = {
+                    "type": tracking_type,
+                    "case_id": D.case_id,
+                    "company": company,
+                    "end_user": end_user,
+                    "creation_day": creation_day.isoformat(),
+                    "ticket_number": ticket_number,
+                    "status": status,
+                }
+                if tracking_type == "Dell":
+                    info["service_tag"] = service_tag
+                    file_path = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
+                else:
+                    info["expected_arrival_date"] = expected_arrival_date.isoformat()
+                    file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(info, f, indent=2)
+                st.success("Tracking information saved.")
+            if st.button(
+                "Close case & stop tracking",
+                key=widget_key("close_tracking", case_idx),
+            ):
+                dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
+                fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+                for f in [dell_file, fedex_file]:
+                    if f.exists():
+                        dest = DATABASE_DIR / f"{D.case_id}.json"
+                        try:
+                            f.rename(dest)
+                        except Exception:
+                            pass
+                st.session_state.track_case = False
+                st.rerun()
+
+    # ================== ESCALATIONS TAB =================
+    if tab_escalations:
+        with tab_escalations:
+            st.subheader("AX Coordinators")
+            st.text_area(
+                "Request / Issue",
+                D.description,
+                disabled=True,
+                key=widget_key("request_issue", case_idx),
+            )
+            D.request_issue = D.description
+            D.contact_name = D.caller_name
+            st.text_input("Contact name", D.contact_name, disabled=True)
+            D.office_ph = D.phone_number
+            st.text_input("Office phone", D.office_ph, disabled=True)
+            D.direct_ph = D.phone_number
+            st.text_input("Direct phone", D.direct_ph, disabled=True)
+            best_cb = st.checkbox(
+                "Specify best call-back time",
+                D.best_time not in ("", "ASAP"),
+                key=widget_key("best_cb", case_idx),
+            )
+            if best_cb:
+                auto_text_input(
+                    "Best call-back time + timezone",
+                    "best_time",
+                )
+            else:
+                D.best_time = "ASAP"
+                autosave()
+            pat_cb = st.checkbox(
+                "Patterson legacy #",
+                D.patterson not in ("", "N/A"),
+                key=widget_key("pat_cb", case_idx),
+            )
+            if pat_cb:
+                auto_text_input(
+                    "Patterson legacy #",
+                    "patterson",
+                )
+            else:
+                D.patterson = "N/A"
+                autosave()
+            if st.session_state.second_line_mode:
+                st.text_input(
+                    "Straumann ticket #",
+                    D.straumann,
+                    disabled=True,
+                    key=widget_key("straumann_tab", case_idx),
+                )
+            else:
+                D.straumann = "N/A"
+                autosave()
+            st.markdown("#### AX Coordinators Table")
+            st.dataframe(
+                category_dataframe("AX COORDINATORS", D, cat_map),
+                use_container_width=True,
+            )
+            st.markdown("---")
+            st.subheader("Escalation 2nd line")
+            D.esc_name = D.caller_name
+            st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
+            D.esc_ph = D.phone_number
+            st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
+            D.esc_email = D.email
+            st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
+            st.markdown("#### Escalation 2nd line Table")
+            st.dataframe(
+                category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                use_container_width=True,
+            )
+
+            if st.session_state.second_line_mode:
+                st.markdown("---")
+                st.subheader("Escalation 3rd line")
+                auto_text_area("How to reproduce it", "repro_steps", height=100)
+                msg = build_third_line_escalation(D)
+                st.text_area(
+                    "Escalation message",
+                    msg,
+                    height=400,
+                    key=widget_key("esc_message", case_idx),
+                )
+
+    # ================== EMAIL TAB =================
+    if tab_email:
+        with tab_email:
+            st.subheader("Email Prompt Generator")
+            email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
+            if st.session_state.second_line_mode:
+                email_choices.append("Callback Email")
+            email_choices.append("Custom Request")
+            email_type = st.selectbox(
+                "Select email template",
+                email_choices,
+                index=
+                email_choices.index(st.session_state.email_type)
+                if st.session_state.email_type in email_choices
+                else 0,
+                key=widget_key("email_type", case_idx),
+            )
+            st.session_state.email_type = email_type
+            ext = st.session_state.email_extra
+        
+            prompt = ""
+            if email_type == "Recap (Customer)":
+                intro = build_email_intro(D)
+                steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
+                prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
+        motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
+        Start the email exactly with the following lines (do not paraphrase or omit them):
+        {intro}
+        Include: Case ID, a brief summary of what happened, and the solution.
+        Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
+        Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
+
+        Return only the email body.
+
+        DATA:
+        Case ID: {D.case_id}
+        Summary: {D.brief_description}
+        Steps taken:
+        {steps_summary}
+        Solution: {D.solution}
+        Survey link: {D.survey_link}"""
+            elif email_type == "Broken Scanner":
+                st.markdown("#### Incident questionnaire (prefill if known)")
+                ext["experience"] = st.text_input(
+                    "Experience level (new / experienced)", ext.get("experience", "")
+                )
+                ext["drop_details"] = st.text_area(
+                    "Describe how / when scanner was dropped", ext.get("drop_details", "")
+                    , key=widget_key("drop_details", case_idx)
+                )
+                ext["cause"] = st.text_area(
+                    "What do you think caused the incident?", ext.get("cause", "")
+                    , key=widget_key("cause", case_idx)
+                )
+                ext["prevention"] = st.text_area(
+                    "Ideas to prevent", ext.get("prevention", "")
+                    , key=widget_key("prevention", case_idx)
+                )
+                ext["satisfaction"] = st.text_input(
+                    "Are you satisfied with service?", ext.get("satisfaction", "")
+                )
+        
+                intro = build_email_intro(D)
+                prompt = f"""Draft a friendly e‑mail asking the customer to confirm / provide the following details about the broken scanner.
+        Start the email with:
+        {intro}
+        Number the questions 1‑5 and leave blank space after each for their answers.
+        
+        Questions:
+        1. Experience with intra‑oral scanners – {ext['experience']}
+        2. How and when was the scanner dropped? – {ext['drop_details']}
+        3. What do you think caused the incident? – {ext['cause']}
+        4. Ideas on preventing similar incidents – {ext['prevention']}
+        5. Satisfaction with our proposed solution – {ext['satisfaction']}
+        
+        Prefill any answers we already know (shown above) right under each question.
+        """
+        
+            elif email_type == "Broken Tip":
+                st.markdown("#### Cleaning questionnaire (prefill if known)")
+                ext["times_autoclaved"] = st.text_input(
+                    "Times autoclaved", ext.get("times_autoclaved", "")
+                )
+                ext["bath_number"] = st.text_input(
+                    "Tip bath number", ext.get("bath_number", "")
+                )
+                ext["model"] = st.text_input("Autoclave model", ext.get("model", ""))
+                ext["program"] = st.text_input(
+                    "Program used", ext.get("program", "")
+                )
+                ext["airtight"] = st.text_input(
+                    "Autoclaved in airtight pouch?", ext.get("airtight", "")
+                )
+                ext["other"] = st.text_area(
+                    "Other relevant info", ext.get("other", "")
+                    , key=widget_key("other_info", case_idx)
+                )
+        
+                intro = build_email_intro(D)
+                prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
+        Start the email with:
+        {intro}
+        List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
+        
+        1. Times autoclaved – {ext['times_autoclaved']}
+        2. Bath number – {ext['bath_number']}
+        3. Autoclave model – {ext['model']}
+        4. Program used – {ext['program']}
+        5. Autoclaved in airtight pouch? – {ext['airtight']}
+        6. Other info – {ext['other']}
+        """
+        
+            elif email_type == "Custom Request":
+                st.markdown("#### Custom email options")
+                ext["reason"] = st.text_input(
+                    "Reason for contacting the customer", ext.get("reason", "")
+                )
+                ext["objective"] = st.text_input(
+                    "Goal of the email", ext.get("objective", "")
+                )
+                ext["request"] = st.text_area(
+                    "What do we need from the customer?", ext.get("request", "")
+                    , key=widget_key("custom_request", case_idx)
+                )
+                intro = build_email_intro(D)
+                case_id = D.case_id or "N/A"
+                prompt = f"""You are an IT support agent working on case {case_id}.
+        Reason: {ext['reason']}.
+        Objective: {ext['objective']}.
+        Clearly request the following from the customer: {ext['request']}.
+        Use any relevant case details for context.
+        Start the email with:
+        {intro}
+        End with: We look forward to your reply."""
+        
+            elif email_type == "Callback Email":
+                st.markdown("#### Callback email options")
+                cb_remote_key = widget_key("callback_remote", case_idx)
+                cb_remote = st.checkbox(
+                    "Need remote session?",
+                    st.session_state.get(cb_remote_key, False),
+                    key=cb_remote_key,
+                )
+                if cb_remote:
+                    cb_remote_text_key = widget_key("callback_remote_text", case_idx)
+                    st.text_area(
+                        "Remote session details",
+                        st.session_state.get(cb_remote_text_key, ""),
+                        key=cb_remote_text_key,
+                    )
+                cb_contact_key = widget_key("callback_contact", case_idx)
+                st.checkbox(
+                    "Need contact information?",
+                    st.session_state.get(cb_contact_key, False),
+                    key=cb_contact_key,
+                )
+                cb_clarify_key = widget_key("callback_clarify", case_idx)
+                st.checkbox(
+                    "Need to clarify what happened?",
+                    st.session_state.get(cb_clarify_key, False),
+                    key=cb_clarify_key,
+                )
+                cb_needed_key = widget_key("callback_needed", case_idx)
+                st.checkbox(
+                    "Callback needed?",
+                    st.session_state.get(cb_needed_key, True),
+                    key=cb_needed_key,
+                )
+                cb_address_key = widget_key("callback_address", case_idx)
+                cb_address = st.checkbox(
+                    "Request address?",
+                    st.session_state.get(cb_address_key, False),
+                    key=cb_address_key,
+                )
+                if cb_address:
+                    cb_equipment_key = widget_key("callback_equipment", case_idx)
+                    st.text_input(
+                        "Equipment to replace",
+                        st.session_state.get(cb_equipment_key, ""),
+                        key=cb_equipment_key,
+                    )
+
+                intro = build_email_intro(D)
+                if cb_address:
+                    equip = st.session_state.get(cb_equipment_key, "") or "(equipment)"
+                    prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
+        Start the email with:
+        {intro}
+        List the following fields for them to fill in:
+        Address (include suite if any)
+        City
+        State
+        Zip Code/Postal Code
+        Full name of the recipient
+        Best phone number to contact the recipient
+        Email to contact the recipient
+
+        End with: We look forward to your reply."""
+                else:
+                    if st.session_state.get(cb_needed_key, True):
+                        base_request = (
+                            "provide us with the best time for a callback, including your time zone, "
+                            "or alternatively TeamViewer access so we may connect directly to the computer."
+                        )
+                    else:
+                        base_request = (
+                            "provide us with TeamViewer access so we may connect directly to the computer."
+                        )
+                    prompt = (
+                        f"Draft a polite email asking the customer to {base_request}\n"
+                        f"Start the email with:\n{intro}\n"
+                        "End with: We look forward to your reply."
+                    )
+                    extras = []
+                    if st.session_state.get(cb_contact_key):
+                        extras.append("Ask them to provide their contact information.")
+                    if st.session_state.get(cb_clarify_key):
+                        extras.append("Ask them to clarify what happened.")
+                    if (
+                        st.session_state.get(cb_remote_key)
+                        and st.session_state.get(cb_remote_text_key, "").strip()
+                    ):
+                        extras.append(
+                            "Include the following additional details:\n"
+                            + st.session_state.get(cb_remote_text_key, "").strip()
+                        )
+                    if extras:
+                        prompt += "\n\n" + "\n".join(extras)
+        
+            st.session_state.email_extra = ext
+            st.text_area(
+                "ChatGPT prompt (copy & paste)",
+                prompt,
+                height=300,
+                key=widget_key("api_prompt_area", case_idx),
+            )
+            st.session_state["last_prompt"] = prompt
+        
+            include_helpjuice = st.checkbox(
+                "Helpjuice tutorial", key=widget_key("api_helpjuice", case_idx)
+            )
+            include_restart = st.checkbox(
+                "Restart the computer", key=widget_key("api_restart", case_idx)
+            )
+            include_scan_time = st.checkbox(
+                "Scan time warning", key=widget_key("api_scan_time", case_idx)
+            )
+            if st.button("Use GPT-OSS", key=widget_key("use_gpt_oss", case_idx)):
+                api_key = st.session_state.openai_api_key
+                model = st.session_state.openai_model
+                base_url = st.session_state.ai_base_url
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                elif not prompt.strip():
+                    st.error("Prompt is empty.")
+                else:
+                    with st.spinner("Contacting GPT-OSS..."):
+                        try:
+                            augmented_prompt = prompt
+                            extras = []
+                            if include_helpjuice:
+                                link = D.internal_helpjuice or "https://helpjuice.com"
+                                extras.append(
+                                    f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
+                                )
+                            if include_restart:
+                                extras.append(
+                                    "And recommend to the customer to restart the computer after the end of every shift."
+                                )
+                            if include_scan_time:
+                                extras.append(
+                                    "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
+                                )
+                            if extras:
+                                augmented_prompt += "\n\n" + "\n".join(extras)
+                            if base_url:
+                                headers = {"Content-Type": "application/json"}
+                                if api_key:
+                                    headers["Authorization"] = f"Bearer {api_key}"
+                                response = requests.post(
+                                    base_url.rstrip("/") + "/chat/completions",
+                                    headers=headers,
+                                    json={
+                                        "model": model,
+                                        "messages": [
+                                            {"role": "system", "content": "You are a helpful assistant."},
+                                            {"role": "user", "content": augmented_prompt},
+                                        ],
+                                        "max_tokens": 600,
+                                        "temperature": 0.7,
+                                    },
+                                    timeout=30,
+                                    verify=False,
+                                )
+                                if response.status_code == 200:
+                                    result = response.json()
+                                    email_text = result["choices"][0]["message"]["content"]
+                                    st.success("Email generated!")
+                                    st.text_area(
+                                        "Generated Email",
+                                        email_text,
+                                        height=300,
+                                        key=widget_key("generated_email", case_idx),
+                                    )
+                                else:
+                                    st.error(
+                                        f"API Error: {response.status_code}\n{response.text}"
+                                    )
+                            else:
+                                from transformers import pipeline  # type: ignore
+
+                                generator = pipeline("text-generation", model="gpt2")
+                                result = generator(augmented_prompt, max_new_tokens=200)[0]["generated_text"]
+                                st.text_area(
+                                    "Generated Email",
+                                    result[len(augmented_prompt):].strip(),
+                                    height=300,
+                                    key=widget_key("generated_email", case_idx),
+                                )
+                                st.success("Email generated locally!")
+                        except Exception as e:  # pragma: no cover - just in case
+                            st.error(f"Request failed: {e}")
+        
+    # ================== HARDWARE ISSUES TAB =================
+    if tab_hw:
+        with tab_hw:
+            st.subheader("PC Hardware Issue")
+            col_pc1, col_pc2 = st.columns(2)
+            auto_text_input("Service Tag", "service_tag", container=col_pc1)
+            auto_text_input("PC Model", "pc_model", container=col_pc2)
+            auto_text_input("Windows version", "windows_version", container=col_pc1)
+            auto_text_input("BIOS version", "bios_version", container=col_pc2)
+            auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
+            auto_text_input("Processor", "processor", container=col_pc2)
+            auto_text_input("Warranty", "warranty")
+            st.dataframe(
+                category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+            )
+
         st.markdown("---")
-        st.download_button(
-            "Download PDF",
-            make_pdf(D, cat_map),
-            file_name=f"{D.case_id or 'case'}.pdf",
-            mime="application/pdf",
+        st.subheader("Scanner Hardware Issue")
+        auto_text_input("Scanner S/N", "scanner_sn")
+        auto_text_input("Base S/N", "base_sn")
+        auto_text_input("TRIOS MODULE Version", "trios_module_version")
+        ht_key = widget_key("hardware_test", case_idx)
+        st.checkbox(
+            "Hardware test performed?",
+            value=st.session_state.get(ht_key, False),
+            key=ht_key,
+            on_change=_update_field,
+            args=("hardware_test",),
         )
-    with left:
-        st.subheader("Documentation Preview – Copy‑friendly Tables")
+        st.dataframe(
+            category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+        )
+
+    # ================== REMOTE SESSION TAB =================
+    with tab_remote:
+        st.subheader("Remote session – steps")
+        auto_text_area("One step per line", "remote_steps", height=400)
+
+    # ================== NOTES TAB =================
+    with tab_notes:
+        st.subheader("Scratchpad")
+        scr_key = widget_key("scratch", case_idx)
+        st.text_area(
+            "Temporary notes",
+            st.session_state.get(scr_key, ""),
+            height=400,
+            key=scr_key,
+            on_change=autosave,
+        )
+
+    # ================== TABLES TAB =================
+    with tab_tables:
+        st.subheader("Copy all tables")
+        st.download_button(
+            "Download Case Info PDF",
+            make_tables_pdf(D),
+            file_name=f"{D.case_id or 'case'}_info.pdf",
+            mime="application/pdf",
+            key=widget_key("download_info_pdf", case_idx),
+        )
         for cat in cat_map:
             st.markdown(f"**{table_title(cat)}**")
-            st.dataframe(
-                category_dataframe(cat, D, cat_map), use_container_width=True
-            )
-        if st.session_state.categorizer_result:
-            st.subheader("Kiroshi Categorizer")
-            st.text_area(
-                "Categorization Output",
-                st.session_state.categorizer_result,
-                height=150,
-            )
+            st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
 
-# ================== TRACKING TAB =================
-if tab_tracking:
-    with tab_tracking:
-        st.subheader("Tracking")
-        tracking_type = st.selectbox("Tracking type", ["Dell", "FedEx"], key="tracking_type")
-        company = st.text_input("Company", key="track_company")
-        end_user = st.text_input("End User", key="track_end_user")
-        creation_day = st.date_input("Creation day", value=date.today(), key="track_creation_day")
-        ticket_number = st.text_input("Ticket Number", key="track_ticket_number")
-        if tracking_type == "Dell":
-            service_tag = st.text_input("Service Tag", key="track_service_tag")
-            status = st.selectbox(
-                "Status",
-                [
-                    "Resolved",
-                    "Waiting for Technician",
-                    "Waiting for clinic to send back PC for review",
-                    "Pending update",
-                ],
-                key="track_status",
+    # ================== SAVE/LOAD TAB =================
+    with tab_save_load:
+        st.subheader("Save / Load")
+        col_save, col_load = st.columns(2)
+        with col_save:
+            if st.button("Save", key=widget_key("save_case_button", case_idx)):
+                save_case_to_database(D)
+        with col_load:
+            uploaded_case = st.file_uploader(
+                "Select case JSON",
+                type="json",
+                key=widget_key("load_case_uploader", case_idx),
             )
-        else:
-            expected_arrival_date = st.date_input(
-                "Expected arrival date", value=date.today(), key="track_expected_arrival"
-            )
-            status = st.selectbox(
-                "Status",
-                [
-                    "Scanner arrived and waiting for the return",
-                    "Waiting for scanner to arrive",
-                    "waiting for pickup",
-                    "scanner sent",
-                    "waiting to arrive to the doctor's office.",
-                ],
-                key="track_status",
-            )
-        if st.button("Save and track"):
-            info = {
-                "type": tracking_type,
-                "case_id": D.case_id,
-                "company": company,
-                "end_user": end_user,
-                "creation_day": creation_day.isoformat(),
-                "ticket_number": ticket_number,
-                "status": status,
-            }
-            if tracking_type == "Dell":
-                info["service_tag"] = service_tag
-                file_path = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
-            else:
-                info["expected_arrival_date"] = expected_arrival_date.isoformat()
-                file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(info, f, indent=2)
-            st.success("Tracking information saved.")
-        if st.button("Close case & stop tracking"):
-            dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
-            fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
-            for f in [dell_file, fedex_file]:
-                if f.exists():
-                    dest = DATABASE_DIR / f"{D.case_id}.json"
-                    try:
-                        f.rename(dest)
-                    except Exception:
-                        pass
-            st.session_state.track_case = False
-            st.rerun()
+            if uploaded_case and st.button(
+                "Load", key=widget_key("load_case_button", case_idx)
+            ):
+                request_load_from_bytes(uploaded_case.getvalue())
 
-# ================== ESCALATIONS TAB =================
-if tab_escalations:
-    with tab_escalations:
-        st.subheader("AX Coordinators")
-        st.text_area("Request / Issue", D.description, disabled=True)
-        D.request_issue = D.description
-        D.contact_name = D.caller_name
-        st.text_input("Contact name", D.contact_name, disabled=True)
-        D.office_ph = D.phone_number
-        st.text_input("Office phone", D.office_ph, disabled=True)
-        D.direct_ph = D.phone_number
-        st.text_input("Direct phone", D.direct_ph, disabled=True)
-        best_cb = st.checkbox(
-            "Specify best call-back time",
-            D.best_time not in ("", "ASAP"),
-        )
-        if best_cb:
-            auto_text_input(
-                "Best call-back time + timezone",
-                "best_time",
-            )
-        else:
-            D.best_time = "ASAP"
-            autosave()
-        pat_cb = st.checkbox(
-            "Patterson legacy #",
-            D.patterson not in ("", "N/A"),
-        )
-        if pat_cb:
-            auto_text_input(
-                "Patterson legacy #",
-                "patterson",
-            )
-        else:
-            D.patterson = "N/A"
-            autosave()
-        if st.session_state.second_line_mode:
-            st.text_input(
-                "Straumann ticket #",
-                D.straumann,
-                disabled=True,
-                key="straumann_tab",
-            )
-        else:
-            D.straumann = "N/A"
-            autosave()
-        st.markdown("#### AX Coordinators Table")
-        st.dataframe(
-            category_dataframe("AX COORDINATORS", D, cat_map),
-            use_container_width=True,
-        )
-        st.markdown("---")
-        st.subheader("Escalation 2nd line")
-        D.esc_name = D.caller_name
-        st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
-        D.esc_ph = D.phone_number
-        st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
-        D.esc_email = D.email
-        st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
-        st.markdown("#### Escalation 2nd line Table")
-        st.dataframe(
-            category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-            use_container_width=True,
-        )
+        st.subheader("Recent cases")
+        for idx, case in enumerate(load_recent_cases()):
+            info_col, btn_col = st.columns([3, 1])
+            info_col.write(f"{case['case_id']} - {case['path']}")
+            if btn_col.button(
+                "Load", key=widget_key(f"recent_load_{idx}", case_idx)
+            ):
+                request_load_from_path(case["path"])
 
-        if st.session_state.second_line_mode:
-            st.markdown("---")
-            st.subheader("Escalation 3rd line")
-            auto_text_area("How to reproduce it", "repro_steps", height=100)
-            msg = build_third_line_escalation(D)
-            st.text_area("Escalation message", msg, height=400)
-
-# ================== EMAIL TAB =================
-if tab_email:
-    with tab_email:
-        st.subheader("Email Prompt Generator")
-        email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
-        if st.session_state.second_line_mode:
-            email_choices.append("Callback Email")
-        email_choices.append("Custom Request")
-        email_type = st.selectbox(
-            "Select email template",
-            email_choices,
-            index=
-            email_choices.index(st.session_state.email_type)
-            if st.session_state.email_type in email_choices
-            else 0,
-        )
-        st.session_state.email_type = email_type
-        ext = st.session_state.email_extra
-    
-        prompt = ""
-        if email_type == "Recap (Customer)":
-            intro = build_email_intro(D)
-            steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
-            prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
-    motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
-    Start the email exactly with the following lines (do not paraphrase or omit them):
-    {intro}
-    Include: Case ID, a brief summary of what happened, and the solution.
-    Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
-    Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
-
-    Return only the email body.
-
-    DATA:
-    Case ID: {D.case_id}
-    Summary: {D.brief_description}
-    Steps taken:
-    {steps_summary}
-    Solution: {D.solution}
-    Survey link: {D.survey_link}"""
-        elif email_type == "Broken Scanner":
-            st.markdown("#### Incident questionnaire (prefill if known)")
-            ext["experience"] = st.text_input(
-                "Experience level (new / experienced)", ext.get("experience", "")
-            )
-            ext["drop_details"] = st.text_area(
-                "Describe how / when scanner was dropped", ext.get("drop_details", "")
-            )
-            ext["cause"] = st.text_area(
-                "What do you think caused the incident?", ext.get("cause", "")
-            )
-            ext["prevention"] = st.text_area(
-                "Ideas to prevent", ext.get("prevention", "")
-            )
-            ext["satisfaction"] = st.text_input(
-                "Are you satisfied with service?", ext.get("satisfaction", "")
-            )
-    
-            intro = build_email_intro(D)
-            prompt = f"""Draft a friendly e‑mail asking the customer to confirm / provide the following details about the broken scanner.
-    Start the email with:
-    {intro}
-    Number the questions 1‑5 and leave blank space after each for their answers.
-    
-    Questions:
-    1. Experience with intra‑oral scanners – {ext['experience']}
-    2. How and when was the scanner dropped? – {ext['drop_details']}
-    3. What do you think caused the incident? – {ext['cause']}
-    4. Ideas on preventing similar incidents – {ext['prevention']}
-    5. Satisfaction with our proposed solution – {ext['satisfaction']}
-    
-    Prefill any answers we already know (shown above) right under each question.
-    """
-    
-        elif email_type == "Broken Tip":
-            st.markdown("#### Cleaning questionnaire (prefill if known)")
-            ext["times_autoclaved"] = st.text_input(
-                "Times autoclaved", ext.get("times_autoclaved", "")
-            )
-            ext["bath_number"] = st.text_input(
-                "Tip bath number", ext.get("bath_number", "")
-            )
-            ext["model"] = st.text_input("Autoclave model", ext.get("model", ""))
-            ext["program"] = st.text_input(
-                "Program used", ext.get("program", "")
-            )
-            ext["airtight"] = st.text_input(
-                "Autoclaved in airtight pouch?", ext.get("airtight", "")
-            )
-            ext["other"] = st.text_area(
-                "Other relevant info", ext.get("other", "")
-            )
-    
-            intro = build_email_intro(D)
-            prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
-    Start the email with:
-    {intro}
-    List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
-    
-    1. Times autoclaved – {ext['times_autoclaved']}
-    2. Bath number – {ext['bath_number']}
-    3. Autoclave model – {ext['model']}
-    4. Program used – {ext['program']}
-    5. Autoclaved in airtight pouch? – {ext['airtight']}
-    6. Other info – {ext['other']}
-    """
-    
-        elif email_type == "Custom Request":
-            st.markdown("#### Custom email options")
-            ext["reason"] = st.text_input(
-                "Reason for contacting the customer", ext.get("reason", "")
-            )
-            ext["objective"] = st.text_input(
-                "Goal of the email", ext.get("objective", "")
-            )
-            ext["request"] = st.text_area(
-                "What do we need from the customer?", ext.get("request", "")
-            )
-            intro = build_email_intro(D)
-            case_id = D.case_id or "N/A"
-            prompt = f"""You are an IT support agent working on case {case_id}.
-    Reason: {ext['reason']}.
-    Objective: {ext['objective']}.
-    Clearly request the following from the customer: {ext['request']}.
-    Use any relevant case details for context.
-    Start the email with:
-    {intro}
-    End with: We look forward to your reply."""
-    
-        elif email_type == "Callback Email":
-            st.markdown("#### Callback email options")
-            st.session_state.callback_remote = st.checkbox(
-                "Need remote session?", st.session_state.callback_remote
-            )
-            if st.session_state.callback_remote:
-                st.session_state.callback_remote_text = st.text_area(
-                    "Remote session details",
-                    st.session_state.callback_remote_text,
-                )
-            st.session_state.callback_contact = st.checkbox(
-                "Need contact information?",
-                st.session_state.callback_contact,
-            )
-            st.session_state.callback_clarify = st.checkbox(
-                "Need to clarify what happened?",
-                st.session_state.callback_clarify,
-            )
-            st.session_state.callback_needed = st.checkbox(
-                "Callback needed?",
-                st.session_state.callback_needed,
-            )
-            st.session_state.callback_address = st.checkbox(
-                "Request address?", st.session_state.callback_address
-            )
-            if st.session_state.callback_address:
-                st.session_state.callback_equipment = st.text_input(
-                    "Equipment to replace",
-                    st.session_state.callback_equipment,
-                )
-    
-            intro = build_email_intro(D)
-            if st.session_state.callback_address:
-                equip = st.session_state.callback_equipment or "(equipment)"
-                prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
-    Start the email with:
-    {intro}
-    List the following fields for them to fill in:
-    Address (include suite if any)
-    City
-    State
-    Zip Code/Postal Code
-    Full name of the recipient
-    Best phone number to contact the recipient
-    Email to contact the recipient
-    
-    End with: We look forward to your reply."""
-            else:
-                if st.session_state.callback_needed:
-                    base_request = (
-                        "provide us with the best time for a callback, including your time zone, "
-                        "or alternatively TeamViewer access so we may connect directly to the computer."
-                    )
+        pending = st.session_state.get("pending_load")
+        if pending:
+            st.error("Remember to save your information before loading a new case")
+            col_i, col_s = st.columns(2)
+            if col_i.button("Ignore and load", key=widget_key("ignore_and_load", case_idx)):
+                if "path" in pending:
+                    load_case_from_path(pending["path"])
                 else:
-                    base_request = (
-                        "provide us with TeamViewer access so we may connect directly to the computer."
-                    )
-                prompt = (
-                    f"Draft a polite email asking the customer to {base_request}\n"
-                    f"Start the email with:\n{intro}\n"
-                    "End with: We look forward to your reply."
-                )
-                extras = []
-                if st.session_state.callback_contact:
-                    extras.append("Ask them to provide their contact information.")
-                if st.session_state.callback_clarify:
-                    extras.append("Ask them to clarify what happened.")
-                if (
-                    st.session_state.callback_remote
-                    and st.session_state.callback_remote_text.strip()
-                ):
-                    extras.append(
-                        "Include the following additional details:\n"
-                        + st.session_state.callback_remote_text.strip()
-                    )
-                if extras:
-                    prompt += "\n\n" + "\n".join(extras)
-    
-        st.session_state.email_extra = ext
-        st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
-        st.session_state["last_prompt"] = prompt
-    
-        include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
-        include_restart = st.checkbox("Restart the computer", key="api_restart")
-        include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
-        if st.button("Use GPT-OSS"):
-            api_key = st.session_state.openai_api_key
-            model = st.session_state.openai_model
-            base_url = st.session_state.ai_base_url
+                    load_case_from_bytes(pending["data"])
+                st.session_state.pending_load = None
+            if col_s.button("Save", key=widget_key("save_before_loading", case_idx)):
+                save_case_to_database(D)
+
+    # ================== SETTINGS TAB =================
+    with tab_settings:
+        if case_idx == 0:
+            st.subheader("Modes")
+            st.checkbox("2nd Line mode", key="second_line_mode")
+            prev_debug = st.session_state.debug_mode
+            st.checkbox("Show Debug tab", key="debug_mode")
+            if prev_debug and not st.session_state.debug_mode:
+                st.session_state.debug_auth = False
+                st.session_state.show_bored = False
+        else:
+            st.info("Settings available in first case tab.")
+
+    # ================== ATOM CHAT TAB =================
+    with tab_atom:
+        st.image(str(ATOM_LOGO_PATH), width=80)
+        st.subheader("A.A.T.O.M. Chat")
+        with st.expander("Personality Construct"):
+            st.text_area(
+                "System Prompt",
+                st.session_state.get("system_prompt", SYSTEM_PROMPT),
+                height=300,
+                key=widget_key("system_prompt_display", case_idx),
+            )
+        api_key = st.session_state.openai_api_key
+        model = st.session_state.openai_model
+        base_url = st.session_state.ai_base_url
+        if not api_key and base_url.startswith("https://api.openai.com"):
+            st.info("Set your OpenAI API key in the Debug tab.")
+
+        with st.expander("Manual Documents Database"):
+            if st.session_state.manual_docs:
+                st.markdown("**Stored documents:**")
+                for doc in st.session_state.manual_docs:
+                    st.markdown(f"- {doc['title']}")
+            doc_file = st.file_uploader(
+                "Add document", type=["txt"], key=widget_key("doc_file", case_idx)
+            )
+            doc_title = st.text_input("Title", key=widget_key("doc_title", case_idx))
+            if st.button("Save document", key=widget_key("save_doc", case_idx)):
+                if doc_file and doc_title:
+                    content = doc_file.getvalue().decode("utf-8", errors="ignore")
+                    st.session_state.manual_docs.append({"title": doc_title, "content": content})
+                    save_manual_docs(st.session_state.manual_docs)
+                    st.success("Document saved.")
+                else:
+                    st.error("Provide both title and document.")
+
+        st.subheader("Search manual database")
+        search_query = st.text_input("Search query", key=widget_key("db_query", case_idx))
+        if st.button("Search in database", key=widget_key("db_search_button", case_idx)):
             if not api_key and base_url.startswith("https://api.openai.com"):
                 st.error("Please set your OpenAI API key in the Debug tab.")
-            elif not prompt.strip():
-                st.error("Prompt is empty.")
+            elif not search_query:
+                st.error("Enter a search query.")
             else:
-                with st.spinner("Contacting GPT-OSS..."):
-                    try:
-                        augmented_prompt = prompt
-                        extras = []
-                        if include_helpjuice:
-                            link = D.internal_helpjuice or "https://helpjuice.com"
-                            extras.append(
-                                f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
-                            )
-                        if include_restart:
-                            extras.append(
-                                "And recommend to the customer to restart the computer after the end of every shift."
-                            )
-                        if include_scan_time:
-                            extras.append(
-                                "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
-                            )
-                        if extras:
-                            augmented_prompt += "\n\n" + "\n".join(extras)
-                        if base_url:
-                            headers = {"Content-Type": "application/json"}
-                            if api_key:
-                                headers["Authorization"] = f"Bearer {api_key}"
-                            response = requests.post(
-                                base_url.rstrip("/") + "/chat/completions",
-                                headers=headers,
-                                json={
-                                    "model": model,
-                                    "messages": [
-                                        {"role": "system", "content": "You are a helpful assistant."},
-                                        {"role": "user", "content": augmented_prompt},
-                                    ],
-                                    "max_tokens": 600,
-                                    "temperature": 0.7,
-                                },
-                                timeout=30,
-                                verify=False,
-                            )
-                            if response.status_code == 200:
-                                result = response.json()
-                                email_text = result["choices"][0]["message"]["content"]
-                                st.success("Email generated!")
-                                st.text_area("Generated Email", email_text, height=300, key="generated_email")
-                            else:
-                                st.error(
-                                    f"API Error: {response.status_code}\n{response.text}"
-                                )
-                        else:
-                            from transformers import pipeline  # type: ignore
-
-                            generator = pipeline("text-generation", model="gpt2")
-                            result = generator(augmented_prompt, max_new_tokens=200)[0]["generated_text"]
-                            st.text_area(
-                                "Generated Email",
-                                result[len(augmented_prompt):].strip(),
-                                height=300,
-                                key="generated_email",
-                            )
-                            st.success("Email generated locally!")
-                    except Exception as e:  # pragma: no cover - just in case
-                        st.error(f"Request failed: {e}")
-    
-# ================== HARDWARE ISSUES TAB =================
-if tab_hw:
-    with tab_hw:
-        st.subheader("PC Hardware Issue")
-        col_pc1, col_pc2 = st.columns(2)
-        auto_text_input("Service Tag", "service_tag", container=col_pc1)
-        auto_text_input("PC Model", "pc_model", container=col_pc2)
-        auto_text_input("Windows version", "windows_version", container=col_pc1)
-        auto_text_input("BIOS version", "bios_version", container=col_pc2)
-        auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
-        auto_text_input("Processor", "processor", container=col_pc2)
-        auto_text_input("Warranty", "warranty")
-        st.dataframe(
-            category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
-        )
-
-    st.markdown("---")
-    st.subheader("Scanner Hardware Issue")
-    auto_text_input("Scanner S/N", "scanner_sn")
-    auto_text_input("Base S/N", "base_sn")
-    auto_text_input("TRIOS MODULE Version", "trios_module_version")
-    st.checkbox(
-        "Hardware test performed?",
-        value=st.session_state.hardware_test,
-        key="hardware_test",
-        on_change=_update_field,
-        args=("hardware_test",),
-    )
-    st.dataframe(
-        category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
-    )
-
-# ================== REMOTE SESSION TAB =================
-with tab_remote:
-    st.subheader("Remote session – steps")
-    auto_text_area("One step per line", "remote_steps", height=400)
-
-# ================== NOTES TAB =================
-with tab_notes:
-    st.subheader("Scratchpad")
-    st.text_area(
-        "Temporary notes",
-        st.session_state.scratch,
-        height=400,
-        key="scratch",
-        on_change=autosave,
-    )
-
-# ================== TABLES TAB =================
-with tab_tables:
-    st.subheader("Copy all tables")
-    st.download_button(
-        "Download Case Info PDF",
-        make_tables_pdf(D),
-        file_name=f"{D.case_id or 'case'}_info.pdf",
-        mime="application/pdf",
-    )
-    for cat in cat_map:
-        st.markdown(f"**{table_title(cat)}**")
-        st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
-
-# ================== SAVE/LOAD TAB =================
-with tab_save_load:
-    st.subheader("Save / Load")
-    col_save, col_load = st.columns(2)
-    with col_save:
-        if st.button("Save", key="save_case_button"):
-            save_case_to_database(D)
-    with col_load:
-        uploaded_case = st.file_uploader(
-            "Select case JSON", type="json", key="load_case_uploader"
-        )
-        if uploaded_case and st.button("Load", key="load_case_button"):
-            request_load_from_bytes(uploaded_case.getvalue())
-
-    st.subheader("Recent cases")
-    for idx, case in enumerate(load_recent_cases()):
-        info_col, btn_col = st.columns([3, 1])
-        info_col.write(f"{case['case_id']} - {case['path']}")
-        if btn_col.button("Load", key=f"recent_load_{idx}"):
-            request_load_from_path(case["path"])
-
-    pending = st.session_state.get("pending_load")
-    if pending:
-        st.error("Remember to save your information before loading a new case")
-        col_i, col_s = st.columns(2)
-        if col_i.button("Ignore and load", key="ignore_and_load"):
-            if "path" in pending:
-                load_case_from_path(pending["path"])
-            else:
-                load_case_from_bytes(pending["data"])
-            st.session_state.pending_load = None
-        if col_s.button("Save", key="save_before_loading"):
-            save_case_to_database(D)
-
-# ================== SETTINGS TAB =================
-with tab_settings:
-    st.subheader("Modes")
-    st.checkbox("2nd Line mode", key="second_line_mode")
-    prev_debug = st.session_state.debug_mode
-    st.checkbox("Show Debug tab", key="debug_mode")
-    if prev_debug and not st.session_state.debug_mode:
-        st.session_state.debug_auth = False
-        st.session_state.show_bored = False
-
-# ================== ATOM CHAT TAB =================
-with tab_atom:
-    st.image(str(ATOM_LOGO_PATH), width=80)
-    st.subheader("A.A.T.O.M. Chat")
-    with st.expander("Personality Construct"):
-        st.text_area(
-            "System Prompt",
-            st.session_state.get("system_prompt", SYSTEM_PROMPT),
-            height=300,
-        )
-    api_key = st.session_state.openai_api_key
-    model = st.session_state.openai_model
-    base_url = st.session_state.ai_base_url
-    if not api_key and base_url.startswith("https://api.openai.com"):
-        st.info("Set your OpenAI API key in the Debug tab.")
-
-    with st.expander("Manual Documents Database"):
-        if st.session_state.manual_docs:
-            st.markdown("**Stored documents:**")
-            for doc in st.session_state.manual_docs:
-                st.markdown(f"- {doc['title']}")
-        doc_file = st.file_uploader("Add document", type=["txt"], key="doc_file")
-        doc_title = st.text_input("Title", key="doc_title")
-        if st.button("Save document", key="save_doc"):
-            if doc_file and doc_title:
-                content = doc_file.getvalue().decode("utf-8", errors="ignore")
-                st.session_state.manual_docs.append({"title": doc_title, "content": content})
-                save_manual_docs(st.session_state.manual_docs)
-                st.success("Document saved.")
-            else:
-                st.error("Provide both title and document.")
-
-    st.subheader("Search manual database")
-    search_query = st.text_input("Search query", key="db_query")
-    if st.button("Search in database", key="db_search_button"):
-        if not api_key and base_url.startswith("https://api.openai.com"):
-            st.error("Please set your OpenAI API key in the Debug tab.")
-        elif not search_query:
-            st.error("Enter a search query.")
-        else:
-            matches = search_manual_docs(search_query, st.session_state.manual_docs)
-            if matches:
-                context = "\n\n".join(f"{m['title']}:\n{m['content']}" for m in matches)
-                message = (
-                    "Use the following documents to answer the question. "
-                    "Cite document titles.\n\n"
-                    + context
-                    + f"\n\nQuestion: {search_query}"
-                )
-                try:
-                    reply = query_atom(
-                        message, st.session_state.atom_history, api_key, model, base_url
+                matches = search_manual_docs(search_query, st.session_state.manual_docs)
+                if matches:
+                    context = "\n\n".join(f"{m['title']}:\n{m['content']}" for m in matches)
+                    message = (
+                        "Use the following documents to answer the question. "
+                        "Cite document titles.\n\n"
+                        + context
+                        + f"\n\nQuestion: {search_query}"
                     )
+                    try:
+                        reply = query_atom(
+                            message, st.session_state.atom_history, api_key, model, base_url
+                        )
+                    except Exception as e:
+                        st.session_state.db_search_result = str(e)
+                    else:
+                        st.session_state.atom_history.append({"role": "user", "content": f"[DB Search] {search_query}"})
+                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.atom_history)
+                        st.session_state.db_search_result = reply
+                else:
+                    st.session_state.db_search_result = "No documents matched your query."
+        if st.session_state.db_search_result:
+            st.text_area(
+                "Search result",
+                st.session_state.db_search_result,
+                height=150,
+                key=widget_key("db_search_result", case_idx),
+            )
+
+        for msg in st.session_state.atom_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+        if user_msg := st.chat_input(
+            "Message", key=widget_key("atom_chat_input", case_idx)
+        ):
+            if not api_key and base_url.startswith("https://api.openai.com"):
+                st.error("Please set your OpenAI API key in the Debug tab.")
+            else:
+                history = st.session_state.atom_history.copy()
+                try:
+                    reply = query_atom(user_msg, history, api_key, model, base_url)
                 except Exception as e:
-                    st.session_state.db_search_result = str(e)
+                    st.session_state.atom_history.append({"role": "user", "content": user_msg})
+                    st.session_state.atom_history.append({"role": "assistant", "content": str(e)})
                 else:
-                    st.session_state.atom_history.append({"role": "user", "content": f"[DB Search] {search_query}"})
+                    st.session_state.atom_history.append({"role": "user", "content": user_msg})
                     st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                    save_memory(st.session_state.atom_history)
-                    st.session_state.db_search_result = reply
-            else:
-                st.session_state.db_search_result = "No documents matched your query."
-    if st.session_state.db_search_result:
-        st.text_area("Search result", st.session_state.db_search_result, height=150)
-
-    for msg in st.session_state.atom_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-    if user_msg := st.chat_input("Message", key="atom_chat_input"):
-        if not api_key and base_url.startswith("https://api.openai.com"):
-            st.error("Please set your OpenAI API key in the Debug tab.")
-        else:
-            history = st.session_state.atom_history.copy()
-            try:
-                reply = query_atom(user_msg, history, api_key, model, base_url)
-            except Exception as e:
-                st.session_state.atom_history.append({"role": "user", "content": user_msg})
-                st.session_state.atom_history.append({"role": "assistant", "content": str(e)})
-            else:
-                st.session_state.atom_history.append({"role": "user", "content": user_msg})
-                st.session_state.atom_history.append({"role": "assistant", "content": reply})
-            save_memory(st.session_state.atom_history)
+                save_memory(st.session_state.atom_history)
+                st.rerun()
+        if st.button("Clear memory", key=widget_key("atom_clear", case_idx)):
+            st.session_state.atom_history = []
+            save_memory([])
             st.rerun()
-    if st.button("Clear memory", key="atom_clear"):
-        st.session_state.atom_history = []
-        save_memory([])
-        st.rerun()
 
-# ================== FILE UPLOADS & EXPORTS =================
-st.markdown("---")
-st.subheader("Exports & attachments")
-new_files = st.file_uploader(
-    "Upload screenshots / videos", accept_multiple_files=True
-)
-if new_files:
-    existing_names = {f.name for f in st.session_state.uploads}
-    for nf in new_files:
-        if nf.name not in existing_names:
-            st.session_state.uploads.append(nf)
-            existing_names.add(nf.name)
+    # ================== FILE UPLOADS & EXPORTS =================
+    st.markdown("---")
+    st.subheader("Exports & attachments")
+    new_files = st.file_uploader(
+        "Upload screenshots / videos",
+        accept_multiple_files=True,
+        key=widget_key("new_files", case_idx),
+    )
+    if new_files:
+        existing_names = {f.name for f in st.session_state.uploads}
+        for nf in new_files:
+            if nf.name not in existing_names:
+                st.session_state.uploads.append(nf)
+                existing_names.add(nf.name)
 
-log_files = st.file_uploader(
-    "Upload case logs", accept_multiple_files=True, key="log_files"
-)
-if log_files:
-    existing_log_names = {f.name for f in st.session_state.log_uploads}
-    for lf in log_files:
-        if lf.name not in existing_log_names:
-            st.session_state.log_uploads.append(lf)
-            existing_log_names.add(lf.name)
+    log_files = st.file_uploader(
+        "Upload case logs",
+        accept_multiple_files=True,
+        key=widget_key("log_files", case_idx),
+    )
+    if log_files:
+        existing_log_names = {f.name for f in st.session_state.log_uploads}
+        for lf in log_files:
+            if lf.name not in existing_log_names:
+                st.session_state.log_uploads.append(lf)
+                existing_log_names.add(lf.name)
 
-screenshot_name = st.text_input("Screenshot name", key="screenshot_name")
-if st.button("Take Screenshot"):
-    if screenshot_name:
-        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
-        img = pyautogui.screenshot()
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        st.session_state.screenshots.append(
-            InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue())
-        )
-        st.success(f"Captured screenshot: {safe_name}")
-    else:
-        st.error("Please provide a screenshot name before capturing.")
-
-if (
-    st.session_state.uploads
-    or st.session_state.log_uploads
-    or st.session_state.screenshots
-):
-    if st.session_state.uploads:
-        st.markdown("Files queued:")
-        for i, f in enumerate(st.session_state.uploads):
-            cols = st.columns([8, 1])
-            cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-            if cols[1].button("Remove", key=f"rem_upload_{i}"):
-                st.session_state.uploads.pop(i)
-                st.rerun()
-    if st.session_state.log_uploads:
-        st.markdown("Logs queued:")
-        for i, f in enumerate(st.session_state.log_uploads):
-            cols = st.columns([8, 1])
-            cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-            if cols[1].button("Remove", key=f"rem_log_{i}"):
-                st.session_state.log_uploads.pop(i)
-                st.rerun()
-    if st.session_state.screenshots:
-        st.markdown("Screenshots captured:")
-        for i, s in enumerate(st.session_state.screenshots):
-            cols = st.columns([8, 1])
-            cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
-            if cols[1].button("Remove", key=f"rem_shot_{i}"):
-                st.session_state.screenshots.pop(i)
-                st.rerun()
-    if st.button("Create ZIP"):
-        zbuf = io.BytesIO()
-        with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-            for f in st.session_state.uploads:
-                z.writestr(f"Screenshots/{f.name}", f.getvalue())
-            for f in st.session_state.log_uploads:
-                z.writestr(f"logs/{f.name}", f.getvalue())
-            for s in st.session_state.screenshots:
-                z.writestr(f"Screenshots/{s.name}", s.getvalue())
-            z.writestr("case.json", json.dumps(asdict(D), indent=2))
-        zbuf.seek(0)
-        st.download_button(
-            "Download attachments.zip",
-            zbuf,
-            file_name=f"{D.case_id or 'case'}_attachments.zip",
-            mime="application/zip",
-        )
-
-# ================== BORED TAB =================
-if tab_bored:
-    with tab_bored:
-        st.subheader("One Click RPG")
-        game = st.session_state.bored_game
-        area = [
-            "Forest of the Chaos Harlequins ",
-            "Forgotten Graveyard of Endal",
-            "Castle of the Blackest Knight",
-            "Haunted Farm of Yondor",
-            "Deathtrap Dungeon of Borgon",
-            " Mysterious Swampland of Kuluth",
-            "Swamp of the Slimy Hobbits",
-            "Darkest Dungeons",
-            "Ruins of the Fallen Gods",
-            "Forlorn Islands of Lost Souls",
-            "Hidden Hideout of Ninedeadeyes",
-            "Wildlands of Lady L Moore",
-            " Woods of Ypres",
-            "Heart of Darkness",
-            "Doomville",
-            "The Red Jester's Torture Chamber",
-            "The Goblins Fortress of Snikrik,",
-            " Temple of Apshai",
-            " Dungeons of Doom",
-            "Mountains of the Wild Berserker",
-            "Stronghold of Daggerfall",
-            "Walking Hills of Cthulhu",
-        ]
-        monster = [
-            "orcs",
-            "goblins",
-            "dragons",
-            "demons",
-            "kobolds",
-            "blobs",
-            "hobbits",
-            "zombies",
-            "gnomes",
-            "vampires",
-            "beholders",
-            "trolls",
-            "hill giants",
-            "ettins",
-            "mimics",
-            "succubuses",
-            "bone devils",
-            "clay golems",
-            "drows",
-            "gnolls",
-            "swamp hags",
-            " night goblins",
-            "half-ogres",
-            "hobgoblins",
-            "bog imps",
-            "owlbears",
-            "ponies",
-            "winter wolves",
-            "harlequin",
-            "abomination",
-        ]
-        description = [
-            "stupid",
-            "horny",
-            "heart broken",
-            "deranged",
-            "morbid",
-            "tiny",
-            "suicidal",
-            "sexy",
-            "skinny",
-            "racist",
-            "peaceful",
-            "silly",
-            "drunk",
-            "sadistic",
-            "young",
-            "shy",
-            "talkative",
-            "lovestruck",
-            "sarcastic",
-            "homophobic",
-            "forelorn",
-            "happy",
-            "friendly",
-            "psychopathic",
-            "optimistic",
-            "mysterious",
-            "beautiful",
-            "malnourish",
-            "zealous",
-            "hot-headed",
-        ]
-        if st.button("Explore", key="bored_explore"):
-            adventure = random.choice(area)
-            encounter = random.choice(monster)
-            descript = random.choice(description)
-            number = random.randrange(2, 5)
-            reward = random.randrange(1, 10)
-            exp = random.randrange(1, 20)
-            game["gold"] += reward
-            game["exp"] += exp
-            game["lexp"] += exp
-            if game["lexp"] > 123 + (game["level"] * 10):
-                game["level"] += 1
-                game["lexp"] = 0
-            lvl = game["level"]
-            if lvl > 2 and lvl < 4:
-                game["power_ranking"] = "The Cannon Fodder (Ready to die ? ) "
-            if lvl > 4 and lvl < 6:
-                game["power_ranking"] = "The Weakling Avenger (At least you tried )"
-            if lvl > 6 and lvl < 8:
-                game["power_ranking"] = "The Nice Guy (This is no compliment )"
-            if lvl > 8 and lvl < 10:
-                game["power_ranking"] = "The Beta Warrior (Well.. You won't die first, I guess )"
-            if lvl > 10 and lvl < 12:
-                game["power_ranking"] = "The Mighty Beta Warrior (Some nerds respect you )"
-            if lvl > 12 and lvl < 14:
-                game["power_ranking"] = "The Average Chump (Nothing to see here ) "
-            if lvl > 14 and lvl < 16:
-                game["power_ranking"] = "The Man with a Stick (Fear my wood )  "
-            if lvl > 16 and lvl < 18:
-                game["power_ranking"] = "The Man with a Big Stick (MORE WOOD )"
-            if lvl > 18 and lvl < 20:
-                game["power_ranking"] = "The Town's Guard (Obey my authority ) "
-            if lvl > 20 and lvl < 24:
-                game["power_ranking"] = "The Try-Hard Hero (You win some, you lose more )"
-            if lvl > 24 and lvl < 26:
-                game["power_ranking"] = "The Goblin Slayer (Your reputation grows )"
-            if lvl > 26 and lvl < 28:
-                game["power_ranking"] = "The Orc Breaker (Orcs cower in your presence )"
-            if lvl > 28 and lvl < 30:
-                game["power_ranking"] = " The Average Hero (Good but not great,keep fighting )"
-            if lvl > 30 and lvl < 32:
-                game["power_ranking"] = " The Demon Demolisher (Guts will be proud of you )"
-            if lvl > 32 and lvl < 34:
-                game["power_ranking"] = " The Master Killer (A black belt in DEATH )"
-            if lvl > 34 and lvl < 40:
-                game["power_ranking"] = " The Champion of Man (The best a man can be )"
-            if lvl > 40 and lvl < 70:
-                game["power_ranking"] = " Legendary Hero (Well done. You can retire now )"
-            if lvl > 70 and lvl < 90:
-                game["power_ranking"] = " Old Warrior (Why are you still playing ? )"
-            if lvl > 90 and lvl < 100:
-                game["power_ranking"] = "It's Over 9000 !! ( Seriously, quit it )"
-            if lvl > 100:
-                game["power_ranking"] = "God (We bow down to your greatness )"
-            story = (
-                f"You explore the {adventure}. You encounter {number} {descript} {encounter}. "
-                f"You slay the {encounter}. You gain {reward} gold and {exp} exp."
+    screenshot_name = st.text_input(
+        "Screenshot name", key=widget_key("screenshot_name", case_idx)
+    )
+    if st.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
+        if screenshot_name:
+            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
+            img = pyautogui.screenshot()
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            buf.seek(0)
+            st.session_state.screenshots.append(
+                InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue())
             )
-            game["story"] = story
-        st.write(game["story"])
-        st.markdown(
-            f"Gold:{game['gold']}    EXP:{game['exp']}    LEVEL:{game['level']}",
-        )
-        st.markdown(f"Power ranking: {game['power_ranking']}")
+            st.success(f"Captured screenshot: {safe_name}")
+        else:
+            st.error("Please provide a screenshot name before capturing.")
 
-        st.subheader("Secret Arena")
-        if st.button("Launch arena", key="launch_arena"):
-            game_path = Path(__file__).parent / "doom_game.py"
-            subprocess.Popen([sys.executable, str(game_path)])
-
-# ================== DEBUG TAB =================
-if tab_debug:
-    with tab_debug:
-        if st.session_state.debug_auth:
-            st.subheader("Debug")
-            st.selectbox(
-                "AI Mode",
-                ["Cloud", "Local API", "Local Model"],
-                key="ai_mode",
+    if (
+        st.session_state.uploads
+        or st.session_state.log_uploads
+        or st.session_state.screenshots
+    ):
+        if st.session_state.uploads:
+            st.markdown("Files queued:")
+            for i, f in enumerate(st.session_state.uploads):
+                cols = st.columns([8, 1])
+                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+                if cols[1].button(
+                    "Remove", key=widget_key(f"rem_upload_{i}", case_idx)
+                ):
+                    st.session_state.uploads.pop(i)
+                    st.rerun()
+        if st.session_state.log_uploads:
+            st.markdown("Logs queued:")
+            for i, f in enumerate(st.session_state.log_uploads):
+                cols = st.columns([8, 1])
+                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+                if cols[1].button(
+                    "Remove", key=widget_key(f"rem_log_{i}", case_idx)
+                ):
+                    st.session_state.log_uploads.pop(i)
+                    st.rerun()
+        if st.session_state.screenshots:
+            st.markdown("Screenshots captured:")
+            for i, s in enumerate(st.session_state.screenshots):
+                cols = st.columns([8, 1])
+                cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
+                if cols[1].button(
+                    "Remove", key=widget_key(f"rem_shot_{i}", case_idx)
+                ):
+                    st.session_state.screenshots.pop(i)
+                    st.rerun()
+        if st.button("Create ZIP", key=widget_key("create_zip", case_idx)):
+            zbuf = io.BytesIO()
+            with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+                for f in st.session_state.uploads:
+                    z.writestr(f"Screenshots/{f.name}", f.getvalue())
+                for f in st.session_state.log_uploads:
+                    z.writestr(f"logs/{f.name}", f.getvalue())
+                for s in st.session_state.screenshots:
+                    z.writestr(f"Screenshots/{s.name}", s.getvalue())
+                z.writestr("case.json", json.dumps(asdict(D), indent=2))
+            zbuf.seek(0)
+            st.download_button(
+                "Download attachments.zip",
+                zbuf,
+                file_name=f"{D.case_id or 'case'}_attachments.zip",
+                mime="application/zip",
+                key=widget_key("download_zip", case_idx),
             )
-            if st.session_state.ai_mode == "Cloud":
-                st.text_input(
-                    "OpenAI API Key", type="password", key="openai_api_key"
+
+    # ================== BORED TAB =================
+    if tab_bored:
+        with tab_bored:
+            st.subheader("One Click RPG")
+            game = st.session_state.bored_game
+            area = [
+                "Forest of the Chaos Harlequins ",
+                "Forgotten Graveyard of Endal",
+                "Castle of the Blackest Knight",
+                "Haunted Farm of Yondor",
+                "Deathtrap Dungeon of Borgon",
+                " Mysterious Swampland of Kuluth",
+                "Swamp of the Slimy Hobbits",
+                "Darkest Dungeons",
+                "Ruins of the Fallen Gods",
+                "Forlorn Islands of Lost Souls",
+                "Hidden Hideout of Ninedeadeyes",
+                "Wildlands of Lady L Moore",
+                " Woods of Ypres",
+                "Heart of Darkness",
+                "Doomville",
+                "The Red Jester's Torture Chamber",
+                "The Goblins Fortress of Snikrik,",
+                " Temple of Apshai",
+                " Dungeons of Doom",
+                "Mountains of the Wild Berserker",
+                "Stronghold of Daggerfall",
+                "Walking Hills of Cthulhu",
+            ]
+            monster = [
+                "orcs",
+                "goblins",
+                "dragons",
+                "demons",
+                "kobolds",
+                "blobs",
+                "hobbits",
+                "zombies",
+                "gnomes",
+                "vampires",
+                "beholders",
+                "trolls",
+                "hill giants",
+                "ettins",
+                "mimics",
+                "succubuses",
+                "bone devils",
+                "clay golems",
+                "drows",
+                "gnolls",
+                "swamp hags",
+                " night goblins",
+                "half-ogres",
+                "hobgoblins",
+                "bog imps",
+                "owlbears",
+                "ponies",
+                "winter wolves",
+                "harlequin",
+                "abomination",
+            ]
+            description = [
+                "stupid",
+                "horny",
+                "heart broken",
+                "deranged",
+                "morbid",
+                "tiny",
+                "suicidal",
+                "sexy",
+                "skinny",
+                "racist",
+                "peaceful",
+                "silly",
+                "drunk",
+                "sadistic",
+                "young",
+                "shy",
+                "talkative",
+                "lovestruck",
+                "sarcastic",
+                "homophobic",
+                "forelorn",
+                "happy",
+                "friendly",
+                "psychopathic",
+                "optimistic",
+                "mysterious",
+                "beautiful",
+                "malnourish",
+                "zealous",
+                "hot-headed",
+            ]
+            if st.button("Explore", key=widget_key("bored_explore", case_idx)):
+                adventure = random.choice(area)
+                encounter = random.choice(monster)
+                descript = random.choice(description)
+                number = random.randrange(2, 5)
+                reward = random.randrange(1, 10)
+                exp = random.randrange(1, 20)
+                game["gold"] += reward
+                game["exp"] += exp
+                game["lexp"] += exp
+                if game["lexp"] > 123 + (game["level"] * 10):
+                    game["level"] += 1
+                    game["lexp"] = 0
+                lvl = game["level"]
+                if lvl > 2 and lvl < 4:
+                    game["power_ranking"] = "The Cannon Fodder (Ready to die ? ) "
+                if lvl > 4 and lvl < 6:
+                    game["power_ranking"] = "The Weakling Avenger (At least you tried )"
+                if lvl > 6 and lvl < 8:
+                    game["power_ranking"] = "The Nice Guy (This is no compliment )"
+                if lvl > 8 and lvl < 10:
+                    game["power_ranking"] = "The Beta Warrior (Well.. You won't die first, I guess )"
+                if lvl > 10 and lvl < 12:
+                    game["power_ranking"] = "The Mighty Beta Warrior (Some nerds respect you )"
+                if lvl > 12 and lvl < 14:
+                    game["power_ranking"] = "The Average Chump (Nothing to see here ) "
+                if lvl > 14 and lvl < 16:
+                    game["power_ranking"] = "The Man with a Stick (Fear my wood )  "
+                if lvl > 16 and lvl < 18:
+                    game["power_ranking"] = "The Man with a Big Stick (MORE WOOD )"
+                if lvl > 18 and lvl < 20:
+                    game["power_ranking"] = "The Town's Guard (Obey my authority ) "
+                if lvl > 20 and lvl < 24:
+                    game["power_ranking"] = "The Try-Hard Hero (You win some, you lose more )"
+                if lvl > 24 and lvl < 26:
+                    game["power_ranking"] = "The Goblin Slayer (Your reputation grows )"
+                if lvl > 26 and lvl < 28:
+                    game["power_ranking"] = "The Orc Breaker (Orcs cower in your presence )"
+                if lvl > 28 and lvl < 30:
+                    game["power_ranking"] = " The Average Hero (Good but not great,keep fighting )"
+                if lvl > 30 and lvl < 32:
+                    game["power_ranking"] = " The Demon Demolisher (Guts will be proud of you )"
+                if lvl > 32 and lvl < 34:
+                    game["power_ranking"] = " The Master Killer (A black belt in DEATH )"
+                if lvl > 34 and lvl < 40:
+                    game["power_ranking"] = " The Champion of Man (The best a man can be )"
+                if lvl > 40 and lvl < 70:
+                    game["power_ranking"] = " Legendary Hero (Well done. You can retire now )"
+                if lvl > 70 and lvl < 90:
+                    game["power_ranking"] = " Old Warrior (Why are you still playing ? )"
+                if lvl > 90 and lvl < 100:
+                    game["power_ranking"] = "It's Over 9000 !! ( Seriously, quit it )"
+                if lvl > 100:
+                    game["power_ranking"] = "God (We bow down to your greatness )"
+                story = (
+                    f"You explore the {adventure}. You encounter {number} {descript} {encounter}. "
+                    f"You slay the {encounter}. You gain {reward} gold and {exp} exp."
                 )
-                st.text_input("AI Base URL", key="ai_base_url")
-            elif st.session_state.ai_mode == "Local API":
-                st.text_input(
-                    "AI Base URL", key="ai_base_url", value=st.session_state.ai_base_url
+                game["story"] = story
+            st.write(game["story"])
+            st.markdown(
+                f"Gold:{game['gold']}    EXP:{game['exp']}    LEVEL:{game['level']}",
+            )
+            st.markdown(f"Power ranking: {game['power_ranking']}")
+
+            st.subheader("Secret Arena")
+            if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
+                game_path = Path(__file__).parent / "doom_game.py"
+                subprocess.Popen([sys.executable, str(game_path)])
+
+    # ================== DEBUG TAB =================
+    if tab_debug:
+        with tab_debug:
+            if case_idx != 0:
+                st.info("Debug available in first case tab.")
+            elif st.session_state.debug_auth:
+                st.subheader("Debug")
+                st.selectbox(
+                    "AI Mode",
+                    ["Cloud", "Local API", "Local Model"],
+                    key="ai_mode",
                 )
-                st.text_input(
-                    "API Key (optional)", type="password", key="openai_api_key"
+                if st.session_state.ai_mode == "Cloud":
+                    st.text_input(
+                        "OpenAI API Key", type="password", key="openai_api_key"
+                    )
+                    st.text_input("AI Base URL", key="ai_base_url")
+                elif st.session_state.ai_mode == "Local API":
+                    st.text_input(
+                        "AI Base URL", key="ai_base_url", value=st.session_state.ai_base_url
+                    )
+                    st.text_input(
+                        "API Key (optional)", type="password", key="openai_api_key"
+                    )
+                else:
+                    st.session_state.ai_base_url = ""
+                    st.session_state.openai_api_key = ""
+                    st.info(
+                        "Using local transformers model; no API key or Base URL required."
+                    )
+                st.selectbox(
+                    "Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model"
                 )
+                st.selectbox(
+                    "Personality mode", ["utility", "coffee"], key="personality_mode"
+                )
+                st.text_area("Allowed categories block", key="taxonomy_block", height=150)
+                st.text_area("Signals config JSON", key="signals_config", height=150)
+                st.json(st.session_state)
+                st.subheader("Logs")
+                st.text(tail_log(LOG_FILE))
+                st.divider()
+                if st.button("I'm bored", key="debug_bored"):
+                    st.session_state.show_bored = True
+                    st.rerun()
             else:
-                st.session_state.ai_base_url = ""
-                st.session_state.openai_api_key = ""
-                st.info(
-                    "Using local transformers model; no API key or Base URL required."
-                )
-            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
-            st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
-            st.text_area("Allowed categories block", key="taxonomy_block", height=150)
-            st.text_area("Signals config JSON", key="signals_config", height=150)
-            st.json(st.session_state)
-            st.subheader("Logs")
-            st.text(tail_log(LOG_FILE))
-            st.divider()
-            if st.button("I'm bored", key="debug_bored"):
-                st.session_state.show_bored = True
+                st.session_state.show_bored = False
+                user = st.text_input("Username", key="debug_user")
+                pw = st.text_input("Password", type="password", key="debug_pass")
+                if st.button("Login", key="debug_login"):
+                    if user == "admin" and pw == "admin":
+                        st.session_state.debug_auth = True
+                    else:
+                        st.error("Invalid credentials")
+
+    autosave()
+
+case_labels = [
+    cs.case.case_id or f'Case {i+1}' for i, cs in enumerate(st.session_state.case_sessions)
+] + ['+ New Case']
+case_tabs = st.tabs(case_labels)
+for idx, tab in enumerate(case_tabs):
+    with tab:
+        if idx == len(st.session_state.case_sessions):
+            if st.button('Add Case'):
+                st.session_state.case_sessions.append(CaseSession(case=CaseData()))
                 st.rerun()
         else:
-            st.session_state.show_bored = False
-            user = st.text_input("Username", key="debug_user")
-            pw = st.text_input("Password", type="password", key="debug_pass")
-            if st.button("Login", key="debug_login"):
-                if user == "admin" and pw == "admin":
-                    st.session_state.debug_auth = True
-                else:
-                    st.error("Invalid credentials")
-
-autosave()
+            load_case_state(idx)
+            render_case_ui(idx)
+            save_case_state(idx)
