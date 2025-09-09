@@ -115,6 +115,9 @@ attachment section lets you bundle supporting files. Use the checkbox at the top
 tab provides a full markdown dump of all case data for easy copying. An internal *Debug* tab is available after logging in with
 username and password `admin`.
 
+Multiple cases can be opened at once via the case tabs displayed at the bottom of the page. Use the **Add Case** tab to spawn a new
+blank case and switch between them for multitasking.
+
 Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify** button to highlight missing documentation.
 
 To experiment with the A.A.T.O.M. chatbox, run the dedicated script:
