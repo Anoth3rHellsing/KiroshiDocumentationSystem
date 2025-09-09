@@ -524,6 +524,8 @@ def load_case_from_path(path: str) -> None:
         st.session_state.case = CaseData(**data)
         global D
         D = st.session_state.case
+        if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+            st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
         update_recent_cases(st.session_state.case.case_id, path)
         # Enable tracking tab if loaded from tracked directory or active file
@@ -545,6 +547,8 @@ def load_case_from_bytes(data: bytes) -> None:
         st.session_state.case = CaseData(**payload)
         global D
         D = st.session_state.case
+        if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+            st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
         st.success("Case loaded successfully.")
         st.rerun()
