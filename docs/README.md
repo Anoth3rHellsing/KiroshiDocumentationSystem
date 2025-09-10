@@ -23,6 +23,9 @@ Generates prompts for several e‑mail templates:
 - Recap for the customer
 - Broken scanner questionnaire
 - Broken tip questionnaire
+- FedEx tracking email for refurbished devices (second-line mode)
+- Replacement wired scanner setup email (second-line mode)
+- Replacement Move+ closure email (second-line mode)
 - Callback email
 - Custom request email
 - Dell escalation email for second-line support (confirm contact details with the customer)
