@@ -1424,7 +1424,14 @@ if tab_email:
         st.subheader("Email Prompt Generator")
         email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
         if st.session_state.second_line_mode:
-            email_choices.append("Callback Email")
+            email_choices.extend(
+                [
+                    "FedEx Tracking Email",
+                    "Replacement Wired Scanner Setup",
+                    "Replacement Move+ Closure",
+                    "Callback Email",
+                ]
+            )
         email_choices.append("Custom Request")
         email_type = st.selectbox(
             "Select email template",
@@ -1525,6 +1532,113 @@ if tab_email:
     6. Other info – {ext['other']}
     """
     
+        elif email_type == "FedEx Tracking Email":
+            st.markdown("#### FedEx tracking options")
+            ext["agent_name"] = st.text_input(
+                "Agent name", ext.get("agent_name", "")
+            )
+            ext["device_type"] = st.text_input(
+                "Device type (scanner or Move+)", ext.get("device_type", "")
+            )
+            ext["tracking_number"] = st.text_input(
+                "FedEx tracking number", ext.get("tracking_number", "")
+            )
+            customer = D.caller_name or "(Caller Name)"
+            company = D.company_name or "(Company Name)"
+            agent = ext["agent_name"] or "(Agent Name)"
+            case_no = D.case_id or "(Case ID)"
+            issue = D.brief_description or "(Issue Description)"
+            device = ext["device_type"] or "device"
+            tracking = ext["tracking_number"] or "(Tracking Number)"
+            email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape support regarding your case {case_no} about {issue}.
+
+I am more than happy to inform you that we have created a ticket to send you a refurbished unit through FedEx which you can track by using the following tracking number: {tracking}.
+
+Remember that this process will not have a cost.
+
+Please also remember to send us back the faulty {device} using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days of your receipt of the new device, your TRIOS licenses will expire.
+
+Wishing you the best again!"""
+            st.text_area("Email", email_text, height=300, key="generated_email")
+
+        elif email_type == "Replacement Wired Scanner Setup":
+            st.markdown("#### Replacement scanner options")
+            ext["agent_name"] = st.text_input(
+                "Agent name", ext.get("agent_name", "")
+            )
+            ext["fedex_pickup_link"] = st.text_input(
+                "FedEx pickup link",
+                ext.get(
+                    "fedex_pickup_link",
+                    "https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html",
+                ),
+            )
+            customer = D.caller_name or "(Caller Name)"
+            company = D.company_name or "(Company Name)"
+            agent = ext["agent_name"] or "(Agent Name)"
+            case_no = D.case_id or "(Case ID)"
+            survey = D.survey_link or "(Survey URL)"
+            pickup = ext["fedex_pickup_link"] or "(FedEx pickup link)"
+            email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case {case_no}.
+
+I am more than happy to inform you that your issue has been resolved. According to the tracking information provided from FedEx, the refurbished scanner was already received by the office.
+
+Regarding the installation of the scanner provided, please follow these steps:
+
+1. Open 3Shape UNITE (please remember to log in with your user credentials).
+2. In the upper section of the screen, look for the MORE icon and click on it.
+3. In the menu that appears, click Settings (gear icon).
+4. On the left menu, click TRIOS (scanner/wand icon).
+5. In the submenu, click Scanner Management.
+6. Click Add new scanner (either the large white tile in the middle or the button in the upper-right corner).
+7. Select Wired scanner.
+8. Connect the scanner as displayed on screen. Remember: the Pod/stand of the scanner must be connected from both sides, and the scanner itself must also be connected to the PC.
+9. The scanner will then be recognized by the app and will be ready to work.
+
+Thank you so much for letting me assist you. I would really appreciate it if you could provide feedback regarding my service today: {survey}
+
+In case you need further assistance or have any doubts, please do not hesitate to contact our technical support team.
+
+Please remember to send us back the faulty scanner using the shipping label included in the box. If we do not receive the faulty scanner within 32 days from when we sent the replacement device, your TRIOS licenses will expire.
+
+You may schedule a pickup with FedEx here: {pickup}
+
+Wishing you the best again!"""
+            st.text_area("Email", email_text, height=400, key="generated_email")
+
+        elif email_type == "Replacement Move+ Closure":
+            st.markdown("#### Replacement Move+ options")
+            ext["agent_name"] = st.text_input(
+                "Agent name", ext.get("agent_name", "")
+            )
+            customer = D.caller_name or "(Caller Name)"
+            company = D.company_name or "(Company Name)"
+            agent = ext["agent_name"] or "(Agent Name)"
+            case_no = D.case_id or "(Case ID)"
+            survey = D.survey_link or "(Survey URL)"
+            email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case: {case_no}.
+
+I am more than happy to inform you that your issue has been resolved. According to the tracking information provided from FedEx, the refurbished device was already received by the office.
+
+Thank you so much for letting me assist you. I would really appreciate if you can provide me with some feedback regarding my service today in the next survey.
+
+In case you need further assistance or have any doubts, please do not hesitate to contact our technical support team.
+
+Please remember to send us back the faulty scanner using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days since we sent the device, your TRIOS licenses will expire. You may schedule a pickup with FedEx by following the next link: https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html
+
+We sincerely appreciate your patience and understanding throughout this process. Also, if you have the time, it would be helpful if you could complete our Customer Experience Survey so that we know how our assistance and services were for you.
+
+Do remember that 10 would be the highest score to rate the following survey: {survey}
+
+Wishing you the best again!"""
+            st.text_area("Email", email_text, height=400, key="generated_email")
+
         elif email_type == "Custom Request":
             st.markdown("#### Custom email options")
             ext["reason"] = st.text_input(
@@ -1626,82 +1740,98 @@ if tab_email:
                     prompt += "\n\n" + "\n".join(extras)
     
         st.session_state.email_extra = ext
-        st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
-        st.session_state["last_prompt"] = prompt
-    
-        include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
-        include_restart = st.checkbox("Restart the computer", key="api_restart")
-        include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
-        if st.button("Use GPT-OSS"):
-            api_key = st.session_state.openai_api_key
-            model = st.session_state.openai_model
-            base_url = st.session_state.ai_base_url
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            elif not prompt.strip():
-                st.error("Prompt is empty.")
-            else:
-                with st.spinner("Contacting GPT-OSS..."):
-                    try:
-                        augmented_prompt = prompt
-                        extras = []
-                        if include_helpjuice:
-                            link = D.internal_helpjuice or "https://helpjuice.com"
-                            extras.append(
-                                f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
-                            )
-                        if include_restart:
-                            extras.append(
-                                "And recommend to the customer to restart the computer after the end of every shift."
-                            )
-                        if include_scan_time:
-                            extras.append(
-                                "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
-                            )
-                        if extras:
-                            augmented_prompt += "\n\n" + "\n".join(extras)
-                        if base_url:
-                            headers = {"Content-Type": "application/json"}
-                            if api_key:
-                                headers["Authorization"] = f"Bearer {api_key}"
-                            response = requests.post(
-                                base_url.rstrip("/") + "/chat/completions",
-                                headers=headers,
-                                json={
-                                    "model": model,
-                                    "messages": [
-                                        {"role": "system", "content": "You are a helpful assistant."},
-                                        {"role": "user", "content": augmented_prompt},
-                                    ],
-                                    "max_tokens": 600,
-                                    "temperature": 0.7,
-                                },
-                                timeout=30,
-                                verify=False,
-                            )
-                            if response.status_code == 200:
-                                result = response.json()
-                                email_text = result["choices"][0]["message"]["content"]
-                                st.success("Email generated!")
-                                st.text_area("Generated Email", email_text, height=300, key="generated_email")
-                            else:
-                                st.error(
-                                    f"API Error: {response.status_code}\n{response.text}"
-                                )
-                        else:
-                            from transformers import pipeline  # type: ignore
+        static_templates = {
+            "FedEx Tracking Email",
+            "Replacement Wired Scanner Setup",
+            "Replacement Move+ Closure",
+        }
+        if email_type not in static_templates:
+            st.text_area(
+                "ChatGPT prompt (copy & paste)",
+                prompt,
+                height=300,
+                key="api_prompt_area",
+            )
+            st.session_state["last_prompt"] = prompt
 
-                            generator = pipeline("text-generation", model="gpt2")
-                            result = generator(augmented_prompt, max_new_tokens=200)[0]["generated_text"]
-                            st.text_area(
-                                "Generated Email",
-                                result[len(augmented_prompt):].strip(),
-                                height=300,
-                                key="generated_email",
-                            )
-                            st.success("Email generated locally!")
-                    except Exception as e:  # pragma: no cover - just in case
-                        st.error(f"Request failed: {e}")
+            include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
+            include_restart = st.checkbox("Restart the computer", key="api_restart")
+            include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
+            if st.button("Use GPT-OSS"):
+                api_key = st.session_state.openai_api_key
+                model = st.session_state.openai_model
+                base_url = st.session_state.ai_base_url
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                elif not prompt.strip():
+                    st.error("Prompt is empty.")
+                else:
+                    with st.spinner("Contacting GPT-OSS..."):
+                        try:
+                            augmented_prompt = prompt
+                            extras = []
+                            if include_helpjuice:
+                                link = D.internal_helpjuice or "https://helpjuice.com"
+                                extras.append(
+                                    f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
+                                )
+                            if include_restart:
+                                extras.append(
+                                    "And recommend to the customer to restart the computer after the end of every shift."
+                                )
+                            if include_scan_time:
+                                extras.append(
+                                    "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
+                                )
+                            if extras:
+                                augmented_prompt += "\n\n" + "\n".join(extras)
+                            if base_url:
+                                headers = {"Content-Type": "application/json"}
+                                if api_key:
+                                    headers["Authorization"] = f"Bearer {api_key}"
+                                response = requests.post(
+                                    base_url.rstrip("/") + "/chat/completions",
+                                    headers=headers,
+                                    json={
+                                        "model": model,
+                                        "messages": [
+                                            {"role": "system", "content": "You are a helpful assistant."},
+                                            {"role": "user", "content": augmented_prompt},
+                                        ],
+                                        "max_tokens": 600,
+                                        "temperature": 0.7,
+                                    },
+                                    timeout=30,
+                                    verify=False,
+                                )
+                                if response.status_code == 200:
+                                    result = response.json()
+                                    email_text = result["choices"][0]["message"]["content"]
+                                    st.success("Email generated!")
+                                    st.text_area(
+                                        "Generated Email",
+                                        email_text,
+                                        height=300,
+                                        key="generated_email",
+                                    )
+                                else:
+                                    st.error(
+                                        f"API Error: {response.status_code}\n{response.text}"
+                                    )
+                            else:
+                                from transformers import pipeline  # type: ignore
+
+                                generator = pipeline("text-generation", model="gpt2")
+                                result = generator(augmented_prompt, max_new_tokens=200)[0]["generated_text"]
+                                st.text_area(
+                                    "Generated Email",
+                                    result[len(augmented_prompt):].strip(),
+                                    height=300,
+                                    key="generated_email",
+                                )
+                                st.success("Email generated locally!")
+                        except Exception as e:  # pragma: no cover - just in case
+                            st.error(f"Request failed: {e}")
     
 # ================== HARDWARE ISSUES TAB =================
 if tab_hw:
