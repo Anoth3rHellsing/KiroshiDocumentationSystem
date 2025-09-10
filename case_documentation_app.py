@@ -1712,11 +1712,11 @@ Wishing you the best again!"""
                 if st.session_state.callback_needed:
                     base_request = (
                         "provide us with the best time for a callback, including your time zone, "
-                        "or alternatively TeamViewer access so we may connect directly to the computer."
+                        "or alternatively the TeamViewer ID and password so we may connect directly to the computer."
                     )
                 else:
                     base_request = (
-                        "provide us with TeamViewer access so we may connect directly to the computer."
+                        "provide us with the TeamViewer ID and password so we may connect directly to the computer."
                     )
                 prompt = (
                     f"Draft a polite email asking the customer to {base_request}\n"
