@@ -61,6 +61,12 @@ pip install -r requirements.txt
 pip install -r requirements-bored.txt
 ```
 
+### Updating
+
+The `QuickUpdate.bat` script is intended for small incremental patches.  
+Major updates such as **1.5.2** introduce new requirements and should be applied manually.  
+To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_1-5-2.bat`).
+
 ### Windows PATH helper
 
 If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user
