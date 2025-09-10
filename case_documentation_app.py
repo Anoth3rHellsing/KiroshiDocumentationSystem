@@ -1429,11 +1429,10 @@ if tab_email:
                     "FedEx Tracking Email",
                     "Replacement Wired Scanner Setup",
                     "Replacement Move+ Closure",
+                    "Callback Email",
                 ]
             )
         email_choices.append("Custom Request")
-        if st.session_state.second_line_mode:
-            email_choices.append("Callback Email")
         email_type = st.selectbox(
             "Select email template",
             email_choices,
@@ -1532,7 +1531,7 @@ if tab_email:
     5. Autoclaved in airtight pouch? – {ext['airtight']}
     6. Other info – {ext['other']}
     """
-    
+
         elif email_type == "FedEx Tracking Email":
             st.markdown("#### FedEx tracking options")
             ext["agent_name"] = st.text_input(
@@ -1563,6 +1562,7 @@ Please also remember to send us back the faulty {device} using the shipping labe
 
 Wishing you the best again!"""
             st.text_area("Email", email_text, height=300, key="generated_email")
+
         elif email_type == "Replacement Wired Scanner Setup":
             st.markdown("#### Replacement scanner options")
             ext["agent_name"] = st.text_input(
@@ -1609,6 +1609,7 @@ You may schedule a pickup with FedEx here: {pickup}
 
 Wishing you the best again!"""
             st.text_area("Email", email_text, height=400, key="generated_email")
+
         elif email_type == "Replacement Move+ Closure":
             st.markdown("#### Replacement Move+ options")
             ext["agent_name"] = st.text_input(
@@ -1637,6 +1638,7 @@ Do remember that 10 would be the highest score to rate the following survey: {su
 
 Wishing you the best again!"""
             st.text_area("Email", email_text, height=400, key="generated_email")
+    
         elif email_type == "Custom Request":
             st.markdown("#### Custom email options")
             ext["reason"] = st.text_input(
@@ -1793,10 +1795,7 @@ Wishing you the best again!"""
                                     json={
                                         "model": model,
                                         "messages": [
-                                            {
-                                                "role": "system",
-                                                "content": "You are a helpful assistant.",
-                                            },
+                                            {"role": "system", "content": "You are a helpful assistant."},
                                             {"role": "user", "content": augmented_prompt},
                                         ],
                                         "max_tokens": 600,
@@ -1817,8 +1816,8 @@ Wishing you the best again!"""
                                     )
                                 else:
                                     st.error(
-                                    f"API Error: {response.status_code}\n{response.text}"
-                                )
+                                        f"API Error: {response.status_code}\n{response.text}"
+                                    )
                             else:
                                 from transformers import pipeline  # type: ignore
 
