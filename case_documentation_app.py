@@ -1424,7 +1424,9 @@ if tab_email:
         st.subheader("Email Prompt Generator")
         email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
         if st.session_state.second_line_mode:
-            email_choices.append("Callback Email")
+            email_choices.extend(
+                ["Callback Email", "Refurbished Shipment", "Dell Escalation"]
+            )
         email_choices.append("Custom Request")
         email_type = st.selectbox(
             "Select email template",
@@ -1436,8 +1438,10 @@ if tab_email:
         )
         st.session_state.email_type = email_type
         ext = st.session_state.email_extra
-    
+
         prompt = ""
+        prompt_label = "ChatGPT prompt (copy & paste)"
+        show_generation_options = True
         if email_type == "Recap (Customer)":
             intro = build_email_intro(D)
             steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
@@ -1524,7 +1528,57 @@ if tab_email:
     5. Autoclaved in airtight pouch? – {ext['airtight']}
     6. Other info – {ext['other']}
     """
-    
+
+        elif email_type == "Refurbished Shipment":
+            prompt_label = "Email template (copy & paste)"
+            show_generation_options = False
+            st.markdown("#### Shipment details")
+            ext["consultant_name"] = st.text_input(
+                "Consultant full name", ext.get("consultant_name", "")
+            )
+            ext["tracking_number"] = st.text_input(
+                "FedEx tracking number", ext.get("tracking_number", "")
+            )
+            ext["device_type"] = st.text_input(
+                "Device type (scanner / Move+)", ext.get("device_type", "")
+            )
+            template_text = (
+                Path("docs/refurbished_scanner_fedex_email.md").read_text(
+                    encoding="utf-8"
+                )
+            )
+            match = re.search(r"```\n(.*)```", template_text, re.DOTALL)
+            base_template = match.group(1).strip() if match else ""
+            prompt = base_template.format(
+                customer_name=D.caller_name or "(customer)",
+                clinic_name=D.company_name or "(clinic)",
+                consultant_full_name=ext["consultant_name"] or "(consultant)",
+                case_number=D.case_id or "(case)",
+                issue_description=D.brief_description or "(issue)",
+                fedex_tracking_number=ext["tracking_number"] or "(tracking)",
+                device_type=ext["device_type"] or "(device)",
+            )
+
+        elif email_type == "Dell Escalation":
+            prompt_label = "Email template (copy & paste)"
+            show_generation_options = False
+            st.markdown("#### Escalation details")
+            ext["issue_start_date"] = st.text_input(
+                "Issue start date", ext.get("issue_start_date", "")
+            )
+            template_text = (
+                Path("docs/dell_escalation_email.md").read_text(encoding="utf-8")
+            )
+            match = re.search(r"```\n(.*)```", template_text, re.DOTALL)
+            base_template = match.group(1).strip() if match else ""
+            prompt = base_template.format(
+                company_name=D.company_name or "(company)",
+                issue_description=D.brief_description or "(issue)",
+                issue_start_date=ext["issue_start_date"] or "(date)",
+                case_id=D.case_id or "(case)",
+                service_tag=D.service_tag or "(service tag)",
+            )
+
         elif email_type == "Custom Request":
             st.markdown("#### Custom email options")
             ext["reason"] = st.text_input(
@@ -1626,82 +1680,88 @@ if tab_email:
                     prompt += "\n\n" + "\n".join(extras)
     
         st.session_state.email_extra = ext
-        st.text_area("ChatGPT prompt (copy & paste)", prompt, height=300, key="api_prompt_area")
+        st.text_area(prompt_label, prompt, height=300, key="api_prompt_area")
         st.session_state["last_prompt"] = prompt
-    
-        include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
-        include_restart = st.checkbox("Restart the computer", key="api_restart")
-        include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
-        if st.button("Use GPT-OSS"):
-            api_key = st.session_state.openai_api_key
-            model = st.session_state.openai_model
-            base_url = st.session_state.ai_base_url
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            elif not prompt.strip():
-                st.error("Prompt is empty.")
-            else:
-                with st.spinner("Contacting GPT-OSS..."):
-                    try:
-                        augmented_prompt = prompt
-                        extras = []
-                        if include_helpjuice:
-                            link = D.internal_helpjuice or "https://helpjuice.com"
-                            extras.append(
-                                f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
-                            )
-                        if include_restart:
-                            extras.append(
-                                "And recommend to the customer to restart the computer after the end of every shift."
-                            )
-                        if include_scan_time:
-                            extras.append(
-                                "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
-                            )
-                        if extras:
-                            augmented_prompt += "\n\n" + "\n".join(extras)
-                        if base_url:
-                            headers = {"Content-Type": "application/json"}
-                            if api_key:
-                                headers["Authorization"] = f"Bearer {api_key}"
-                            response = requests.post(
-                                base_url.rstrip("/") + "/chat/completions",
-                                headers=headers,
-                                json={
-                                    "model": model,
-                                    "messages": [
-                                        {"role": "system", "content": "You are a helpful assistant."},
-                                        {"role": "user", "content": augmented_prompt},
-                                    ],
-                                    "max_tokens": 600,
-                                    "temperature": 0.7,
-                                },
-                                timeout=30,
-                                verify=False,
-                            )
-                            if response.status_code == 200:
-                                result = response.json()
-                                email_text = result["choices"][0]["message"]["content"]
-                                st.success("Email generated!")
-                                st.text_area("Generated Email", email_text, height=300, key="generated_email")
-                            else:
-                                st.error(
-                                    f"API Error: {response.status_code}\n{response.text}"
-                                )
-                        else:
-                            from transformers import pipeline  # type: ignore
 
-                            generator = pipeline("text-generation", model="gpt2")
-                            result = generator(augmented_prompt, max_new_tokens=200)[0]["generated_text"]
-                            st.text_area(
-                                "Generated Email",
-                                result[len(augmented_prompt):].strip(),
-                                height=300,
-                                key="generated_email",
-                            )
-                            st.success("Email generated locally!")
-                    except Exception as e:  # pragma: no cover - just in case
-                        st.error(f"Request failed: {e}")
+        if show_generation_options:
+            include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
+            include_restart = st.checkbox("Restart the computer", key="api_restart")
+            include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
+            if st.button("Use GPT-OSS"):
+                api_key = st.session_state.openai_api_key
+                model = st.session_state.openai_model
+                base_url = st.session_state.ai_base_url
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                elif not prompt.strip():
+                    st.error("Prompt is empty.")
+                else:
+                    with st.spinner("Contacting GPT-OSS..."):
+                        try:
+                            augmented_prompt = prompt
+                            extras = []
+                            if include_helpjuice:
+                                link = D.internal_helpjuice or "https://helpjuice.com"
+                                extras.append(
+                                    f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
+                                )
+                            if include_restart:
+                                extras.append(
+                                    "And recommend to the customer to restart the computer after the end of every shift."
+                                )
+                            if include_scan_time:
+                                extras.append(
+                                    "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
+                                )
+                            if extras:
+                                augmented_prompt += "\n\n" + "\n".join(extras)
+                            if base_url:
+                                headers = {"Content-Type": "application/json"}
+                                if api_key:
+                                    headers["Authorization"] = f"Bearer {api_key}"
+                                response = requests.post(
+                                    base_url.rstrip("/") + "/chat/completions",
+                                    headers=headers,
+                                    json={
+                                        "model": model,
+                                        "messages": [
+                                            {"role": "system", "content": "You are a helpful assistant."},
+                                            {"role": "user", "content": augmented_prompt},
+                                        ],
+                                        "max_tokens": 600,
+                                        "temperature": 0.7,
+                                    },
+                                    timeout=30,
+                                    verify=False,
+                                )
+                                if response.status_code == 200:
+                                    result = response.json()
+                                    email_text = result["choices"][0]["message"]["content"]
+                                    st.success("Email generated!")
+                                    st.text_area(
+                                        "Generated Email",
+                                        email_text,
+                                        height=300,
+                                        key="generated_email",
+                                    )
+                                else:
+                                    st.error(
+                                        f"API Error: {response.status_code}\n{response.text}"
+                                    )
+                            else:
+                                from transformers import pipeline  # type: ignore
+
+                                generator = pipeline("text-generation", model="gpt2")
+                                result = generator(augmented_prompt, max_new_tokens=200)[0]["generated_text"]
+                                st.text_area(
+                                    "Generated Email",
+                                    result[len(augmented_prompt):].strip(),
+                                    height=300,
+                                    key="generated_email",
+                                )
+                                st.success("Email generated locally!")
+                        except Exception as e:  # pragma: no cover - just in case
+                            st.error(f"Request failed: {e}")
     
 # ================== HARDWARE ISSUES TAB =================
 if tab_hw:
