@@ -10,7 +10,7 @@ import json
 import os
 import zipfile
 from dataclasses import dataclass, asdict, fields, field
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import logging
 from pathlib import Path
 import re
@@ -150,7 +150,7 @@ MOTD_MESSAGES = [
     "Doing nothing is hard. You never know when you’re done!",
     "My idea of a perfect workday is one where no actual work happens.",
     "A positive attitude may not solve all your problems, but it will annoy enough people to make it worth the effort.",
-    "Overworked and underpaid—is that the modern dream?",
+    "Payday is my favorite holiday.",
     "Going to work for a large company is like getting on a train. Are you moving, or is the train just dragging you along?",
     "Today's plan: pretend the plan is going to plan.",
     "Our Wi-Fi spirit animal is a sloth on a coffee break.",
@@ -161,12 +161,79 @@ MOTD_MESSAGES = [
     "If the scanner sounds like a drill, maybe it wants to be one.",
     "Yes, we’ll fix it. No, the reseller won’t help.",
     "Your device is down. At least your gums aren’t.",
+    "If at first you don't succeed, try again after a snack break.",
+    "Meetings are just emails that forgot how to type.",
+    "Today’s forecast: 100% chance of not using all the tabs I opened.",
+    "We put the 'pro' in procrastinate.",
+    "If you need me, I'll be ignoring my email.",
+    "My work playlist is just the same song on repeat until I finish something.",
+    "Our password policy is 'please, just remember it this time.'",
+    "Coffee: because adulting is hard.",
+    "I like deadlines. I love the whooshing sound they make as they fly by.",
+    "If the computer asks 'Are you sure?' it's probably judging you.",
+    "A clean desk is a sign of a cluttered inbox.",
+    "Do not disturb. I'm already disturbed.",
+    "The best part of a conference call is pretending to care.",
+    "Running out of toner builds character.",
+    "Your keyboard called—it wants a vacation.",
+    "Turn it off and on again: the universal sign of wisdom.",
+    "Every bug you find is a feature waiting to be rebranded.",
+    "Team lunch? You mean collective escape.",
+    "I call it multitasking; my boss calls it 'Why is nothing done?'",
+    "The printer isn't broken; it's just resting its eyes.",
+    "Work hard, nap harder.",
+    "Let's agree to disagree and then do it my way.",
+    "My code never has bugs. It just develops random features.",
+    "We can't all be morning people. Some of us are barely people.",
+    "Your call is very important to us—please continue to hold until we care.",
+    "This computer runs on hopes, dreams, and frequent restarts.",
+    "If this meeting could be an email, the email could be nothing.",
+    "Auto-save: because your work deserves a second chance.",
+    "Be nice to the IT guy. He knows where the bodies are cached.",
+    "Sometimes the only decision I make is to add more creamer.",
+    "Ctrl+Z is my safety blanket.",
+    "Our office motto: 'It worked yesterday.'",
+    "Powered by caffeine and sheer confusion.",
+    "Every day is a good day to stay in your pajamas.",
+    "We don’t make mistakes; we create learning opportunities.",
+    "Another day, another spreadsheet nobody understands.",
+    "I thought I wanted a career; turns out I just wanted a paycheck.",
+    "Productivity hack: do it tomorrow.",
+    "Error 404: Motivation not found.",
+    "My inbox has trust issues.",
+    "I’m not bossy—I just have better ideas.",
+    "Proofreading is for the weak.",
+    "You’re not stuck in traffic; you are traffic.",
+    "Success is 1% inspiration and 99% avoiding social media.",
+    "Nothing says 'urgent' like three exclamation marks.",
+    "Please limit all complaints to three sentences and one sigh.",
+    "I only check my email to mark everything as unread again.",
+    "Having a case of the Mondays on a Wednesday.",
+    "Silence is golden—unless you have kids, then it's suspicious.",
+    "The only thing scarier than Monday is the printer jam.",
 ]
 
 
 def get_message_of_the_day() -> str:
-    today = date.today().isoformat()
-    rng = random.Random(today)
+    """Return a pseudo-random MOTD that changes twice daily.
+
+    The message rotates at 11:59 AM and 11:59 PM local time by seeding a
+    deterministic RNG with the current date and half-day period.
+    """
+    now = datetime.now()
+    minute_of_day = now.hour * 60 + now.minute
+    if minute_of_day < 11 * 60 + 59:
+        effective_date = now.date()
+        period = "AM"
+    elif minute_of_day < 23 * 60 + 59:
+        effective_date = now.date()
+        period = "PM"
+    else:
+        effective_date = (now + timedelta(days=1)).date()
+        period = "AM"
+
+    seed = f"{effective_date.isoformat()}-{period}"
+    rng = random.Random(seed)
     return rng.choice(MOTD_MESSAGES)
 
 # ─────────────────────────── CONFIG ────────────────────────────
