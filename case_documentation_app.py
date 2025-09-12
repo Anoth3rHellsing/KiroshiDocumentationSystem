@@ -1799,7 +1799,6 @@ Wishing you the best again!"""
                         category_dataframe("ESCALATION 2ND LINE", D, cat_map),
                         use_container_width=True,
                     )
-    
                 if st.session_state.second_line_mode:
                     st.markdown("---")
                     st.subheader("Escalation 3rd line")
