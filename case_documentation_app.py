@@ -260,7 +260,29 @@ MOTD_MESSAGES = [
     # Technoblade
     "Technoblade never dies.",
     "Blood for the Blood God.",
-    "Not even close, baby! Technoblade never dies.",
+    "Not even close, baby!",
+    "Fear is the greatest motivator.",
+    (
+        "Those that have treated me with kindness, I will repay that kindness tenfold. "
+        "And those that treat me with injustice... I shall repay that injustice a thousand times over."
+    ),
+    "SUBSCRIBE TO TECHNOBLADE!",
+    "I am a ninja.",
+    "Imagine dating a woman, total simp move, bro…",
+    "Some people say, what is dead may never die. But those guys are a bunch of idiots!",
+    (
+        "People that say that violence is not the answer, I think they’re just not that "
+        "good at violence."
+    ),
+    "I don't just break the rules, I make them.",
+    "Victory comes to those who refuse to give up.",
+    "Strategy is the key to victory.",
+    "Persistence is the key to success.",
+    (
+        "Oh man, the village got trashed! I’d hate to be the guy in charge of cleaning "
+        "all this up… Wait a minute."
+    ),
+    "I went outside once and the sun hurt my eyes. 0/10 would not try again.",
     # Sun Tzu
     "Appear weak when you are strong, and strong when you are weak.",
     "If you know the enemy and know yourself, you need not fear the result of a hundred battles.",
