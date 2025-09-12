@@ -1437,6 +1437,7 @@ def render_case_ui(case_idx: int):
                         "Replacement Wired Scanner Setup",
                         "Replacement Move+ Closure",
                         "Callback Email",
+                        "Dell Escalation Email",
                     ]
                 )
             email_choices.append("Custom Request")
@@ -1897,6 +1898,66 @@ End with: We look forward to your reply."""
                         )
                     if extras:
                         prompt += "\n\n" + "\n".join(extras)
+            elif email_type == "Dell Escalation Email":
+                st.markdown("#### Dell escalation options")
+                ext["issue_start_date"] = st.text_input(
+                    "Issue start date", ext.get("issue_start_date", "")
+                )
+                company = D.company_name or "(Company Name)"
+                issue_desc = D.brief_description or "(Issue Description)"
+                issue_start = ext["issue_start_date"] or "(Issue Start Date)"
+                case_no = D.case_id or "(Case ID)"
+                service_tag = D.service_tag or "(Service Tag)"
+                pc_model = D.pc_model or ""
+                bios = D.bios_version or ""
+                windows = D.windows_version or ""
+                email_text = f"""Hello Dell Support team,
+
+The end-user from {company} has been reporting {issue_desc}, which has been happening since {issue_start}. Could you please assist this customer with a Dell Technician on site?
+Case ID {case_no}
+PC service tag {service_tag}
+Evidence attached to this email.
+
+Computer information:
+
+- Type of PC: {pc_model}
+- BIOS Version: {bios}
+- Windows Version: {windows}
+- Dell Command Updates:
+- Power Options setup:
+- Dell Optimizer setup:
+- Intel Processor Power Management Utility installed?:
+- CPU Speed / Is CPU throttling?:
+- GPU Usage % (Integrated):
+- GPU Usage % (Dedicated):
+- CPU Utilization %:
+- Benchmark used and results:
+- Can it launch simulation on Ultra Resolution? (If needed):
+- Which GPU driver versions were tested?:
+- Reliability Monitor and Event Viewer results:
+- Dell Diagnosis test results (ePSA tests included):
+- Has Windows been reimaged?:
+
+Clinic's contact information:
+
+- Address 1
+- Address 2 (Suite, etc.)
+- City
+- State
+- Zip Code
+- Full name of person responsible for receiving the equipment
+- Phone number
+- Email address
+- Clinic name
+
+Thank you in advance,
+"""
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=600,
+                    key=widget_key("generated_email", case_idx),
+                )
 
             elif email_type == "Custom Request":
                 st.markdown("#### Custom email options")
@@ -1962,6 +2023,7 @@ End with: We look forward to your reply."""
                 "FedEx Tracking Email",
                 "Replacement Wired Scanner Setup",
                 "Replacement Move+ Closure",
+                "Dell Escalation Email",
             }
             if email_type not in static_templates:
                 st.text_area(
