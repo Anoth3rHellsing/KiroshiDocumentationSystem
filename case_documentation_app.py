@@ -223,28 +223,49 @@ MOTD_MESSAGES = [
     "Having a case of the Mondays on a Wednesday.",
     "Silence is golden—unless you have kids, then it's suspicious.",
     "The only thing scarier than Monday is the printer jam.",
+    "I am looking for an honest man.",
+    "He has the most who is most content with the least.",
+    "In a rich man's house there is no place to spit but his face.",
+    "We have two ears and one tongue so that we would listen more and talk less.",
+    "It is the privilege of the gods to want nothing, and of godlike men to want little.",
+    "Dogs and philosophers do the greatest good and get the fewest rewards.",
+    "I threw my cup away when I saw a child drinking from his hands.",
+    "Blushing is the color of virtue.",
+    "The foundation of every state is the education of its youth.",
+    "Man is the most intelligent of the animals—and the most silly.",
+    "Other dogs bite only their enemies; I bite also my friends to save them.",
+    "A child has beaten me in plainness of living.",
+    "The great thieves are leading away the little thief.",
+    "It takes a wise man to discover a wise man.",
+    "To get practice in being refused.",
+    "Good men nowhere, but good boys at Sparta.",
+    "I wish it were as easy to banish hunger by rubbing my belly.",
+    "Nay, I defeat men, you defeat slaves.",
+    "Come, see that you obey orders.",
+    "Stand a little out of my sunshine.",
+    "It is the mark of an educated mind to be able to entertain a thought without accepting it.",
+    "We are what we repeatedly do. Excellence, then, is not an act, but a habit.",
+    "Well begun is half done.",
+    "Pleasure in the job puts perfection in the work.",
+    "The whole is greater than the sum of its parts.",
+    "Happiness depends upon ourselves.",
+    "Patience is bitter, but its fruit is sweet.",
+    "Hope is a waking dream.",
+    "Quality is not an act, it is a habit.",
+    "The more you know, the more you realize you don't know.",
+    "Educating the mind without educating the heart is no education at all.",
+    "Knowing yourself is the beginning of all wisdom.",
 ]
 
 
 def get_message_of_the_day() -> str:
-    """Return a pseudo-random MOTD that changes twice daily.
+    """Return a pseudo-random MOTD that changes hourly.
 
-    The message rotates at 11:59 AM and 11:59 PM local time by seeding a
-    deterministic RNG with the current date and half-day period.
+    The message rotates every hour by seeding a deterministic RNG with the
+    current date and hour so everyone sees the same phrase within that period.
     """
     now = datetime.now()
-    minute_of_day = now.hour * 60 + now.minute
-    if minute_of_day < 11 * 60 + 59:
-        effective_date = now.date()
-        period = "AM"
-    elif minute_of_day < 23 * 60 + 59:
-        effective_date = now.date()
-        period = "PM"
-    else:
-        effective_date = (now + timedelta(days=1)).date()
-        period = "AM"
-
-    seed = f"{effective_date.isoformat()}-{period}"
+    seed = f"{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
     return rng.choice(MOTD_MESSAGES)
 
