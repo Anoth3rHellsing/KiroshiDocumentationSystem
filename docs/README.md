@@ -24,10 +24,11 @@ Generates prompts for several e‑mail templates:
 - Broken scanner questionnaire
 - Broken tip questionnaire
 - Callback email
+- Refurbished scanner/Move+ shipping email (FedEx tracking)
 - Custom request email
 - Dell escalation email for second-line support (confirm contact details with the customer)
 
-See `dell_escalation_email.md` for the full template and required information.
+See `dell_escalation_email.md` and `refurbished_scanner_fedex_email.md` for the full templates and required information.
 
 The generated prompt can be copied or sent directly to GPT-OSS to produce the full e‑mail (feature not yet implemented). All templates automatically begin with the customer's name, company, case number, and a short description of the issue for consistent recaps.
 The opening lines match the standard EC format:

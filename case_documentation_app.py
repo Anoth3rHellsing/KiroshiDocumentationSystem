@@ -1357,9 +1357,96 @@ def render_case_ui(case_idx: int):
             auto_text_input("Phone number", "phone_number", container=c2)
             auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
             auto_text_input(
-                "TeamViewer password",
-                "teamviewer_password",
-                container=c2,
+                "Patterson legacy #",
+                "patterson",
+            )
+        else:
+            D.patterson = "N/A"
+            autosave()
+        if st.session_state.second_line_mode:
+            st.text_input(
+                "Straumann ticket #",
+                D.straumann,
+                disabled=True,
+                key="straumann_tab",
+            )
+        else:
+            D.straumann = "N/A"
+            autosave()
+        st.markdown("#### AX Coordinators Table")
+        st.dataframe(
+            category_dataframe("AX COORDINATORS", D, cat_map),
+            use_container_width=True,
+        )
+        st.markdown("---")
+        st.subheader("Escalation 2nd line")
+        D.esc_name = D.caller_name
+        st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
+        D.esc_ph = D.phone_number
+        st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
+        D.esc_email = D.email
+        st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
+        st.markdown("#### Escalation 2nd line Table")
+        st.dataframe(
+            category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+            use_container_width=True,
+        )
+
+        if st.session_state.second_line_mode:
+            st.markdown("---")
+            st.subheader("Escalation 3rd line")
+            auto_text_area("How to reproduce it", "repro_steps", height=100)
+            msg = build_third_line_escalation(D)
+            st.text_area("Escalation message", msg, height=400)
+
+# ================== EMAIL TAB =================
+if tab_email:
+    with tab_email:
+        st.subheader("Email Prompt Generator")
+        email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
+        if st.session_state.second_line_mode:
+            email_choices.extend(
+                ["Callback Email", "Refurbished Shipment", "Dell Escalation"]
+            )
+        email_choices.append("Custom Request")
+        email_type = st.selectbox(
+            "Select email template",
+            email_choices,
+            index=
+            email_choices.index(st.session_state.email_type)
+            if st.session_state.email_type in email_choices
+            else 0,
+        )
+        st.session_state.email_type = email_type
+        ext = st.session_state.email_extra
+
+        prompt = ""
+        prompt_label = "ChatGPT prompt (copy & paste)"
+        show_generation_options = True
+        if email_type == "Recap (Customer)":
+            intro = build_email_intro(D)
+            steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
+            prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
+    motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
+    Start the email exactly with the following lines (do not paraphrase or omit them):
+    {intro}
+    Include: Case ID, a brief summary of what happened, and the solution.
+    Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
+    Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
+
+    Return only the email body.
+
+    DATA:
+    Case ID: {D.case_id}
+    Summary: {D.brief_description}
+    Steps taken:
+    {steps_summary}
+    Solution: {D.solution}
+    Survey link: {D.survey_link}"""
+        elif email_type == "Broken Scanner":
+            st.markdown("#### Incident questionnaire (prefill if known)")
+            ext["experience"] = st.text_input(
+                "Experience level (new / experienced)", ext.get("experience", "")
             )
             st.subheader("Internal notes")
             auto_text_input("Helpjuice link", "internal_helpjuice")
@@ -1528,18 +1615,75 @@ def render_case_ui(case_idx: int):
                 D.best_time not in ("", "ASAP"),
                 key=widget_key("best_cb", case_idx),
             )
-            if best_cb:
-                auto_text_input(
-                    "Best call-back time + timezone",
-                    "best_time",
+    
+            intro = build_email_intro(D)
+            prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
+    Start the email with:
+    {intro}
+    List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
+    
+    1. Times autoclaved – {ext['times_autoclaved']}
+    2. Bath number – {ext['bath_number']}
+    3. Autoclave model – {ext['model']}
+    4. Program used – {ext['program']}
+    5. Autoclaved in airtight pouch? – {ext['airtight']}
+    6. Other info – {ext['other']}
+    """
+
+        elif email_type == "Refurbished Shipment":
+            prompt_label = "Email template (copy & paste)"
+            show_generation_options = False
+            st.markdown("#### Shipment details")
+            ext["consultant_name"] = st.text_input(
+                "Consultant full name", ext.get("consultant_name", "")
+            )
+            ext["tracking_number"] = st.text_input(
+                "FedEx tracking number", ext.get("tracking_number", "")
+            )
+            ext["device_type"] = st.text_input(
+                "Device type (scanner / Move+)", ext.get("device_type", "")
+            )
+            template_text = (
+                Path("docs/refurbished_scanner_fedex_email.md").read_text(
+                    encoding="utf-8"
                 )
-            else:
-                D.best_time = "ASAP"
-                autosave()
-            pat_cb = st.checkbox(
-                "Patterson legacy #",
-                D.patterson not in ("", "N/A"),
-                key=widget_key("pat_cb", case_idx),
+            )
+            match = re.search(r"```\n(.*)```", template_text, re.DOTALL)
+            base_template = match.group(1).strip() if match else ""
+            prompt = base_template.format(
+                customer_name=D.caller_name or "(customer)",
+                clinic_name=D.company_name or "(clinic)",
+                consultant_full_name=ext["consultant_name"] or "(consultant)",
+                case_number=D.case_id or "(case)",
+                issue_description=D.brief_description or "(issue)",
+                fedex_tracking_number=ext["tracking_number"] or "(tracking)",
+                device_type=ext["device_type"] or "(device)",
+            )
+
+        elif email_type == "Dell Escalation":
+            prompt_label = "Email template (copy & paste)"
+            show_generation_options = False
+            st.markdown("#### Escalation details")
+            ext["issue_start_date"] = st.text_input(
+                "Issue start date", ext.get("issue_start_date", "")
+            )
+            template_text = (
+                Path("docs/dell_escalation_email.md").read_text(encoding="utf-8")
+            )
+            match = re.search(r"```\n(.*)```", template_text, re.DOTALL)
+            base_template = match.group(1).strip() if match else ""
+            prompt = base_template.format(
+                company_name=D.company_name or "(company)",
+                issue_description=D.brief_description or "(issue)",
+                issue_start_date=ext["issue_start_date"] or "(date)",
+                case_id=D.case_id or "(case)",
+                service_tag=D.service_tag or "(service tag)",
+            )
+
+        elif email_type == "Custom Request":
+            st.markdown("#### Custom email options")
+            ext["reason"] = st.text_input(
+                "Reason for contacting the customer", ext.get("reason", "")
             )
             if pat_cb:
                 auto_text_input(
@@ -1846,6 +1990,47 @@ def render_case_ui(case_idx: int):
                 elif not prompt.strip():
                     st.error("Prompt is empty.")
                 else:
+                    base_request = (
+                        "provide us with TeamViewer access so we may connect directly to the computer."
+                    )
+                prompt = (
+                    f"Draft a polite email asking the customer to {base_request}\n"
+                    f"Start the email with:\n{intro}\n"
+                    "End with: We look forward to your reply."
+                )
+                extras = []
+                if st.session_state.callback_contact:
+                    extras.append("Ask them to provide their contact information.")
+                if st.session_state.callback_clarify:
+                    extras.append("Ask them to clarify what happened.")
+                if (
+                    st.session_state.callback_remote
+                    and st.session_state.callback_remote_text.strip()
+                ):
+                    extras.append(
+                        "Include the following additional details:\n"
+                        + st.session_state.callback_remote_text.strip()
+                    )
+                if extras:
+                    prompt += "\n\n" + "\n".join(extras)
+    
+        st.session_state.email_extra = ext
+        st.text_area(prompt_label, prompt, height=300, key="api_prompt_area")
+        st.session_state["last_prompt"] = prompt
+
+        if show_generation_options:
+            include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
+            include_restart = st.checkbox("Restart the computer", key="api_restart")
+            include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
+            if st.button("Use GPT-OSS"):
+                api_key = st.session_state.openai_api_key
+                model = st.session_state.openai_model
+                base_url = st.session_state.ai_base_url
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                elif not prompt.strip():
+                    st.error("Prompt is empty.")
+                else:
                     with st.spinner("Contacting GPT-OSS..."):
                         try:
                             augmented_prompt = prompt
@@ -1892,7 +2077,7 @@ def render_case_ui(case_idx: int):
                                         "Generated Email",
                                         email_text,
                                         height=300,
-                                        key=widget_key("generated_email", case_idx),
+                                        key="generated_email",
                                     )
                                 else:
                                     st.error(
@@ -1907,41 +2092,24 @@ def render_case_ui(case_idx: int):
                                     "Generated Email",
                                     result[len(augmented_prompt):].strip(),
                                     height=300,
-                                    key=widget_key("generated_email", case_idx),
+                                    key="generated_email",
                                 )
                                 st.success("Email generated locally!")
                         except Exception as e:  # pragma: no cover - just in case
                             st.error(f"Request failed: {e}")
-        
-    # ================== HARDWARE ISSUES TAB =================
-    if tab_hw:
-        with tab_hw:
-            st.subheader("PC Hardware Issue")
-            col_pc1, col_pc2 = st.columns(2)
-            auto_text_input("Service Tag", "service_tag", container=col_pc1)
-            auto_text_input("PC Model", "pc_model", container=col_pc2)
-            auto_text_input("Windows version", "windows_version", container=col_pc1)
-            auto_text_input("BIOS version", "bios_version", container=col_pc2)
-            auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
-            auto_text_input("Processor", "processor", container=col_pc2)
-            auto_text_input("Warranty", "warranty")
-            st.dataframe(
-                category_dataframe("PC HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
-            )
-
-        st.markdown("---")
-        st.subheader("Scanner Hardware Issue")
-        auto_text_input("Scanner S/N", "scanner_sn")
-        auto_text_input("Base S/N", "base_sn")
-        auto_text_input("TRIOS MODULE Version", "trios_module_version")
-        ht_key = widget_key("hardware_test", case_idx)
-        st.checkbox(
-            "Hardware test performed?",
-            value=st.session_state.get(ht_key, False),
-            key=ht_key,
-            on_change=_update_field,
-            args=("hardware_test",),
-        )
+    
+# ================== HARDWARE ISSUES TAB =================
+if tab_hw:
+    with tab_hw:
+        st.subheader("PC Hardware Issue")
+        col_pc1, col_pc2 = st.columns(2)
+        auto_text_input("Service Tag", "service_tag", container=col_pc1)
+        auto_text_input("PC Model", "pc_model", container=col_pc2)
+        auto_text_input("Windows version", "windows_version", container=col_pc1)
+        auto_text_input("BIOS version", "bios_version", container=col_pc2)
+        auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
+        auto_text_input("Processor", "processor", container=col_pc2)
+        auto_text_input("Warranty", "warranty")
         st.dataframe(
             category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
         )
