@@ -1380,15 +1380,15 @@ def render_case_ui(case_idx: int):
                 category_dataframe("AX COORDINATORS", D, cat_map),
                 use_container_width=True,
             )
-        if "ESCALATION 2ND LINE" in cat_map:
             st.markdown("---")
-            st.subheader("Escalation 2nd line")
-            D.esc_name = D.caller_name
-            st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
-            D.esc_ph = D.phone_number
-            st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
-            D.esc_email = D.email
-            st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
+        st.subheader("Escalation 2nd line")
+        D.esc_name = D.caller_name
+        st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
+        D.esc_ph = D.phone_number
+        st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
+        D.esc_email = D.email
+        st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
+        if "ESCALATION 2ND LINE" in cat_map:
             st.markdown("#### Escalation 2nd line Table")
             st.dataframe(
                 category_dataframe("ESCALATION 2ND LINE", D, cat_map),
@@ -1625,18 +1625,38 @@ def render_case_ui(case_idx: int):
                     key=widget_key("best_cb", case_idx),
                 )
 
+                st.markdown("#### Damaged tip questionnaire")
+                ext["times_autoclaved"] = st.text_input(
+                    "Times autoclaved", ext.get("times_autoclaved", "")
+                )
+                ext["bath_number"] = st.text_input(
+                    "Bath number", ext.get("bath_number", "")
+                )
+                ext["model"] = st.text_input(
+                    "Autoclave model", ext.get("model", "")
+                )
+                ext["program"] = st.text_input(
+                    "Program used", ext.get("program", "")
+                )
+                ext["airtight"] = st.text_input(
+                    "Autoclaved in airtight pouch?", ext.get("airtight", "")
+                )
+                ext["other"] = st.text_input(
+                    "Other info", ext.get("other", "")
+                )
+
                 intro = build_email_intro(D)
                 prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
 Start the email with:
 {intro}
 List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
 
-1. Times autoclaved – {ext['times_autoclaved']}
-2. Bath number – {ext['bath_number']}
-3. Autoclave model – {ext['model']}
-4. Program used – {ext['program']}
-5. Autoclaved in airtight pouch? – {ext['airtight']}
-6. Other info – {ext['other']}
+1. Times autoclaved – {ext.get('times_autoclaved', '')}
+2. Bath number – {ext.get('bath_number', '')}
+3. Autoclave model – {ext.get('model', '')}
+4. Program used – {ext.get('program', '')}
+5. Autoclaved in airtight pouch? – {ext.get('airtight', '')}
+6. Other info – {ext.get('other', '')}
 """
 
             elif email_type == "FedEx Tracking Email":
