@@ -1406,7 +1406,12 @@ if tab_email:
         email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
         if st.session_state.second_line_mode:
             email_choices.extend(
-                ["Callback Email", "Refurbished Shipment", "Dell Escalation"]
+                [
+                    "FedEx Tracking Email",
+                    "Replacement Wired Scanner Setup",
+                    "Replacement Move+ Closure",
+                    "Callback Email",
+                ]
             )
         email_choices.append("Custom Request")
         email_type = st.selectbox(
@@ -1629,56 +1634,113 @@ if tab_email:
     5. Autoclaved in airtight pouch? – {ext['airtight']}
     6. Other info – {ext['other']}
     """
-
-        elif email_type == "Refurbished Shipment":
-            prompt_label = "Email template (copy & paste)"
-            show_generation_options = False
-            st.markdown("#### Shipment details")
-            ext["consultant_name"] = st.text_input(
-                "Consultant full name", ext.get("consultant_name", "")
+    
+        elif email_type == "FedEx Tracking Email":
+            st.markdown("#### FedEx tracking options")
+            ext["agent_name"] = st.text_input(
+                "Agent name", ext.get("agent_name", "")
+            )
+            ext["device_type"] = st.text_input(
+                "Device type (scanner or Move+)", ext.get("device_type", "")
             )
             ext["tracking_number"] = st.text_input(
                 "FedEx tracking number", ext.get("tracking_number", "")
             )
-            ext["device_type"] = st.text_input(
-                "Device type (scanner / Move+)", ext.get("device_type", "")
-            )
-            template_text = (
-                Path("docs/refurbished_scanner_fedex_email.md").read_text(
-                    encoding="utf-8"
-                )
-            )
-            match = re.search(r"```\n(.*)```", template_text, re.DOTALL)
-            base_template = match.group(1).strip() if match else ""
-            prompt = base_template.format(
-                customer_name=D.caller_name or "(customer)",
-                clinic_name=D.company_name or "(clinic)",
-                consultant_full_name=ext["consultant_name"] or "(consultant)",
-                case_number=D.case_id or "(case)",
-                issue_description=D.brief_description or "(issue)",
-                fedex_tracking_number=ext["tracking_number"] or "(tracking)",
-                device_type=ext["device_type"] or "(device)",
-            )
+            customer = D.caller_name or "(Caller Name)"
+            company = D.company_name or "(Company Name)"
+            agent = ext["agent_name"] or "(Agent Name)"
+            case_no = D.case_id or "(Case ID)"
+            issue = D.brief_description or "(Issue Description)"
+            device = ext["device_type"] or "device"
+            tracking = ext["tracking_number"] or "(Tracking Number)"
+            email_text = f"""Dear {customer} from {company},
 
-        elif email_type == "Dell Escalation":
-            prompt_label = "Email template (copy & paste)"
-            show_generation_options = False
-            st.markdown("#### Escalation details")
-            ext["issue_start_date"] = st.text_input(
-                "Issue start date", ext.get("issue_start_date", "")
+I hope you are having an excellent day! This is {agent} from 3Shape support regarding your case {case_no} about {issue}.
+
+I am more than happy to inform you that we have created a ticket to send you a refurbished unit through FedEx which you can track by using the following tracking number: {tracking}.
+
+Remember that this process will not have a cost.
+
+Please also remember to send us back the faulty {device} using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days of your receipt of the new device, your TRIOS licenses will expire.
+
+Wishing you the best again!"""
+            st.text_area("Email", email_text, height=300, key="generated_email")
+
+        elif email_type == "Replacement Wired Scanner Setup":
+            st.markdown("#### Replacement scanner options")
+            ext["agent_name"] = st.text_input(
+                "Agent name", ext.get("agent_name", "")
             )
-            template_text = (
-                Path("docs/dell_escalation_email.md").read_text(encoding="utf-8")
+            ext["fedex_pickup_link"] = st.text_input(
+                "FedEx pickup link",
+                ext.get(
+                    "fedex_pickup_link",
+                    "https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html",
+                ),
             )
-            match = re.search(r"```\n(.*)```", template_text, re.DOTALL)
-            base_template = match.group(1).strip() if match else ""
-            prompt = base_template.format(
-                company_name=D.company_name or "(company)",
-                issue_description=D.brief_description or "(issue)",
-                issue_start_date=ext["issue_start_date"] or "(date)",
-                case_id=D.case_id or "(case)",
-                service_tag=D.service_tag or "(service tag)",
+            customer = D.caller_name or "(Caller Name)"
+            company = D.company_name or "(Company Name)"
+            agent = ext["agent_name"] or "(Agent Name)"
+            case_no = D.case_id or "(Case ID)"
+            survey = D.survey_link or "(Survey URL)"
+            pickup = ext["fedex_pickup_link"] or "(FedEx pickup link)"
+            email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case {case_no}.
+
+I am more than happy to inform you that your issue has been resolved. According to the tracking information provided from FedEx, the refurbished scanner was already received by the office.
+
+Regarding the installation of the scanner provided, please follow these steps:
+
+1. Open 3Shape UNITE (please remember to log in with your user credentials).
+2. In the upper section of the screen, look for the MORE icon and click on it.
+3. In the menu that appears, click Settings (gear icon).
+4. On the left menu, click TRIOS (scanner/wand icon).
+5. In the submenu, click Scanner Management.
+6. Click Add new scanner (either the large white tile in the middle or the button in the upper-right corner).
+7. Select Wired scanner.
+8. Connect the scanner as displayed on screen. Remember: the Pod/stand of the scanner must be connected from both sides, and the scanner itself must also be connected to the PC.
+9. The scanner will then be recognized by the app and will be ready to work.
+
+Thank you so much for letting me assist you. I would really appreciate it if you could provide feedback regarding my service today: {survey}
+
+In case you need further assistance or have any doubts, please do not hesitate to contact our technical support team.
+
+Please remember to send us back the faulty scanner using the shipping label included in the box. If we do not receive the faulty scanner within 32 days from when we sent the replacement device, your TRIOS licenses will expire.
+
+You may schedule a pickup with FedEx here: {pickup}
+
+Wishing you the best again!"""
+            st.text_area("Email", email_text, height=400, key="generated_email")
+
+        elif email_type == "Replacement Move+ Closure":
+            st.markdown("#### Replacement Move+ options")
+            ext["agent_name"] = st.text_input(
+                "Agent name", ext.get("agent_name", "")
             )
+            customer = D.caller_name or "(Caller Name)"
+            company = D.company_name or "(Company Name)"
+            agent = ext["agent_name"] or "(Agent Name)"
+            case_no = D.case_id or "(Case ID)"
+            survey = D.survey_link or "(Survey URL)"
+            email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case: {case_no}.
+
+I am more than happy to inform you that your issue has been resolved. According to the tracking information provided from FedEx, the refurbished device was already received by the office.
+
+Thank you so much for letting me assist you. I would really appreciate if you can provide me with some feedback regarding my service today in the next survey.
+
+In case you need further assistance or have any doubts, please do not hesitate to contact our technical support team.
+
+Please remember to send us back the faulty scanner using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days since we sent the device, your TRIOS licenses will expire. You may schedule a pickup with FedEx by following the next link: https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html
+
+We sincerely appreciate your patience and understanding throughout this process. Also, if you have the time, it would be helpful if you could complete our Customer Experience Survey so that we know how our assistance and services were for you.
+
+Do remember that 10 would be the highest score to rate the following survey: {survey}
+
+Wishing you the best again!"""
+            st.text_area("Email", email_text, height=400, key="generated_email")
 
         elif email_type == "Custom Request":
             st.markdown("#### Custom email options")
@@ -1981,17 +2043,37 @@ if tab_email:
             include_scan_time = st.checkbox(
                 "Scan time warning", key=widget_key("api_scan_time", case_idx)
             )
-            if st.button("Use GPT-OSS", key=widget_key("use_gpt_oss", case_idx)):
-                api_key = st.session_state.openai_api_key
-                model = st.session_state.openai_model
-                base_url = st.session_state.ai_base_url
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                elif not prompt.strip():
-                    st.error("Prompt is empty.")
+            if st.session_state.callback_address:
+                st.session_state.callback_equipment = st.text_input(
+                    "Equipment to replace",
+                    st.session_state.callback_equipment,
+                )
+    
+            intro = build_email_intro(D)
+            if st.session_state.callback_address:
+                equip = st.session_state.callback_equipment or "(equipment)"
+                prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
+    Start the email with:
+    {intro}
+    List the following fields for them to fill in:
+    Address (include suite if any)
+    City
+    State
+    Zip Code/Postal Code
+    Full name of the recipient
+    Best phone number to contact the recipient
+    Email to contact the recipient
+    
+    End with: We look forward to your reply."""
+            else:
+                if st.session_state.callback_needed:
+                    base_request = (
+                        "provide us with the best time for a callback, including your time zone, "
+                        "or alternatively the TeamViewer ID and password so we may connect directly to the computer."
+                    )
                 else:
                     base_request = (
-                        "provide us with TeamViewer access so we may connect directly to the computer."
+                        "provide us with the TeamViewer ID and password so we may connect directly to the computer."
                     )
                 prompt = (
                     f"Draft a polite email asking the customer to {base_request}\n"
@@ -2015,10 +2097,20 @@ if tab_email:
                     prompt += "\n\n" + "\n".join(extras)
     
         st.session_state.email_extra = ext
-        st.text_area(prompt_label, prompt, height=300, key="api_prompt_area")
-        st.session_state["last_prompt"] = prompt
+        static_templates = {
+            "FedEx Tracking Email",
+            "Replacement Wired Scanner Setup",
+            "Replacement Move+ Closure",
+        }
+        if email_type not in static_templates:
+            st.text_area(
+                "ChatGPT prompt (copy & paste)",
+                prompt,
+                height=300,
+                key="api_prompt_area",
+            )
+            st.session_state["last_prompt"] = prompt
 
-        if show_generation_options:
             include_helpjuice = st.checkbox("Helpjuice tutorial", key="api_helpjuice")
             include_restart = st.checkbox("Restart the computer", key="api_restart")
             include_scan_time = st.checkbox("Scan time warning", key="api_scan_time")
