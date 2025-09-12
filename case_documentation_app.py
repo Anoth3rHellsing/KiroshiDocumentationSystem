@@ -36,7 +36,13 @@ from reportlab.platypus import (
 )
 import requests
 import urllib3
-import pyautogui
+
+try:  # pyautogui may require a GUI environment
+    import pyautogui  # type: ignore
+    PYAUTOGUI_AVAILABLE = True
+except Exception:  # pragma: no cover - fallback when display unavailable
+    pyautogui = None
+    PYAUTOGUI_AVAILABLE = False
 from aatom_chat import (
     load_memory,
     save_memory,
@@ -2238,9 +2244,11 @@ End with: We look forward to your reply."""
         "Screenshot name", key=widget_key("screenshot_name", case_idx)
     )
     if st.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
-        if screenshot_name:
+        if not PYAUTOGUI_AVAILABLE:
+            st.error("Screenshot capture is unavailable in this environment.")
+        elif screenshot_name:
             safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
-            img = pyautogui.screenshot()
+            img = pyautogui.screenshot()  # type: ignore[union-attr]
             buf = io.BytesIO()
             img.save(buf, format="PNG")
             buf.seek(0)
