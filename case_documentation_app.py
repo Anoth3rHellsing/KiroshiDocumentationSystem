@@ -18,6 +18,7 @@ import base64
 import random
 import subprocess
 import sys
+from collections.abc import Iterable, Mapping
 
 import pandas as pd
 import altair as alt
@@ -822,11 +823,13 @@ Finally, you can remind the person to add on an attached notepad or over Teams t
 """
 
 
-def category_dataframe(cat: str, d: CaseData, cat_map) -> pd.DataFrame:
+def category_dataframe(
+    cat: str, d: CaseData, cat_map: Mapping[str, Iterable[str]] | None
+) -> pd.DataFrame:
     """Return a DataFrame with human readable field names for a category."""
     rows = []
-    for fld in cat_map[cat]:
-        value = getattr(d, fld)
+    for fld in (cat_map or {}).get(cat, []):
+        value = getattr(d, fld, "N/A")
         if isinstance(value, bool):
             value = "Yes" if value else "No"
         rows.append({"Field": fld.replace("_", " ").title(), "Value": value})
@@ -1374,12 +1377,13 @@ def render_case_ui(case_idx: int):
         else:
             D.straumann = "N/A"
             autosave()
-        st.markdown("#### AX Coordinators Table")
-        st.dataframe(
-            category_dataframe("AX COORDINATORS", D, cat_map),
-            use_container_width=True,
-        )
-        st.markdown("---")
+        if "AX COORDINATORS" in cat_map:
+            st.markdown("#### AX Coordinators Table")
+            st.dataframe(
+                category_dataframe("AX COORDINATORS", D, cat_map),
+                use_container_width=True,
+            )
+            st.markdown("---")
         st.subheader("Escalation 2nd line")
         D.esc_name = D.caller_name
         st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
@@ -1387,11 +1391,12 @@ def render_case_ui(case_idx: int):
         st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
         D.esc_email = D.email
         st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
-        st.markdown("#### Escalation 2nd line Table")
-        st.dataframe(
-            category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-            use_container_width=True,
-        )
+        if "ESCALATION 2ND LINE" in cat_map:
+            st.markdown("#### Escalation 2nd line Table")
+            st.dataframe(
+                category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                use_container_width=True,
+            )
 
         if st.session_state.second_line_mode:
             st.markdown("---")
@@ -1623,18 +1628,38 @@ def render_case_ui(case_idx: int):
                     key=widget_key("best_cb", case_idx),
                 )
 
+                st.markdown("#### Damaged tip questionnaire")
+                ext["times_autoclaved"] = st.text_input(
+                    "Times autoclaved", ext.get("times_autoclaved", "")
+                )
+                ext["bath_number"] = st.text_input(
+                    "Bath number", ext.get("bath_number", "")
+                )
+                ext["model"] = st.text_input(
+                    "Autoclave model", ext.get("model", "")
+                )
+                ext["program"] = st.text_input(
+                    "Program used", ext.get("program", "")
+                )
+                ext["airtight"] = st.text_input(
+                    "Autoclaved in airtight pouch?", ext.get("airtight", "")
+                )
+                ext["other"] = st.text_input(
+                    "Other info", ext.get("other", "")
+                )
+
                 intro = build_email_intro(D)
                 prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
 Start the email with:
 {intro}
 List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
 
-1. Times autoclaved – {ext['times_autoclaved']}
-2. Bath number – {ext['bath_number']}
-3. Autoclave model – {ext['model']}
-4. Program used – {ext['program']}
-5. Autoclaved in airtight pouch? – {ext['airtight']}
-6. Other info – {ext['other']}
+1. Times autoclaved – {ext.get('times_autoclaved', '')}
+2. Bath number – {ext.get('bath_number', '')}
+3. Autoclave model – {ext.get('model', '')}
+4. Program used – {ext.get('program', '')}
+5. Autoclaved in airtight pouch? – {ext.get('airtight', '')}
+6. Other info – {ext.get('other', '')}
 """
 
             elif email_type == "FedEx Tracking Email":
@@ -1666,7 +1691,12 @@ Remember that this process will not have a cost.
 Please also remember to send us back the faulty {device} using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days of your receipt of the new device, your TRIOS licenses will expire.
 
 Wishing you the best again!"""
-                st.text_area("Email", email_text, height=300, key="generated_email")
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=300,
+                    key=widget_key("generated_email", case_idx),
+                )
 
             elif email_type == "Replacement Wired Scanner Setup":
                 st.markdown("#### Replacement scanner options")
@@ -1713,7 +1743,12 @@ Please remember to send us back the faulty scanner using the shipping label incl
 You may schedule a pickup with FedEx here: {pickup}
 
 Wishing you the best again!"""
-                st.text_area("Email", email_text, height=400, key="generated_email")
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=400,
+                    key=widget_key("generated_email", case_idx),
+                )
 
             elif email_type == "Replacement Move+ Closure":
                 st.markdown("#### Replacement Move+ options")
@@ -1742,7 +1777,106 @@ We sincerely appreciate your patience and understanding throughout this process.
 Do remember that 10 would be the highest score to rate the following survey: {survey}
 
 Wishing you the best again!"""
-                st.text_area("Email", email_text, height=400, key="generated_email")
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=400,
+                    key=widget_key("generated_email", case_idx),
+                )
+
+            elif email_type == "Callback Email":
+                st.markdown("#### Callback email options")
+                cb_remote_key = widget_key("callback_remote", case_idx)
+                cb_remote = st.checkbox(
+                    "Need remote session?",
+                    st.session_state.get(cb_remote_key, False),
+                    key=cb_remote_key,
+                )
+                cb_remote_text_key = widget_key("callback_remote_text", case_idx)
+                if cb_remote:
+                    st.text_area(
+                        "Remote session details",
+                        st.session_state.get(cb_remote_text_key, ""),
+                        key=cb_remote_text_key,
+                    )
+                cb_contact_key = widget_key("callback_contact", case_idx)
+                st.checkbox(
+                    "Need contact information?",
+                    st.session_state.get(cb_contact_key, False),
+                    key=cb_contact_key,
+                )
+                cb_clarify_key = widget_key("callback_clarify", case_idx)
+                st.checkbox(
+                    "Need to clarify what happened?",
+                    st.session_state.get(cb_clarify_key, False),
+                    key=cb_clarify_key,
+                )
+                cb_needed_key = widget_key("callback_needed", case_idx)
+                st.checkbox(
+                    "Callback needed?",
+                    st.session_state.get(cb_needed_key, True),
+                    key=cb_needed_key,
+                )
+                cb_address_key = widget_key("callback_address", case_idx)
+                cb_address = st.checkbox(
+                    "Request address?",
+                    st.session_state.get(cb_address_key, False),
+                    key=cb_address_key,
+                )
+                if cb_address:
+                    cb_equipment_key = widget_key("callback_equipment", case_idx)
+                    st.text_input(
+                        "Equipment to replace",
+                        st.session_state.get(cb_equipment_key, ""),
+                        key=cb_equipment_key,
+                    )
+
+                intro = build_email_intro(D)
+                if cb_address:
+                    equip = st.session_state.get(cb_equipment_key, "") or "(equipment)"
+                    prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
+Start the email with:
+{intro}
+List the following fields for them to fill in:
+Address (include suite if any)
+City
+State
+Zip Code/Postal Code
+Full name of the recipient
+Best phone number to contact the recipient
+Email to contact the recipient
+
+End with: We look forward to your reply."""
+                else:
+                    if st.session_state.get(cb_needed_key, True):
+                        base_request = (
+                            "provide us with the best time for a callback, including your time zone, "
+                            "or alternatively the TeamViewer ID and password so we may connect directly to the computer."
+                        )
+                    else:
+                        base_request = (
+                            "provide us with the TeamViewer ID and password so we may connect directly to the computer."
+                        )
+                    prompt = (
+                        f"Draft a polite email asking the customer to {base_request}\n"
+                        f"Start the email with:\n{intro}\n"
+                        "End with: We look forward to your reply."
+                    )
+                    extras = []
+                    if st.session_state.get(cb_contact_key):
+                        extras.append("Ask them to provide their contact information.")
+                    if st.session_state.get(cb_clarify_key):
+                        extras.append("Ask them to clarify what happened.")
+                    if (
+                        st.session_state.get(cb_remote_key)
+                        and st.session_state.get(cb_remote_text_key, "").strip()
+                    ):
+                        extras.append(
+                            "Include the following additional details:\n"
+                            + st.session_state.get(cb_remote_text_key, "").strip()
+                        )
+                    if extras:
+                        prompt += "\n\n" + "\n".join(extras)
 
             elif email_type == "Custom Request":
                 st.markdown("#### Custom email options")
@@ -1771,12 +1905,13 @@ Wishing you the best again!"""
                 else:
                     D.straumann = "N/A"
                     autosave()
-                st.markdown("#### AX Coordinators Table")
-                st.dataframe(
-                    category_dataframe("AX COORDINATORS", D, cat_map),
-                    use_container_width=True,
-                )
-                st.markdown("---")
+                if "AX COORDINATORS" in cat_map:
+                    st.markdown("#### AX Coordinators Table")
+                    st.dataframe(
+                        category_dataframe("AX COORDINATORS", D, cat_map),
+                        use_container_width=True,
+                    )
+                    st.markdown("---")
                 st.subheader("Escalation 2nd line")
                 D.esc_name = D.caller_name
                 st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
@@ -1784,11 +1919,12 @@ Wishing you the best again!"""
                 st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
                 D.esc_email = D.email
                 st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
-                st.markdown("#### Escalation 2nd line Table")
-                st.dataframe(
-                    category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                    use_container_width=True,
-                )
+                if "ESCALATION 2ND LINE" in cat_map:
+                    st.markdown("#### Escalation 2nd line Table")
+                    st.dataframe(
+                        category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                        use_container_width=True,
+                    )
     
                 if st.session_state.second_line_mode:
                     st.markdown("---")
@@ -1801,7 +1937,78 @@ Wishing you the best again!"""
                     height=400,
                     key=widget_key("esc_message", case_idx),
                 )
+            st.session_state.email_extra = ext
+            static_templates = {
+                "FedEx Tracking Email",
+                "Replacement Wired Scanner Setup",
+                "Replacement Move+ Closure",
+            }
+            if email_type not in static_templates:
+                st.text_area(
+                    prompt_label,
+                    prompt,
+                    height=300,
+                    key=widget_key("api_prompt_area", case_idx),
+                )
+                st.session_state["last_prompt"] = prompt
 
+                include_helpjuice = st.checkbox(
+                    "Helpjuice tutorial", key=widget_key("api_helpjuice", case_idx)
+                )
+                include_restart = st.checkbox(
+                    "Restart the computer", key=widget_key("api_restart", case_idx)
+                )
+                include_scan_time = st.checkbox(
+                    "Scan time warning", key=widget_key("api_scan_time", case_idx)
+                )
+                if st.button("Use GPT-OSS", key=widget_key("use_gpt", case_idx)):
+                    api_key = st.session_state.openai_api_key
+                    model = st.session_state.openai_model
+                    base_url = st.session_state.ai_base_url
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
+                    elif not prompt.strip():
+                        st.error("Prompt is empty.")
+                    else:
+                        with st.spinner("Contacting GPT-OSS..."):
+                            try:
+                                augmented_prompt = prompt
+                                extras = []
+                                if include_helpjuice:
+                                    link = D.internal_helpjuice or "https://helpjuice.com"
+                                    extras.append(
+                                        f"Include a sentence pointing the customer to this Help Center tutorial that may address the root cause: {link}."
+                                    )
+                                if include_restart:
+                                    extras.append(
+                                        "And recommend to the customer to restart the computer after the end of every shift."
+                                    )
+                                if include_scan_time:
+                                    extras.append(
+                                        "Educate the customer that scans over 2500 frames may cause case corruption and data loss, so they should stop scanning once notified."
+                                    )
+                                if extras:
+                                    augmented_prompt += "\n\n" + "\n".join(extras)
+                                reply = query_atom(
+                                    augmented_prompt,
+                                    st.session_state.atom_history,
+                                    api_key,
+                                    model,
+                                    base_url,
+                                )
+                            except Exception as e:
+                                st.error(str(e))
+                            else:
+                                st.session_state.atom_history.append({"role": "user", "content": augmented_prompt})
+                                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                                save_memory(st.session_state.atom_history)
+                                st.session_state.generated_email = reply
+                st.text_area(
+                    "Generated Email",
+                    st.session_state.get("generated_email", ""),
+                    height=300,
+                    key=widget_key("generated_email", case_idx),
+                )
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
         with tab_hw:
