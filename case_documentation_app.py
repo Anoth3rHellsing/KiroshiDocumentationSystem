@@ -2003,11 +2003,11 @@ End with: We look forward to your reply."""
                                 st.session_state.atom_history.append({"role": "assistant", "content": reply})
                                 save_memory(st.session_state.atom_history)
                                 st.session_state.generated_email = reply
-                st.text_area(
+                st.session_state.generated_email = st.text_area(
                     "Generated Email",
                     st.session_state.get("generated_email", ""),
                     height=300,
-                    key=widget_key("generated_email", case_idx),
+                    key=widget_key("generated_email_output", case_idx),
                 )
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
