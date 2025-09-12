@@ -1793,25 +1793,32 @@ Wishing you the best again!"""
                 else:
                     D.straumann = "N/A"
                     autosave()
-                st.markdown("#### AX Coordinators Table")
-                st.dataframe(
-                    category_dataframe("AX COORDINATORS", D, cat_map),
-                    use_container_width=True,
-                )
-                st.markdown("---")
-                st.subheader("Escalation 2nd line")
-                D.esc_name = D.caller_name
-                st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
-                D.esc_ph = D.phone_number
-                st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
-                D.esc_email = D.email
-                st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
-                st.markdown("#### Escalation 2nd line Table")
-                st.dataframe(
-                    category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                    use_container_width=True,
-                )
-    
+                if "AX COORDINATORS" in cat_map:
+                    st.markdown("#### AX Coordinators Table")
+                    st.dataframe(
+                        category_dataframe("AX COORDINATORS", D, cat_map),
+                        use_container_width=True,
+                    )
+                if "ESCALATION 2ND LINE" in cat_map:
+                    st.markdown("---")
+                    st.subheader("Escalation 2nd line")
+                    D.esc_name = D.caller_name
+                    st.text_input(
+                        "Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx)
+                    )
+                    D.esc_ph = D.phone_number
+                    st.text_input(
+                        "Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx)
+                    )
+                    D.esc_email = D.email
+                    st.text_input(
+                        "Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx)
+                    )
+                    st.markdown("#### Escalation 2nd line Table")
+                    st.dataframe(
+                        category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                        use_container_width=True,
+                    )
                 if st.session_state.second_line_mode:
                     st.markdown("---")
                     st.subheader("Escalation 3rd line")
