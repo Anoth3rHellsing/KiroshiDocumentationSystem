@@ -70,6 +70,11 @@ DEFAULT_AI_MODE = (
 )
 LOG_FILE = "app.log"
 
+CASE_DEX_URL_TEMPLATE = os.environ.get(
+    "CASE_DEX_URL_TEMPLATE",
+    "https://case-dex.example.com/api/cases/{case_id}/dex",
+)
+
 if os.name == "nt":
     DATABASE_DIR = Path("C:/ProgramFiles/KiroshiDatabase")
 else:
@@ -642,6 +647,21 @@ def request_load_from_bytes(data: bytes) -> None:
         st.session_state.pending_load = {"data": data}
     else:
         load_case_from_bytes(data)
+
+
+def request_case_dex(case_id: str) -> bytes:
+    """Fetch a Case Dex package for the given case identifier.
+
+    The download endpoint can be customized via the ``CASE_DEX_URL_TEMPLATE``
+    environment variable. SSL verification is disabled to support
+    corporate networks that intercept certificates.
+    """
+
+    url = CASE_DEX_URL_TEMPLATE.format(case_id=case_id)
+    logging.info("Requesting Case Dex from %s", url)
+    response = requests.get(url, verify=False, timeout=30)
+    response.raise_for_status()
+    return response.content
 
 
 def _update_field(field: str):
@@ -2073,6 +2093,35 @@ End with: We look forward to your reply."""
                 "Load", key=widget_key("load_case_button", case_idx)
             ):
                 request_load_from_bytes(uploaded_case.getvalue())
+
+        st.subheader("Case Dex")
+        dex_case_id = st.text_input(
+            "Case ID", key=widget_key("case_dex_id", case_idx)
+        )
+        if st.button("Fetch Case Dex", key=widget_key("fetch_case_dex", case_idx)):
+            if dex_case_id:
+                try:
+                    dex_bytes = request_case_dex(dex_case_id)
+                except Exception as e:
+                    st.error(f"Failed to download Case Dex: {e}")
+                else:
+                    st.session_state[
+                        widget_key("case_dex_bytes", case_idx)
+                    ] = dex_bytes
+                    st.session_state[
+                        widget_key("case_dex_id_store", case_idx)
+                    ] = dex_case_id
+            else:
+                st.error("Please enter a Case ID")
+        dex_bytes = st.session_state.get(widget_key("case_dex_bytes", case_idx))
+        if dex_bytes:
+            st.download_button(
+                "Download Case Dex",
+                dex_bytes,
+                file_name=f"{st.session_state.get(widget_key('case_dex_id_store', case_idx), 'case')}_case_dex.zip",
+                mime="application/zip",
+                key=widget_key("download_case_dex", case_idx),
+            )
 
         st.subheader("Recent cases")
         for idx, case in enumerate(load_recent_cases()):
