@@ -1356,13 +1356,14 @@ def render_case_ui(case_idx: int):
             auto_text_input("Dongle number", "dongle_number", container=c1)
             auto_text_input("Phone number", "phone_number", container=c2)
             auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
-            auto_text_input(
-                "Patterson legacy #",
-                "patterson",
-            )
-        else:
-            D.patterson = "N/A"
-            autosave()
+            if st.session_state.second_line_mode:
+                auto_text_input(
+                    "Patterson legacy #",
+                    "patterson",
+                )
+            else:
+                D.patterson = "N/A"
+                autosave()
         if st.session_state.second_line_mode:
             st.text_input(
                 "Straumann ticket #",
@@ -1601,59 +1602,60 @@ if tab_email:
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
         with tab_escalations:
-            st.subheader("AX Coordinators")
-            st.text_area(
-                "Request / Issue",
-                D.description,
-                disabled=True,
-                key=widget_key("request_issue", case_idx),
-            )
-            D.request_issue = D.description
-            D.contact_name = D.caller_name
-            st.text_input("Contact name", D.contact_name, disabled=True)
-            D.office_ph = D.phone_number
-            st.text_input("Office phone", D.office_ph, disabled=True)
-            D.direct_ph = D.phone_number
-            st.text_input("Direct phone", D.direct_ph, disabled=True)
-            best_cb = st.checkbox(
-                "Specify best call-back time",
-                D.best_time not in ("", "ASAP"),
-                key=widget_key("best_cb", case_idx),
-            )
-    
-            intro = build_email_intro(D)
-            prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
-    Start the email with:
-    {intro}
-    List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
-    
-    1. Times autoclaved – {ext['times_autoclaved']}
-    2. Bath number – {ext['bath_number']}
-    3. Autoclave model – {ext['model']}
-    4. Program used – {ext['program']}
-    5. Autoclaved in airtight pouch? – {ext['airtight']}
-    6. Other info – {ext['other']}
-    """
-    
-        elif email_type == "FedEx Tracking Email":
-            st.markdown("#### FedEx tracking options")
-            ext["agent_name"] = st.text_input(
-                "Agent name", ext.get("agent_name", "")
-            )
-            ext["device_type"] = st.text_input(
-                "Device type (scanner or Move+)", ext.get("device_type", "")
-            )
-            ext["tracking_number"] = st.text_input(
-                "FedEx tracking number", ext.get("tracking_number", "")
-            )
-            customer = D.caller_name or "(Caller Name)"
-            company = D.company_name or "(Company Name)"
-            agent = ext["agent_name"] or "(Agent Name)"
-            case_no = D.case_id or "(Case ID)"
-            issue = D.brief_description or "(Issue Description)"
-            device = ext["device_type"] or "device"
-            tracking = ext["tracking_number"] or "(Tracking Number)"
-            email_text = f"""Dear {customer} from {company},
+            if email_type == "Broken Tip":
+                st.subheader("AX Coordinators")
+                st.text_area(
+                    "Request / Issue",
+                    D.description,
+                    disabled=True,
+                    key=widget_key("request_issue", case_idx),
+                )
+                D.request_issue = D.description
+                D.contact_name = D.caller_name
+                st.text_input("Contact name", D.contact_name, disabled=True)
+                D.office_ph = D.phone_number
+                st.text_input("Office phone", D.office_ph, disabled=True)
+                D.direct_ph = D.phone_number
+                st.text_input("Direct phone", D.direct_ph, disabled=True)
+                best_cb = st.checkbox(
+                    "Specify best call-back time",
+                    D.best_time not in ("", "ASAP"),
+                    key=widget_key("best_cb", case_idx),
+                )
+
+                intro = build_email_intro(D)
+                prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
+Start the email with:
+{intro}
+List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
+
+1. Times autoclaved – {ext['times_autoclaved']}
+2. Bath number – {ext['bath_number']}
+3. Autoclave model – {ext['model']}
+4. Program used – {ext['program']}
+5. Autoclaved in airtight pouch? – {ext['airtight']}
+6. Other info – {ext['other']}
+"""
+
+            elif email_type == "FedEx Tracking Email":
+                st.markdown("#### FedEx tracking options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name", ext.get("agent_name", "")
+                )
+                ext["device_type"] = st.text_input(
+                    "Device type (scanner or Move+)", ext.get("device_type", "")
+                )
+                ext["tracking_number"] = st.text_input(
+                    "FedEx tracking number", ext.get("tracking_number", "")
+                )
+                customer = D.caller_name or "(Caller Name)"
+                company = D.company_name or "(Company Name)"
+                agent = ext["agent_name"] or "(Agent Name)"
+                case_no = D.case_id or "(Case ID)"
+                issue = D.brief_description or "(Issue Description)"
+                device = ext["device_type"] or "device"
+                tracking = ext["tracking_number"] or "(Tracking Number)"
+                email_text = f"""Dear {customer} from {company},
 
 I hope you are having an excellent day! This is {agent} from 3Shape support regarding your case {case_no} about {issue}.
 
@@ -1664,27 +1666,27 @@ Remember that this process will not have a cost.
 Please also remember to send us back the faulty {device} using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days of your receipt of the new device, your TRIOS licenses will expire.
 
 Wishing you the best again!"""
-            st.text_area("Email", email_text, height=300, key="generated_email")
+                st.text_area("Email", email_text, height=300, key="generated_email")
 
-        elif email_type == "Replacement Wired Scanner Setup":
-            st.markdown("#### Replacement scanner options")
-            ext["agent_name"] = st.text_input(
-                "Agent name", ext.get("agent_name", "")
-            )
-            ext["fedex_pickup_link"] = st.text_input(
-                "FedEx pickup link",
-                ext.get(
-                    "fedex_pickup_link",
-                    "https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html",
-                ),
-            )
-            customer = D.caller_name or "(Caller Name)"
-            company = D.company_name or "(Company Name)"
-            agent = ext["agent_name"] or "(Agent Name)"
-            case_no = D.case_id or "(Case ID)"
-            survey = D.survey_link or "(Survey URL)"
-            pickup = ext["fedex_pickup_link"] or "(FedEx pickup link)"
-            email_text = f"""Dear {customer} from {company},
+            elif email_type == "Replacement Wired Scanner Setup":
+                st.markdown("#### Replacement scanner options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name", ext.get("agent_name", "")
+                )
+                ext["fedex_pickup_link"] = st.text_input(
+                    "FedEx pickup link",
+                    ext.get(
+                        "fedex_pickup_link",
+                        "https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html",
+                    ),
+                )
+                customer = D.caller_name or "(Caller Name)"
+                company = D.company_name or "(Company Name)"
+                agent = ext["agent_name"] or "(Agent Name)"
+                case_no = D.case_id or "(Case ID)"
+                survey = D.survey_link or "(Survey URL)"
+                pickup = ext["fedex_pickup_link"] or "(FedEx pickup link)"
+                email_text = f"""Dear {customer} from {company},
 
 I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case {case_no}.
 
@@ -1711,19 +1713,19 @@ Please remember to send us back the faulty scanner using the shipping label incl
 You may schedule a pickup with FedEx here: {pickup}
 
 Wishing you the best again!"""
-            st.text_area("Email", email_text, height=400, key="generated_email")
+                st.text_area("Email", email_text, height=400, key="generated_email")
 
-        elif email_type == "Replacement Move+ Closure":
-            st.markdown("#### Replacement Move+ options")
-            ext["agent_name"] = st.text_input(
-                "Agent name", ext.get("agent_name", "")
-            )
-            customer = D.caller_name or "(Caller Name)"
-            company = D.company_name or "(Company Name)"
-            agent = ext["agent_name"] or "(Agent Name)"
-            case_no = D.case_id or "(Case ID)"
-            survey = D.survey_link or "(Survey URL)"
-            email_text = f"""Dear {customer} from {company},
+            elif email_type == "Replacement Move+ Closure":
+                st.markdown("#### Replacement Move+ options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name", ext.get("agent_name", "")
+                )
+                customer = D.caller_name or "(Caller Name)"
+                company = D.company_name or "(Company Name)"
+                agent = ext["agent_name"] or "(Agent Name)"
+                case_no = D.case_id or "(Case ID)"
+                survey = D.survey_link or "(Survey URL)"
+                email_text = f"""Dear {customer} from {company},
 
 I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case: {case_no}.
 
@@ -1740,53 +1742,57 @@ We sincerely appreciate your patience and understanding throughout this process.
 Do remember that 10 would be the highest score to rate the following survey: {survey}
 
 Wishing you the best again!"""
-            st.text_area("Email", email_text, height=400, key="generated_email")
+                st.text_area("Email", email_text, height=400, key="generated_email")
 
-        elif email_type == "Custom Request":
-            st.markdown("#### Custom email options")
-            ext["reason"] = st.text_input(
-                "Reason for contacting the customer", ext.get("reason", "")
-            )
-            if pat_cb:
-                auto_text_input(
-                    "Patterson legacy #",
-                    "patterson",
+            elif email_type == "Custom Request":
+                st.markdown("#### Custom email options")
+                ext["reason"] = st.text_input(
+                    "Reason for contacting the customer", ext.get("reason", "")
                 )
-            else:
-                D.patterson = "N/A"
-                autosave()
-            if st.session_state.second_line_mode:
-                st.text_input(
-                    "Straumann ticket #",
-                    D.straumann,
-                    disabled=True,
-                    key=widget_key("straumann_tab", case_idx),
+                pat_cb = st.checkbox(
+                    "Include Patterson legacy #",
+                    key=widget_key("pat_cb", case_idx),
                 )
-            else:
-                D.straumann = "N/A"
-                autosave()
-            st.markdown("#### AX Coordinators Table")
-            st.dataframe(
-                category_dataframe("AX COORDINATORS", D, cat_map),
-                use_container_width=True,
-            )
-            st.markdown("---")
-            st.subheader("Escalation 2nd line")
-            D.esc_name = D.caller_name
-            st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
-            D.esc_ph = D.phone_number
-            st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
-            D.esc_email = D.email
-            st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
-            st.markdown("#### Escalation 2nd line Table")
-            st.dataframe(
-                category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                use_container_width=True,
-            )
-
-            if st.session_state.second_line_mode:
+                if pat_cb:
+                    auto_text_input(
+                        "Patterson legacy #",
+                        "patterson",
+                    )
+                else:
+                    D.patterson = "N/A"
+                    autosave()
+                if st.session_state.second_line_mode:
+                    st.text_input(
+                        "Straumann ticket #",
+                        D.straumann,
+                        disabled=True,
+                        key=widget_key("straumann_tab", case_idx),
+                    )
+                else:
+                    D.straumann = "N/A"
+                    autosave()
+                st.markdown("#### AX Coordinators Table")
+                st.dataframe(
+                    category_dataframe("AX COORDINATORS", D, cat_map),
+                    use_container_width=True,
+                )
                 st.markdown("---")
-                st.subheader("Escalation 3rd line")
+                st.subheader("Escalation 2nd line")
+                D.esc_name = D.caller_name
+                st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
+                D.esc_ph = D.phone_number
+                st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
+                D.esc_email = D.email
+                st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
+                st.markdown("#### Escalation 2nd line Table")
+                st.dataframe(
+                    category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                    use_container_width=True,
+                )
+    
+                if st.session_state.second_line_mode:
+                    st.markdown("---")
+                    st.subheader("Escalation 3rd line")
                 auto_text_area("How to reproduce it", "repro_steps", height=100)
                 msg = build_third_line_escalation(D)
                 st.text_area(
