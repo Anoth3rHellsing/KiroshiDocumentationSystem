@@ -9,7 +9,7 @@ import io
 import json
 import os
 import zipfile
-from dataclasses import dataclass, asdict, fields, field
+from dataclasses import dataclass, asdict, fields, field, is_dataclass
 from datetime import datetime, date, timedelta
 import logging
 from pathlib import Path
@@ -302,6 +302,36 @@ def get_message_of_the_day() -> str:
     seed = f"{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
     return rng.choice(MOTD_MESSAGES)
+
+# ────────────────────────── UTILITIES ───────────────────────────
+
+
+def make_json_safe(value):
+    """Convert values to JSON-serialisable representations for debug output."""
+
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if is_dataclass(value):
+        return {f.name: make_json_safe(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, Mapping):
+        return {str(key): make_json_safe(val) for key, val in value.items()}
+    if isinstance(value, pd.DataFrame):
+        return value.to_dict(orient="records")
+    if isinstance(value, pd.Series):
+        return value.to_list()
+    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
+        return [make_json_safe(item) for item in value]
+    return repr(value)
+
+
+def get_session_state_snapshot():
+    """Return a JSON-safe snapshot of Streamlit session state."""
+
+    return {str(key): make_json_safe(val) for key, val in st.session_state.items()}
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
@@ -2680,7 +2710,7 @@ Thank you in advance,
                 )
                 st.text_area("Allowed categories block", key="taxonomy_block", height=150)
                 st.text_area("Signals config JSON", key="signals_config", height=150)
-                st.json(st.session_state)
+                st.json(get_session_state_snapshot())
                 st.subheader("Logs")
                 st.text(tail_log(LOG_FILE))
                 st.divider()
