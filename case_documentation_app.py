@@ -1470,6 +1470,11 @@ def render_case_ui(case_idx: int):
             auto_text_input("Dongle number", "dongle_number", container=c1)
             auto_text_input("Phone number", "phone_number", container=c2)
             auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
+            auto_text_input(
+                "TeamViewer password",
+                "teamviewer_password",
+                container=c2,
+            )
             if st.session_state.second_line_mode:
                 auto_text_input(
                     "Patterson legacy #",
@@ -1488,34 +1493,6 @@ def render_case_ui(case_idx: int):
         else:
             D.straumann = "N/A"
             autosave()
-        if "AX COORDINATORS" in cat_map:
-            st.markdown("#### AX Coordinators Table")
-            st.dataframe(
-                category_dataframe("AX COORDINATORS", D, cat_map),
-                use_container_width=True,
-            )
-            st.markdown("---")
-        st.subheader("Escalation 2nd line")
-        D.esc_name = D.caller_name
-        st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
-        D.esc_ph = D.phone_number
-        st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
-        D.esc_email = D.email
-        st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
-        if "ESCALATION 2ND LINE" in cat_map:
-            st.markdown("#### Escalation 2nd line Table")
-            st.dataframe(
-                category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                use_container_width=True,
-            )
-
-        if st.session_state.second_line_mode:
-            st.markdown("---")
-            st.subheader("Escalation 3rd line")
-            auto_text_area("How to reproduce it", "repro_steps", height=100)
-            msg = build_third_line_escalation(D)
-            st.text_area("Escalation message", msg, height=400)
-
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -1719,6 +1696,56 @@ def render_case_ui(case_idx: int):
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
         with tab_escalations:
+            if "AX COORDINATORS" in cat_map:
+                st.markdown("#### AX Coordinators Table")
+                st.dataframe(
+                    category_dataframe("AX COORDINATORS", D, cat_map),
+                    use_container_width=True,
+                )
+                st.markdown("---")
+
+            st.subheader("Escalation 2nd line")
+            D.esc_name = D.caller_name
+            st.text_input(
+                "Name",
+                D.esc_name,
+                disabled=True,
+                key=widget_key("esc_name_tab", case_idx),
+            )
+            D.esc_ph = D.phone_number
+            st.text_input(
+                "Phone",
+                D.esc_ph,
+                disabled=True,
+                key=widget_key("esc_ph_tab", case_idx),
+            )
+            D.esc_email = D.email
+            st.text_input(
+                "Email",
+                D.esc_email,
+                disabled=True,
+                key=widget_key("esc_email_tab", case_idx),
+            )
+            if "ESCALATION 2ND LINE" in cat_map:
+                st.markdown("#### Escalation 2nd line Table")
+                st.dataframe(
+                    category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                    use_container_width=True,
+                )
+
+            if st.session_state.second_line_mode:
+                st.markdown("---")
+                st.subheader("Escalation 3rd line")
+                auto_text_area("How to reproduce it", "repro_steps", height=100)
+                msg = build_third_line_escalation(D)
+                st.text_area(
+                    "Escalation message",
+                    msg,
+                    height=400,
+                    key=widget_key("esc_message", case_idx),
+                )
+                st.markdown("---")
+
             if email_type == "Broken Tip":
                 st.subheader("AX Coordinators")
                 st.text_area(
@@ -2077,38 +2104,6 @@ Thank you in advance,
                 else:
                     D.straumann = "N/A"
                     autosave()
-                if "AX COORDINATORS" in cat_map:
-                    st.markdown("#### AX Coordinators Table")
-                    st.dataframe(
-                        category_dataframe("AX COORDINATORS", D, cat_map),
-                        use_container_width=True,
-                    )
-                    st.markdown("---")
-                st.subheader("Escalation 2nd line")
-                D.esc_name = D.caller_name
-                st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
-                D.esc_ph = D.phone_number
-                st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
-                D.esc_email = D.email
-                st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
-                if "ESCALATION 2ND LINE" in cat_map:
-                    st.markdown("#### Escalation 2nd line Table")
-                    st.dataframe(
-                        category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                        use_container_width=True,
-                    )
-    
-                if st.session_state.second_line_mode:
-                    st.markdown("---")
-                    st.subheader("Escalation 3rd line")
-                auto_text_area("How to reproduce it", "repro_steps", height=100)
-                msg = build_third_line_escalation(D)
-                st.text_area(
-                    "Escalation message",
-                    msg,
-                    height=400,
-                    key=widget_key("esc_message", case_idx),
-                )
             st.session_state.email_extra = ext
             static_templates = {
                 "FedEx Tracking Email",
