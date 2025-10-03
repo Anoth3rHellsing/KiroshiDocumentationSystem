@@ -9,7 +9,7 @@ import io
 import json
 import os
 import zipfile
-from dataclasses import dataclass, asdict, fields, field
+from dataclasses import dataclass, asdict, fields, field, is_dataclass
 from datetime import datetime, date, timedelta
 import logging
 from pathlib import Path
@@ -302,6 +302,36 @@ def get_message_of_the_day() -> str:
     seed = f"{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
     return rng.choice(MOTD_MESSAGES)
+
+# ────────────────────────── UTILITIES ───────────────────────────
+
+
+def make_json_safe(value):
+    """Convert values to JSON-serialisable representations for debug output."""
+
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if is_dataclass(value):
+        return {f.name: make_json_safe(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, Mapping):
+        return {str(key): make_json_safe(val) for key, val in value.items()}
+    if isinstance(value, pd.DataFrame):
+        return value.to_dict(orient="records")
+    if isinstance(value, pd.Series):
+        return value.to_list()
+    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
+        return [make_json_safe(item) for item in value]
+    return repr(value)
+
+
+def get_session_state_snapshot():
+    """Return a JSON-safe snapshot of Streamlit session state."""
+
+    return {str(key): make_json_safe(val) for key, val in st.session_state.items()}
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
@@ -1435,11 +1465,15 @@ def render_case_ui(case_idx: int):
             st.subheader("Phone-call notes")
             auto_text_input("Caller name", "caller_name")
             auto_text_area("Caller issue description", "phone_description", height=68)
-            auto_text_input("Email", "email")
             c1, c2 = st.columns(2)
             auto_text_input("Dongle number", "dongle_number", container=c1)
             auto_text_input("Phone number", "phone_number", container=c2)
             auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
+            auto_text_input(
+                "TeamViewer password",
+                "teamviewer_password",
+                container=c2,
+            )
             if st.session_state.second_line_mode:
                 auto_text_input(
                     "Patterson legacy #",
@@ -1458,38 +1492,11 @@ def render_case_ui(case_idx: int):
         else:
             D.straumann = "N/A"
             autosave()
-        if "AX COORDINATORS" in cat_map:
-            st.markdown("#### AX Coordinators Table")
-            st.dataframe(
-                category_dataframe("AX COORDINATORS", D, cat_map),
-                use_container_width=True,
-            )
-            st.markdown("---")
-        st.subheader("Escalation 2nd line")
-        D.esc_name = D.caller_name
-        st.text_input("Name", D.esc_name, disabled=True, key="esc_name_tab")
-        D.esc_ph = D.phone_number
-        st.text_input("Phone", D.esc_ph, disabled=True, key="esc_ph_tab")
-        D.esc_email = D.email
-        st.text_input("Email", D.esc_email, disabled=True, key="esc_email_tab")
-        if "ESCALATION 2ND LINE" in cat_map:
-            st.markdown("#### Escalation 2nd line Table")
-            st.dataframe(
-                category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                use_container_width=True,
-            )
-
-        if st.session_state.second_line_mode:
-            st.markdown("---")
-            st.subheader("Escalation 3rd line")
-            auto_text_area("How to reproduce it", "repro_steps", height=100)
-            msg = build_third_line_escalation(D)
-            st.text_area("Escalation message", msg, height=400)
-
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
             st.subheader("Email Prompt Generator")
+            auto_text_input("Customer email", "email")
             email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
             if st.session_state.second_line_mode:
                 email_choices.extend(
@@ -1689,6 +1696,56 @@ def render_case_ui(case_idx: int):
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
         with tab_escalations:
+            if "AX COORDINATORS" in cat_map:
+                st.markdown("#### AX Coordinators Table")
+                st.dataframe(
+                    category_dataframe("AX COORDINATORS", D, cat_map),
+                    use_container_width=True,
+                )
+                st.markdown("---")
+
+            st.subheader("Escalation 2nd line")
+            D.esc_name = D.caller_name
+            st.text_input(
+                "Name",
+                D.esc_name,
+                disabled=True,
+                key=widget_key("esc_name_tab", case_idx),
+            )
+            D.esc_ph = D.phone_number
+            st.text_input(
+                "Phone",
+                D.esc_ph,
+                disabled=True,
+                key=widget_key("esc_ph_tab", case_idx),
+            )
+            D.esc_email = D.email
+            st.text_input(
+                "Email",
+                D.esc_email,
+                disabled=True,
+                key=widget_key("esc_email_tab", case_idx),
+            )
+            if "ESCALATION 2ND LINE" in cat_map:
+                st.markdown("#### Escalation 2nd line Table")
+                st.dataframe(
+                    category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                    use_container_width=True,
+                )
+
+            if st.session_state.second_line_mode:
+                st.markdown("---")
+                st.subheader("Escalation 3rd line")
+                auto_text_area("How to reproduce it", "repro_steps", height=100)
+                msg = build_third_line_escalation(D)
+                st.text_area(
+                    "Escalation message",
+                    msg,
+                    height=400,
+                    key=widget_key("esc_message", case_idx),
+                )
+                st.markdown("---")
+
             if email_type == "Broken Tip":
                 st.subheader("AX Coordinators")
                 st.text_area(
@@ -2047,38 +2104,6 @@ Thank you in advance,
                 else:
                     D.straumann = "N/A"
                     autosave()
-                if "AX COORDINATORS" in cat_map:
-                    st.markdown("#### AX Coordinators Table")
-                    st.dataframe(
-                        category_dataframe("AX COORDINATORS", D, cat_map),
-                        use_container_width=True,
-                    )
-                    st.markdown("---")
-                st.subheader("Escalation 2nd line")
-                D.esc_name = D.caller_name
-                st.text_input("Name", D.esc_name, disabled=True, key=widget_key("esc_name_tab", case_idx))
-                D.esc_ph = D.phone_number
-                st.text_input("Phone", D.esc_ph, disabled=True, key=widget_key("esc_ph_tab", case_idx))
-                D.esc_email = D.email
-                st.text_input("Email", D.esc_email, disabled=True, key=widget_key("esc_email_tab", case_idx))
-                if "ESCALATION 2ND LINE" in cat_map:
-                    st.markdown("#### Escalation 2nd line Table")
-                    st.dataframe(
-                        category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                        use_container_width=True,
-                    )
-    
-                if st.session_state.second_line_mode:
-                    st.markdown("---")
-                    st.subheader("Escalation 3rd line")
-                auto_text_area("How to reproduce it", "repro_steps", height=100)
-                msg = build_third_line_escalation(D)
-                st.text_area(
-                    "Escalation message",
-                    msg,
-                    height=400,
-                    key=widget_key("esc_message", case_idx),
-                )
             st.session_state.email_extra = ext
             static_templates = {
                 "FedEx Tracking Email",
@@ -2680,7 +2705,7 @@ Thank you in advance,
                 )
                 st.text_area("Allowed categories block", key="taxonomy_block", height=150)
                 st.text_area("Signals config JSON", key="signals_config", height=150)
-                st.json(st.session_state)
+                st.json(get_session_state_snapshot())
                 st.subheader("Logs")
                 st.text(tail_log(LOG_FILE))
                 st.divider()
