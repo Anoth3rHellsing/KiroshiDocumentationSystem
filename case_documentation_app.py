@@ -725,6 +725,14 @@ def list_saved_cases(limit: int = 25) -> list:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
+        if isinstance(data, list):
+            dict_items = [item for item in data if isinstance(item, dict)]
+            if len(dict_items) == 1:
+                data = dict_items[0]
+            else:
+                continue
+        if not isinstance(data, dict):
+            continue
         entries.append(
             {
                 "case_id": data.get("case_id") or path.stem,
