@@ -1877,150 +1877,6 @@ def render_case_ui(case_idx: int):
                         key=widget_key("categorizer_output", case_idx),
                     )
 
-    # ================== TRACKING TAB =================
-    if tab_tracking:
-        with tab_tracking:
-            st.subheader("Tracking")
-            tracking_type = st.selectbox(
-                "Tracking type", ["Dell", "FedEx"], key=widget_key("tracking_type", case_idx)
-            )
-            company = st.text_input("Company", key=widget_key("track_company", case_idx))
-            end_user = st.text_input("End User", key=widget_key("track_end_user", case_idx))
-            creation_day = st.date_input(
-                "Creation day", value=date.today(), key=widget_key("track_creation_day", case_idx)
-            )
-            ticket_number = st.text_input(
-                "Ticket Number", key=widget_key("track_ticket_number", case_idx)
-            )
-            priority_key = widget_key("track_priority", case_idx)
-            current_priority = normalize_priority(st.session_state.get(priority_key))
-            st.session_state[priority_key] = current_priority
-            priority = st.selectbox(
-                "Priority",
-                PRIORITY_OPTIONS,
-                key=priority_key,
-            )
-            if tracking_type == "Dell":
-                service_tag = st.text_input(
-                    "Service Tag", key=widget_key("track_service_tag", case_idx)
-                )
-                status = st.selectbox(
-                    "Status",
-                    [
-                        "Resolved",
-                        "Waiting for Technician",
-                        "Waiting for clinic to send back PC for review",
-                        "Pending update",
-                    ],
-                    key=widget_key("track_status", case_idx),
-                )
-            else:
-                expected_arrival_date = st.date_input(
-                    "Expected arrival date",
-                    value=date.today(),
-                    key=widget_key("track_expected_arrival", case_idx),
-                )
-                status = st.selectbox(
-                    "Status",
-                    [
-                        "Scanner arrived and waiting for the return",
-                        "Waiting for scanner to arrive",
-                        "waiting for pickup",
-                        "scanner sent",
-                        "waiting to arrive to the doctor's office.",
-                    ],
-                    key=widget_key("track_status", case_idx),
-                )
-            if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
-                info = {
-                    "type": tracking_type,
-                    "case_id": D.case_id,
-                    "company": company,
-                    "end_user": end_user,
-                    "creation_day": creation_day.isoformat(),
-                    "ticket_number": ticket_number,
-                    "status": status,
-                    "priority": priority,
-                }
-                if tracking_type == "Dell":
-                    info["service_tag"] = service_tag
-                    file_path = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
-                else:
-                    info["expected_arrival_date"] = expected_arrival_date.isoformat()
-                    file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(info, f, indent=2)
-                st.session_state.track_case = True
-                st.success("Tracking information saved.")
-            if st.button(
-                "Close case & stop tracking",
-                key=widget_key("close_tracking", case_idx),
-            ):
-                dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
-                fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
-                for f in [dell_file, fedex_file]:
-                    if f.exists():
-                        dest = DATABASE_DIR / f"{D.case_id}.json"
-                        try:
-                            f.rename(dest)
-                        except Exception:
-                            pass
-                st.session_state.track_case = False
-                st.rerun()
-
-    # ================== ESCALATIONS TAB =================
-    if tab_escalations:
-        with tab_escalations:
-            if "AX COORDINATORS" in cat_map:
-                st.markdown("#### AX Coordinators Table")
-                st.dataframe(
-                    category_dataframe("AX COORDINATORS", D, cat_map),
-                    use_container_width=True,
-                )
-                st.markdown("---")
-
-            st.subheader("Escalation 2nd line")
-            D.esc_name = D.caller_name
-            st.text_input(
-                "Name",
-                D.esc_name,
-                disabled=True,
-                key=widget_key("esc_name_tab", case_idx),
-            )
-            D.esc_ph = D.phone_number
-            st.text_input(
-                "Phone",
-                D.esc_ph,
-                disabled=True,
-                key=widget_key("esc_ph_tab", case_idx),
-            )
-            D.esc_email = D.email
-            st.text_input(
-                "Email",
-                D.esc_email,
-                disabled=True,
-                key=widget_key("esc_email_tab", case_idx),
-            )
-            if "ESCALATION 2ND LINE" in cat_map:
-                st.markdown("#### Escalation 2nd line Table")
-                st.dataframe(
-                    category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                    use_container_width=True,
-                )
-
-            if st.session_state.second_line_mode:
-                st.markdown("---")
-                st.subheader("Escalation 3rd line")
-                auto_text_area("How to reproduce it", "repro_steps", height=100)
-                msg = build_third_line_escalation(D)
-                st.text_area(
-                    "Escalation message",
-                    msg,
-                    height=400,
-                    key=widget_key("esc_message", case_idx),
-                )
-                st.markdown("---")
-
             if email_type == "Broken Tip":
                 st.subheader("AX Coordinators")
                 st.text_area(
@@ -2473,6 +2329,150 @@ Thank you in advance,
                     height=300,
                     key=widget_key("generated_email_output", case_idx),
                 )
+    # ================== TRACKING TAB =================
+    if tab_tracking:
+        with tab_tracking:
+            st.subheader("Tracking")
+            tracking_type = st.selectbox(
+                "Tracking type", ["Dell", "FedEx"], key=widget_key("tracking_type", case_idx)
+            )
+            company = st.text_input("Company", key=widget_key("track_company", case_idx))
+            end_user = st.text_input("End User", key=widget_key("track_end_user", case_idx))
+            creation_day = st.date_input(
+                "Creation day", value=date.today(), key=widget_key("track_creation_day", case_idx)
+            )
+            ticket_number = st.text_input(
+                "Ticket Number", key=widget_key("track_ticket_number", case_idx)
+            )
+            priority_key = widget_key("track_priority", case_idx)
+            current_priority = normalize_priority(st.session_state.get(priority_key))
+            st.session_state[priority_key] = current_priority
+            priority = st.selectbox(
+                "Priority",
+                PRIORITY_OPTIONS,
+                key=priority_key,
+            )
+            if tracking_type == "Dell":
+                service_tag = st.text_input(
+                    "Service Tag", key=widget_key("track_service_tag", case_idx)
+                )
+                status = st.selectbox(
+                    "Status",
+                    [
+                        "Resolved",
+                        "Waiting for Technician",
+                        "Waiting for clinic to send back PC for review",
+                        "Pending update",
+                    ],
+                    key=widget_key("track_status", case_idx),
+                )
+            else:
+                expected_arrival_date = st.date_input(
+                    "Expected arrival date",
+                    value=date.today(),
+                    key=widget_key("track_expected_arrival", case_idx),
+                )
+                status = st.selectbox(
+                    "Status",
+                    [
+                        "Scanner arrived and waiting for the return",
+                        "Waiting for scanner to arrive",
+                        "waiting for pickup",
+                        "scanner sent",
+                        "waiting to arrive to the doctor's office.",
+                    ],
+                    key=widget_key("track_status", case_idx),
+                )
+            if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
+                info = {
+                    "type": tracking_type,
+                    "case_id": D.case_id,
+                    "company": company,
+                    "end_user": end_user,
+                    "creation_day": creation_day.isoformat(),
+                    "ticket_number": ticket_number,
+                    "status": status,
+                    "priority": priority,
+                }
+                if tracking_type == "Dell":
+                    info["service_tag"] = service_tag
+                    file_path = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
+                else:
+                    info["expected_arrival_date"] = expected_arrival_date.isoformat()
+                    file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(info, f, indent=2)
+                st.session_state.track_case = True
+                st.success("Tracking information saved.")
+            if st.button(
+                "Close case & stop tracking",
+                key=widget_key("close_tracking", case_idx),
+            ):
+                dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
+                fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+                for f in [dell_file, fedex_file]:
+                    if f.exists():
+                        dest = DATABASE_DIR / f"{D.case_id}.json"
+                        try:
+                            f.rename(dest)
+                        except Exception:
+                            pass
+                st.session_state.track_case = False
+                st.rerun()
+
+    # ================== ESCALATIONS TAB =================
+    if tab_escalations:
+        with tab_escalations:
+            if "AX COORDINATORS" in cat_map:
+                st.markdown("#### AX Coordinators Table")
+                st.dataframe(
+                    category_dataframe("AX COORDINATORS", D, cat_map),
+                    use_container_width=True,
+                )
+                st.markdown("---")
+
+            st.subheader("Escalation 2nd line")
+            D.esc_name = D.caller_name
+            st.text_input(
+                "Name",
+                D.esc_name,
+                disabled=True,
+                key=widget_key("esc_name_tab", case_idx),
+            )
+            D.esc_ph = D.phone_number
+            st.text_input(
+                "Phone",
+                D.esc_ph,
+                disabled=True,
+                key=widget_key("esc_ph_tab", case_idx),
+            )
+            D.esc_email = D.email
+            st.text_input(
+                "Email",
+                D.esc_email,
+                disabled=True,
+                key=widget_key("esc_email_tab", case_idx),
+            )
+            if "ESCALATION 2ND LINE" in cat_map:
+                st.markdown("#### Escalation 2nd line Table")
+                st.dataframe(
+                    category_dataframe("ESCALATION 2ND LINE", D, cat_map),
+                    use_container_width=True,
+                )
+
+            if st.session_state.second_line_mode:
+                st.markdown("---")
+                st.subheader("Escalation 3rd line")
+                auto_text_area("How to reproduce it", "repro_steps", height=100)
+                msg = build_third_line_escalation(D)
+                st.text_area(
+                    "Escalation message",
+                    msg,
+                    height=400,
+                    key=widget_key("esc_message", case_idx),
+                )
+                st.markdown("---")
+
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
         with tab_hw:
