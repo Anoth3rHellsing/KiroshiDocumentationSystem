@@ -343,26 +343,35 @@ st.set_page_config(
 
 def render_logo():
     motd = get_message_of_the_day()
-    col_logo, col_motd = st.columns([1, 3])
-    with col_logo:
-        encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
-        html_logo = f"""
-        <img src="data:image/png;base64,{encoded_logo}" width="200" id="kiroshi-logo" style="cursor:pointer;">
-        <script>
-        const logo = document.getElementById('kiroshi-logo');
+    now = datetime.now()
+    formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
+    encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
+    header_html = f"""
+    <div style="background-color:#bfbfbf;padding:1rem;border-radius:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+            <div style="display:flex;align-items:center;gap:1rem;flex:1;min-width:250px;">
+                <img src="data:image/png;base64,{encoded_logo}" width="200" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
+                <div style="color:#1f1f1f;font-size:1rem;line-height:1.4;">
+                    <span style="font-weight:700;">Message of the day:</span> {motd}
+                </div>
+            </div>
+            <div style="font-weight:600;color:#1f1f1f;text-align:right;min-width:160px;">
+                {formatted_date}
+            </div>
+        </div>
+    </div>
+    <script>
+    const logo = document.getElementById('kiroshi-logo');
+    if (logo) {{
         logo.addEventListener('click', function(){{
             Streamlit.setComponentValue('open-debug');
         }});
-        </script>
-        """
-        action_logo = components.html(html_logo, height=200)
-        if action_logo == "open-debug":
-            st.session_state.debug_mode = True
-    with col_motd:
-        st.markdown(
-            f"<span style='font-weight:bold;'>Message of the day:</span> {motd}",
-            unsafe_allow_html=True,
-        )
+    }}
+    </script>
+    """
+    action_logo = components.html(header_html, height=220)
+    if action_logo == "open-debug":
+        st.session_state.debug_mode = True
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
