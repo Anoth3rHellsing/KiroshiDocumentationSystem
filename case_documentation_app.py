@@ -76,6 +76,9 @@ DEFAULT_AI_MODE = (
 )
 LOG_FILE = "app.log"
 
+PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
+DEFAULT_TRACKING_PRIORITY = "Normal"
+
 CASE_DEX_URL_TEMPLATE = os.environ.get(
     "CASE_DEX_URL_TEMPLATE",
     "https://case-dex.example.com/api/cases/{case_id}/dex",
@@ -415,6 +418,7 @@ _init_state("tracking_info", {})
 _init_state("second_line_mode", False)
 _init_state("pending_load", None)
 _init_state("show_bored", False)
+_init_state("autosave_notice", None)
 _init_state(
     "bored_game",
     {
@@ -428,6 +432,10 @@ _init_state(
 )
 
 render_logo()
+
+if st.session_state.autosave_notice:
+    st.success(st.session_state.autosave_notice)
+    st.session_state.autosave_notice = None
 
 
 def load_autosave():
@@ -592,18 +600,38 @@ for key, value in asdict(D).items():
 _init_state("survey_link", D.survey_link)
 
 # Button to clear all case data and reset form
+def autosave_payload() -> dict:
+    return {
+        "case": asdict(D),
+        "scratch": st.session_state.get(
+            widget_key("scratch", CURRENT_CASE_IDX), ""
+        ),
+    }
+
+
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "case": asdict(D),
-                "scratch": st.session_state.get(
-                    widget_key("scratch", CURRENT_CASE_IDX), ""
-                ),
-            },
-            f,
-            indent=2,
+        json.dump(autosave_payload(), f, indent=2)
+
+
+def sanitize_case_id(case_id: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", case_id.strip())
+    return safe_id or "case"
+
+
+def create_case_autosave_snapshot(case_id: str) -> Path | None:
+    try:
+        payload = autosave_payload()
+        backup_path = Path(AUTOSAVE_FILE).with_name(
+            f"autosave_{sanitize_case_id(case_id)}.json"
         )
+        with open(backup_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return backup_path
+    except Exception as exc:
+        logging.exception("Failed to create autosave snapshot for %s", case_id)
+        st.warning(f"Unable to create autosave backup: {exc}")
+        return None
 
 
 def load_recent_cases() -> list:
@@ -619,16 +647,49 @@ def update_recent_cases(case_id: str, path: str) -> None:
     RECENT_CASES_PATH.write_text(json.dumps(recents[:10], indent=2), encoding="utf-8")
 
 
+def normalize_priority(value) -> str:
+    if not value:
+        return DEFAULT_TRACKING_PRIORITY
+    if value not in PRIORITY_OPTIONS:
+        return DEFAULT_TRACKING_PRIORITY
+    return value
+
+
 def load_tracked_cases() -> list:
     cases = []
     for p in TRACKED_CASES_DIR.glob("*_Active.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             data["path"] = str(p)
+            data["priority"] = normalize_priority(data.get("priority"))
             cases.append(data)
         except Exception:
             continue
     return cases
+
+
+def update_tracked_case_file(path: str, **updates) -> None:
+    try:
+        case_path = Path(path)
+        data = json.loads(case_path.read_text(encoding="utf-8"))
+        data.update(updates)
+        case_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logging.exception("Failed to update tracked case %s", path)
+        st.error(f"Failed to update tracked case: {exc}")
+
+
+def update_tracked_priority(path: str, key: str) -> None:
+    new_priority = normalize_priority(st.session_state.get(key))
+    update_tracked_case_file(path, priority=new_priority)
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        case_id = data.get("case_id")
+    except Exception:
+        case_id = None
+    if case_id and D.case_id == case_id:
+        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = new_priority
+    st.toast("Priority updated") if hasattr(st, "toast") else None
 
 
 def untrack_case(path: str) -> None:
@@ -643,23 +704,192 @@ def untrack_case(path: str) -> None:
         st.error("Failed to untrack case.")
 
 
-def render_tracking_table(cases: list, columns: list) -> None:
-    """Render a tracking table with per-row load and untrack buttons."""
-    weights = [2] * len(columns) + [1, 1]
+def format_tracking_date(value) -> str:
+    if not value:
+        return ""
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%Y-%m-%d")
+    except Exception:
+        return str(value)
+
+
+def list_saved_cases(limit: int = 25) -> list:
+    entries = []
+    files = sorted(
+        DATABASE_DIR.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for path in files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        entries.append(
+            {
+                "case_id": data.get("case_id") or path.stem,
+                "company": data.get("company_name")
+                or data.get("company")
+                or "",
+                "end_user": data.get("customer_name")
+                or data.get("end_user")
+                or "",
+                "updated": datetime.fromtimestamp(path.stat().st_mtime),
+                "path": str(path),
+            }
+        )
+        if len(entries) >= limit:
+            break
+    return entries
+
+
+def render_tracked_cases_dashboard(cases: list) -> None:
+    if not cases:
+        st.info("No cases are currently being tracked.")
+        return
+    weights = [0.9, 1.1, 1.5, 1.5, 1.0, 1.2, 1.1, 1.2, 0.7, 0.7]
+    headers = [
+        "Type",
+        "Case ID",
+        "Company",
+        "End User",
+        "Created",
+        "Ticket",
+        "Priority",
+        "Status",
+        "Load",
+        "Untrack",
+    ]
     header_cols = st.columns(weights)
-    for col, (label, _) in zip(header_cols, columns):
-        col.write(f"**{label}**")
-    header_cols[-2].write("**Load**")
-    header_cols[-1].write("**Untrack**")
-    for c in cases:
+    for col, label in zip(header_cols, headers):
+        col.markdown(f"**{label}**")
+    for case in cases:
         row_cols = st.columns(weights)
-        for col, (_, key) in zip(row_cols[:-2], columns):
-            col.write(c.get(key, ""))
-        if row_cols[-2].button("Load", key=f"load_{Path(c['path']).stem}"):
-            request_load_from_path(c["path"])
-        if row_cols[-1].button("Untrack", key=f"untrack_{Path(c['path']).stem}"):
-            untrack_case(c["path"])
+        created = format_tracking_date(case.get("creation_day"))
+        priority_value = normalize_priority(case.get("priority"))
+        priority_key = f"priority_{Path(case['path']).stem}"
+        if (
+            st.session_state.get(priority_key) != priority_value
+            or priority_key not in st.session_state
+        ):
+            st.session_state[priority_key] = priority_value
+        row_cols[0].write(case.get("type", ""))
+        row_cols[1].write(case.get("case_id", ""))
+        row_cols[2].write(case.get("company", ""))
+        row_cols[3].write(case.get("end_user", ""))
+        row_cols[4].write(created)
+        row_cols[5].write(case.get("ticket_number", ""))
+        row_cols[6].selectbox(
+            "Priority",
+            PRIORITY_OPTIONS,
+            key=priority_key,
+            label_visibility="collapsed",
+            on_change=lambda path=case["path"], key=priority_key: update_tracked_priority(
+                path, key
+            ),
+        )
+        row_cols[7].write(case.get("status", ""))
+        if row_cols[8].button(
+            "Load", key=f"dash_load_{Path(case['path']).stem}"
+        ):
+            request_load_from_path(case["path"])
+        if row_cols[9].button(
+            "Untrack", key=f"dash_untrack_{Path(case['path']).stem}"
+        ):
+            untrack_case(case["path"])
             st.rerun()
+
+
+def render_dell_fedex_dashboard(cases: list) -> None:
+    dell_cases = [c for c in cases if c.get("type") == "Dell"]
+    fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
+    col_dell, col_fedex = st.columns(2)
+    with col_dell:
+        st.markdown("**Dell Escalations**")
+        if dell_cases:
+            table = pd.DataFrame(
+                [
+                    {
+                        "Case ID": c.get("case_id", ""),
+                        "Company": c.get("company", ""),
+                        "Ticket": c.get("ticket_number", ""),
+                        "Service Tag": c.get("service_tag", ""),
+                        "Priority": normalize_priority(c.get("priority")),
+                        "Status": c.get("status", ""),
+                    }
+                    for c in dell_cases
+                ]
+            )
+            st.dataframe(table, use_container_width=True)
+        else:
+            st.caption("No Dell escalations in the queue.")
+    with col_fedex:
+        st.markdown("**FedEx Replacements**")
+        if fedex_cases:
+            table = pd.DataFrame(
+                [
+                    {
+                        "Case ID": c.get("case_id", ""),
+                        "Company": c.get("company", ""),
+                        "Ticket": c.get("ticket_number", ""),
+                        "ETA": format_tracking_date(c.get("expected_arrival_date")),
+                        "Priority": normalize_priority(c.get("priority")),
+                        "Status": c.get("status", ""),
+                    }
+                    for c in fedex_cases
+                ]
+            )
+            st.dataframe(table, use_container_width=True)
+        else:
+            st.caption("No FedEx replacements awaiting action.")
+
+
+def render_saved_cases_dashboard() -> None:
+    saved_cases = list_saved_cases()
+    if not saved_cases:
+        st.info("No saved cases found in your database.")
+        return
+    weights = [1.2, 1.5, 1.5, 0.8]
+    header_cols = st.columns(weights)
+    header_cols[0].markdown("**Case ID**")
+    header_cols[1].markdown("**Company**")
+    header_cols[2].markdown("**Last Modified**")
+    header_cols[3].markdown("**Load**")
+    for case in saved_cases:
+        row_cols = st.columns(weights)
+        row_cols[0].write(case["case_id"])
+        row_cols[1].write(case["company"])
+        row_cols[2].write(case["updated"].strftime("%Y-%m-%d %H:%M"))
+        if row_cols[3].button(
+            "Load", key=f"saved_load_{Path(case['path']).stem}"
+        ):
+            request_load_from_path(case["path"])
+
+
+def render_dashboard() -> None:
+    st.header("Operations Dashboard")
+    tracked_cases = load_tracked_cases()
+    main_col, side_col = st.columns([3, 1])
+    with main_col:
+        st.subheader("Tracked Cases")
+        st.caption(
+            "Monitor ongoing work and adjust priority directly from this table."
+        )
+        render_tracked_cases_dashboard(tracked_cases)
+        st.divider()
+        st.subheader("Dell Escalations and FedEx Replacements")
+        render_dell_fedex_dashboard(tracked_cases)
+        st.divider()
+        st.subheader("All My Saved Cases")
+        render_saved_cases_dashboard()
+    with side_col:
+        st.subheader("Recent Tracked Files")
+        recent = recent_tracked_files()
+        if recent:
+            for path in recent:
+                st.write(path.stem)
+        else:
+            st.caption("No historical tracked files yet.")
 
 
 def recent_tracked_files() -> list:
@@ -685,9 +915,9 @@ def save_case_to_database(case: CaseData) -> None:
 def load_case_from_path(path: str) -> None:
     try:
         with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        data = {k: v for k, v in data.items() if k in CaseData.__annotations__}
-        st.session_state.case = CaseData(**data)
+            raw_data = json.load(f)
+        filtered = {k: v for k, v in raw_data.items() if k in CaseData.__annotations__}
+        st.session_state.case = CaseData(**filtered)
         global D
         D = st.session_state.case
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
@@ -698,6 +928,9 @@ def load_case_from_path(path: str) -> None:
         p = Path(path)
         if p.parent == TRACKED_CASES_DIR or p.name.endswith("_Active.json"):
             st.session_state.track_case = True
+            st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = normalize_priority(
+                raw_data.get("priority")
+            )
         else:
             st.session_state.track_case = False
         st.success("Case loaded successfully.")
@@ -1094,10 +1327,7 @@ def render_case_ui(case_idx: int):
                 "Include hardware issues", st.session_state.include_hardware
             )
     cat_map = active_category_map()
-    tab_labels = []
-    if st.session_state.second_line_mode and case_idx == 0:
-        tab_labels.append("2nd Line Mode")
-    tab_labels.append("Case")
+    tab_labels = ["Case"]
     if st.session_state.track_case:
         tab_labels.append("Tracking")
     if st.session_state.include_escalations:
@@ -1120,11 +1350,6 @@ def render_case_ui(case_idx: int):
 
     tabs = st.tabs(tab_labels)
     tab_iter = iter(tabs)
-    tab_dashboard = (
-        next(tab_iter)
-        if st.session_state.second_line_mode and case_idx == 0
-        else None
-    )
     tab_case = next(tab_iter)
     tab_tracking = next(tab_iter) if st.session_state.track_case else None
     tab_escalations = next(tab_iter) if st.session_state.include_escalations else None
@@ -1140,56 +1365,14 @@ def render_case_ui(case_idx: int):
     tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
     # ================== 2ND LINE MODE TAB =================
-    if tab_dashboard:
-        with tab_dashboard:
-            st.header("2nd Line Mode Dashboard")
-            main_col, recent_col = st.columns([3, 1])
-            with recent_col:
-                st.subheader("Recent Tracked Cases")
-                recent_box = st.container(height=400)
-                for p in recent_tracked_files():
-                    recent_box.write(p.stem)
-            with main_col:
-                st.subheader("Case Status & Tracking")
-                cases = load_tracked_cases()
-                dell_cases = [c for c in cases if c.get("type") == "Dell"]
-                st.markdown("### Dell Case Tracking")
-                if dell_cases:
-                    render_tracking_table(
-                        dell_cases,
-                        [
-                            ("Company", "company"),
-                            ("End User", "end_user"),
-                            ("Creation day", "creation_day"),
-                            ("Ticket Number", "ticket_number"),
-                            ("Service Tag", "service_tag"),
-                            ("Status", "status"),
-                        ],
-                    )
-                else:
-                    st.write("No Dell cases being tracked.")
-                st.markdown("### FedEx Case Tracking")
-                fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
-                if fedex_cases:
-                    render_tracking_table(
-                        fedex_cases,
-                        [
-                            ("Company", "company"),
-                            ("End User", "end_user"),
-                            ("Creation day", "creation_day"),
-                            ("Ticket Number", "ticket_number"),
-                            ("Expected arrival date", "expected_arrival_date"),
-                            ("Status", "status"),
-                        ],
-                    )
-                else:
-                    st.write("No FedEx cases being tracked.")
     # ================== CASE TAB =================
     with tab_case:
         api_key = st.session_state.openai_api_key
         model = st.session_state.openai_model
         base_url = st.session_state.ai_base_url
-        verify_col, ask_col, categorize_col, assist_col, clear_col, track_col = st.columns(6)
+        verify_col, ask_col, categorize_col, assist_col, quick_col, track_col = st.columns(
+            [1, 1, 1, 1, 0.9, 0.9]
+        )
         with verify_col:
             if st.button("Verify", key=widget_key("verify_button", case_idx)):
                 logging.info("Verify button clicked")
@@ -1409,19 +1592,41 @@ def render_case_ui(case_idx: int):
                                 if hasattr(D, fld) and not getattr(D, fld):
                                     setattr(D, fld, val)
                             autosave()
-        with clear_col:
-            if st.button("Clear all", key=widget_key("clear_all_button", case_idx)):
+        with quick_col:
+            st.markdown("#### Quick actions")
+            if st.button(
+                "Save case",
+                key=widget_key("quick_save", case_idx),
+                use_container_width=True,
+            ):
+                save_case_to_database(D)
+            if st.button(
+                "Clear all",
+                key=widget_key("clear_all_button", case_idx),
+                use_container_width=True,
+            ):
                 logging.info("Clear all button clicked")
-                api_key = st.session_state.get("openai_api_key", "")
+                backup_path = None
+                if D.case_id:
+                    backup_path = create_case_autosave_snapshot(D.case_id)
+                api_key_value = st.session_state.get("openai_api_key", "")
                 second_line_mode = st.session_state.get("second_line_mode", False)
-                st.session_state.clear()
-                st.session_state.openai_api_key = api_key
-                st.session_state.second_line_mode = second_line_mode
+                base_url_value = st.session_state.get("ai_base_url", "")
+                ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
                 if os.path.exists(AUTOSAVE_FILE):
                     try:
                         os.remove(AUTOSAVE_FILE)
                     except OSError:
                         pass
+                st.session_state.clear()
+                st.session_state.openai_api_key = api_key_value
+                st.session_state.second_line_mode = second_line_mode
+                st.session_state.ai_base_url = base_url_value
+                st.session_state.ai_mode = ai_mode
+                if backup_path is not None:
+                    st.session_state["autosave_notice"] = (
+                        f"Case autosaved to {backup_path.name}"
+                    )
                 st.rerun()
         with track_col:
             if st.session_state.track_case:
@@ -1668,6 +1873,14 @@ def render_case_ui(case_idx: int):
             ticket_number = st.text_input(
                 "Ticket Number", key=widget_key("track_ticket_number", case_idx)
             )
+            priority_key = widget_key("track_priority", case_idx)
+            current_priority = normalize_priority(st.session_state.get(priority_key))
+            st.session_state[priority_key] = current_priority
+            priority = st.selectbox(
+                "Priority",
+                PRIORITY_OPTIONS,
+                key=priority_key,
+            )
             if tracking_type == "Dell":
                 service_tag = st.text_input(
                     "Service Tag", key=widget_key("track_service_tag", case_idx)
@@ -1708,6 +1921,7 @@ def render_case_ui(case_idx: int):
                     "creation_day": creation_day.isoformat(),
                     "ticket_number": ticket_number,
                     "status": status,
+                    "priority": priority,
                 }
                 if tracking_type == "Dell":
                     info["service_tag"] = service_tag
@@ -1717,6 +1931,7 @@ def render_case_ui(case_idx: int):
                     file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
                 with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(info, f, indent=2)
+                st.session_state.track_case = True
                 st.success("Tracking information saved.")
             if st.button(
                 "Close case & stop tracking",
@@ -2789,8 +3004,12 @@ Thank you in advance,
 case_labels = [
     cs.case.case_id or f'Case {i+1}' for i, cs in enumerate(st.session_state.case_sessions)
 ] + ['+ New Case']
-case_tabs = st.tabs(case_labels)
-for idx, tab in enumerate(case_tabs):
+all_tabs = st.tabs(["Dashboard"] + case_labels)
+
+with all_tabs[0]:
+    render_dashboard()
+
+for idx, tab in enumerate(all_tabs[1:]):
     with tab:
         if idx == len(st.session_state.case_sessions):
             if st.button('Add Case'):
