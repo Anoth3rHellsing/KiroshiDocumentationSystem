@@ -344,21 +344,49 @@ st.set_page_config(
 )
 
 
+def inject_base_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap');
+
+        .dashboard-title {
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: #433878;
+            margin-bottom: 1.25rem;
+            text-shadow: 0 4px 10px rgba(67, 56, 120, 0.18);
+        }
+
+        #kiroshi-header {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_logo():
     motd = get_message_of_the_day()
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
     header_html = f"""
-    <div style="background-color:#bfbfbf;padding:1rem;border-radius:10px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
-            <div style="display:flex;align-items:center;gap:1rem;flex:1;min-width:250px;">
-                <img src="data:image/png;base64,{encoded_logo}" width="200" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
-                <div style="color:#1f1f1f;font-size:1rem;line-height:1.4;">
+    <div id="kiroshi-header" style="background:linear-gradient(135deg,#f1eaff,#d8f1ff);padding:1.5rem;border-radius:18px;box-shadow:0 8px 22px rgba(67,56,120,0.12);">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.75rem;">
+            <div style="display:flex;align-items:center;gap:1.5rem;flex:1;min-width:280px;">
+                <div style="display:flex;flex-direction:column;align-items:flex-start;gap:0.35rem;">
+                    <span style="font-size:0.9rem;font-weight:700;color:#4a3c8c;letter-spacing:0.03em;">Version {VERSION}</span>
+                    <img src="data:image/png;base64,{encoded_logo}" width="200" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
+                </div>
+                <div style="color:#1f1f1f;font-size:1.1rem;line-height:1.6;font-family:'Comic Neue','Comic Sans MS','Comic Sans',cursive;">
                     <span style="font-weight:700;">Message of the day:</span> {motd}
                 </div>
             </div>
-            <div style="font-weight:600;color:#1f1f1f;text-align:right;min-width:160px;">
+            <div style="font-weight:600;color:#1f1f1f;text-align:right;min-width:170px;font-size:1.05rem;">
                 {formatted_date}
             </div>
         </div>
@@ -431,6 +459,7 @@ _init_state(
     },
 )
 
+inject_base_styles()
 render_logo()
 
 if st.session_state.autosave_notice:
@@ -662,6 +691,7 @@ def load_tracked_cases() -> list:
             data = json.loads(p.read_text(encoding="utf-8"))
             data["path"] = str(p)
             data["priority"] = normalize_priority(data.get("priority"))
+            data.setdefault("phone_number", "")
             cases.append(data)
         except Exception:
             continue
@@ -695,13 +725,37 @@ def update_tracked_priority(path: str, key: str) -> None:
 def untrack_case(path: str) -> None:
     """Move an active tracking file into the main database and refresh the page."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        case_id = data.get("case_id")
-        if case_id:
-            dest = DATABASE_DIR / f"{case_id}.json"
-            Path(path).rename(dest)
-    except Exception:
-        st.error("Failed to untrack case.")
+        case_path = Path(path)
+        data = json.loads(case_path.read_text(encoding="utf-8"))
+        case_id = data.get("case_id") or case_path.stem.replace("_Active", "")
+        if not case_id:
+            case_path.unlink(missing_ok=True)
+            return
+
+        dest = DATABASE_DIR / f"{case_id}.json"
+        payload = {k: v for k, v in data.items() if k != "path"}
+
+        if dest.exists():
+            try:
+                existing = json.loads(dest.read_text(encoding="utf-8"))
+            except Exception:
+                existing = {}
+            if isinstance(existing, dict):
+                existing.update(payload)
+                dest.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+            else:
+                dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        else:
+            dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        case_path.unlink(missing_ok=True)
+        update_recent_cases(case_id, str(dest))
+        st.toast("Case removed from tracking.") if hasattr(st, "toast") else st.success(
+            "Case removed from tracking."
+        )
+    except Exception as exc:
+        logging.exception("Failed to untrack tracked case %s", path)
+        st.error(f"Failed to untrack case: {exc}")
 
 
 def format_tracking_date(value) -> str:
@@ -751,16 +805,90 @@ def list_saved_cases(limit: int = 25) -> list:
     return entries
 
 
+def render_tracked_case_insights(cases: list) -> None:
+    st.subheader("Tracked Case Insights")
+    if not cases:
+        st.caption("No tracked cases to visualize yet.")
+        return
+
+    df = pd.DataFrame(cases)
+    if "priority" in df:
+        priority_counts = (
+            df.assign(priority=df["priority"].fillna(DEFAULT_TRACKING_PRIORITY))
+            .groupby("priority", dropna=False)
+            .size()
+            .reset_index(name="count")
+            .sort_values("count", ascending=False)
+        )
+        priority_chart = (
+            alt.Chart(priority_counts)
+            .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
+            .encode(
+                x=alt.X("count:Q", title="Cases"),
+                y=alt.Y("priority:N", sort="-x", title="Priority"),
+                color=alt.Color("priority:N", legend=None),
+                tooltip=["priority", "count"],
+            )
+            .properties(height=140)
+        )
+        st.altair_chart(priority_chart, use_container_width=True)
+
+    if "status" in df:
+        status_counts = (
+            df.assign(status=df["status"].fillna("Unknown"))
+            .groupby("status", dropna=False)
+            .size()
+            .reset_index(name="count")
+            .sort_values("count", ascending=False)
+        )
+        status_chart = (
+            alt.Chart(status_counts)
+            .mark_bar()
+            .encode(
+                x=alt.X("status:N", sort="-y", title="Status"),
+                y=alt.Y("count:Q", title="Cases"),
+                color=alt.Color("count:Q", legend=None),
+                tooltip=["status", "count"],
+            )
+            .properties(height=200)
+        )
+        st.altair_chart(status_chart, use_container_width=True)
+
+    if "creation_day" in df:
+        created_series = pd.to_datetime(df["creation_day"], errors="coerce")
+        if not created_series.isna().all():
+            timeline = (
+                created_series.dropna()
+                .dt.floor("D")
+                .value_counts()
+                .rename_axis("day")
+                .reset_index(name="cases")
+                .sort_values("day")
+            )
+            timeline_chart = (
+                alt.Chart(timeline)
+                .mark_area(line=True, point=True, interpolate="monotone")
+                .encode(
+                    x=alt.X("day:T", title="Created"),
+                    y=alt.Y("cases:Q", title="Tracked cases"),
+                    tooltip=["day:T", "cases"],
+                )
+                .properties(height=160)
+            )
+            st.altair_chart(timeline_chart, use_container_width=True)
+
+
 def render_tracked_cases_dashboard(cases: list) -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
         return
-    weights = [0.9, 1.1, 1.5, 1.5, 1.0, 1.2, 1.1, 1.2, 0.7, 0.7]
+    weights = [0.9, 1.1, 1.5, 1.4, 1.0, 1.1, 1.0, 1.2, 0.7, 0.7, 0.7]
     headers = [
         "Type",
         "Case ID",
         "Company",
         "End User",
+        "Phone",
         "Created",
         "Ticket",
         "Priority",
@@ -785,9 +913,10 @@ def render_tracked_cases_dashboard(cases: list) -> None:
         row_cols[1].write(case.get("case_id", ""))
         row_cols[2].write(case.get("company", ""))
         row_cols[3].write(case.get("end_user", ""))
-        row_cols[4].write(created)
-        row_cols[5].write(case.get("ticket_number", ""))
-        row_cols[6].selectbox(
+        row_cols[4].write(case.get("phone_number", ""))
+        row_cols[5].write(created)
+        row_cols[6].write(case.get("ticket_number", ""))
+        row_cols[7].selectbox(
             "Priority",
             PRIORITY_OPTIONS,
             key=priority_key,
@@ -796,12 +925,12 @@ def render_tracked_cases_dashboard(cases: list) -> None:
                 path, key
             ),
         )
-        row_cols[7].write(case.get("status", ""))
-        if row_cols[8].button(
+        row_cols[8].write(case.get("status", ""))
+        if row_cols[9].button(
             "Load", key=f"dash_load_{Path(case['path']).stem}"
         ):
             request_load_from_path(case["path"])
-        if row_cols[9].button(
+        if row_cols[10].button(
             "Untrack", key=f"dash_untrack_{Path(case['path']).stem}"
         ):
             untrack_case(case["path"])
@@ -877,17 +1006,26 @@ def render_saved_cases_dashboard() -> None:
 def render_dashboard() -> None:
     """Render the high-level dashboard overview tab."""
 
-    # The dashboard focuses on surfacing information relevant to the AX
-    # coordination workflow, so keep the title explicit about that scope to
-    # avoid confusion with the broader operations tooling available in the
-    # other tabs.
-    st.header("AX Coordinators Dashboard")
+    st.markdown(
+        "<div class='dashboard-title'>✨ Dashboard</div>",
+        unsafe_allow_html=True,
+    )
     tracked_cases = load_tracked_cases()
-    main_col, side_col = st.columns([3, 1])
+    charts_col, main_col = st.columns([1.1, 2.4])
+    with charts_col:
+        render_tracked_case_insights(tracked_cases)
+        st.markdown("---")
+        st.subheader("Recent Tracked Files")
+        recent = recent_tracked_files()
+        if recent:
+            for path in recent:
+                st.write(path.stem)
+        else:
+            st.caption("No historical tracked files yet.")
     with main_col:
         st.subheader("Tracked Cases")
         st.caption(
-            "Monitor ongoing work and adjust priority directly from this table."
+            "Monitor ongoing work, contact details, and adjust priority directly from this table."
         )
         render_tracked_cases_dashboard(tracked_cases)
         st.divider()
@@ -896,14 +1034,6 @@ def render_dashboard() -> None:
         st.divider()
         st.subheader("All My Saved Cases")
         render_saved_cases_dashboard()
-    with side_col:
-        st.subheader("Recent Tracked Files")
-        recent = recent_tracked_files()
-        if recent:
-            for path in recent:
-                st.write(path.stem)
-        else:
-            st.caption("No historical tracked files yet.")
 
 
 def recent_tracked_files() -> list:
@@ -2389,6 +2519,9 @@ Thank you in advance,
                     "case_id": D.case_id,
                     "company": company,
                     "end_user": end_user,
+                    "phone_number": getattr(D, "phone_number", "")
+                    or getattr(D, "office_ph", "")
+                    or getattr(D, "direct_ph", ""),
                     "creation_day": creation_day.isoformat(),
                     "ticket_number": ticket_number,
                     "status": status,
