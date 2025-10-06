@@ -43,6 +43,22 @@ try:  # pyautogui may require a GUI environment
 except Exception:  # pragma: no cover - fallback when display unavailable
     pyautogui = None
     PYAUTOGUI_AVAILABLE = False
+
+try:  # tkinter may be missing in headless environments
+    import tkinter as tk
+
+    TK_AVAILABLE = True
+except Exception:  # pragma: no cover - fallback when display unavailable
+    tk = None
+    TK_AVAILABLE = False
+
+try:  # PIL's ImageGrab requires GUI capabilities
+    from PIL import ImageGrab
+
+    IMAGEGRAB_AVAILABLE = True
+except Exception:  # pragma: no cover - fallback when Pillow is unavailable
+    ImageGrab = None
+    IMAGEGRAB_AVAILABLE = False
 from aatom_chat import (
     load_memory,
     save_memory,
@@ -558,6 +574,155 @@ class InMemoryUploadedFile:
 
     def getvalue(self) -> bytes:
         return self.data
+
+
+def select_screen_region() -> tuple[tuple[int, int, int, int] | None, str | None]:
+    """Launch a temporary overlay that lets the user select a screen region."""
+
+    if not TK_AVAILABLE or tk is None:
+        return None, "Region selection requires a graphical environment."
+
+    try:
+        root = tk.Tk()
+    except Exception as exc:  # pragma: no cover - depends on GUI availability
+        logging.warning("Unable to initialize Tkinter for region capture: %s", exc)
+        return None, "Region selection is unavailable in this environment."
+
+    selection: dict[str, object] = {"start": None, "coords": None, "cancelled": False}
+
+    try:
+        root.attributes("-topmost", True)
+    except Exception:  # pragma: no cover - platform dependent
+        pass
+    try:
+        root.attributes("-fullscreen", True)
+    except Exception:  # pragma: no cover - fallback sizing
+        width = root.winfo_screenwidth()
+        height = root.winfo_screenheight()
+        root.geometry(f"{width}x{height}+0+0")
+    try:
+        root.attributes("-alpha", 0.2)
+    except Exception:  # pragma: no cover - not all window managers allow transparency
+        root.configure(bg="#000000")
+    try:
+        root.overrideredirect(True)
+    except Exception:  # pragma: no cover - some platforms disallow this
+        pass
+
+    canvas = tk.Canvas(root, bg="#000000", highlightthickness=0, cursor="crosshair")
+    canvas.pack(fill=tk.BOTH, expand=True)
+
+    root.update_idletasks()
+    canvas.create_text(
+        root.winfo_screenwidth() // 2,
+        40,
+        text="Click and drag to select the area to capture. Press Esc to cancel.",
+        fill="white",
+        font=("Helvetica", 14),
+    )
+
+    rect_id: int | None = None
+
+    def canvas_coords(x_root: int, y_root: int) -> tuple[int, int]:
+        return x_root - root.winfo_rootx(), y_root - root.winfo_rooty()
+
+    def on_button_press(event: "tk.Event[tk.Canvas]") -> None:
+        nonlocal rect_id
+        selection["start"] = (event.x_root, event.y_root)
+        if rect_id is not None:
+            canvas.delete(rect_id)
+        cx, cy = canvas_coords(event.x_root, event.y_root)
+        rect_id = canvas.create_rectangle(cx, cy, cx, cy, outline="red", width=2)
+
+    def on_mouse_move(event: "tk.Event[tk.Canvas]") -> None:
+        if selection["start"] is None or rect_id is None:
+            return
+        start_x, start_y = selection["start"]  # type: ignore[misc]
+        cx0, cy0 = canvas_coords(start_x, start_y)
+        cx1, cy1 = canvas_coords(event.x_root, event.y_root)
+        canvas.coords(rect_id, cx0, cy0, cx1, cy1)
+
+    def on_button_release(event: "tk.Event[tk.Canvas]") -> None:
+        start = selection["start"]
+        if not isinstance(start, tuple):
+            return
+        end = (event.x_root, event.y_root)
+        left = min(start[0], end[0])
+        top = min(start[1], end[1])
+        width = abs(end[0] - start[0])
+        height = abs(end[1] - start[1])
+        if width > 1 and height > 1:
+            selection["coords"] = (int(left), int(top), int(width), int(height))
+        else:
+            selection["coords"] = None
+        root.quit()
+
+    def on_cancel(event: object | None = None) -> None:  # pragma: no cover - GUI interaction
+        selection["cancelled"] = True
+        root.quit()
+
+    canvas.bind("<ButtonPress-1>", on_button_press)
+    canvas.bind("<B1-Motion>", on_mouse_move)
+    canvas.bind("<ButtonRelease-1>", on_button_release)
+    root.bind("<Escape>", on_cancel)
+    root.protocol("WM_DELETE_WINDOW", on_cancel)
+
+    try:
+        root.mainloop()
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # pragma: no cover - cleanup best effort
+            pass
+
+    if selection.get("cancelled"):
+        return None, "Region selection cancelled."
+
+    coords = selection.get("coords")
+    if not isinstance(coords, tuple):
+        return None, "No region was selected."
+    return coords, None
+
+
+def capture_region_screenshot(
+    safe_name: str,
+) -> tuple[InMemoryUploadedFile | None, str | None]:
+    """Capture a cropped screenshot using the interactive region selector."""
+
+    if not (PYAUTOGUI_AVAILABLE or IMAGEGRAB_AVAILABLE):
+        return None, "Screenshot capture is unavailable in this environment."
+
+    coords, error = select_screen_region()
+    if not coords:
+        return None, error
+
+    left, top, width, height = coords
+    if width <= 0 or height <= 0:
+        return None, "No region was selected."
+
+    img = None
+    if PYAUTOGUI_AVAILABLE and pyautogui is not None:
+        try:
+            img = pyautogui.screenshot(  # type: ignore[union-attr]
+                region=(left, top, width, height)
+            )
+        except Exception as exc:  # pragma: no cover - depends on GUI stack
+            logging.warning("pyautogui region capture failed: %s", exc)
+
+    if img is None and IMAGEGRAB_AVAILABLE and ImageGrab is not None:
+        try:
+            img = ImageGrab.grab(bbox=(left, top, left + width, top + height))  # type: ignore[union-attr]
+        except Exception as exc:  # pragma: no cover - depends on GUI stack
+            logging.error("ImageGrab region capture failed: %s", exc)
+            return None, "Unable to capture the selected region."
+
+    if img is None:
+        return None, "Unable to capture the selected region."
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()), None
 
 
 @dataclass
@@ -2863,7 +3028,9 @@ Thank you in advance,
     screenshot_name = st.text_input(
         "Screenshot name", key=widget_key("screenshot_name", case_idx)
     )
-    if st.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
+    full_btn_col, region_btn_col = st.columns(2)
+
+    if full_btn_col.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
         if not PYAUTOGUI_AVAILABLE:
             st.error("Screenshot capture is unavailable in this environment.")
         elif screenshot_name:
@@ -2878,6 +3045,33 @@ Thank you in advance,
             st.success(f"Captured screenshot: {safe_name}")
         else:
             st.error("Please provide a screenshot name before capturing.")
+
+    if region_btn_col.button(
+        "Advanced Screenshot (select area)",
+        key=widget_key("take_region_screenshot", case_idx),
+    ):
+        if not screenshot_name:
+            st.error("Please provide a screenshot name before capturing.")
+        elif not TK_AVAILABLE or tk is None:
+            st.warning(
+                "Advanced screenshot selection requires a local display and Tkinter support."
+            )
+        else:
+            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
+            shot, error = capture_region_screenshot(safe_name)
+            if shot:
+                st.session_state.screenshots.append(shot)
+                st.success(
+                    "Captured targeted screenshot. Confirm it excludes unnecessary PHI before sharing."
+                )
+            else:
+                message = error or "Unable to capture the selected region."
+                if "cancel" in message.lower():
+                    st.warning("Region capture cancelled—no image was saved.")
+                elif "environment" in message.lower() or "available" in message.lower():
+                    st.warning(message)
+                else:
+                    st.error(message)
 
     if (
         st.session_state.uploads
