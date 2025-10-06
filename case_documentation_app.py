@@ -1402,15 +1402,21 @@ def recent_tracked_files() -> list:
     return files[:20]
 
 
-def save_case_to_database(case: CaseData) -> None:
+def save_case_to_database(
+    case: CaseData, *, notify: bool = True, update_history: bool = True
+) -> Path | None:
     if not case.case_id:
-        st.error("Case ID is required to save.")
-        return
+        if notify:
+            st.error("Case ID is required to save.")
+        return None
     file_path = DATABASE_DIR / f"{case.case_id}.json"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(asdict(case), f, indent=2)
-    update_recent_cases(case.case_id, str(file_path))
-    st.success(f"Case saved to {file_path}")
+    if update_history:
+        update_recent_cases(case.case_id, str(file_path))
+    if notify:
+        st.success(f"Case saved to {file_path}")
+    return file_path
 
 
 def load_case_from_path(path: str) -> None:
@@ -1425,6 +1431,11 @@ def load_case_from_path(path: str) -> None:
             st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
         update_recent_cases(st.session_state.case.case_id, path)
+        save_case_to_database(
+            st.session_state.case,
+            notify=False,
+            update_history=False,
+        )
         # Enable tracking tab if loaded from tracked directory or active file
         p = Path(path)
         if p.parent == TRACKED_CASES_DIR or p.name.endswith("_Active.json"):
@@ -1450,6 +1461,11 @@ def load_case_from_bytes(data: bytes) -> None:
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
             st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
+        save_case_to_database(
+            st.session_state.case,
+            notify=False,
+            update_history=False,
+        )
         st.success("Case loaded successfully.")
         st.rerun()
     except Exception as e:
@@ -1873,75 +1889,95 @@ def render_case_ui(case_idx: int):
         base_url = st.session_state.ai_base_url
         quick_col, _ = st.columns([1, 3])
         with quick_col:
-            st.markdown("#### Quick actions")
-            if st.button(
-                "Save case",
-                key=widget_key("quick_save", case_idx),
-                use_container_width=True,
-            ):
-                save_case_to_database(D)
-            if st.button(
-                "Clear all",
-                key=widget_key("clear_all_button", case_idx),
-                use_container_width=True,
-            ):
-                logging.info("Clear all button clicked")
-                backup_path = None
-                if D.case_id:
-                    backup_path = create_case_autosave_snapshot(D.case_id)
-                api_key_value = st.session_state.get("openai_api_key", "")
-                second_line_mode = st.session_state.get("second_line_mode", False)
-                base_url_value = st.session_state.get("ai_base_url", "")
-                ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
-                if os.path.exists(AUTOSAVE_FILE):
-                    try:
-                        os.remove(AUTOSAVE_FILE)
-                    except OSError:
-                        pass
-                st.session_state.clear()
-                st.session_state.openai_api_key = api_key_value
-                st.session_state.second_line_mode = second_line_mode
-                st.session_state.ai_base_url = base_url_value
-                st.session_state.ai_mode = ai_mode
-                if backup_path is not None:
-                    st.session_state["autosave_notice"] = (
-                        f"Case autosaved to {backup_path.name}"
-                    )
-                st.rerun()
-            if st.session_state.track_case:
-                st.button(
-                    "Tracking enabled",
-                    disabled=True,
-                    key=widget_key("tracking_enabled", case_idx),
+            visible_key = widget_key("quick_actions_visible", case_idx)
+            if visible_key not in st.session_state:
+                st.session_state[visible_key] = True
+            header_cols = st.columns([0.35, 0.65])
+            with header_cols[0]:
+                if st.button(
+                    "☰",
+                    key=widget_key("quick_actions_toggle", case_idx),
                     use_container_width=True,
-                )
-            elif st.button(
-                "Track case",
-                key=widget_key("track_case_button", case_idx),
-                use_container_width=True,
-            ):
-                st.session_state.track_case = True
-                st.rerun()
-            if st.button("AI Assistance", key=widget_key("assist_button", case_idx), use_container_width=True):
-                logging.info("AI Assistance button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    help="Show or hide quick actions",
+                ):
+                    st.session_state[visible_key] = not st.session_state[visible_key]
+                    st.rerun()
+            with header_cols[1]:
+                st.markdown("#### Quick actions")
+
+            if st.session_state[visible_key]:
+                if st.button(
+                    "Save case",
+                    key=widget_key("quick_save", case_idx),
+                    use_container_width=True,
+                ):
+                    save_case_to_database(D)
+                if st.button(
+                    "Clear all",
+                    key=widget_key("clear_all_button", case_idx),
+                    use_container_width=True,
+                ):
+                    logging.info("Clear all button clicked")
+                    backup_path = None
+                    if D.case_id:
+                        backup_path = create_case_autosave_snapshot(D.case_id)
+                    api_key_value = st.session_state.get("openai_api_key", "")
+                    second_line_mode = st.session_state.get("second_line_mode", False)
+                    base_url_value = st.session_state.get("ai_base_url", "")
+                    ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
+                    if os.path.exists(AUTOSAVE_FILE):
+                        try:
+                            os.remove(AUTOSAVE_FILE)
+                        except OSError:
+                            pass
+                    st.session_state.clear()
+                    st.session_state.openai_api_key = api_key_value
+                    st.session_state.second_line_mode = second_line_mode
+                    st.session_state.ai_base_url = base_url_value
+                    st.session_state.ai_mode = ai_mode
+                    if backup_path is not None:
+                        st.session_state["autosave_notice"] = (
+                            f"Case autosaved to {backup_path.name}"
+                        )
+                    st.rerun()
+                if st.session_state.track_case:
+                    st.button(
+                        "Tracking enabled",
+                        disabled=True,
+                        key=widget_key("tracking_enabled", case_idx),
+                        use_container_width=True,
+                    )
+                elif st.button(
+                    "Track case",
+                    key=widget_key("track_case_button", case_idx),
+                    use_container_width=True,
+                ):
+                    st.session_state.track_case = True
+                    st.rerun()
+                if st.button(
+                    "AI Assistance",
+                    key=widget_key("assist_button", case_idx),
+                    use_container_width=True,
+                ):
+                    logging.info("AI Assistance button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
+                    else:
+                        case_dict = asdict(D)
+                        if not st.session_state.include_escalations:
+                            for fld in [
+                                "request_issue",
+                                "contact_name",
+                                "office_ph",
+                                "direct_ph",
+                                "best_time",
+                                "patterson",
+                                "straumann",
+                                "esc_name",
+                                "esc_ph",
+                                "esc_email",
+                            ]:
+                                case_dict.pop(fld, None)
                     _, miss = compute_progress(D, cat_map)
                     missing = [f for flds in miss.values() for f in flds]
                     user_message = (
