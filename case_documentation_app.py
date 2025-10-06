@@ -363,6 +363,57 @@ def inject_base_styles() -> None:
             box-sizing: border-box;
         }
 
+        .dashboard-section {
+            margin: 1.5rem 0;
+            padding: 1.5rem 1.75rem;
+            background: #ffffff;
+            border-radius: 1.1rem;
+            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+        }
+
+        .case-card {
+            padding: 1.25rem 1.5rem;
+            border-radius: 0.9rem;
+            border: 1px solid rgba(67, 56, 120, 0.08);
+            background: linear-gradient(145deg, #ffffff 0%, #f7f8ff 100%);
+            margin-bottom: 1rem;
+        }
+
+        .case-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+            padding-bottom: 0.4rem;
+        }
+
+        .case-meta__label {
+            font-size: 0.78rem;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: #6b7280;
+        }
+
+        .case-meta__value {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .case-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .case-actions .stSelectbox > div > div {
+            border-radius: 0.6rem;
+        }
+
+        .case-actions .stButton button {
+            width: 100%;
+            border-radius: 999px;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -882,25 +933,7 @@ def render_tracked_cases_dashboard(cases: list) -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
         return
-    weights = [0.9, 1.1, 1.5, 1.4, 1.0, 1.1, 1.0, 1.2, 0.7, 0.7, 0.7]
-    headers = [
-        "Type",
-        "Case ID",
-        "Company",
-        "End User",
-        "Phone",
-        "Created",
-        "Ticket",
-        "Priority",
-        "Status",
-        "Load",
-        "Untrack",
-    ]
-    header_cols = st.columns(weights)
-    for col, label in zip(header_cols, headers):
-        col.markdown(f"**{label}**")
     for case in cases:
-        row_cols = st.columns(weights)
         created = format_tracking_date(case.get("creation_day"))
         priority_value = normalize_priority(case.get("priority"))
         priority_key = f"priority_{Path(case['path']).stem}"
@@ -909,32 +942,56 @@ def render_tracked_cases_dashboard(cases: list) -> None:
             or priority_key not in st.session_state
         ):
             st.session_state[priority_key] = priority_value
-        row_cols[0].write(case.get("type", ""))
-        row_cols[1].write(case.get("case_id", ""))
-        row_cols[2].write(case.get("company", ""))
-        row_cols[3].write(case.get("end_user", ""))
-        row_cols[4].write(case.get("phone_number", ""))
-        row_cols[5].write(created)
-        row_cols[6].write(case.get("ticket_number", ""))
-        row_cols[7].selectbox(
-            "Priority",
-            PRIORITY_OPTIONS,
-            key=priority_key,
-            label_visibility="collapsed",
-            on_change=lambda path=case["path"], key=priority_key: update_tracked_priority(
-                path, key
-            ),
-        )
-        row_cols[8].write(case.get("status", ""))
-        if row_cols[9].button(
-            "Load", key=f"dash_load_{Path(case['path']).stem}"
-        ):
-            request_load_from_path(case["path"])
-        if row_cols[10].button(
-            "Untrack", key=f"dash_untrack_{Path(case['path']).stem}"
-        ):
-            untrack_case(case["path"])
-            st.rerun()
+        case_container = st.container()
+        with case_container:
+            st.markdown("<div class='case-card'>", unsafe_allow_html=True)
+            info_col_left, info_col_right, actions_col = st.columns([2.3, 2.0, 1.4])
+            with info_col_left:
+                render_case_metadata("Type", case.get("type", ""))
+                render_case_metadata("Case ID", case.get("case_id", ""))
+                render_case_metadata("Company", case.get("company", ""))
+                render_case_metadata("End User", case.get("end_user", ""))
+            with info_col_right:
+                render_case_metadata("Phone", case.get("phone_number", ""))
+                render_case_metadata("Created", created)
+                render_case_metadata("Ticket", case.get("ticket_number", ""))
+                render_case_metadata("Status", case.get("status", ""))
+            with actions_col:
+                st.markdown("<div class='case-actions'>", unsafe_allow_html=True)
+                st.selectbox(
+                    "Priority",
+                    PRIORITY_OPTIONS,
+                    key=priority_key,
+                    label_visibility="collapsed",
+                    on_change=lambda path=case["path"], key=priority_key: update_tracked_priority(
+                        path, key
+                    ),
+                )
+                load_col, untrack_col = st.columns(2)
+                with load_col:
+                    if st.button(
+                        "Load", key=f"dash_load_{Path(case['path']).stem}"
+                    ):
+                        request_load_from_path(case["path"])
+                with untrack_col:
+                    if st.button(
+                        "Untrack", key=f"dash_untrack_{Path(case['path']).stem}"
+                    ):
+                        untrack_case(case["path"])
+                        st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_case_metadata(label: str, value: str | None) -> None:
+    display_value = value if value not in (None, "") else "—"
+    st.markdown(
+        f"<div class='case-meta'>"
+        f"<span class='case-meta__label'>{label}</span>"
+        f"<span class='case-meta__value'>{display_value}</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_dell_fedex_dashboard(cases: list) -> None:
@@ -1023,17 +1080,24 @@ def render_dashboard() -> None:
         else:
             st.caption("No historical tracked files yet.")
     with main_col:
-        st.subheader("Tracked Cases")
-        st.caption(
-            "Monitor ongoing work, contact details, and adjust priority directly from this table."
-        )
-        render_tracked_cases_dashboard(tracked_cases)
-        st.divider()
-        st.subheader("Dell Escalations and FedEx Replacements")
-        render_dell_fedex_dashboard(tracked_cases)
-        st.divider()
-        st.subheader("All My Saved Cases")
-        render_saved_cases_dashboard()
+        with st.container():
+            st.markdown("<div class='dashboard-section'>", unsafe_allow_html=True)
+            st.subheader("Tracked Cases")
+            st.caption(
+                "Monitor ongoing work, contact details, and adjust priority directly from this table."
+            )
+            render_tracked_cases_dashboard(tracked_cases)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with st.container():
+            st.markdown("<div class='dashboard-section'>", unsafe_allow_html=True)
+            st.subheader("Dell Escalations and FedEx Replacements")
+            render_dell_fedex_dashboard(tracked_cases)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with st.container():
+            st.markdown("<div class='dashboard-section'>", unsafe_allow_html=True)
+            st.subheader("All My Saved Cases")
+            render_saved_cases_dashboard()
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 def recent_tracked_files() -> list:
