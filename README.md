@@ -1,7 +1,7 @@
 # Kiroshi Documentation System
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
-[![Version](https://img.shields.io/badge/version-1.5.2%20Beta%20Build%20932025-blue)](#)
+[![Version](https://img.shields.io/badge/version-1.7.2%20Beta%20Build%20932025-blue)](#)
 [![Coverage](https://img.shields.io/badge/coverage-active-brightgreen)](#)
 [![Updates](https://img.shields.io/badge/updates-daily-blue)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -46,8 +46,8 @@ Coverage is actively tracked and the project receives daily updates.
 ### Automated installation
 
 1. Download the repository ZIP from GitHub.
-2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_1-5-2.bat`).
-3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_1-5-2.bat`).
+2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_1-7-2.bat`).
+3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_1-7-2.bat`).
 4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
 
 ### Manual installation
@@ -65,8 +65,8 @@ pip install -r requirements-bored.txt
 ### Updating
 
 The `QuickUpdate.bat` script is intended for small incremental patches.  
-Major updates such as **1.5.2** introduce new requirements and should be applied manually.  
-To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_1-5-2.bat`).
+Major updates such as **1.7.2** introduce new requirements and should be applied manually.
+To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_1-7-2.bat`).
 
 ### Windows PATH helper
 
@@ -99,7 +99,7 @@ streamlit --version
 
 ## Usage
 
-If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_1-5-2.bat`).
+If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_1-7-2.bat`).
 
 For manual runs from source, execute the Streamlit app from the repository root. If you are not already in the project folder,
 navigate there first with `cd`:
