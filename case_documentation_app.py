@@ -442,20 +442,17 @@ def render_logo():
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
     header_html = f"""
-    <div id="kiroshi-header" style="background:linear-gradient(135deg,#f1eaff,#d8f1ff);padding:2.25rem;border-radius:22px;box-shadow:0 12px 30px rgba(67,56,120,0.12);">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:2.25rem;">
-            <div style="display:flex;align-items:center;gap:2rem;flex:1;min-width:320px;">
-                <div style="display:flex;flex-direction:column;align-items:flex-start;gap:0.5rem;">
-                    <span style="font-size:1.05rem;font-weight:700;color:#4a3c8c;letter-spacing:0.08em;text-transform:uppercase;">Version {VERSION}</span>
-                    <img src="data:image/png;base64,{encoded_logo}" width="200" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
-                </div>
-                <div style="color:#1f1f1f;font-size:1.25rem;line-height:1.7;font-family:'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif;font-weight:500;">
-                    <span style="font-weight:700;">Message of the day:</span> {motd}
-                </div>
-            </div>
-            <div style="font-weight:600;color:#1f1f1f;text-align:right;min-width:200px;font-size:1.15rem;font-family:'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif;">
-                {formatted_date}
-            </div>
+    <div id="kiroshi-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1.5rem;padding:0.5rem 0;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0.75rem;min-width:180px;">
+            <span style="font-weight:600;">Version {VERSION}</span>
+            <img src="data:image/png;base64,{encoded_logo}" width="180" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
+        </div>
+        <div style="flex:1;min-width:260px;text-align:center;">
+            <div style="font-size:1.4rem;font-weight:700;">Message of the Day</div>
+            <div style="margin-top:0.35rem;font-size:1.15rem;line-height:1.6;">{motd}</div>
+        </div>
+        <div style="font-weight:600;text-align:right;min-width:200px;font-size:1.1rem;">
+            {formatted_date}
         </div>
     </div>
     <script>
