@@ -1767,13 +1767,20 @@ def render_case_ui(case_idx: int):
                     ]
                 )
             email_choices.extend(["Advanced Request", "Custom"])
+            email_widget_key = widget_key("email_template", case_idx)
+            current_email_type = st.session_state.email_type
+            if current_email_type not in email_choices:
+                current_email_type = email_choices[0]
+                st.session_state.email_type = current_email_type
+            if (
+                email_widget_key not in st.session_state
+                or st.session_state[email_widget_key] not in email_choices
+            ):
+                st.session_state[email_widget_key] = current_email_type
             email_type = st.selectbox(
                 "Select email template",
                 email_choices,
-                index=
-                email_choices.index(st.session_state.email_type)
-                if st.session_state.email_type in email_choices
-                else 0,
+                key=email_widget_key,
             )
             st.session_state.email_type = email_type
             ext = st.session_state.email_extra
