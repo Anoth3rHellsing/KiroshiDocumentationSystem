@@ -442,18 +442,18 @@ def render_logo():
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
     header_html = f"""
-    <div id="kiroshi-header" style="background:linear-gradient(135deg,#f1eaff,#d8f1ff);padding:1.5rem;border-radius:18px;box-shadow:0 8px 22px rgba(67,56,120,0.12);">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.75rem;">
-            <div style="display:flex;align-items:center;gap:1.5rem;flex:1;min-width:280px;">
-                <div style="display:flex;flex-direction:column;align-items:flex-start;gap:0.35rem;">
-                    <span style="font-size:0.9rem;font-weight:700;color:#4a3c8c;letter-spacing:0.03em;">Version {VERSION}</span>
+    <div id="kiroshi-header" style="background:linear-gradient(135deg,#f1eaff,#d8f1ff);padding:2.25rem;border-radius:22px;box-shadow:0 12px 30px rgba(67,56,120,0.12);">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:2.25rem;">
+            <div style="display:flex;align-items:center;gap:2rem;flex:1;min-width:320px;">
+                <div style="display:flex;flex-direction:column;align-items:flex-start;gap:0.5rem;">
+                    <span style="font-size:1.05rem;font-weight:700;color:#4a3c8c;letter-spacing:0.08em;text-transform:uppercase;">Version {VERSION}</span>
                     <img src="data:image/png;base64,{encoded_logo}" width="200" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
                 </div>
-                <div style="color:#1f1f1f;font-size:1.1rem;line-height:1.6;font-family:'Comic Neue','Comic Sans MS','Comic Sans',cursive;">
+                <div style="color:#1f1f1f;font-size:1.25rem;line-height:1.7;font-family:'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif;font-weight:500;">
                     <span style="font-weight:700;">Message of the day:</span> {motd}
                 </div>
             </div>
-            <div style="font-weight:600;color:#1f1f1f;text-align:right;min-width:170px;font-size:1.05rem;">
+            <div style="font-weight:600;color:#1f1f1f;text-align:right;min-width:200px;font-size:1.15rem;font-family:'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif;">
                 {formatted_date}
             </div>
         </div>
@@ -467,7 +467,7 @@ def render_logo():
     }}
     </script>
     """
-    action_logo = components.html(header_html, height=220)
+    action_logo = components.html(header_html, height=260)
     if action_logo == "open-debug":
         st.session_state.debug_mode = True
 
