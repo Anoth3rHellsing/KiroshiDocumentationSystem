@@ -1465,7 +1465,6 @@ def render_case_ui(case_idx: int):
             st.subheader("Phone-call notes")
             auto_text_input("Caller name", "caller_name")
             auto_text_area("Caller issue description", "phone_description", height=68)
-            auto_text_input("Email", "email")
             c1, c2 = st.columns(2)
             auto_text_input("Dongle number", "dongle_number", container=c1)
             auto_text_input("Phone number", "phone_number", container=c2)
@@ -1497,6 +1496,7 @@ def render_case_ui(case_idx: int):
     if tab_email:
         with tab_email:
             st.subheader("Email Prompt Generator")
+            auto_text_input("Customer email", "email")
             email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
             if st.session_state.second_line_mode:
                 email_choices.extend(
