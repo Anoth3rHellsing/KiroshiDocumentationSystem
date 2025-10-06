@@ -896,6 +896,35 @@ def build_email_intro(d: CaseData) -> str:
     )
 
 
+def build_case_data_block(d: CaseData) -> str:
+    """Return a newline separated list with every tracked case field."""
+
+    rows = []
+    for f in fields(CaseData):
+        value = getattr(d, f.name)
+        label = f.name.replace("_", " ").title()
+        if isinstance(value, bool):
+            display = "Yes" if value else "No"
+            rows.append(f"{label}: {display}")
+            continue
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                rows.append(f"{label}: N/A")
+                continue
+            if "\n" in cleaned:
+                formatted = "\n    ".join(cleaned.splitlines())
+                rows.append(f"{label}:\n    {formatted}")
+            else:
+                rows.append(f"{label}: {cleaned}")
+            continue
+        if value is None:
+            rows.append(f"{label}: N/A")
+        else:
+            rows.append(f"{label}: {value}")
+    return "\n".join(rows)
+
+
 def build_third_line_escalation(d: CaseData) -> str:
     """Generate a third line escalation template using case data."""
     date_str = datetime.now().strftime("%Y %m %d")
@@ -1506,6 +1535,9 @@ def render_case_ui(case_idx: int):
         with tab_email:
             st.subheader("Email Prompt Generator")
             auto_text_input("Customer email", "email")
+            if st.session_state.email_type == "Custom Request":
+                st.session_state.email_type = "Advanced Request"
+
             email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
             if st.session_state.second_line_mode:
                 email_choices.extend(
@@ -1517,7 +1549,7 @@ def render_case_ui(case_idx: int):
                         "Dell Escalation Email",
                     ]
                 )
-            email_choices.append("Custom Request")
+            email_choices.extend(["Advanced Request", "Custom"])
             email_type = st.selectbox(
                 "Select email template",
                 email_choices,
@@ -2086,7 +2118,7 @@ Thank you in advance,
                     key=widget_key("generated_email", case_idx),
                 )
 
-            elif email_type == "Custom Request":
+            elif email_type == "Advanced Request":
                 st.markdown("#### Custom email options")
                 ext["reason"] = st.text_input(
                     "Reason for contacting the customer", ext.get("reason", "")
@@ -2113,6 +2145,27 @@ Thank you in advance,
                 else:
                     D.straumann = "N/A"
                     autosave()
+            elif email_type == "Custom":
+                st.markdown("#### Custom prompt builder")
+                ext["custom_user_prompt"] = st.text_area(
+                    "User instructions", ext.get("custom_user_prompt", ""), height=140
+                )
+                case_context = build_case_data_block(D)
+                st.text_area(
+                    "Case data provided by Kiroshi",
+                    case_context,
+                    height=220,
+                    key=widget_key("custom_case_context", case_idx),
+                    disabled=True,
+                )
+                user_prompt = ext.get("custom_user_prompt", "").strip()
+                prompt_intro = "CASE DATA (auto-collected by Kiroshi):\n"
+                prompt = (
+                    f"{user_prompt}\n\n{prompt_intro}{case_context}"
+                    if user_prompt
+                    else f"{prompt_intro}{case_context}"
+                )
+                prompt_label = "Custom prompt (copy & paste)"
             st.session_state.email_extra = ext
             static_templates = {
                 "FedEx Tracking Email",
