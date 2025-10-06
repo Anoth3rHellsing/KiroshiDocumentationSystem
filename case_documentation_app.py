@@ -19,6 +19,7 @@ import random
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
+from html import escape
 
 import pandas as pd
 import altair as alt
@@ -364,7 +365,7 @@ def inject_base_styles() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
 
         .dashboard-title {
             font-size: 2.25rem;
@@ -437,21 +438,126 @@ def inject_base_styles() -> None:
 
 
 def render_logo():
-    motd = get_message_of_the_day()
+    motd = escape(get_message_of_the_day())
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
     header_html = f"""
-    <div id="kiroshi-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1.5rem;padding:0.5rem 0;">
-        <div style="display:flex;flex-direction:column;align-items:center;gap:0.75rem;min-width:180px;">
-            <span style="font-weight:600;">Version {VERSION}</span>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
+
+        #kiroshi-header {{
+            display: grid;
+            grid-template-columns: minmax(180px, 0.85fr) minmax(320px, 1.5fr) minmax(200px, 0.85fr);
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            padding: 0.75rem 0;
+            width: 100%;
+            box-sizing: border-box;
+        }}
+
+        #kiroshi-header, #kiroshi-header * {{
+            font-family: 'Source Sans Pro', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+            color: #111827;
+        }}
+
+        #kiroshi-header__version {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            min-width: 180px;
+            text-align: center;
+        }}
+
+        #kiroshi-header__version span {{
+            font-weight: 600;
+            font-size: 1.05rem;
+        }}
+
+        #kiroshi-header__motd {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 0.75rem;
+        }}
+
+        #kiroshi-header__motd-card {{
+            background: linear-gradient(145deg, rgba(67, 56, 120, 0.05), rgba(67, 56, 120, 0.12));
+            border-radius: 1rem;
+            padding: 1rem 1.5rem;
+            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+            max-width: 620px;
+            width: 100%;
+        }}
+
+        #kiroshi-header__motd-title {{
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: #433878;
+            margin-bottom: 0.5rem;
+        }}
+
+        #kiroshi-header__motd-text {{
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }}
+
+        #kiroshi-header__date {{
+            font-weight: 600;
+            text-align: right;
+            min-width: 200px;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+        }}
+
+        @media (max-width: 1100px) {{
+            #kiroshi-header {{
+                grid-template-columns: minmax(160px, 1fr) minmax(0, 1fr);
+                grid-template-rows: auto auto;
+            }}
+
+            #kiroshi-header__date {{
+                justify-content: center;
+                text-align: center;
+            }}
+        }}
+
+        @media (max-width: 780px) {{
+            #kiroshi-header {{
+                grid-template-columns: 1fr;
+            }}
+
+            #kiroshi-header__motd {{
+                order: 3;
+            }}
+
+            #kiroshi-header__date {{
+                order: 2;
+                justify-content: center;
+            }}
+        }}
+    </style>
+    <div id="kiroshi-header">
+        <div id="kiroshi-header__version">
+            <span>Version {VERSION}</span>
             <img src="data:image/png;base64,{encoded_logo}" width="180" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
         </div>
-        <div style="flex:1;min-width:260px;text-align:center;">
-            <div style="font-size:1.4rem;font-weight:700;">Message of the Day</div>
-            <div style="margin-top:0.35rem;font-size:1.15rem;line-height:1.6;">{motd}</div>
+        <div id="kiroshi-header__motd">
+            <div id="kiroshi-header__motd-card">
+                <div id="kiroshi-header__motd-title">Message of the Day</div>
+                <div id="kiroshi-header__motd-text">{motd}</div>
+            </div>
         </div>
-        <div style="font-weight:600;text-align:right;min-width:200px;font-size:1.1rem;">
+        <div id="kiroshi-header__date">
             {formatted_date}
         </div>
     </div>
@@ -464,7 +570,7 @@ def render_logo():
     }}
     </script>
     """
-    action_logo = components.html(header_html, height=260)
+    action_logo = components.html(header_html, height=300)
     if action_logo == "open-debug":
         st.session_state.debug_mode = True
 
