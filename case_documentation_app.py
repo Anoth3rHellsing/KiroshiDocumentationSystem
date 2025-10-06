@@ -2281,7 +2281,12 @@ def render_case_ui(case_idx: int):
             if st.session_state.email_type == "Custom Request":
                 st.session_state.email_type = "Advanced Request"
 
-            email_choices = ["Recap (Customer)", "Broken Scanner", "Broken Tip"]
+            email_choices = [
+                "Recap (Customer)",
+                "Broken Scanner",
+                "Broken Tip",
+                "AX Coordinator Email",
+            ]
             if st.session_state.second_line_mode:
                 email_choices.extend(
                     [
@@ -2368,26 +2373,6 @@ def render_case_ui(case_idx: int):
                     )
 
             if email_type == "Broken Tip":
-                st.subheader("AX Coordinators")
-                st.text_area(
-                    "Request / Issue",
-                    D.description,
-                    disabled=True,
-                    key=widget_key("request_issue", case_idx),
-                )
-                D.request_issue = D.description
-                D.contact_name = D.caller_name
-                st.text_input("Contact name", D.contact_name, disabled=True)
-                D.office_ph = D.phone_number
-                st.text_input("Office phone", D.office_ph, disabled=True)
-                D.direct_ph = D.phone_number
-                st.text_input("Direct phone", D.direct_ph, disabled=True)
-                best_cb = st.checkbox(
-                    "Specify best call-back time",
-                    D.best_time not in ("", "ASAP"),
-                    key=widget_key("best_cb", case_idx),
-                )
-
                 st.markdown("#### Damaged tip questionnaire")
                 ext["times_autoclaved"] = st.text_input(
                     "Times autoclaved", ext.get("times_autoclaved", "")
@@ -2421,6 +2406,61 @@ List each question and provide any known answer beneath it, ready for the custom
 5. Autoclaved in airtight pouch? – {ext.get('airtight', '')}
 6. Other info – {ext.get('other', '')}
 """
+
+            elif email_type == "AX Coordinator Email":
+                st.subheader("AX Coordinators")
+                st.text_area(
+                    "Request / Issue",
+                    D.description,
+                    disabled=True,
+                    key=widget_key("request_issue", case_idx),
+                )
+                D.request_issue = D.description
+                D.contact_name = D.caller_name
+                st.text_input("Contact name", D.contact_name, disabled=True)
+                D.office_ph = D.phone_number
+                st.text_input("Office phone", D.office_ph, disabled=True)
+                D.direct_ph = D.phone_number
+                st.text_input("Direct phone", D.direct_ph, disabled=True)
+                best_cb = st.checkbox(
+                    "Specify best call-back time",
+                    D.best_time not in ("", "ASAP"),
+                    key=widget_key("best_cb", case_idx),
+                )
+                best_time_key = widget_key("best_time", case_idx)
+                if best_cb:
+                    default_best_time = (
+                        D.best_time if D.best_time not in ("", "ASAP") else ""
+                    )
+                    D.best_time = st.text_input(
+                        "Best call-back time",
+                        default_best_time,
+                        key=best_time_key,
+                    )
+                else:
+                    D.best_time = "ASAP"
+                    if best_time_key in st.session_state:
+                        st.session_state.pop(best_time_key)
+
+                company = D.company_name or "N/A"
+                case_no = D.case_id or "N/A"
+                contact = D.contact_name or "N/A"
+                office_phone = D.office_ph or "N/A"
+                direct_phone = D.direct_ph or "N/A"
+                best_time = D.best_time or "N/A"
+                request_issue = D.request_issue or "N/A"
+                prompt = (
+                    "Draft an internal email to the AX coordinators summarizing the case.\n"
+                    "Include the following details in a concise bulleted list so they can schedule support:"
+                    f"\n• Case ID: {case_no}"
+                    f"\n• Company: {company}"
+                    f"\n• Request / Issue: {request_issue}"
+                    f"\n• Contact name: {contact}"
+                    f"\n• Office phone: {office_phone}"
+                    f"\n• Direct phone: {direct_phone}"
+                    f"\n• Best call-back time: {best_time}"
+                    "\nEnd the email thanking them for their assistance."
+                )
 
             elif email_type == "FedEx Tracking Email":
                 st.markdown("#### FedEx tracking options")
