@@ -875,7 +875,13 @@ def render_saved_cases_dashboard() -> None:
 
 
 def render_dashboard() -> None:
-    st.header("Operations Dashboard")
+    """Render the high-level dashboard overview tab."""
+
+    # The dashboard focuses on surfacing information relevant to the AX
+    # coordination workflow, so keep the title explicit about that scope to
+    # avoid confusion with the broader operations tooling available in the
+    # other tabs.
+    st.header("AX Coordinators Dashboard")
     tracked_cases = load_tracked_cases()
     main_col, side_col = st.columns([3, 1])
     with main_col:
