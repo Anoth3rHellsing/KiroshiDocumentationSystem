@@ -455,6 +455,7 @@ def render_logo():
             padding: 0.75rem 0;
             width: 100%;
             box-sizing: border-box;
+            row-gap: 1.25rem;
         }}
 
         #kiroshi-header, #kiroshi-header * {{
@@ -484,6 +485,7 @@ def render_logo():
             justify-content: center;
             text-align: center;
             padding: 0 0.75rem;
+            width: 100%;
         }}
 
         #kiroshi-header__motd-card {{
@@ -493,6 +495,7 @@ def render_logo():
             box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
             max-width: 620px;
             width: 100%;
+            margin: 0 auto;
         }}
 
         #kiroshi-header__motd-title {{
@@ -523,6 +526,7 @@ def render_logo():
             #kiroshi-header {{
                 grid-template-columns: minmax(160px, 1fr) minmax(0, 1fr);
                 grid-template-rows: auto auto;
+                justify-items: center;
             }}
 
             #kiroshi-header__date {{
@@ -534,15 +538,22 @@ def render_logo():
         @media (max-width: 780px) {{
             #kiroshi-header {{
                 grid-template-columns: 1fr;
+                justify-items: center;
             }}
 
             #kiroshi-header__motd {{
-                order: 3;
+                order: 2;
+                padding: 0 1.5rem;
             }}
 
             #kiroshi-header__date {{
-                order: 2;
+                order: 3;
                 justify-content: center;
+            }}
+
+            #kiroshi-header__motd-card {{
+                max-width: clamp(260px, 86vw, 540px);
+                padding: 1.1rem 1.25rem;
             }}
         }}
     </style>
@@ -563,14 +574,28 @@ def render_logo():
     </div>
     <script>
     const logo = document.getElementById('kiroshi-logo');
-    if (logo) {{
+    const header = document.getElementById('kiroshi-header');
+
+    const updateHeight = () => {{
+        if (!header || !window.Streamlit || typeof window.Streamlit.setFrameHeight !== 'function') {{
+            return;
+        }}
+        const height = Math.ceil(header.getBoundingClientRect().height + 32);
+        window.Streamlit.setFrameHeight(height);
+    }};
+
+    window.addEventListener('load', updateHeight);
+    window.addEventListener('resize', updateHeight);
+    updateHeight();
+
+    if (logo && window.Streamlit && typeof window.Streamlit.setComponentValue === 'function') {{
         logo.addEventListener('click', function(){{
-            Streamlit.setComponentValue('open-debug');
+            window.Streamlit.setComponentValue('open-debug');
         }});
     }}
     </script>
     """
-    action_logo = components.html(header_html, height=300)
+    action_logo = components.html(header_html, height=380)
     if action_logo == "open-debug":
         st.session_state.debug_mode = True
 
