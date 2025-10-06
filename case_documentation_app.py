@@ -2096,6 +2096,45 @@ def render_case_ui(case_idx: int):
             else:
                 D.patterson = "N/A"
                 autosave()
+            st.subheader("Internal notes")
+            auto_text_input("Helpjuice link", "internal_helpjuice")
+            auto_text_area("Logs / screenshots", "internal_logs", height=68)
+            st.subheader("Conclusion")
+            auto_text_input("Root cause", "root_cause")
+            auto_text_input("Solution", "solution")
+            auto_text_input("Customer satisfaction survey URL", "survey_link")
+            st.subheader("Additional information")
+            auto_text_area(
+                "Additional details",
+                "additional_info",
+                height=400,
+                help=(
+                    "Include details such as antivirus, firewalls enabled, update history, "
+                    "related case ID, possible cause, performance issues, manual additional notes, "
+                    "recurring issues, and recent issues."
+                ),
+            )
+            st.subheader("Support Fee")
+            ct_key = widget_key("customer_trios_only", case_idx)
+            sf_key = widget_key("support_fee_accepted", case_idx)
+            st.checkbox(
+                "Customer is TRIOS Only?",
+                value=st.session_state.get(ct_key, D.customer_trios_only),
+                key=ct_key,
+                on_change=_update_field,
+                args=("customer_trios_only",),
+            )
+            if st.session_state.get(ct_key, D.customer_trios_only):
+                st.checkbox(
+                    "Support fee price accepted?",
+                    value=st.session_state.get(sf_key, D.support_fee_accepted),
+                    key=sf_key,
+                    on_change=_update_field,
+                    args=("support_fee_accepted",),
+                )
+            else:
+                st.session_state[sf_key] = False
+                _update_field("support_fee_accepted")
         if st.session_state.second_line_mode:
             st.text_input(
                 "Straumann ticket #",
@@ -2172,46 +2211,10 @@ def render_case_ui(case_idx: int):
                 ext["experience"] = st.text_input(
                     "Experience level (new / experienced)", ext.get("experience", "")
                 )
-                st.subheader("Internal notes")
-                auto_text_input("Helpjuice link", "internal_helpjuice")
-                auto_text_area("Logs / screenshots", "internal_logs", height=68)
-                st.subheader("Conclusion")
-                auto_text_input("Root cause", "root_cause")
-                auto_text_input("Solution", "solution")
-                auto_text_input("Customer satisfaction survey URL", "survey_link")
-                st.subheader("Additional information")
-                auto_text_area(
-                    "Additional details",
-                    "additional_info",
-                    height=400,
-                    help=(
-                        "Include details such as antivirus, firewalls enabled, update history, "
-                        "related case ID, possible cause, performance issues, manual additional notes, "
-                        "recurring issues, and recent issues."
-                    ),
+                st.info(
+                    "Fill in internal notes, conclusion, additional information, and support fee details "
+                    "from the Case tab."
                 )
-                st.subheader("Support Fee")
-                ct_key = widget_key("customer_trios_only", case_idx)
-                sf_key = widget_key("support_fee_accepted", case_idx)
-                st.checkbox(
-                    "Customer is TRIOS Only?",
-                    value=st.session_state.get(ct_key, False),
-                    key=ct_key,
-                    on_change=_update_field,
-                    args=("customer_trios_only",),
-                )
-                if st.session_state.get(ct_key):
-                    st.checkbox(
-                        "Support fee price accepted?",
-                        value=st.session_state.get(sf_key, False),
-                        key=sf_key,
-                        on_change=_update_field,
-                        args=("support_fee_accepted",),
-                    )
-                else:
-                    st.session_state[sf_key] = False
-                    D.support_fee_accepted = False
-                    autosave()
                 st.markdown("---")
                 st.download_button(
                     "Download PDF",
