@@ -2026,28 +2026,28 @@ def render_case_ui(case_idx: int):
                                 if hasattr(D, fld) and not getattr(D, fld):
                                     setattr(D, fld, val)
                             autosave()
-            if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
-                logging.info("Categorize button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    taxonomy_block = st.session_state.taxonomy_block
-                    signals_config = st.session_state.signals_config
-                    if not taxonomy_block or not signals_config:
-                        st.error("Please provide taxonomy and signals config in the Debug tab.")
+                if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
+                    logging.info("Categorize button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
                     else:
-                        case_dict = asdict(D)
-                        case_input = {
-                            "title": D.brief_description,
-                            "description": D.description,
-                            "artifacts": [f.name for f in st.session_state.uploads],
-                            "meta": {
-                                "product_hint": D.application_version,
-                                "lang": "en",
-                            },
-                            "full_case": case_dict,
-                        }
-                        output_schema = """{
+                        taxonomy_block = st.session_state.taxonomy_block
+                        signals_config = st.session_state.signals_config
+                        if not taxonomy_block or not signals_config:
+                            st.error("Please provide taxonomy and signals config in the Debug tab.")
+                        else:
+                            case_dict = asdict(D)
+                            case_input = {
+                                "title": D.brief_description,
+                                "description": D.description,
+                                "artifacts": [f.name for f in st.session_state.uploads],
+                                "meta": {
+                                    "product_hint": D.application_version,
+                                    "lang": "en",
+                                },
+                                "full_case": case_dict,
+                            }
+                            output_schema = """{
     "product": "string",
     "topic": "string",
     "subtopic": "string|null",
@@ -2060,22 +2060,64 @@ def render_case_ui(case_idx: int):
     {"product":"", "topic":"", "subtopic":null, "why":""}
     ]
     }"""
+                            user_message = (
+                                "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
+                                "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
+                                "Taxonomy (authoritative)\n\n"
+                                "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
+                                f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
+                                "Signals dictionary (hints)\n\n"
+                                "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
+                                f"SIGNALS_CONFIG:\n{signals_config}\n\n"
+                                "Output format (STRICT JSON only)\n\n"
+                                "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
+                                f"{output_schema}\n\n"
+                                "Case to classify (runtime payload)\n\n"
+                                f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
+                                "Return\n\n"
+                                "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                            )
+                            try:
+                                reply = query_atom(
+                                    user_message,
+                                    st.session_state.atom_history,
+                                    api_key,
+                                    model,
+                                    base_url,
+                                )
+                            except Exception as e:
+                                st.error(str(e))
+                            else:
+                                st.session_state.atom_history.append({"role": "user", "content": user_message})
+                                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                                save_memory(st.session_state.atom_history)
+                                st.session_state.categorizer_result = reply
+                if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
+                    logging.info("Ask button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
+                    else:
+                        case_dict = asdict(D)
+                        if not st.session_state.include_escalations:
+                            for fld in [
+                                "request_issue",
+                                "contact_name",
+                                "office_ph",
+                                "direct_ph",
+                                "best_time",
+                                "patterson",
+                                "straumann",
+                                "esc_name",
+                                "esc_ph",
+                                "esc_email",
+                            ]:
+                                case_dict.pop(fld, None)
+                        findings = st.session_state.verify_result
                         user_message = (
-                            "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
-                            "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
-                            "Taxonomy (authoritative)\n\n"
-                            "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
-                            f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
-                            "Signals dictionary (hints)\n\n"
-                            "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
-                            f"SIGNALS_CONFIG:\n{signals_config}\n\n"
-                            "Output format (STRICT JSON only)\n\n"
-                            "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
-                            f"{output_schema}\n\n"
-                            "Case to classify (runtime payload)\n\n"
-                            f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
-                            "Return\n\n"
-                            "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                            "Based on the following case data"
+                            + (f" and previous findings: {findings}" if findings else "")
+                            + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
+                            + json.dumps(case_dict, indent=2)
                         )
                         try:
                             reply = query_atom(
@@ -2091,88 +2133,46 @@ def render_case_ui(case_idx: int):
                             st.session_state.atom_history.append({"role": "user", "content": user_message})
                             st.session_state.atom_history.append({"role": "assistant", "content": reply})
                             save_memory(st.session_state.atom_history)
-                            st.session_state.categorizer_result = reply
-            if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
-                logging.info("Ask button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
-                    findings = st.session_state.verify_result
-                    user_message = (
-                        "Based on the following case data"
-                        + (f" and previous findings: {findings}" if findings else "")
-                        + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
-                        + json.dumps(case_dict, indent=2)
-                    )
-                    try:
-                        reply = query_atom(
-                            user_message,
-                            st.session_state.atom_history,
-                            api_key,
-                            model,
-                            base_url,
-                        )
-                    except Exception as e:
-                        st.error(str(e))
+                            st.session_state.ask_result = reply
+                if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
+                    logging.info("Verify button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
                     else:
-                        st.session_state.atom_history.append({"role": "user", "content": user_message})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
-                        st.session_state.ask_result = reply
-            if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
-                logging.info("Verify button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
-                    user_message = (
-                        "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
-                        + json.dumps(case_dict, indent=2)
-                    )
-                    try:
-                        reply = query_atom(
-                            user_message,
-                            st.session_state.atom_history,
-                            api_key,
-                            model,
-                            base_url,
+                        case_dict = asdict(D)
+                        if not st.session_state.include_escalations:
+                            for fld in [
+                                "request_issue",
+                                "contact_name",
+                                "office_ph",
+                                "direct_ph",
+                                "best_time",
+                                "patterson",
+                                "straumann",
+                                "esc_name",
+                                "esc_ph",
+                                "esc_email",
+                            ]:
+                                case_dict.pop(fld, None)
+                        user_message = (
+                            "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
+                            + json.dumps(case_dict, indent=2)
                         )
-                    except Exception as e:
-                        st.error(str(e))
-                    else:
-                        st.session_state.atom_history.append({"role": "user", "content": user_message})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
-                        st.session_state.verify_result = reply
+                        try:
+                            reply = query_atom(
+                                user_message,
+                                st.session_state.atom_history,
+                                api_key,
+                                model,
+                                base_url,
+                            )
+                        except Exception as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state.atom_history.append({"role": "user", "content": user_message})
+                            st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                            save_memory(st.session_state.atom_history)
+                            st.session_state.verify_result = reply
         if st.session_state.verify_result:
             st.text_area(
                 "A.A.T.O.M. Verification",
