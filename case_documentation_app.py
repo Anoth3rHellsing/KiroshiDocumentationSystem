@@ -442,16 +442,23 @@ def render_logo():
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
     header_html = f"""
-    <div id="kiroshi-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1.5rem;padding:0.5rem 0;">
-        <div style="display:flex;flex-direction:column;align-items:center;gap:0.75rem;min-width:180px;">
-            <span style="font-weight:600;">Version {VERSION}</span>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
+
+        #kiroshi-header, #kiroshi-header * {{
+            font-family: 'Source Sans Pro', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+        }}
+    </style>
+    <div id="kiroshi-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.5rem;padding:0.5rem 0;">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.5rem;min-width:180px;text-align:center;">
+            <span style="font-weight:600;font-size:1.05rem;">Version {VERSION}</span>
             <img src="data:image/png;base64,{encoded_logo}" width="180" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
         </div>
-        <div style="flex:1;min-width:260px;text-align:center;">
-            <div style="font-size:1.4rem;font-weight:700;">Message of the Day</div>
-            <div style="margin-top:0.35rem;font-size:1.15rem;line-height:1.6;">{motd}</div>
+        <div style="flex:1;min-width:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 0.5rem;">
+            <div style="font-size:1.4rem;font-weight:700;letter-spacing:0.01em;">Message of the Day</div>
+            <div style="margin-top:0.35rem;font-size:1.15rem;line-height:1.6;max-width:560px;">{motd}</div>
         </div>
-        <div style="font-weight:600;text-align:right;min-width:200px;font-size:1.1rem;">
+        <div style="font-weight:600;text-align:right;min-width:200px;font-size:1.1rem;display:flex;align-items:center;justify-content:flex-end;">
             {formatted_date}
         </div>
     </div>
