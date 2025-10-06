@@ -1402,15 +1402,21 @@ def recent_tracked_files() -> list:
     return files[:20]
 
 
-def save_case_to_database(case: CaseData) -> None:
+def save_case_to_database(
+    case: CaseData, *, notify: bool = True, update_history: bool = True
+) -> Path | None:
     if not case.case_id:
-        st.error("Case ID is required to save.")
-        return
+        if notify:
+            st.error("Case ID is required to save.")
+        return None
     file_path = DATABASE_DIR / f"{case.case_id}.json"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(asdict(case), f, indent=2)
-    update_recent_cases(case.case_id, str(file_path))
-    st.success(f"Case saved to {file_path}")
+    if update_history:
+        update_recent_cases(case.case_id, str(file_path))
+    if notify:
+        st.success(f"Case saved to {file_path}")
+    return file_path
 
 
 def load_case_from_path(path: str) -> None:
@@ -1425,6 +1431,11 @@ def load_case_from_path(path: str) -> None:
             st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
         update_recent_cases(st.session_state.case.case_id, path)
+        save_case_to_database(
+            st.session_state.case,
+            notify=False,
+            update_history=False,
+        )
         # Enable tracking tab if loaded from tracked directory or active file
         p = Path(path)
         if p.parent == TRACKED_CASES_DIR or p.name.endswith("_Active.json"):
@@ -1450,6 +1461,11 @@ def load_case_from_bytes(data: bytes) -> None:
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
             st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
         autosave()
+        save_case_to_database(
+            st.session_state.case,
+            notify=False,
+            update_history=False,
+        )
         st.success("Case loaded successfully.")
         st.rerun()
     except Exception as e:
@@ -1873,75 +1889,95 @@ def render_case_ui(case_idx: int):
         base_url = st.session_state.ai_base_url
         quick_col, _ = st.columns([1, 3])
         with quick_col:
-            st.markdown("#### Quick actions")
-            if st.button(
-                "Save case",
-                key=widget_key("quick_save", case_idx),
-                use_container_width=True,
-            ):
-                save_case_to_database(D)
-            if st.button(
-                "Clear all",
-                key=widget_key("clear_all_button", case_idx),
-                use_container_width=True,
-            ):
-                logging.info("Clear all button clicked")
-                backup_path = None
-                if D.case_id:
-                    backup_path = create_case_autosave_snapshot(D.case_id)
-                api_key_value = st.session_state.get("openai_api_key", "")
-                second_line_mode = st.session_state.get("second_line_mode", False)
-                base_url_value = st.session_state.get("ai_base_url", "")
-                ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
-                if os.path.exists(AUTOSAVE_FILE):
-                    try:
-                        os.remove(AUTOSAVE_FILE)
-                    except OSError:
-                        pass
-                st.session_state.clear()
-                st.session_state.openai_api_key = api_key_value
-                st.session_state.second_line_mode = second_line_mode
-                st.session_state.ai_base_url = base_url_value
-                st.session_state.ai_mode = ai_mode
-                if backup_path is not None:
-                    st.session_state["autosave_notice"] = (
-                        f"Case autosaved to {backup_path.name}"
-                    )
-                st.rerun()
-            if st.session_state.track_case:
-                st.button(
-                    "Tracking enabled",
-                    disabled=True,
-                    key=widget_key("tracking_enabled", case_idx),
+            visible_key = widget_key("quick_actions_visible", case_idx)
+            if visible_key not in st.session_state:
+                st.session_state[visible_key] = True
+            header_cols = st.columns([0.35, 0.65])
+            with header_cols[0]:
+                if st.button(
+                    "☰",
+                    key=widget_key("quick_actions_toggle", case_idx),
                     use_container_width=True,
-                )
-            elif st.button(
-                "Track case",
-                key=widget_key("track_case_button", case_idx),
-                use_container_width=True,
-            ):
-                st.session_state.track_case = True
-                st.rerun()
-            if st.button("AI Assistance", key=widget_key("assist_button", case_idx), use_container_width=True):
-                logging.info("AI Assistance button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    help="Show or hide quick actions",
+                ):
+                    st.session_state[visible_key] = not st.session_state[visible_key]
+                    st.rerun()
+            with header_cols[1]:
+                st.markdown("#### Quick actions")
+
+            if st.session_state[visible_key]:
+                if st.button(
+                    "Save case",
+                    key=widget_key("quick_save", case_idx),
+                    use_container_width=True,
+                ):
+                    save_case_to_database(D)
+                if st.button(
+                    "Clear all",
+                    key=widget_key("clear_all_button", case_idx),
+                    use_container_width=True,
+                ):
+                    logging.info("Clear all button clicked")
+                    backup_path = None
+                    if D.case_id:
+                        backup_path = create_case_autosave_snapshot(D.case_id)
+                    api_key_value = st.session_state.get("openai_api_key", "")
+                    second_line_mode = st.session_state.get("second_line_mode", False)
+                    base_url_value = st.session_state.get("ai_base_url", "")
+                    ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
+                    if os.path.exists(AUTOSAVE_FILE):
+                        try:
+                            os.remove(AUTOSAVE_FILE)
+                        except OSError:
+                            pass
+                    st.session_state.clear()
+                    st.session_state.openai_api_key = api_key_value
+                    st.session_state.second_line_mode = second_line_mode
+                    st.session_state.ai_base_url = base_url_value
+                    st.session_state.ai_mode = ai_mode
+                    if backup_path is not None:
+                        st.session_state["autosave_notice"] = (
+                            f"Case autosaved to {backup_path.name}"
+                        )
+                    st.rerun()
+                if st.session_state.track_case:
+                    st.button(
+                        "Tracking enabled",
+                        disabled=True,
+                        key=widget_key("tracking_enabled", case_idx),
+                        use_container_width=True,
+                    )
+                elif st.button(
+                    "Track case",
+                    key=widget_key("track_case_button", case_idx),
+                    use_container_width=True,
+                ):
+                    st.session_state.track_case = True
+                    st.rerun()
+                if st.button(
+                    "AI Assistance",
+                    key=widget_key("assist_button", case_idx),
+                    use_container_width=True,
+                ):
+                    logging.info("AI Assistance button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
+                    else:
+                        case_dict = asdict(D)
+                        if not st.session_state.include_escalations:
+                            for fld in [
+                                "request_issue",
+                                "contact_name",
+                                "office_ph",
+                                "direct_ph",
+                                "best_time",
+                                "patterson",
+                                "straumann",
+                                "esc_name",
+                                "esc_ph",
+                                "esc_email",
+                            ]:
+                                case_dict.pop(fld, None)
                     _, miss = compute_progress(D, cat_map)
                     missing = [f for flds in miss.values() for f in flds]
                     user_message = (
@@ -1990,28 +2026,28 @@ def render_case_ui(case_idx: int):
                                 if hasattr(D, fld) and not getattr(D, fld):
                                     setattr(D, fld, val)
                             autosave()
-            if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
-                logging.info("Categorize button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    taxonomy_block = st.session_state.taxonomy_block
-                    signals_config = st.session_state.signals_config
-                    if not taxonomy_block or not signals_config:
-                        st.error("Please provide taxonomy and signals config in the Debug tab.")
+                if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
+                    logging.info("Categorize button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
                     else:
-                        case_dict = asdict(D)
-                        case_input = {
-                            "title": D.brief_description,
-                            "description": D.description,
-                            "artifacts": [f.name for f in st.session_state.uploads],
-                            "meta": {
-                                "product_hint": D.application_version,
-                                "lang": "en",
-                            },
-                            "full_case": case_dict,
-                        }
-                        output_schema = """{
+                        taxonomy_block = st.session_state.taxonomy_block
+                        signals_config = st.session_state.signals_config
+                        if not taxonomy_block or not signals_config:
+                            st.error("Please provide taxonomy and signals config in the Debug tab.")
+                        else:
+                            case_dict = asdict(D)
+                            case_input = {
+                                "title": D.brief_description,
+                                "description": D.description,
+                                "artifacts": [f.name for f in st.session_state.uploads],
+                                "meta": {
+                                    "product_hint": D.application_version,
+                                    "lang": "en",
+                                },
+                                "full_case": case_dict,
+                            }
+                            output_schema = """{
     "product": "string",
     "topic": "string",
     "subtopic": "string|null",
@@ -2024,22 +2060,64 @@ def render_case_ui(case_idx: int):
     {"product":"", "topic":"", "subtopic":null, "why":""}
     ]
     }"""
+                            user_message = (
+                                "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
+                                "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
+                                "Taxonomy (authoritative)\n\n"
+                                "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
+                                f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
+                                "Signals dictionary (hints)\n\n"
+                                "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
+                                f"SIGNALS_CONFIG:\n{signals_config}\n\n"
+                                "Output format (STRICT JSON only)\n\n"
+                                "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
+                                f"{output_schema}\n\n"
+                                "Case to classify (runtime payload)\n\n"
+                                f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
+                                "Return\n\n"
+                                "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                            )
+                            try:
+                                reply = query_atom(
+                                    user_message,
+                                    st.session_state.atom_history,
+                                    api_key,
+                                    model,
+                                    base_url,
+                                )
+                            except Exception as e:
+                                st.error(str(e))
+                            else:
+                                st.session_state.atom_history.append({"role": "user", "content": user_message})
+                                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                                save_memory(st.session_state.atom_history)
+                                st.session_state.categorizer_result = reply
+                if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
+                    logging.info("Ask button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
+                    else:
+                        case_dict = asdict(D)
+                        if not st.session_state.include_escalations:
+                            for fld in [
+                                "request_issue",
+                                "contact_name",
+                                "office_ph",
+                                "direct_ph",
+                                "best_time",
+                                "patterson",
+                                "straumann",
+                                "esc_name",
+                                "esc_ph",
+                                "esc_email",
+                            ]:
+                                case_dict.pop(fld, None)
+                        findings = st.session_state.verify_result
                         user_message = (
-                            "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
-                            "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
-                            "Taxonomy (authoritative)\n\n"
-                            "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
-                            f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
-                            "Signals dictionary (hints)\n\n"
-                            "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
-                            f"SIGNALS_CONFIG:\n{signals_config}\n\n"
-                            "Output format (STRICT JSON only)\n\n"
-                            "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
-                            f"{output_schema}\n\n"
-                            "Case to classify (runtime payload)\n\n"
-                            f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
-                            "Return\n\n"
-                            "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                            "Based on the following case data"
+                            + (f" and previous findings: {findings}" if findings else "")
+                            + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
+                            + json.dumps(case_dict, indent=2)
                         )
                         try:
                             reply = query_atom(
@@ -2055,88 +2133,46 @@ def render_case_ui(case_idx: int):
                             st.session_state.atom_history.append({"role": "user", "content": user_message})
                             st.session_state.atom_history.append({"role": "assistant", "content": reply})
                             save_memory(st.session_state.atom_history)
-                            st.session_state.categorizer_result = reply
-            if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
-                logging.info("Ask button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
-                    findings = st.session_state.verify_result
-                    user_message = (
-                        "Based on the following case data"
-                        + (f" and previous findings: {findings}" if findings else "")
-                        + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
-                        + json.dumps(case_dict, indent=2)
-                    )
-                    try:
-                        reply = query_atom(
-                            user_message,
-                            st.session_state.atom_history,
-                            api_key,
-                            model,
-                            base_url,
-                        )
-                    except Exception as e:
-                        st.error(str(e))
+                            st.session_state.ask_result = reply
+                if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
+                    logging.info("Verify button clicked")
+                    if not api_key and base_url.startswith("https://api.openai.com"):
+                        st.error("Please set your OpenAI API key in the Debug tab.")
                     else:
-                        st.session_state.atom_history.append({"role": "user", "content": user_message})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
-                        st.session_state.ask_result = reply
-            if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
-                logging.info("Verify button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
-                    st.error("Please set your OpenAI API key in the Debug tab.")
-                else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
-                    user_message = (
-                        "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
-                        + json.dumps(case_dict, indent=2)
-                    )
-                    try:
-                        reply = query_atom(
-                            user_message,
-                            st.session_state.atom_history,
-                            api_key,
-                            model,
-                            base_url,
+                        case_dict = asdict(D)
+                        if not st.session_state.include_escalations:
+                            for fld in [
+                                "request_issue",
+                                "contact_name",
+                                "office_ph",
+                                "direct_ph",
+                                "best_time",
+                                "patterson",
+                                "straumann",
+                                "esc_name",
+                                "esc_ph",
+                                "esc_email",
+                            ]:
+                                case_dict.pop(fld, None)
+                        user_message = (
+                            "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
+                            + json.dumps(case_dict, indent=2)
                         )
-                    except Exception as e:
-                        st.error(str(e))
-                    else:
-                        st.session_state.atom_history.append({"role": "user", "content": user_message})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
-                        st.session_state.verify_result = reply
+                        try:
+                            reply = query_atom(
+                                user_message,
+                                st.session_state.atom_history,
+                                api_key,
+                                model,
+                                base_url,
+                            )
+                        except Exception as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state.atom_history.append({"role": "user", "content": user_message})
+                            st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                            save_memory(st.session_state.atom_history)
+                            st.session_state.verify_result = reply
         if st.session_state.verify_result:
             st.text_area(
                 "A.A.T.O.M. Verification",
