@@ -18,8 +18,10 @@ import base64
 import random
 import subprocess
 import sys
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from html import escape
+import textwrap
 
 import pandas as pd
 import altair as alt
@@ -115,6 +117,71 @@ if os.name == "nt":
 else:
     TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+
+AI_LEARNING_FILE = DATABASE_DIR / "AILearning.json"
+
+STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "from",
+    "this",
+    "have",
+    "into",
+    "will",
+    "when",
+    "case",
+    "customer",
+    "issue",
+    "steps",
+    "they",
+    "their",
+    "been",
+    "were",
+    "after",
+    "before",
+    "about",
+    "also",
+    "while",
+    "should",
+    "could",
+    "there",
+    "where",
+    "using",
+    "used",
+    "need",
+    "your",
+    "each",
+    "them",
+    "than",
+    "then",
+    "once",
+    "only",
+    "very",
+    "make",
+    "made",
+    "through",
+    "over",
+    "more",
+    "less",
+    "much",
+    "many",
+    "take",
+    "taken",
+    "back",
+    "most",
+    "some",
+    "such",
+    "same",
+    "per",
+    "upon",
+    "done",
+    "time",
+}
+
+WORD_PATTERN = re.compile(r"[A-Za-z0-9']+")
 
 DEFAULT_TAXONOMY_BLOCK = (
     "• 3Shape Unite / Login — issues with 3Shape Account, tokens, sign-in, credential errors. "
@@ -654,6 +721,10 @@ _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
+_init_state("ai_assist_mode", "Standard")
+_init_state("ai_learning_data", None)
+_init_state("ai_learning_signature", None)
+_init_state("ai_learning_matches", [])
 # Tracking related state
 _init_state("track_case", False)
 _init_state("tracking_info", {})
@@ -1439,6 +1510,266 @@ def recent_tracked_files() -> list:
     return files[:20]
 
 
+def _summarize_text(text: str, width: int = 200) -> str:
+    if not text:
+        return ""
+    cleaned = " ".join(text.split())
+    try:
+        return textwrap.shorten(cleaned, width=width, placeholder="…")
+    except Exception:
+        return cleaned[:width]
+
+
+def _extract_keywords(*texts: str) -> list[str]:
+    keywords: list[str] = []
+    for text in texts:
+        if not text:
+            continue
+        tokens = WORD_PATTERN.findall(text.lower())
+        for token in tokens:
+            if len(token) <= 3 or token in STOPWORDS or token.isdigit():
+                continue
+            keywords.append(token)
+    return sorted(set(keywords))
+
+
+def _saved_case_files_signature() -> tuple[tuple[str, float], ...]:
+    entries: list[tuple[str, float]] = []
+    for path in DATABASE_DIR.glob("*.json"):
+        if path.name.lower() in {"recent_cases.json", AI_LEARNING_FILE.name.lower()}:
+            continue
+        try:
+            entries.append((path.name, path.stat().st_mtime))
+        except FileNotFoundError:
+            continue
+    return tuple(sorted(entries))
+
+
+def iter_saved_case_records() -> Iterable[tuple[Path, Mapping[str, object]]]:
+    for path in DATABASE_DIR.glob("*.json"):
+        if path.name.lower() in {"recent_cases.json", AI_LEARNING_FILE.name.lower()}:
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except Exception as exc:
+            logging.warning("Failed to load saved case %s: %s", path, exc)
+            continue
+        if not isinstance(payload, Mapping):
+            logging.debug("Ignoring non-mapping payload for %s", path)
+            continue
+        yield path, payload
+
+
+def build_ai_learning_dataset() -> dict[str, object] | None:
+    cases: list[dict[str, object]] = []
+    keyword_counter: Counter[str] = Counter()
+    root_cause_counter: Counter[str] = Counter()
+    solution_counter: Counter[str] = Counter()
+    version_counter: Counter[str] = Counter()
+    root_cause_labels: dict[str, str] = {}
+    solution_labels: dict[str, str] = {}
+    root_cause_cases: defaultdict[str, list[str]] = defaultdict(list)
+    solution_cases: defaultdict[str, list[str]] = defaultdict(list)
+    keyword_index: defaultdict[str, list[str]] = defaultdict(list)
+
+    for path, record in iter_saved_case_records():
+        case_id = str(record.get("case_id") or path.stem)
+        brief_description = str(record.get("brief_description") or "").strip()
+        description = str(record.get("description") or "").strip()
+        root_cause = str(record.get("root_cause") or "").strip()
+        solution = str(record.get("solution") or "").strip()
+        application_version = str(record.get("application_version") or "").strip()
+
+        keywords = _extract_keywords(brief_description, description, root_cause, solution)
+        for keyword in keywords:
+            if case_id not in keyword_index[keyword]:
+                keyword_index[keyword].append(case_id)
+        keyword_counter.update(keywords)
+
+        if root_cause:
+            norm_root = root_cause.lower()
+            root_cause_counter[norm_root] += 1
+            root_cause_labels.setdefault(norm_root, root_cause)
+            if case_id not in root_cause_cases[norm_root]:
+                root_cause_cases[norm_root].append(case_id)
+
+        if solution:
+            norm_solution = solution.lower()
+            solution_counter[norm_solution] += 1
+            solution_labels.setdefault(norm_solution, solution)
+            if case_id not in solution_cases[norm_solution]:
+                solution_cases[norm_solution].append(case_id)
+
+        if application_version:
+            version_counter[application_version] += 1
+
+        timestamp = path.stat().st_mtime
+        case_entry: dict[str, object] = {
+            "case_id": case_id,
+            "title": brief_description or _summarize_text(description, width=120),
+            "application_version": application_version,
+            "root_cause": root_cause,
+            "solution": solution,
+            "solution_excerpt": _summarize_text(solution, width=260),
+            "description_excerpt": _summarize_text(description, width=260),
+            "keywords": keywords,
+            "timestamp": timestamp,
+            "saved_at": datetime.fromtimestamp(timestamp).isoformat(),
+            "source_path": str(path),
+        }
+        cases.append(case_entry)
+
+    if not cases:
+        return None
+
+    keyword_insights = [
+        {
+            "keyword": keyword,
+            "count": count,
+            "related_cases": keyword_index[keyword][:5],
+        }
+        for keyword, count in keyword_counter.most_common(20)
+    ]
+
+    root_cause_patterns = [
+        {
+            "root_cause": root_cause_labels[key],
+            "count": root_cause_counter[key],
+            "related_cases": root_cause_cases[key][:5],
+        }
+        for key in sorted(root_cause_counter, key=root_cause_counter.get, reverse=True)
+    ]
+
+    repeated_solutions = [
+        {
+            "solution": solution_labels[key],
+            "count": solution_counter[key],
+            "related_cases": solution_cases[key][:5],
+        }
+        for key in sorted(solution_counter, key=solution_counter.get, reverse=True)
+        if solution_counter[key] > 1
+    ]
+
+    dataset: dict[str, object] = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "case_count": len(cases),
+        "cases": cases,
+        "keyword_insights": keyword_insights,
+        "root_cause_patterns": root_cause_patterns,
+        "repeated_solutions": repeated_solutions,
+        "version_distribution": version_counter.most_common(),
+        "insight_summary": {
+            "top_keywords": [kw for kw, _ in keyword_counter.most_common(10)],
+            "dominant_versions": version_counter.most_common(5),
+        },
+    }
+
+    return dataset
+
+
+def save_ai_learning_dataset(dataset: Mapping[str, object]) -> None:
+    try:
+        with AI_LEARNING_FILE.open("w", encoding="utf-8") as fh:
+            json.dump(dataset, fh, indent=2)
+    except Exception as exc:
+        logging.error("Failed to write AI learning dataset: %s", exc)
+
+
+def ensure_ai_learning_dataset(force: bool = False) -> dict[str, object] | None:
+    signature = _saved_case_files_signature()
+    if not signature:
+        st.session_state.ai_learning_data = None
+        st.session_state.ai_learning_signature = None
+        return None
+
+    if (
+        not force
+        and st.session_state.ai_learning_signature == signature
+        and st.session_state.ai_learning_data
+    ):
+        return st.session_state.ai_learning_data
+
+    dataset = build_ai_learning_dataset()
+    if not dataset:
+        st.session_state.ai_learning_data = None
+        st.session_state.ai_learning_signature = None
+        return None
+
+    save_ai_learning_dataset(dataset)
+    st.session_state.ai_learning_data = dataset
+    st.session_state.ai_learning_signature = signature
+    logging.info(
+        "AI learning dataset generated from %s cases", dataset.get("case_count", 0)
+    )
+    return dataset
+
+
+def find_relevant_learning_cases(
+    case: CaseData,
+    dataset: Mapping[str, object] | None,
+    *,
+    max_results: int = 5,
+) -> list[dict[str, object]]:
+    if not dataset:
+        return []
+
+    query_tokens = set(
+        _extract_keywords(
+            case.brief_description,
+            case.description,
+            case.root_cause,
+            case.solution,
+            case.remote_steps,
+            case.additional_info,
+        )
+    )
+    if case.application_version:
+        query_version = case.application_version.lower()
+    else:
+        query_version = ""
+
+    if not query_tokens and not query_version:
+        return []
+
+    results: list[dict[str, object]] = []
+    for entry in dataset.get("cases", []):
+        entry_keywords = set(entry.get("keywords", []))
+        shared_keywords = query_tokens & entry_keywords
+        score = len(shared_keywords)
+
+        entry_version = str(entry.get("application_version") or "").lower()
+        if query_version and entry_version and query_version == entry_version:
+            score += 1
+
+        entry_root = str(entry.get("root_cause") or "").lower()
+        if case.root_cause and entry_root and entry_root in case.root_cause.lower():
+            score += 2
+
+        if case.root_cause and entry_root and case.root_cause.lower() in entry_root:
+            score += 1
+
+        if not score:
+            continue
+
+        results.append(
+            {
+                "case_id": entry.get("case_id"),
+                "title": entry.get("title"),
+                "root_cause": entry.get("root_cause"),
+                "solution": entry.get("solution"),
+                "solution_excerpt": entry.get("solution_excerpt"),
+                "keywords": sorted(shared_keywords) if shared_keywords else entry.get("keywords", []),
+                "score": score,
+                "saved_at": entry.get("saved_at"),
+                "timestamp": entry.get("timestamp", 0),
+            }
+        )
+
+    results.sort(key=lambda item: (item.get("score", 0), item.get("timestamp", 0)), reverse=True)
+    return results[:max_results]
+
+
 def save_case_to_database(
     case: CaseData, *, notify: bool = True, update_history: bool = True
 ) -> Path | None:
@@ -1453,6 +1784,8 @@ def save_case_to_database(
         update_recent_cases(case.case_id, str(file_path))
     if notify:
         st.success(f"Case saved to {file_path}")
+    st.session_state.ai_learning_signature = None
+    st.session_state.ai_learning_data = None
     return file_path
 
 
@@ -1943,6 +2276,11 @@ def render_case_ui(case_idx: int):
                 st.markdown("#### Quick actions")
 
             if st.session_state[visible_key]:
+                ai_assist_mode = st.session_state.get("ai_assist_mode", "Standard")
+                ai_learning_dataset = None
+                if ai_assist_mode == "AI Educate":
+                    ai_learning_dataset = ensure_ai_learning_dataset()
+
                 if st.button(
                     "Save case",
                     key=widget_key("quick_save", case_idx),
@@ -2017,8 +2355,49 @@ def render_case_ui(case_idx: int):
                                 case_dict.pop(fld, None)
                     _, miss = compute_progress(D, cat_map)
                     missing = [f for flds in miss.values() for f in flds]
+                    learning_context = ""
+                    if ai_assist_mode == "AI Educate":
+                        matches = find_relevant_learning_cases(D, ai_learning_dataset)
+                        st.session_state.ai_learning_matches = matches
+                        if matches:
+                            condensed_matches = []
+                            for match in matches:
+                                condensed_matches.append(
+                                    {
+                                        "case_id": match.get("case_id"),
+                                        "title": match.get("title"),
+                                        "root_cause": match.get("root_cause"),
+                                        "solution": _summarize_text(
+                                            str(match.get("solution") or match.get("solution_excerpt") or ""),
+                                            width=240,
+                                        ),
+                                        "keywords": match.get("keywords"),
+                                        "score": match.get("score"),
+                                        "saved_at": match.get("saved_at"),
+                                    }
+                                )
+                            learning_context = (
+                                "Leverage these historical cases when reasoning about the current issue:\n\n"
+                                + json.dumps(condensed_matches, indent=2)
+                                + "\n\n"
+                            )
+                        elif ai_learning_dataset:
+                            summary_payload = {
+                                "top_keywords": ai_learning_dataset.get("insight_summary", {}).get(
+                                    "top_keywords", []
+                                )[:5],
+                                "root_cause_patterns": ai_learning_dataset.get("root_cause_patterns", [])[:3],
+                            }
+                            learning_context = (
+                                "Historical learning summary:\n\n"
+                                + json.dumps(summary_payload, indent=2)
+                                + "\n\n"
+                            )
+                    else:
+                        st.session_state.ai_learning_matches = []
                     user_message = (
-                        "Use the available case data to infer values for missing fields."
+                        learning_context
+                        + "Use the available case data to infer values for missing fields."
                         " Return a JSON object mapping field names to inferred values."
                         " Omit fields that cannot be inferred.\n\n"
                         + json.dumps(case_dict, indent=2)
@@ -2063,6 +2442,24 @@ def render_case_ui(case_idx: int):
                                 if hasattr(D, fld) and not getattr(D, fld):
                                     setattr(D, fld, val)
                             autosave()
+                if ai_assist_mode == "AI Educate":
+                    matches = st.session_state.get("ai_learning_matches", [])
+                    if matches:
+                        st.markdown("**Historical cases considered for this assistance:**")
+                        for match in matches:
+                            case_label = match.get("case_id") or "Unknown Case"
+                            title = match.get("title") or "Untitled"
+                            score = match.get("score")
+                            st.markdown(
+                                f"- **{case_label}** – {title} (similarity score: {score})"
+                            )
+                            solution_excerpt = match.get("solution_excerpt") or match.get("solution")
+                            if solution_excerpt:
+                                st.caption(f"Solution insight: {solution_excerpt}")
+                    elif ai_learning_dataset and ai_learning_dataset.get("case_count"):
+                        st.caption(
+                            "AI Educate did not find a close historical match; general patterns were provided instead."
+                        )
                 if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
                     logging.info("Categorize button clicked")
                     if not api_key and base_url.startswith("https://api.openai.com"):
@@ -3252,6 +3649,54 @@ Thank you in advance,
             if prev_debug and not st.session_state.debug_mode:
                 st.session_state.debug_auth = False
                 st.session_state.show_bored = False
+
+            st.markdown("### AI Assistance")
+            st.radio(
+                "Select how AI assistance should behave",
+                ["Standard", "AI Educate"],
+                key="ai_assist_mode",
+            )
+            ai_dataset = None
+            if st.session_state.ai_assist_mode == "AI Educate":
+                refresh_requested = st.button(
+                    "Rebuild AI learning dataset",
+                    help="Reanalyse all saved cases to refresh historical insights.",
+                    key="ai_learning_refresh",
+                )
+                if refresh_requested:
+                    ai_dataset = ensure_ai_learning_dataset(force=True)
+                else:
+                    ai_dataset = ensure_ai_learning_dataset()
+
+                if ai_dataset:
+                    case_count = ai_dataset.get("case_count", 0)
+                    generated_at = ai_dataset.get("generated_at")
+                    st.success(
+                        f"AI learning compiled from {case_count} saved cases on {generated_at}."
+                    )
+                    top_keywords = ai_dataset.get("insight_summary", {}).get("top_keywords", [])
+                    if top_keywords:
+                        st.caption(
+                            "Top recurring solution keywords: "
+                            + ", ".join(top_keywords[:6])
+                        )
+                    root_patterns = ai_dataset.get("root_cause_patterns", [])
+                    if root_patterns:
+                        top_patterns = root_patterns[:3]
+                        st.markdown("**Frequent root causes identified:**")
+                        for pattern in top_patterns:
+                            st.markdown(
+                                f"- {pattern['root_cause']} ({pattern['count']} cases)"
+                            )
+                    st.caption(
+                        "Quick Actions → AI Assistance now leverages these insights for richer suggestions."
+                    )
+                else:
+                    st.info(
+                        "No saved cases available yet. Save cases to build the AI learning dataset."
+                    )
+            else:
+                st.session_state.ai_learning_matches = []
         else:
             st.info("Settings available in first case tab.")
 
