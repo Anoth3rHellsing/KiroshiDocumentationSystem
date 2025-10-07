@@ -431,6 +431,26 @@ def inject_base_styles() -> None:
             border-radius: 999px;
         }
 
+        .case-actions .crm-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.55rem 0.75rem;
+            border-radius: 999px;
+            border: none;
+            font-weight: 600;
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white !important;
+            text-decoration: none;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+            box-shadow: 0 8px 18px rgba(79, 70, 229, 0.25);
+        }
+
+        .case-actions .crm-link:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 22px rgba(79, 70, 229, 0.35);
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -1036,6 +1056,10 @@ def load_tracked_cases() -> list:
             data["path"] = str(p)
             data["priority"] = normalize_priority(data.get("priority"))
             data.setdefault("phone_number", "")
+            if data.get("custom_category") is None:
+                data["custom_category"] = ""
+            if data.get("case_link") is None:
+                data["case_link"] = ""
             cases.append(data)
         except Exception:
             continue
@@ -1222,6 +1246,16 @@ def render_tracked_case_insights(cases: list) -> None:
             st.altair_chart(timeline_chart, use_container_width=True)
 
 
+def render_crm_link_button(url: str) -> None:
+    safe_url = (url or "").strip()
+    if not safe_url:
+        return
+    st.markdown(
+        f"<a class='crm-link' href='{escape(safe_url)}' target='_blank' rel='noopener noreferrer'>Open in CRM</a>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_tracked_cases_dashboard(cases: list) -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
@@ -1244,6 +1278,8 @@ def render_tracked_cases_dashboard(cases: list) -> None:
                 render_case_metadata("Case ID", case.get("case_id", ""))
                 render_case_metadata("Company", case.get("company", ""))
                 render_case_metadata("End User", case.get("end_user", ""))
+                if case.get("type") == "Custom":
+                    render_case_metadata("Category", case.get("custom_category", ""))
             with info_col_right:
                 render_case_metadata("Phone", case.get("phone_number", ""))
                 render_case_metadata("Created", created)
@@ -1260,6 +1296,7 @@ def render_tracked_cases_dashboard(cases: list) -> None:
                         path, key
                     ),
                 )
+                render_crm_link_button(case.get("case_link", ""))
                 load_col, untrack_col = st.columns(2)
                 with load_col:
                     if st.button(
@@ -2924,7 +2961,9 @@ Thank you in advance,
         with tab_tracking:
             st.subheader("Tracking")
             tracking_type = st.selectbox(
-                "Tracking type", ["Dell", "FedEx"], key=widget_key("tracking_type", case_idx)
+                "Tracking type",
+                ["Dell", "FedEx", "Custom"],
+                key=widget_key("tracking_type", case_idx),
             )
             company = st.text_input("Company", key=widget_key("track_company", case_idx))
             end_user = st.text_input("End User", key=widget_key("track_end_user", case_idx))
@@ -2942,6 +2981,8 @@ Thank you in advance,
                 PRIORITY_OPTIONS,
                 key=priority_key,
             )
+            status = ""
+            custom_category = None
             if tracking_type == "Dell":
                 service_tag = st.text_input(
                     "Service Tag", key=widget_key("track_service_tag", case_idx)
@@ -2956,7 +2997,7 @@ Thank you in advance,
                     ],
                     key=widget_key("track_status", case_idx),
                 )
-            else:
+            elif tracking_type == "FedEx":
                 expected_arrival_date = st.date_input(
                     "Expected arrival date",
                     value=date.today(),
@@ -2973,7 +3014,18 @@ Thank you in advance,
                     ],
                     key=widget_key("track_status", case_idx),
                 )
+            else:
+                custom_category = st.text_input(
+                    "Custom category", key=widget_key("track_custom_category", case_idx)
+                )
+                status = st.text_input(
+                    "Status", key=widget_key("track_custom_status", case_idx)
+                )
+            case_link = st.text_input(
+                "Case link (CRM)", key=widget_key("track_case_link", case_idx)
+            )
             if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
+                status_value = status.strip() if isinstance(status, str) else status
                 info = {
                     "type": tracking_type,
                     "case_id": D.case_id,
@@ -2984,15 +3036,22 @@ Thank you in advance,
                     or getattr(D, "direct_ph", ""),
                     "creation_day": creation_day.isoformat(),
                     "ticket_number": ticket_number,
-                    "status": status,
+                    "status": status_value,
                     "priority": priority,
                 }
+                link_value = case_link.strip()
+                if link_value:
+                    info["case_link"] = link_value
                 if tracking_type == "Dell":
                     info["service_tag"] = service_tag
                     file_path = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
-                else:
+                elif tracking_type == "FedEx":
                     info["expected_arrival_date"] = expected_arrival_date.isoformat()
                     file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+                else:
+                    custom_value = (custom_category or "").strip()
+                    info["custom_category"] = custom_value
+                    file_path = TRACKED_CASES_DIR / f"Custom_{D.case_id}_Active.json"
                 with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(info, f, indent=2)
                 st.session_state.track_case = True
@@ -3003,7 +3062,8 @@ Thank you in advance,
             ):
                 dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
                 fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
-                for f in [dell_file, fedex_file]:
+                custom_file = TRACKED_CASES_DIR / f"Custom_{D.case_id}_Active.json"
+                for f in [dell_file, fedex_file, custom_file]:
                     if f.exists():
                         dest = DATABASE_DIR / f"{D.case_id}.json"
                         try:
