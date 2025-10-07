@@ -99,6 +99,8 @@ LOG_FILE = "app.log"
 PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
 DEFAULT_TRACKING_PRIORITY = "Normal"
 
+AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
+
 CASE_DEX_URL_TEMPLATE = os.environ.get(
     "CASE_DEX_URL_TEMPLATE",
     "https://case-dex.example.com/api/cases/{case_id}/dex",
@@ -2256,6 +2258,28 @@ def build_autohotkey_script(cases: Iterable[CaseData], cat_map) -> str:
     return script + "\n"
 
 
+def sync_autohotkey_script(script: str) -> Path | None:
+    """Persist the latest AutoHotkey hotstrings so AutoHotkey can include them live.
+
+    Returns the path if the script could be written, otherwise ``None``.
+    """
+
+    if os.name != "nt":
+        return None
+    try:
+        AUTOHOTKEY_SCRIPT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existing = AUTOHOTKEY_SCRIPT_PATH.read_text(encoding="utf-8")
+        except OSError:
+            existing = None
+        if existing != script:
+            AUTOHOTKEY_SCRIPT_PATH.write_text(script, encoding="utf-8")
+        return AUTOHOTKEY_SCRIPT_PATH
+    except OSError as exc:
+        logging.warning("Failed to sync AutoHotkey script to %s: %s", AUTOHOTKEY_SCRIPT_PATH, exc)
+        return None
+
+
 def make_pdf(d: CaseData, cat_map) -> bytes:
     """Generate a PDF summary of the case details."""
     buf = io.BytesIO()
@@ -3050,6 +3074,44 @@ def render_case_ui(case_idx: int):
                     [cs.case for cs in st.session_state.case_sessions],
                     cat_map,
                 )
+                script_path = sync_autohotkey_script(hotkey_script)
+                if script_path:
+                    script_path_str = str(script_path)
+                    encoded_hotkeys = json.dumps(hotkey_script)
+                    st.success(
+                        "Hotkeys auto-synced locally. Add a single `#Include` to your AutoHotkey launcher "
+                        "and the triggers will refresh whenever you update cases."
+                    )
+                    st.code(f"#Include {script_path_str}", language="autohotkey")
+                    components.html(
+                        f"""
+                        <script>
+                        function copyKiroshiHotkeys() {{
+                            navigator.clipboard.writeText({encoded_hotkeys}).then(() => {{
+                                const note = document.createElement('div');
+                                note.innerText = 'Hotkeys copied to clipboard';
+                                note.style.fontSize = '0.8rem';
+                                note.style.marginTop = '0.35rem';
+                                const host = document.getElementById('kiroshi-hotkeys-feedback');
+                                host.innerHTML = '';
+                                host.appendChild(note);
+                            }});
+                        }}
+                        </script>
+                        <button onclick="copyKiroshiHotkeys();"
+                                style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
+                                title="Copy the live hotkeys to the clipboard">
+                            Copy hotkeys to clipboard
+                        </button>
+                        <div id='kiroshi-hotkeys-feedback'></div>
+                        <p style='font-size:0.8rem;margin-top:0.5rem;'>Script path: {script_path_str}</p>
+                        """,
+                        height=90,
+                    )
+                else:
+                    st.info(
+                        "Download the script or copy it manually. Automatic syncing is only available on Windows."
+                    )
                 st.download_button(
                     "Download hotkey script",
                     hotkey_script.encode("utf-8"),
