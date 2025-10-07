@@ -353,6 +353,13 @@ Todos los fragmentos del tutorial se elaboraron a partir de fuentes públicas y 
 - **Convenciones operativas del equipo**: La estructura de carpetas sugerida (`C:\Kiroshi\AHK\`, `%AppData%\AutoHotkey\Lib\`, etc.) recoge las prácticas compartidas con el personal de soporte para mantener scripts versionados y listos para su despliegue en estaciones Windows.
 - **Automatizaciones comunes sobre Streamlit/navegadores**: Los ejemplos con coordenadas, uso de `WinWaitActive` o teclas rápidas se derivan de escenarios reales de documentación de casos dentro de Kiroshi y se adaptan según la resolución o el navegador predeterminado.
 
+#### ¿Qué archivos alimentan el script de AutoHotkey generado por Kiroshi?
+
+- Los datos que se vuelcan en cada *hotstring* salen directamente de los casos abiertos en la interfaz. Internamente, Kiroshi construye cada tabla a partir del modelo `CaseData` (campos como `company_name`, `remote_steps`, `solution`, etc.) y de los grupos definidos en el mapa de categorías (`BASE_CATEGORY_MAP`/`HW_CATEGORY_MAP`).
+- Cada modificación que haces en la app se guarda automáticamente en `autosave.json`, localizado junto al ejecutable o en el directorio del proyecto si trabajas desde código fuente. Ese JSON conserva el último caso activo y es la referencia que se recupera al reiniciar la herramienta.
+- Cuando pulsas la opción **AutoHotkey quick paste**, la aplicación genera un archivo `kiroshi_tables_hotkeys.ahk` dentro de `C:\\ProgramFiles\\KiroshiDatabase\` (o `~/KiroshiDatabase/` en sistemas que no son Windows). No existe un JSON separado para los atajos: el contenido del `.ahk` se escribe a partir de la sesión en memoria y del `autosave.json` más reciente.
+- En la misma carpeta `KiroshiDatabase` encontrarás también `recent_cases.json`, `settings.json` y otros respaldos (`autosave_<CASE>.json`) que permiten mantener sincronizados los datos que alimentan el script de AutoHotkey.
+
 Si necesitas adaptar los ejemplos a otra versión de Windows, a un navegador diferente o a rutas personalizadas de Kiroshi, te recomendamos validar cada fragmento con la documentación oficial y los procedimientos internos actualizados.
 
 ## Contributing
