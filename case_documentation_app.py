@@ -19,7 +19,7 @@ import random
 import subprocess
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from html import escape
 import textwrap
 import inspect
@@ -118,6 +118,62 @@ if os.name == "nt":
 else:
     TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+SETTINGS_FILE = DATABASE_DIR / "settings.json"
+PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
+    "second_line_mode": False,
+    "debug_mode": False,
+    "ai_assist_mode": "Standard",
+}
+
+
+def _load_persistent_settings() -> dict[str, object]:
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Failed to load settings from %s: %s", SETTINGS_FILE, exc)
+        return {}
+    if not isinstance(data, dict):
+        logging.warning("Settings file %s did not contain a JSON object", SETTINGS_FILE)
+        return {}
+    filtered: dict[str, object] = {}
+    for key, default in PERSISTENT_SETTINGS_DEFAULTS.items():
+        value = data.get(key, default)
+        if isinstance(default, bool) and isinstance(value, bool):
+            filtered[key] = value
+        elif isinstance(default, str) and isinstance(value, str):
+            filtered[key] = value
+    return filtered
+
+
+_persistent_settings_cache: dict[str, object] = PERSISTENT_SETTINGS_DEFAULTS.copy()
+_persistent_settings_cache.update(_load_persistent_settings())
+
+
+def _persist_setting(key: str) -> None:
+    if key not in PERSISTENT_SETTINGS_DEFAULTS:
+        return
+    value = st.session_state.get(key, PERSISTENT_SETTINGS_DEFAULTS[key])
+    _persistent_settings_cache[key] = value
+    try:
+        with SETTINGS_FILE.open("w", encoding="utf-8") as fh:
+            json.dump(_persistent_settings_cache, fh, indent=2, sort_keys=True)
+    except OSError as exc:
+        logging.warning("Failed to persist setting %s: %s", key, exc)
+
+
+def _get_persistent_default(key: str, fallback: object) -> object:
+    return _persistent_settings_cache.get(key, fallback)
+
+
+def _on_setting_change(key: str) -> Callable[[], None]:
+    def _callback() -> None:
+        _persist_setting(key)
+
+    return _callback
 
 
 try:
@@ -698,6 +754,7 @@ def render_logo():
     action_logo = components.html(header_html, height=380)
     if action_logo == "open-debug":
         st.session_state.debug_mode = True
+        _persist_setting("debug_mode")
 
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
@@ -714,7 +771,7 @@ _init_state("email_extra", {})
 _init_state("include_escalations", False)
 _init_state("include_hardware", False)
 _init_state("debug_auth", False)
-_init_state("debug_mode", False)
+_init_state("debug_mode", _get_persistent_default("debug_mode", False))
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
@@ -734,7 +791,7 @@ _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
-_init_state("ai_assist_mode", "Standard")
+_init_state("ai_assist_mode", _get_persistent_default("ai_assist_mode", "Standard"))
 _init_state("ai_learning_data", None)
 _init_state("ai_learning_signature", None)
 _init_state("ai_learning_matches", [])
@@ -742,7 +799,7 @@ _init_state("ai_learning_matches", [])
 _init_state("track_case", False)
 _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
-_init_state("second_line_mode", False)
+_init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("pending_load", None)
 _init_state("show_bored", False)
 _init_state("autosave_notice", None)
@@ -2304,8 +2361,10 @@ def render_case_ui(case_idx: int):
                     backup_path = create_case_autosave_snapshot(D.case_id)
                 api_key_value = st.session_state.get("openai_api_key", "")
                 second_line_mode = st.session_state.get("second_line_mode", False)
+                debug_mode = st.session_state.get("debug_mode", False)
                 base_url_value = st.session_state.get("ai_base_url", "")
                 ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
+                ai_assist_mode = st.session_state.get("ai_assist_mode", "Standard")
                 if os.path.exists(AUTOSAVE_FILE):
                     try:
                         os.remove(AUTOSAVE_FILE)
@@ -2314,8 +2373,13 @@ def render_case_ui(case_idx: int):
                 st.session_state.clear()
                 st.session_state.openai_api_key = api_key_value
                 st.session_state.second_line_mode = second_line_mode
+                _persist_setting("second_line_mode")
+                st.session_state.debug_mode = debug_mode
+                _persist_setting("debug_mode")
                 st.session_state.ai_base_url = base_url_value
                 st.session_state.ai_mode = ai_mode
+                st.session_state.ai_assist_mode = ai_assist_mode
+                _persist_setting("ai_assist_mode")
                 if backup_path is not None:
                     st.session_state["autosave_notice"] = (
                         f"Case autosaved to {backup_path.name}"
@@ -3717,9 +3781,17 @@ Thank you in advance,
     with tab_settings:
         if case_idx == 0:
             st.subheader("Modes")
-            st.checkbox("2nd Line mode", key="second_line_mode")
+            st.checkbox(
+                "2nd Line mode",
+                key="second_line_mode",
+                on_change=_on_setting_change("second_line_mode"),
+            )
             prev_debug = st.session_state.debug_mode
-            st.checkbox("Show Debug tab", key="debug_mode")
+            st.checkbox(
+                "Show Debug tab",
+                key="debug_mode",
+                on_change=_on_setting_change("debug_mode"),
+            )
             if prev_debug and not st.session_state.debug_mode:
                 st.session_state.debug_auth = False
                 st.session_state.show_bored = False
@@ -3729,6 +3801,7 @@ Thank you in advance,
                 "Select how AI assistance should behave",
                 ["Standard", "AI Educate"],
                 key="ai_assist_mode",
+                on_change=_on_setting_change("ai_assist_mode"),
             )
             ai_dataset = None
             if st.session_state.ai_assist_mode == "AI Educate":
