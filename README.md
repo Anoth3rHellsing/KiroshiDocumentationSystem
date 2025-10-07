@@ -191,6 +191,159 @@ launches the Streamlit interface directly.
 
 See the [`docs/`](docs/README.md) directory for a more detailed explanation of how data is structured and how each tab operates.
 
+## Tutorial rápido de AutoHotkey
+
+AutoHotkey (AHK) es un lenguaje de scripting para Windows que permite automatizar tareas repetitivas, crear atajos de teclado y construir interfaces simples. A continuación encontrarás una guía básica en español para comenzar a utilizarlo junto con Kiroshi o en tu flujo de trabajo diario.
+
+### 1. Instalación
+
+1. Visita [https://www.autohotkey.com/](https://www.autohotkey.com/) y descarga la versión estable.
+2. Ejecuta el instalador y elige **Express Installation** a menos que necesites una configuración personalizada.
+3. Una vez instalado, haz clic derecho en el escritorio o en una carpeta y selecciona **Nuevo → Script de AutoHotkey** para crear tu primer script (`.ahk`).
+
+### 2. Primer script
+
+Abre el archivo recién creado con tu editor favorito y pega el siguiente código:
+
+```ahk
+; Muestra un mensaje cuando presionas Ctrl + Alt + K
+^!k::
+    MsgBox, ¡Bienvenido a tu primer script de AutoHotkey!
+return
+```
+
+Guarda el archivo y haz doble clic para ejecutarlo. Ahora, al pulsar `Ctrl + Alt + K` verás una ventana de mensaje. Para detener el script, busca el icono con una “H” verde en la bandeja del sistema, haz clic derecho y selecciona **Exit**.
+
+### 3. Hotstrings y automatización de texto
+
+Los *hotstrings* permiten expandir abreviaturas. Añade este ejemplo a tu script:
+
+```ahk
+::ksaludo::Hola, gracias por contactar con el soporte de Kiroshi. ¿En qué puedo ayudarte hoy?
+```
+
+Escribe `ksaludo` en cualquier campo de texto y presiona espacio para que se reemplace automáticamente por el mensaje completo, ideal para respuestas frecuentes.
+
+### 4. Lanzar aplicaciones y abrir archivos
+
+AutoHotkey puede ejecutar programas o abrir documentación clave para tu equipo:
+
+```ahk
+; Abre Kiroshi con Win + Shift + K
+# +k::
+    Run, C:\\ProgramFiles\\KiroshiLauncher_1-7-2.bat
+return
+
+; Abre la wiki interna con Win + Alt + D
+# !d::
+    Run, https://intranet.ejemplo.com/wiki/kiroshi
+return
+```
+
+### 5. Variables, bucles y lógica básica
+
+Puedes combinar variables y bucles para crear automatizaciones complejas, como tomar notas temporales y guardarlas en archivos:
+
+```ahk
+; Guardar texto seleccionado en un archivo de notas
+^!n::
+    ClipSaved := ClipboardAll
+    Send, ^c
+    ClipWait, 0.5
+    selectedText := Clipboard
+    FileAppend, %A_Now% - %selectedText%`n, %A_Desktop%\NotasKiroshi.txt
+    Clipboard := ClipSaved
+return
+```
+
+Este script copia la selección actual con `Ctrl + Alt + N`, guarda la entrada con fecha y hora en el escritorio y restaura el portapapeles original.
+
+### 6. Buenas prácticas y recursos
+
+- Organiza tus scripts en funciones (`MyFunction()`) y usa comentarios (`;`) para explicar cada bloque.
+- Carga scripts automáticamente colocando accesos directos en `%AppData%\Microsoft\Windows\Start Menu\Programs\Startup`.
+- Consulta la [documentación oficial](https://www.autohotkey.com/docs/) para explorar GUIs, expresiones regulares y automatización avanzada.
+
+Con estas bases, podrás crear atajos personalizados que complementen tu flujo de trabajo con Kiroshi y faciliten la documentación de casos.
+
+### 7. Configuración sugerida para usar AutoHotkey con Kiroshi
+
+Aunque cada equipo adapta Kiroshi a sus necesidades, la siguiente estructura facilita mantener tus automatizaciones en orden:
+
+| Carpeta | Contenido sugerido |
+|---------|--------------------|
+| `C:\Kiroshi\AHK\` | Scripts `.ahk` oficiales del equipo. |
+| `C:\Kiroshi\Shortcuts\` | Accesos directos para lanzar Kiroshi, el chat de A.A.T.O.M. y herramientas de soporte. |
+| `%AppData%\AutoHotkey\Lib\` | Funciones reutilizables (por ejemplo, manejo de ventanas Streamlit o plantillas de texto). |
+
+Guarda tus scripts firmados en `C:\Kiroshi\AHK\` y crea accesos directos a los que quieras iniciar con Windows en la carpeta *Startup*. Así todos los agentes tendrán la misma convención de rutas y podrás compartir actualizaciones fácilmente.
+
+### 8. Variables de entorno y configuración de Kiroshi
+
+Kiroshi lee la configuración desde `config.json` o desde variables de entorno. Puedes aprovechar AutoHotkey para conmutar perfiles antes de abrir la aplicación:
+
+```ahk
+; Cambia entre entornos Cloud / Local antes de lanzar Kiroshi
+^!1::
+    SetEnv, AI_BASE_URL, https://api.openai.com/v1
+    SetEnv, OPENAI_API_KEY, % Clipboard ; asume que copiaste la clave temporal
+    Run, C:\\ProgramFiles\\KiroshiLauncher_1-7-2.bat
+return
+
+^!2::
+    SetEnv, AI_BASE_URL, http://localhost:8000/v1
+    SetEnv, OPENAI_API_KEY,
+    Run, C:\\ProgramFiles\\KiroshiLauncher_1-7-2.bat
+return
+```
+
+Estas funciones lanzan Kiroshi con diferentes backends. Si prefieres modificar `config.json`, AutoHotkey puede editarlo directamente mediante `FileRead`, `StrReplace` y `FileDelete`/`FileAppend` para intercambiar valores antes de ejecutar la app.
+
+### 9. Controlar el flujo de trabajo dentro de Kiroshi
+
+Las páginas de Kiroshi se ejecutan en el navegador. Usa comandos `Send` y `ControlClick` para navegar la interfaz sin perder tiempo:
+
+```ahk
+; Crear un caso nuevo y preparar un resumen
+!+n::
+    ; Asume que el navegador ya está enfocado
+    Send, ^l
+    Sleep, 150
+    Send, http://localhost:8501{Enter}
+    WinWaitActive, Kiroshi Documentation System
+    ; Botón "Add Case"
+    Click, 200, 980
+    Sleep, 200
+    ; Rellenar campos clave
+    Send, Cliente Ejemplo{Tab}ACME Corp{Tab}CS-123456{Tab}Problema detectado en impresora 3Shape.
+    ; Cambiar a pestaña Email y generar resumen
+    Send, ^{PgDn}
+    Sleep, 150
+    Send, {Tab 3}{Enter}
+return
+```
+
+Adapta las coordenadas a tu resolución o reemplázalas por `ControlFocus`/`ControlSetText` si trabajas con navegadores compatibles con UI Automation. También puedes combinar `ImageSearch` para detectar botones con íconos personalizados dentro de la aplicación.
+
+### 10. Registrar notas y exportar documentación
+
+Si necesitas guardar notas rápidas mientras atiendes un caso, conecta AutoHotkey con las carpetas de exportación de Kiroshi:
+
+```ahk
+; Guardar la última captura exportada por Kiroshi con un nombre legible
+#g::
+    latest := "C:\\ProgramFiles\\KiroshiDatabase\\Exports\\Screenshots\\"
+    FileGetTime, ts, %latest%, M
+    FormatTime, pretty, %ts%, yyyy-MM-dd_HH-mm
+    FileMove, %latest%\Screenshot.png, %latest%\%pretty%_CasoActual.png, 1
+    TrayTip, Kiroshi, Captura renombrada: %pretty%, 2000
+return
+```
+
+Modifica las rutas a las utilizadas por tu instalación. Este patrón es útil para normalizar nombres antes de adjuntar archivos en correos o cargar evidencia en Case Dex.
+
+Con estas ampliaciones podrás configurar AutoHotkey para lanzar Kiroshi en distintos entornos, automatizar tareas dentro de la interfaz y mantener ordenados tus recursos compartidos.
+
 ## Contributing
 
 Contributions are welcome! To propose a change:
