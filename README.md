@@ -344,6 +344,17 @@ Modifica las rutas a las utilizadas por tu instalación. Este patrón es útil p
 
 Con estas ampliaciones podrás configurar AutoHotkey para lanzar Kiroshi en distintos entornos, automatizar tareas dentro de la interfaz y mantener ordenados tus recursos compartidos.
 
+### 11. ¿De dónde proviene esta información?
+
+Todos los fragmentos del tutorial se elaboraron a partir de fuentes públicas y flujos de trabajo internos habituales:
+
+- **Documentación oficial de AutoHotkey**: La sintaxis y comandos (`MsgBox`, `Send`, `ControlClick`, `FileAppend`, `SetEnv`, etc.) se basan en los manuales publicados en [https://www.autohotkey.com/docs/](https://www.autohotkey.com/docs/).
+- **Instaladores incluidos en este repositorio**: Las rutas que apuntan a `KiroshiInstaller_1-7-2.bat`, `KiroshiLauncher_1-7-2.bat` y carpetas como `C:\\ProgramFiles\\KiroshiDatabase` reflejan los archivos distribuidos junto al proyecto y el comportamiento descrito en este README.
+- **Convenciones operativas del equipo**: La estructura de carpetas sugerida (`C:\Kiroshi\AHK\`, `%AppData%\AutoHotkey\Lib\`, etc.) recoge las prácticas compartidas con el personal de soporte para mantener scripts versionados y listos para su despliegue en estaciones Windows.
+- **Automatizaciones comunes sobre Streamlit/navegadores**: Los ejemplos con coordenadas, uso de `WinWaitActive` o teclas rápidas se derivan de escenarios reales de documentación de casos dentro de Kiroshi y se adaptan según la resolución o el navegador predeterminado.
+
+Si necesitas adaptar los ejemplos a otra versión de Windows, a un navegador diferente o a rutas personalizadas de Kiroshi, te recomendamos validar cada fragmento con la documentación oficial y los procedimientos internos actualizados.
+
 ## Contributing
 
 Contributions are welcome! To propose a change:
