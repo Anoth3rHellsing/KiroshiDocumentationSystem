@@ -22,6 +22,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from html import escape
 import textwrap
+import inspect
 
 import pandas as pd
 import altair as alt
@@ -117,6 +118,18 @@ if os.name == "nt":
 else:
     TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+try:
+    _altair_signature = inspect.signature(st.altair_chart)
+except (TypeError, ValueError):
+    _altair_signature = None
+
+ALTAIR_CHART_KWARGS = (
+    {"width": "stretch"}
+    if _altair_signature and "width" in _altair_signature.parameters
+    else {"use_container_width": True}
+)
 
 AI_LEARNING_FILE = DATABASE_DIR / "AILearning.json"
 
@@ -1244,6 +1257,12 @@ def list_saved_cases(limit: int = 25) -> list:
     return entries
 
 
+def render_responsive_altair_chart(chart: alt.Chart) -> None:
+    """Render an Altair chart using the best available width argument."""
+
+    st.altair_chart(chart, **ALTAIR_CHART_KWARGS)
+
+
 def render_tracked_case_insights(cases: list) -> None:
     st.subheader("Tracked Case Insights")
     if not cases:
@@ -1270,7 +1289,7 @@ def render_tracked_case_insights(cases: list) -> None:
             )
             .properties(height=140)
         )
-        st.altair_chart(priority_chart, use_container_width=True)
+        render_responsive_altair_chart(priority_chart)
 
     if "status" in df:
         status_counts = (
@@ -1291,7 +1310,7 @@ def render_tracked_case_insights(cases: list) -> None:
             )
             .properties(height=200)
         )
-        st.altair_chart(status_chart, use_container_width=True)
+        render_responsive_altair_chart(status_chart)
 
     if "creation_day" in df:
         created_series = pd.to_datetime(df["creation_day"], errors="coerce")
@@ -1314,7 +1333,7 @@ def render_tracked_case_insights(cases: list) -> None:
                 )
                 .properties(height=160)
             )
-            st.altair_chart(timeline_chart, use_container_width=True)
+            render_responsive_altair_chart(timeline_chart)
 
 
 def render_crm_link_button(url: str) -> None:
@@ -1415,7 +1434,7 @@ def render_dell_fedex_dashboard(cases: list) -> None:
                     for c in dell_cases
                 ]
             )
-            st.dataframe(table, use_container_width=True)
+            st.dataframe(table, width="stretch")
         else:
             st.caption("No Dell escalations in the queue.")
     with col_fedex:
@@ -1434,7 +1453,7 @@ def render_dell_fedex_dashboard(cases: list) -> None:
                     for c in fedex_cases
                 ]
             )
-            st.dataframe(table, use_container_width=True)
+            st.dataframe(table, width="stretch")
         else:
             st.caption("No FedEx replacements awaiting action.")
 
@@ -2257,102 +2276,89 @@ def render_case_ui(case_idx: int):
         api_key = st.session_state.openai_api_key
         model = st.session_state.openai_model
         base_url = st.session_state.ai_base_url
-        quick_col, _ = st.columns([1, 3])
-        with quick_col:
-            visible_key = widget_key("quick_actions_visible", case_idx)
-            if visible_key not in st.session_state:
-                st.session_state[visible_key] = True
-            header_cols = st.columns([0.35, 0.65])
-            with header_cols[0]:
-                if st.button(
-                    "☰",
-                    key=widget_key("quick_actions_toggle", case_idx),
-                    use_container_width=True,
-                    help="Show or hide quick actions",
-                ):
-                    st.session_state[visible_key] = not st.session_state[visible_key]
-                    st.rerun()
-            with header_cols[1]:
-                st.markdown("#### Quick actions")
+        toggle_key = widget_key("quick_actions_open", case_idx)
+        if toggle_key not in st.session_state:
+            st.session_state[toggle_key] = False
 
-            if st.session_state[visible_key]:
-                ai_assist_mode = st.session_state.get("ai_assist_mode", "Standard")
-                ai_learning_dataset = None
-                if ai_assist_mode == "AI Educate":
-                    ai_learning_dataset = ensure_ai_learning_dataset()
+        def render_quick_actions_menu() -> None:
+            st.markdown("#### Quick actions")
+            ai_assist_mode = st.session_state.get("ai_assist_mode", "Standard")
+            ai_learning_dataset = None
+            if ai_assist_mode == "AI Educate":
+                ai_learning_dataset = ensure_ai_learning_dataset()
 
-                if st.button(
-                    "Save case",
-                    key=widget_key("quick_save", case_idx),
-                    use_container_width=True,
-                ):
-                    save_case_to_database(D)
-                if st.button(
-                    "Clear all",
-                    key=widget_key("clear_all_button", case_idx),
-                    use_container_width=True,
-                ):
-                    logging.info("Clear all button clicked")
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    api_key_value = st.session_state.get("openai_api_key", "")
-                    second_line_mode = st.session_state.get("second_line_mode", False)
-                    base_url_value = st.session_state.get("ai_base_url", "")
-                    ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    st.session_state.clear()
-                    st.session_state.openai_api_key = api_key_value
-                    st.session_state.second_line_mode = second_line_mode
-                    st.session_state.ai_base_url = base_url_value
-                    st.session_state.ai_mode = ai_mode
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
-                    st.rerun()
-                if st.session_state.track_case:
-                    st.button(
-                        "Tracking enabled",
-                        disabled=True,
-                        key=widget_key("tracking_enabled", case_idx),
-                        use_container_width=True,
+            if st.button(
+                "Save case",
+                key=widget_key("quick_save", case_idx),
+                width="stretch",
+            ):
+                save_case_to_database(D)
+            if st.button(
+                "Clear all",
+                key=widget_key("clear_all_button", case_idx),
+                width="stretch",
+            ):
+                logging.info("Clear all button clicked")
+                backup_path = None
+                if D.case_id:
+                    backup_path = create_case_autosave_snapshot(D.case_id)
+                api_key_value = st.session_state.get("openai_api_key", "")
+                second_line_mode = st.session_state.get("second_line_mode", False)
+                base_url_value = st.session_state.get("ai_base_url", "")
+                ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
+                if os.path.exists(AUTOSAVE_FILE):
+                    try:
+                        os.remove(AUTOSAVE_FILE)
+                    except OSError:
+                        pass
+                st.session_state.clear()
+                st.session_state.openai_api_key = api_key_value
+                st.session_state.second_line_mode = second_line_mode
+                st.session_state.ai_base_url = base_url_value
+                st.session_state.ai_mode = ai_mode
+                if backup_path is not None:
+                    st.session_state["autosave_notice"] = (
+                        f"Case autosaved to {backup_path.name}"
                     )
-                elif st.button(
-                    "Track case",
-                    key=widget_key("track_case_button", case_idx),
-                    use_container_width=True,
-                ):
-                    st.session_state.track_case = True
-                    st.rerun()
-                if st.button(
-                    "AI Assistance",
-                    key=widget_key("assist_button", case_idx),
-                    use_container_width=True,
-                ):
-                    logging.info("AI Assistance button clicked")
-                    if not api_key and base_url.startswith("https://api.openai.com"):
-                        st.error("Please set your OpenAI API key in the Debug tab.")
-                    else:
-                        case_dict = asdict(D)
-                        if not st.session_state.include_escalations:
-                            for fld in [
-                                "request_issue",
-                                "contact_name",
-                                "office_ph",
-                                "direct_ph",
-                                "best_time",
-                                "patterson",
-                                "straumann",
-                                "esc_name",
-                                "esc_ph",
-                                "esc_email",
-                            ]:
-                                case_dict.pop(fld, None)
+                st.rerun()
+            if st.session_state.track_case:
+                st.button(
+                    "Tracking enabled",
+                    disabled=True,
+                    key=widget_key("tracking_enabled", case_idx),
+                    width="stretch",
+                )
+            elif st.button(
+                "Track case",
+                key=widget_key("track_case_button", case_idx),
+                width="stretch",
+            ):
+                st.session_state.track_case = True
+                st.rerun()
+            if st.button(
+                "AI Assistance",
+                key=widget_key("assist_button", case_idx),
+                width="stretch",
+            ):
+                logging.info("AI Assistance button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = asdict(D)
+                    if not st.session_state.include_escalations:
+                        for fld in [
+                            "request_issue",
+                            "contact_name",
+                            "office_ph",
+                            "direct_ph",
+                            "best_time",
+                            "patterson",
+                            "straumann",
+                            "esc_name",
+                            "esc_ph",
+                            "esc_email",
+                        ]:
+                            case_dict.pop(fld, None)
                     _, miss = compute_progress(D, cat_map)
                     missing = [f for flds in miss.values() for f in flds]
                     learning_context = ""
@@ -2442,46 +2448,46 @@ def render_case_ui(case_idx: int):
                                 if hasattr(D, fld) and not getattr(D, fld):
                                     setattr(D, fld, val)
                             autosave()
-                if ai_assist_mode == "AI Educate":
-                    matches = st.session_state.get("ai_learning_matches", [])
-                    if matches:
-                        st.markdown("**Historical cases considered for this assistance:**")
-                        for match in matches:
-                            case_label = match.get("case_id") or "Unknown Case"
-                            title = match.get("title") or "Untitled"
-                            score = match.get("score")
-                            st.markdown(
-                                f"- **{case_label}** – {title} (similarity score: {score})"
-                            )
-                            solution_excerpt = match.get("solution_excerpt") or match.get("solution")
-                            if solution_excerpt:
-                                st.caption(f"Solution insight: {solution_excerpt}")
-                    elif ai_learning_dataset and ai_learning_dataset.get("case_count"):
-                        st.caption(
-                            "AI Educate did not find a close historical match; general patterns were provided instead."
+            if ai_assist_mode == "AI Educate":
+                matches = st.session_state.get("ai_learning_matches", [])
+                if matches:
+                    st.markdown("**Historical cases considered for this assistance:**")
+                    for match in matches:
+                        case_label = match.get("case_id") or "Unknown Case"
+                        title = match.get("title") or "Untitled"
+                        score = match.get("score")
+                        st.markdown(
+                            f"- **{case_label}** – {title} (similarity score: {score})"
                         )
-                if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
-                    logging.info("Categorize button clicked")
-                    if not api_key and base_url.startswith("https://api.openai.com"):
-                        st.error("Please set your OpenAI API key in the Debug tab.")
+                        solution_excerpt = match.get("solution_excerpt") or match.get("solution")
+                        if solution_excerpt:
+                            st.caption(f"Solution insight: {solution_excerpt}")
+                elif ai_learning_dataset and ai_learning_dataset.get("case_count"):
+                    st.caption(
+                        "AI Educate did not find a close historical match; general patterns were provided instead."
+                    )
+            if st.button("Categorize", key=widget_key("categorize_button", case_idx), width="stretch"):
+                logging.info("Categorize button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    taxonomy_block = st.session_state.taxonomy_block
+                    signals_config = st.session_state.signals_config
+                    if not taxonomy_block or not signals_config:
+                        st.error("Please provide taxonomy and signals config in the Debug tab.")
                     else:
-                        taxonomy_block = st.session_state.taxonomy_block
-                        signals_config = st.session_state.signals_config
-                        if not taxonomy_block or not signals_config:
-                            st.error("Please provide taxonomy and signals config in the Debug tab.")
-                        else:
-                            case_dict = asdict(D)
-                            case_input = {
-                                "title": D.brief_description,
-                                "description": D.description,
-                                "artifacts": [f.name for f in st.session_state.uploads],
-                                "meta": {
-                                    "product_hint": D.application_version,
-                                    "lang": "en",
-                                },
-                                "full_case": case_dict,
-                            }
-                            output_schema = """{
+                        case_dict = asdict(D)
+                        case_input = {
+                            "title": D.brief_description,
+                            "description": D.description,
+                            "artifacts": [f.name for f in st.session_state.uploads],
+                            "meta": {
+                                "product_hint": D.application_version,
+                                "lang": "en",
+                            },
+                            "full_case": case_dict,
+                        }
+                        output_schema = """{
     "product": "string",
     "topic": "string",
     "subtopic": "string|null",
@@ -2494,64 +2500,22 @@ def render_case_ui(case_idx: int):
     {"product":"", "topic":"", "subtopic":null, "why":""}
     ]
     }"""
-                            user_message = (
-                                "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
-                                "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
-                                "Taxonomy (authoritative)\n\n"
-                                "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
-                                f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
-                                "Signals dictionary (hints)\n\n"
-                                "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
-                                f"SIGNALS_CONFIG:\n{signals_config}\n\n"
-                                "Output format (STRICT JSON only)\n\n"
-                                "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
-                                f"{output_schema}\n\n"
-                                "Case to classify (runtime payload)\n\n"
-                                f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
-                                "Return\n\n"
-                                "Return ONLY the STRICT JSON described above. No extra text, no markdown."
-                            )
-                            try:
-                                reply = query_atom(
-                                    user_message,
-                                    st.session_state.atom_history,
-                                    api_key,
-                                    model,
-                                    base_url,
-                                )
-                            except Exception as e:
-                                st.error(str(e))
-                            else:
-                                st.session_state.atom_history.append({"role": "user", "content": user_message})
-                                st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                                save_memory(st.session_state.atom_history)
-                                st.session_state.categorizer_result = reply
-                if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
-                    logging.info("Ask button clicked")
-                    if not api_key and base_url.startswith("https://api.openai.com"):
-                        st.error("Please set your OpenAI API key in the Debug tab.")
-                    else:
-                        case_dict = asdict(D)
-                        if not st.session_state.include_escalations:
-                            for fld in [
-                                "request_issue",
-                                "contact_name",
-                                "office_ph",
-                                "direct_ph",
-                                "best_time",
-                                "patterson",
-                                "straumann",
-                                "esc_name",
-                                "esc_ph",
-                                "esc_email",
-                            ]:
-                                case_dict.pop(fld, None)
-                        findings = st.session_state.verify_result
                         user_message = (
-                            "Based on the following case data"
-                            + (f" and previous findings: {findings}" if findings else "")
-                            + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
-                            + json.dumps(case_dict, indent=2)
+                            "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
+                            "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
+                            "Taxonomy (authoritative)\n\n"
+                            "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
+                            f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
+                            "Signals dictionary (hints)\n\n"
+                            "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
+                            f"SIGNALS_CONFIG:\n{signals_config}\n\n"
+                            "Output format (STRICT JSON only)\n\n"
+                            "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
+                            f"{output_schema}\n\n"
+                            "Case to classify (runtime payload)\n\n"
+                            f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
+                            "Return\n\n"
+                            "Return ONLY the STRICT JSON described above. No extra text, no markdown."
                         )
                         try:
                             reply = query_atom(
@@ -2567,46 +2531,156 @@ def render_case_ui(case_idx: int):
                             st.session_state.atom_history.append({"role": "user", "content": user_message})
                             st.session_state.atom_history.append({"role": "assistant", "content": reply})
                             save_memory(st.session_state.atom_history)
-                            st.session_state.ask_result = reply
-                if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
-                    logging.info("Verify button clicked")
-                    if not api_key and base_url.startswith("https://api.openai.com"):
-                        st.error("Please set your OpenAI API key in the Debug tab.")
-                    else:
-                        case_dict = asdict(D)
-                        if not st.session_state.include_escalations:
-                            for fld in [
-                                "request_issue",
-                                "contact_name",
-                                "office_ph",
-                                "direct_ph",
-                                "best_time",
-                                "patterson",
-                                "straumann",
-                                "esc_name",
-                                "esc_ph",
-                                "esc_email",
-                            ]:
-                                case_dict.pop(fld, None)
-                        user_message = (
-                            "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
-                            + json.dumps(case_dict, indent=2)
+                            st.session_state.categorizer_result = reply
+            if st.button("Ask", key=widget_key("ask_button", case_idx), width="stretch"):
+                logging.info("Ask button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = asdict(D)
+                    if not st.session_state.include_escalations:
+                        for fld in [
+                            "request_issue",
+                            "contact_name",
+                            "office_ph",
+                            "direct_ph",
+                            "best_time",
+                            "patterson",
+                            "straumann",
+                            "esc_name",
+                            "esc_ph",
+                            "esc_email",
+                        ]:
+                            case_dict.pop(fld, None)
+                    findings = st.session_state.verify_result
+                    user_message = (
+                        "Based on the following case data"
+                        + (f" and previous findings: {findings}" if findings else "")
+                        + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
+                        + json.dumps(case_dict, indent=2)
+                    )
+                    try:
+                        reply = query_atom(
+                            user_message,
+                            st.session_state.atom_history,
+                            api_key,
+                            model,
+                            base_url,
                         )
-                        try:
-                            reply = query_atom(
-                                user_message,
-                                st.session_state.atom_history,
-                                api_key,
-                                model,
-                                base_url,
-                            )
-                        except Exception as e:
-                            st.error(str(e))
-                        else:
-                            st.session_state.atom_history.append({"role": "user", "content": user_message})
-                            st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                            save_memory(st.session_state.atom_history)
-                            st.session_state.verify_result = reply
+                    except Exception as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.atom_history.append({"role": "user", "content": user_message})
+                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.atom_history)
+                        st.session_state.ask_result = reply
+            if st.button("Verify", key=widget_key("verify_button", case_idx), width="stretch"):
+                logging.info("Verify button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = asdict(D)
+                    if not st.session_state.include_escalations:
+                        for fld in [
+                            "request_issue",
+                            "contact_name",
+                            "office_ph",
+                            "direct_ph",
+                            "best_time",
+                            "patterson",
+                            "straumann",
+                            "esc_name",
+                            "esc_ph",
+                            "esc_email",
+                        ]:
+                            case_dict.pop(fld, None)
+                    user_message = (
+                        "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
+                        + json.dumps(case_dict, indent=2)
+                    )
+                    try:
+                        reply = query_atom(
+                            user_message,
+                            st.session_state.atom_history,
+                            api_key,
+                            model,
+                            base_url,
+                        )
+                    except Exception as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state.atom_history.append({"role": "user", "content": user_message})
+                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.atom_history)
+                        st.session_state.verify_result = reply
+
+        popover_fn = getattr(st, "popover", None)
+
+        st.markdown(
+            f"""
+            <style>
+                div[data-testid="quick-actions-floating-{case_idx}"] {{
+                    position: fixed;
+                    bottom: 1.5rem;
+                    right: 1.5rem;
+                    z-index: 1000;
+                }}
+                div[data-testid="quick-actions-floating-{case_idx}"] > div button {{
+                    border-radius: 999px !important;
+                    padding: 0.75rem 1.25rem;
+                    font-size: 1.25rem;
+                    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+                }}
+                div[data-testid="quick-actions-floating-{case_idx}"] [data-testid="stPopoverContent"] {{
+                    width: 320px;
+                    padding: 0.75rem 0.75rem 1rem;
+                }}
+                div[data-testid="quick-actions-floating-{case_idx}"] [data-testid="stPopoverContent"] h4 {{
+                    margin-top: 0;
+                }}
+                div[data-testid="quick-actions-floating-{case_idx}"] .quick-actions-fallback-panel {{
+                    margin-top: 0.75rem;
+                    background-color: var(--background-color, #ffffff);
+                    border-radius: 1rem;
+                    padding: 0.75rem 0.75rem 1rem;
+                    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+                    width: 320px;
+                }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f'<div data-testid="quick-actions-floating-{case_idx}" class="quick-actions-floating">',
+            unsafe_allow_html=True,
+        )
+
+        if popover_fn is not None:
+            with popover_fn(
+                "⚡",
+                width="content",
+            ):
+                render_quick_actions_menu()
+        else:
+            bubble_label = "✕" if st.session_state[toggle_key] else "⚡"
+            if st.button(
+                bubble_label,
+                key=widget_key("quick_actions_toggle_button", case_idx),
+                width="stretch",
+            ):
+                st.session_state[toggle_key] = not st.session_state[toggle_key]
+                st.rerun()
+            if st.session_state[toggle_key]:
+                st.markdown(
+                    '<div class="quick-actions-fallback-panel">',
+                    unsafe_allow_html=True,
+                )
+                render_quick_actions_menu()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
         if st.session_state.verify_result:
             st.text_area(
                 "A.A.T.O.M. Verification",
@@ -2643,7 +2717,7 @@ def render_case_ui(case_idx: int):
                     y=alt.Y("Done:Q", scale=alt.Scale(domain=[0, 100])),
                 )
             )
-            st.altair_chart(bar_chart, use_container_width=True)
+            render_responsive_altair_chart(bar_chart)
             todo = [
                 f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
             ]
@@ -2831,7 +2905,7 @@ def render_case_ui(case_idx: int):
                 for cat in cat_map:
                     st.markdown(f"**{table_title(cat)}**")
                     st.dataframe(
-                        category_dataframe(cat, D, cat_map), use_container_width=True
+                        category_dataframe(cat, D, cat_map), width="stretch"
                     )
                 if st.session_state.categorizer_result:
                     st.subheader("Kiroshi Categorizer")
@@ -3477,7 +3551,7 @@ Thank you in advance,
                 st.markdown("#### AX Coordinators Table")
                 st.dataframe(
                     category_dataframe("AX COORDINATORS", D, cat_map),
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.markdown("---")
 
@@ -3507,7 +3581,7 @@ Thank you in advance,
                 st.markdown("#### Escalation 2nd line Table")
                 st.dataframe(
                     category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if st.session_state.second_line_mode:
@@ -3536,7 +3610,7 @@ Thank you in advance,
             auto_text_input("Processor", "processor", container=col_pc2)
             auto_text_input("Warranty", "warranty")
             st.dataframe(
-                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
     
     # ================== REMOTE SESSION TAB =================
@@ -3568,7 +3642,7 @@ Thank you in advance,
         )
         for cat in cat_map:
             st.markdown(f"**{table_title(cat)}**")
-            st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
+            st.dataframe(category_dataframe(cat, D, cat_map), width="stretch")
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
