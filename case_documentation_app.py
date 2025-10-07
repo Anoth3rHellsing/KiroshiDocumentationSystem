@@ -2779,6 +2779,30 @@ Thank you in advance,
                 ext["reason"] = st.text_input(
                     "Reason for contacting the customer", ext.get("reason", "")
                 )
+                ext["goal"] = st.text_input(
+                    "Goal of the email", ext.get("goal", "")
+                )
+                ext["customer_need"] = st.text_input(
+                    "What do we need from the customer?",
+                    ext.get("customer_need", ""),
+                )
+                intro = build_email_intro(D)
+                reason = ext.get("reason", "").strip() or "(reason for the outreach)"
+                goal = ext.get("goal", "").strip() or "(goal of the email)"
+                customer_need = (
+                    ext.get("customer_need", "").strip()
+                    or "(what we need from the customer)"
+                )
+                prompt = (
+                    "You are a friendly and professional IT-support specialist.\n"
+                    "Draft a concise e-mail (≤180 words) tailored for the customer.\n"
+                    "Start the e-mail exactly with the lines below (do not paraphrase):\n"
+                    f"{intro}\n"
+                    f"Explain you are contacting them because {reason}.\n"
+                    f"State that the goal of the email is {goal}.\n"
+                    f"Clearly ask the customer for {customer_need}.\n"
+                    "Close by inviting them to reply if they have any questions or need further assistance."
+                )
                 pat_cb = st.checkbox(
                     "Include Patterson legacy #",
                     key=widget_key("pat_cb", case_idx),
