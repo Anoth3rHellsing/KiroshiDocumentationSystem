@@ -2969,7 +2969,7 @@ def render_case_ui(case_idx: int):
                 "Straumann ticket #",
                 D.straumann,
                 disabled=True,
-                key="straumann_tab",
+                key=widget_key("straumann_tab", case_idx),
             )
         else:
             D.straumann = "N/A"
