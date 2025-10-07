@@ -99,8 +99,6 @@ LOG_FILE = "app.log"
 PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
 DEFAULT_TRACKING_PRIORITY = "Normal"
 
-AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
-
 CASE_DEX_URL_TEMPLATE = os.environ.get(
     "CASE_DEX_URL_TEMPLATE",
     "https://case-dex.example.com/api/cases/{case_id}/dex",
