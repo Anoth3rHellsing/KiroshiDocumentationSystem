@@ -191,6 +191,81 @@ launches the Streamlit interface directly.
 
 See the [`docs/`](docs/README.md) directory for a more detailed explanation of how data is structured and how each tab operates.
 
+## Tutorial rápido de AutoHotkey
+
+AutoHotkey (AHK) es un lenguaje de scripting para Windows que permite automatizar tareas repetitivas, crear atajos de teclado y construir interfaces simples. A continuación encontrarás una guía básica en español para comenzar a utilizarlo junto con Kiroshi o en tu flujo de trabajo diario.
+
+### 1. Instalación
+
+1. Visita [https://www.autohotkey.com/](https://www.autohotkey.com/) y descarga la versión estable.
+2. Ejecuta el instalador y elige **Express Installation** a menos que necesites una configuración personalizada.
+3. Una vez instalado, haz clic derecho en el escritorio o en una carpeta y selecciona **Nuevo → Script de AutoHotkey** para crear tu primer script (`.ahk`).
+
+### 2. Primer script
+
+Abre el archivo recién creado con tu editor favorito y pega el siguiente código:
+
+```ahk
+; Muestra un mensaje cuando presionas Ctrl + Alt + K
+^!k::
+    MsgBox, ¡Bienvenido a tu primer script de AutoHotkey!
+return
+```
+
+Guarda el archivo y haz doble clic para ejecutarlo. Ahora, al pulsar `Ctrl + Alt + K` verás una ventana de mensaje. Para detener el script, busca el icono con una “H” verde en la bandeja del sistema, haz clic derecho y selecciona **Exit**.
+
+### 3. Hotstrings y automatización de texto
+
+Los *hotstrings* permiten expandir abreviaturas. Añade este ejemplo a tu script:
+
+```ahk
+::ksaludo::Hola, gracias por contactar con el soporte de Kiroshi. ¿En qué puedo ayudarte hoy?
+```
+
+Escribe `ksaludo` en cualquier campo de texto y presiona espacio para que se reemplace automáticamente por el mensaje completo, ideal para respuestas frecuentes.
+
+### 4. Lanzar aplicaciones y abrir archivos
+
+AutoHotkey puede ejecutar programas o abrir documentación clave para tu equipo:
+
+```ahk
+; Abre Kiroshi con Win + Shift + K
+# +k::
+    Run, C:\\ProgramFiles\\KiroshiLauncher_1-7-2.bat
+return
+
+; Abre la wiki interna con Win + Alt + D
+# !d::
+    Run, https://intranet.ejemplo.com/wiki/kiroshi
+return
+```
+
+### 5. Variables, bucles y lógica básica
+
+Puedes combinar variables y bucles para crear automatizaciones complejas, como tomar notas temporales y guardarlas en archivos:
+
+```ahk
+; Guardar texto seleccionado en un archivo de notas
+^!n::
+    ClipSaved := ClipboardAll
+    Send, ^c
+    ClipWait, 0.5
+    selectedText := Clipboard
+    FileAppend, %A_Now% - %selectedText%`n, %A_Desktop%\NotasKiroshi.txt
+    Clipboard := ClipSaved
+return
+```
+
+Este script copia la selección actual con `Ctrl + Alt + N`, guarda la entrada con fecha y hora en el escritorio y restaura el portapapeles original.
+
+### 6. Buenas prácticas y recursos
+
+- Organiza tus scripts en funciones (`MyFunction()`) y usa comentarios (`;`) para explicar cada bloque.
+- Carga scripts automáticamente colocando accesos directos en `%AppData%\Microsoft\Windows\Start Menu\Programs\Startup`.
+- Consulta la [documentación oficial](https://www.autohotkey.com/docs/) para explorar GUIs, expresiones regulares y automatización avanzada.
+
+Con estas bases, podrás crear atajos personalizados que complementen tu flujo de trabajo con Kiroshi y faciliten la documentación de casos.
+
 ## Contributing
 
 Contributions are welcome! To propose a change:
