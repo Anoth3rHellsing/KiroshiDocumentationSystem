@@ -121,6 +121,8 @@ else:
     TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
 
+AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
+
 
 SETTINGS_FILE = DATABASE_DIR / "settings.json"
 PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
