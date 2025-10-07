@@ -2816,6 +2816,37 @@ Thank you in advance,
                 ext["reason"] = st.text_input(
                     "Reason for contacting the customer", ext.get("reason", "")
                 )
+                ext["personal_detail_one"] = st.text_input(
+                    "Personalization detail #1", ext.get("personal_detail_one", "")
+                )
+                ext["personal_detail_two"] = st.text_input(
+                    "Personalization detail #2", ext.get("personal_detail_two", "")
+                )
+                intro = build_email_intro(D)
+                reason = ext.get("reason", "").strip() or "(reason for the outreach)"
+                personal_touches = [
+                    ext.get("personal_detail_one", "").strip(),
+                    ext.get("personal_detail_two", "").strip(),
+                ]
+                personal_touches = [p for p in personal_touches if p]
+                if personal_touches:
+                    personalization_block = "\n".join(
+                        f"• {touch}" for touch in personal_touches
+                    )
+                else:
+                    personalization_block = (
+                        "• No extra personalization provided. Keep the tone warm and helpful."
+                    )
+                prompt = (
+                    "You are a friendly and professional IT-support specialist.\n"
+                    "Draft a concise e-mail (≤180 words) tailored for the customer.\n"
+                    "Start the e-mail exactly with the lines below (do not paraphrase):\n"
+                    f"{intro}\n"
+                    f"Explain you are contacting them because {reason}.\n"
+                    "Weave in the following personalized elements to make the note feel tailored:\n"
+                    f"{personalization_block}\n"
+                    "Close by inviting them to reply if they have any questions or need further assistance."
+                )
                 pat_cb = st.checkbox(
                     "Include Patterson legacy #",
                     key=widget_key("pat_cb", case_idx),
