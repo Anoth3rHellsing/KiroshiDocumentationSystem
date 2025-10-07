@@ -22,6 +22,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from html import escape
 import textwrap
+import inspect
 
 import pandas as pd
 import altair as alt
@@ -117,6 +118,18 @@ if os.name == "nt":
 else:
     TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+try:
+    _altair_signature = inspect.signature(st.altair_chart)
+except (TypeError, ValueError):
+    _altair_signature = None
+
+ALTAIR_CHART_KWARGS = (
+    {"width": "stretch"}
+    if _altair_signature and "width" in _altair_signature.parameters
+    else {"use_container_width": True}
+)
 
 AI_LEARNING_FILE = DATABASE_DIR / "AILearning.json"
 
@@ -1244,6 +1257,12 @@ def list_saved_cases(limit: int = 25) -> list:
     return entries
 
 
+def render_responsive_altair_chart(chart: alt.Chart) -> None:
+    """Render an Altair chart using the best available width argument."""
+
+    st.altair_chart(chart, **ALTAIR_CHART_KWARGS)
+
+
 def render_tracked_case_insights(cases: list) -> None:
     st.subheader("Tracked Case Insights")
     if not cases:
@@ -1270,7 +1289,7 @@ def render_tracked_case_insights(cases: list) -> None:
             )
             .properties(height=140)
         )
-        st.altair_chart(priority_chart, width="stretch")
+        render_responsive_altair_chart(priority_chart)
 
     if "status" in df:
         status_counts = (
@@ -1291,7 +1310,7 @@ def render_tracked_case_insights(cases: list) -> None:
             )
             .properties(height=200)
         )
-        st.altair_chart(status_chart, width="stretch")
+        render_responsive_altair_chart(status_chart)
 
     if "creation_day" in df:
         created_series = pd.to_datetime(df["creation_day"], errors="coerce")
@@ -1314,7 +1333,7 @@ def render_tracked_case_insights(cases: list) -> None:
                 )
                 .properties(height=160)
             )
-            st.altair_chart(timeline_chart, width="stretch")
+            render_responsive_altair_chart(timeline_chart)
 
 
 def render_crm_link_button(url: str) -> None:
@@ -2698,7 +2717,7 @@ def render_case_ui(case_idx: int):
                     y=alt.Y("Done:Q", scale=alt.Scale(domain=[0, 100])),
                 )
             )
-            st.altair_chart(bar_chart, width="stretch")
+            render_responsive_altair_chart(bar_chart)
             todo = [
                 f"**{c}** → {', '.join(flds)}" for c, flds in miss.items() if flds
             ]
