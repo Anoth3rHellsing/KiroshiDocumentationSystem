@@ -1192,6 +1192,11 @@ def widget_key(base: str, idx: int) -> str:
     return f"{base}_{idx}"
 
 
+def global_widget_key(base: str) -> str:
+    """Return a Streamlit widget key reserved for global (non-case) widgets."""
+    return f"global_{base}"
+
+
 CURRENT_CASE_IDX = 0
 
 # Ensure session state mirrors the current case data before any widgets are created
@@ -1707,12 +1712,30 @@ def render_crm_link_button(url: str) -> None:
     )
 
 
-def render_tracked_cases_dashboard(cases: list) -> None:
+def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
         return
+    filtered_cases = cases
+    query = search_query.strip().lower()
+    if query:
+        filtered_cases = []
+        for case in cases:
+            priority_value = normalize_priority(case.get("priority"))
+            haystack = [
+                str(case.get("company", "")),
+                str(case.get("status", "")),
+                str(case.get("case_id", "")),
+                str(case.get("priority", "")),
+                priority_value,
+            ]
+            if any(query in field.lower() for field in haystack if field):
+                filtered_cases.append(case)
+    if not filtered_cases:
+        st.info("No tracked cases match your search.")
+        return
     sorted_cases = sorted(
-        cases,
+        filtered_cases,
         key=lambda item: (
             PRIORITY_RANK.get(item.get("priority"), -1),
             item.get("creation_day") or "",
@@ -1951,7 +1974,12 @@ def render_dashboard() -> None:
             st.caption(
                 "Monitor ongoing work, contact details, and adjust priority directly from this table."
             )
-            render_tracked_cases_dashboard(tracked_cases)
+            search_term = st.text_input(
+                "Search tracked cases",
+                key=global_widget_key("tracked_cases_search"),
+                placeholder="Search by company, status, case ID, or priority",
+            )
+            render_tracked_cases_dashboard(tracked_cases, search_term)
             st.markdown("</div>", unsafe_allow_html=True)
         with st.container():
             st.markdown("<div class='dashboard-section'>", unsafe_allow_html=True)
@@ -1964,6 +1992,341 @@ def render_dashboard() -> None:
             render_saved_cases_dashboard()
             st.markdown("</div>", unsafe_allow_html=True)
 
+
+def render_settings_panel() -> None:
+    st.subheader("Modes")
+    st.toggle(
+        "2nd Line mode",
+        key="second_line_mode",
+        on_change=_on_setting_change("second_line_mode"),
+    )
+    prev_debug = st.session_state.debug_mode
+    st.toggle(
+        "Show Debug tab",
+        key="debug_mode",
+        on_change=_on_setting_change("debug_mode"),
+    )
+    if prev_debug and not st.session_state.debug_mode:
+        st.session_state.debug_auth = False
+        st.session_state.show_bored = False
+
+    st.markdown("### AI Educate")
+    prev_enabled = st.session_state.ai_educate_enabled
+    st.toggle(
+        "Enable AI Educate",
+        key="ai_educate_enabled",
+        on_change=_on_setting_change("ai_educate_enabled"),
+        help="Activa el conjunto de herramientas avanzadas de AI Educate.",
+    )
+    ai_dataset = None
+    if not st.session_state.ai_educate_enabled:
+        if prev_enabled:
+            st.session_state.ai_learning_matches = []
+            st.session_state.ai_bug_report = None
+        if st.session_state.ai_educate_report_enabled:
+            st.session_state.ai_educate_report_enabled = False
+            _persist_setting("ai_educate_report_enabled")
+        if st.session_state.ai_educate_advanced:
+            st.session_state.ai_educate_advanced = False
+            _persist_setting("ai_educate_advanced")
+        if st.session_state.get("ai_assist_mode") != "Standard":
+            st.session_state.ai_assist_mode = "Standard"
+            _persist_setting("ai_assist_mode")
+        st.caption("AI Assistance enviará las solicitudes sin el contexto de Educate.")
+    else:
+        st.session_state.ai_assist_mode = "AI Educate"
+        _persist_setting("ai_assist_mode")
+        st.markdown("#### Configuración de Educate")
+        refresh_requested = st.button(
+            "Educate",
+            help="Ejecuta nuevamente el protocolo de análisis para refrescar los aprendizajes.",
+            key=global_widget_key("ai_educate_refresh"),
+        )
+        if refresh_requested:
+            ai_dataset = ensure_ai_learning_dataset(force=True)
+            if ai_dataset:
+                st.success("AI Educate actualizó el conocimiento con los casos guardados.")
+            else:
+                st.warning(
+                    "No se encontraron casos guardados para analizar. Guarda casos primero."
+                )
+        else:
+            ai_dataset = ensure_ai_learning_dataset()
+
+        st.toggle(
+            "Report",
+            key="ai_educate_report_enabled",
+            on_change=_on_setting_change("ai_educate_report_enabled"),
+            help="Habilita la pestaña Report para visualizar métricas y generar el PDF.",
+        )
+        advanced_enabled = st.toggle(
+            "Advanced AI Assistance",
+            key="ai_educate_advanced",
+            on_change=_on_setting_change("ai_educate_advanced"),
+            help=(
+                "Cuando está activo, AI Assistance compara el caso con errores recientes, "
+                "soluciones históricas y sesiones de remote desktop para sugerir acciones."
+            ),
+        )
+        if not advanced_enabled:
+            st.caption(
+                "AI Assistance enviará la información básica sin contexto histórico adicional."
+            )
+            st.session_state.ai_learning_matches = []
+        elif ai_dataset:
+            st.caption(
+                "AI Assistance utilizará las coincidencias encontradas por Educate para enriquecer las respuestas."
+            )
+
+        if ai_dataset:
+            case_count = ai_dataset.get("case_count", 0)
+            generated_at = ai_dataset.get("generated_at")
+            st.success(
+                f"Datos de aprendizaje generados a partir de {case_count} casos guardados el {generated_at}."
+            )
+            summary = ai_dataset.get("insight_summary", {})
+            top_keywords = summary.get("top_keywords", [])
+            if top_keywords:
+                st.caption("Palabras clave más repetidas: " + ", ".join(top_keywords[:6]))
+            root_patterns = ai_dataset.get("root_cause_patterns", [])
+            if root_patterns:
+                st.markdown("**Principales patrones de causa raíz:**")
+                for pattern in root_patterns[:3]:
+                    st.markdown(f"- {pattern['root_cause']} ({pattern['count']} casos)")
+        else:
+            st.info(
+                "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
+            )
+
+
+def render_report_panel() -> None:
+    st.subheader("AI Educate Report")
+    if not st.session_state.ai_educate_enabled:
+        st.info("Activa AI Educate desde Settings para generar reportes.")
+        return
+    dataset = ensure_ai_learning_dataset()
+    insights = collect_ai_educate_report_data(dataset)
+    if not insights:
+        st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
+        return
+
+    cols = st.columns(4)
+    cols[0].metric("Casos totales", insights.get("case_total", 0))
+    cols[1].metric("Casos últimos 30 días", insights.get("recent_total", 0))
+    cols[2].metric("Solucionados como bug", insights.get("bug_solution_count", 0))
+    cols[3].metric("Menciones de 'bug'", insights.get("bug_mentions_count", 0))
+
+    highlight_label = insights.get("highlight_label")
+    if highlight_label:
+        st.markdown(
+            f"**Caso prioritario:** {highlight_label} "
+            f"(detectado {insights.get('highlight_count', 0)} veces)."
+        )
+        highlight_case = insights.get("highlight_case") or {}
+        solution_excerpt = highlight_case.get("solution_excerpt")
+        if solution_excerpt:
+            st.caption(f"Insight de solución: {solution_excerpt}")
+
+    recent_counts = insights.get("recent_counts")
+    if isinstance(recent_counts, pd.DataFrame) and not recent_counts.empty:
+        st.markdown("### Casos más frecuentes (30 días)")
+        st.dataframe(
+            recent_counts.rename(
+                columns={"analysis_label": "Caso", "count": "Frecuencia"}
+            ),
+            use_container_width=True,
+        )
+        freq_chart = (
+            alt.Chart(recent_counts)
+            .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
+            .encode(
+                x=alt.X("count:Q", title="Casos"),
+                y=alt.Y("analysis_label:N", sort="-x", title="Caso"),
+                tooltip=["analysis_label", "count"],
+            )
+            .properties(height=260)
+        )
+        render_responsive_altair_chart(freq_chart)
+
+    timeline = insights.get("timeline")
+    if isinstance(timeline, pd.DataFrame) and not timeline.empty:
+        st.markdown("### Tendencia últimos 30 días")
+        timeline_chart = (
+            alt.Chart(timeline)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("timestamp:T", title="Fecha"),
+                y=alt.Y("count:Q", title="Casos"),
+                tooltip=["timestamp:T", "count:Q"],
+            )
+            .properties(height=220)
+        )
+        render_responsive_altair_chart(timeline_chart)
+
+    bug_report = st.session_state.get("ai_bug_report")
+    bug_cases = insights.get("bug_cases")
+    if isinstance(bug_cases, pd.DataFrame) and not bug_cases.empty:
+        st.markdown("### Casos con mención de bug")
+        st.dataframe(
+            bug_cases[["case_id", "title", "saved_at"]]
+            .rename(
+                columns={
+                    "case_id": "Case ID",
+                    "title": "Título",
+                    "saved_at": "Guardado",
+                }
+            )
+            .head(15),
+            use_container_width=True,
+        )
+
+    col_pdf, col_bug = st.columns([1, 1])
+    with col_pdf:
+        try:
+            pdf_bytes = generate_ai_educate_report_pdf(insights, bug_report)
+        except Exception as exc:
+            st.error(f"No se pudo generar el PDF del reporte: {exc}")
+            pdf_bytes = None
+        if pdf_bytes:
+            st.download_button(
+                "Descargar reporte PDF",
+                pdf_bytes,
+                file_name="ai_educate_report.pdf",
+                mime="application/pdf",
+                key=global_widget_key("ai_educate_report_pdf"),
+            )
+    with col_bug:
+        if st.button(
+            "Bug Detector",
+            help="Analiza todos los casos guardados para encontrar patrones de bug.",
+            key=global_widget_key("ai_bug_detector"),
+        ):
+            bug_report = run_bug_detector(dataset)
+            st.session_state.ai_bug_report = bug_report
+            if bug_report:
+                st.success("Bug Detector completó el análisis.")
+            else:
+                st.info("No se detectaron bugs ni patrones recurrentes en los casos analizados.")
+    bug_report = st.session_state.get("ai_bug_report")
+    if bug_report:
+        st.markdown("### Resultados de Bug Detector")
+        st.write(bug_report.get("summary"))
+        recurring = bug_report.get("recurring_patterns") or []
+        if recurring:
+            recurring_df = pd.DataFrame(recurring)
+            st.table(
+                recurring_df.rename(
+                    columns={"pattern": "Patrón", "count": "Recurrencias"}
+                )
+            )
+
+
+def render_atom_chat_panel() -> None:
+    st.image(str(ATOM_LOGO_PATH), width=80)
+    st.subheader("A.A.T.O.M. Chat")
+    with st.expander("Personality Construct"):
+        st.text_area(
+            "System Prompt",
+            st.session_state.get("system_prompt", SYSTEM_PROMPT),
+            height=300,
+            key=global_widget_key("system_prompt_display"),
+        )
+    api_key = st.session_state.openai_api_key
+    model = st.session_state.openai_model
+    base_url = st.session_state.ai_base_url
+    if not api_key and base_url.startswith("https://api.openai.com"):
+        st.info("Set your OpenAI API key in the Debug tab.")
+
+    with st.expander("Manual Documents Database"):
+        if st.session_state.manual_docs:
+            st.markdown("**Stored documents:**")
+            for doc in st.session_state.manual_docs:
+                st.markdown(f"- {doc['title']}")
+        doc_file = st.file_uploader(
+            "Add document",
+            type=["txt"],
+            key=global_widget_key("doc_file"),
+        )
+        doc_title = st.text_input("Title", key=global_widget_key("doc_title"))
+        if st.button("Save document", key=global_widget_key("save_doc")):
+            if doc_file and doc_title:
+                content = doc_file.getvalue().decode("utf-8", errors="ignore")
+                st.session_state.manual_docs.append({"title": doc_title, "content": content})
+                save_manual_docs(st.session_state.manual_docs)
+                st.success("Document saved.")
+            else:
+                st.error("Provide both title and document.")
+
+    st.subheader("Search manual database")
+    search_query = st.text_input(
+        "Search query", key=global_widget_key("db_query")
+    )
+    if st.button(
+        "Search in database", key=global_widget_key("db_search_button")
+    ):
+        if not api_key and base_url.startswith("https://api.openai.com"):
+            st.error("Please set your OpenAI API key in the Debug tab.")
+        elif not search_query:
+            st.error("Enter a search query.")
+        else:
+            matches = search_manual_docs(search_query, st.session_state.manual_docs)
+            if matches:
+                context = "\n\n".join(f"{m['title']}:\n{m['content']}" for m in matches)
+                message = (
+                    "Use the following documents to answer the question. "
+                    "Cite document titles.\n\n"
+                    + context
+                    + f"\n\nQuestion: {search_query}"
+                )
+                try:
+                    reply = query_atom(
+                        message, st.session_state.atom_history, api_key, model, base_url
+                    )
+                except Exception as e:
+                    st.session_state.db_search_result = str(e)
+                else:
+                    st.session_state.atom_history.append(
+                        {"role": "user", "content": f"[DB Search] {search_query}"}
+                    )
+                    st.session_state.atom_history.append(
+                        {"role": "assistant", "content": reply}
+                    )
+                    save_memory(st.session_state.atom_history)
+                    st.session_state.db_search_result = reply
+            else:
+                st.session_state.db_search_result = "No documents matched your query."
+    if st.session_state.db_search_result:
+        st.text_area(
+            "Search result",
+            st.session_state.db_search_result,
+            height=150,
+            key=global_widget_key("db_search_result"),
+        )
+
+    for msg in st.session_state.atom_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+    if user_msg := st.chat_input("Message", key=global_widget_key("atom_chat_input")):
+        if not api_key and base_url.startswith("https://api.openai.com"):
+            st.error("Please set your OpenAI API key in the Debug tab.")
+        else:
+            history = st.session_state.atom_history.copy()
+            try:
+                reply = query_atom(user_msg, history, api_key, model, base_url)
+            except Exception as e:
+                st.session_state.atom_history.append({"role": "user", "content": user_msg})
+                st.session_state.atom_history.append(
+                    {"role": "assistant", "content": str(e)}
+                )
+            else:
+                st.session_state.atom_history.append({"role": "user", "content": user_msg})
+                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+            save_memory(st.session_state.atom_history)
+            st.rerun()
+    if st.button("Clear memory", key=global_widget_key("atom_clear")):
+        st.session_state.atom_history = []
+        save_memory([])
+        st.rerun()
 
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
     if cases is None:
@@ -3129,12 +3492,14 @@ def render_case_ui(case_idx: int):
     if case_idx == 0:
         col_escal, col_hw = st.columns(2)
         with col_escal:
-            st.session_state.include_escalations = st.checkbox(
-                "Include escalations", st.session_state.include_escalations
+            st.session_state.include_escalations = st.toggle(
+                "Include escalations",
+                value=st.session_state.include_escalations,
             )
         with col_hw:
-            st.session_state.include_hardware = st.checkbox(
-                "Include hardware issues", st.session_state.include_hardware
+            st.session_state.include_hardware = st.toggle(
+                "Include hardware issues",
+                value=st.session_state.include_hardware,
             )
     cat_map = active_category_map()
     tab_labels = ["Case"]
@@ -3145,20 +3510,12 @@ def render_case_ui(case_idx: int):
     tab_labels.append("Email")
     if st.session_state.include_hardware:
         tab_labels.append("Hardware Issues")
-    report_tab_enabled = (
-        st.session_state.ai_educate_enabled
-        and st.session_state.ai_educate_report_enabled
-    )
     tab_labels += [
         "Remote Session",
         "Notes",
         "Tables",
         "Save/Load",
-        "Settings",
     ]
-    if report_tab_enabled:
-        tab_labels.append("Report")
-    tab_labels.append("Atom Chat")
     if st.session_state.show_bored:
         tab_labels.append("I'm bored")
     if st.session_state.debug_mode:
@@ -3175,9 +3532,6 @@ def render_case_ui(case_idx: int):
     tab_notes = next(tab_iter)
     tab_tables = next(tab_iter)
     tab_save_load = next(tab_iter)
-    tab_settings = next(tab_iter)
-    tab_report = next(tab_iter) if report_tab_enabled else None
-    tab_atom = next(tab_iter)
     tab_bored = next(tab_iter) if st.session_state.show_bored else None
     tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
@@ -3659,9 +4013,9 @@ def render_case_ui(case_idx: int):
             auto_text_input("Subscription ID", "subscription_id")
             auto_text_input("Brief description", "brief_description")
             auto_text_input("Case ID", "case_id")
-            version_nr = st.checkbox(
+            version_nr = st.toggle(
                 VERSION_NOT_RELEVANT,
-                D.application_version == VERSION_NOT_RELEVANT,
+                value=D.application_version == VERSION_NOT_RELEVANT,
                 key=widget_key("application_version_not_relevant", case_idx),
             )
             if version_nr:
@@ -3718,7 +4072,7 @@ def render_case_ui(case_idx: int):
             st.subheader("Support Fee")
             ct_key = widget_key("customer_trios_only", case_idx)
             sf_key = widget_key("support_fee_accepted", case_idx)
-            st.checkbox(
+            st.toggle(
                 "Customer is TRIOS Only?",
                 value=st.session_state.get(ct_key, D.customer_trios_only),
                 key=ct_key,
@@ -3726,7 +4080,7 @@ def render_case_ui(case_idx: int):
                 args=("customer_trios_only",),
             )
             if st.session_state.get(ct_key, D.customer_trios_only):
-                st.checkbox(
+                st.toggle(
                     "Support fee price accepted?",
                     value=st.session_state.get(sf_key, D.support_fee_accepted),
                     key=sf_key,
@@ -3951,7 +4305,7 @@ List each question and provide any known answer beneath it, ready for the custom
                 st.text_input("Office phone", D.office_ph, disabled=True)
                 D.direct_ph = D.phone_number
                 st.text_input("Direct phone", D.direct_ph, disabled=True)
-                best_cb = st.checkbox(
+                best_cb = st.toggle(
                     "Specify best call-back time",
                     D.best_time not in ("", "ASAP"),
                     key=widget_key("best_cb", case_idx),
@@ -4116,7 +4470,7 @@ Wishing you the best again!"""
             elif email_type == "Callback Email":
                 st.markdown("#### Callback email options")
                 cb_remote_key = widget_key("callback_remote", case_idx)
-                cb_remote = st.checkbox(
+                cb_remote = st.toggle(
                     "Need remote session?",
                     st.session_state.get(cb_remote_key, False),
                     key=cb_remote_key,
@@ -4129,25 +4483,25 @@ Wishing you the best again!"""
                         key=cb_remote_text_key,
                     )
                 cb_contact_key = widget_key("callback_contact", case_idx)
-                st.checkbox(
+                st.toggle(
                     "Need contact information?",
                     st.session_state.get(cb_contact_key, False),
                     key=cb_contact_key,
                 )
                 cb_clarify_key = widget_key("callback_clarify", case_idx)
-                st.checkbox(
+                st.toggle(
                     "Need to clarify what happened?",
                     st.session_state.get(cb_clarify_key, False),
                     key=cb_clarify_key,
                 )
                 cb_needed_key = widget_key("callback_needed", case_idx)
-                st.checkbox(
+                st.toggle(
                     "Callback needed?",
                     st.session_state.get(cb_needed_key, True),
                     key=cb_needed_key,
                 )
                 cb_address_key = widget_key("callback_address", case_idx)
-                cb_address = st.checkbox(
+                cb_address = st.toggle(
                     "Request address?",
                     st.session_state.get(cb_address_key, False),
                     key=cb_address_key,
@@ -4296,8 +4650,9 @@ Thank you in advance,
                     f"Clearly ask the customer for {customer_need}.\n"
                     "Close by inviting them to reply if they have any questions or need further assistance."
                 )
-                pat_cb = st.checkbox(
+                pat_cb = st.toggle(
                     "Include Patterson legacy #",
+                    value=st.session_state.get(widget_key("pat_cb", case_idx), False),
                     key=widget_key("pat_cb", case_idx),
                 )
                 if pat_cb:
@@ -4355,14 +4710,20 @@ Thank you in advance,
                 )
                 st.session_state["last_prompt"] = prompt
 
-                include_helpjuice = st.checkbox(
-                    "Helpjuice tutorial", key=widget_key("api_helpjuice", case_idx)
+                include_helpjuice = st.toggle(
+                    "Helpjuice tutorial",
+                    value=st.session_state.get(widget_key("api_helpjuice", case_idx), False),
+                    key=widget_key("api_helpjuice", case_idx),
                 )
-                include_restart = st.checkbox(
-                    "Restart the computer", key=widget_key("api_restart", case_idx)
+                include_restart = st.toggle(
+                    "Restart the computer",
+                    value=st.session_state.get(widget_key("api_restart", case_idx), False),
+                    key=widget_key("api_restart", case_idx),
                 )
-                include_scan_time = st.checkbox(
-                    "Scan time warning", key=widget_key("api_scan_time", case_idx)
+                include_scan_time = st.toggle(
+                    "Scan time warning",
+                    value=st.session_state.get(widget_key("api_scan_time", case_idx), False),
+                    key=widget_key("api_scan_time", case_idx),
                 )
                 if st.button("Use GPT-OSS", key=widget_key("use_gpt", case_idx)):
                     api_key = st.session_state.openai_api_key
@@ -4693,353 +5054,6 @@ Thank you in advance,
                 st.session_state.pending_load = None
             if col_s.button("Save", key=widget_key("save_before_loading", case_idx)):
                 save_case_to_database(D)
-
-    # ================== SETTINGS TAB =================
-    with tab_settings:
-        if case_idx == 0:
-            st.subheader("Modes")
-            st.checkbox(
-                "2nd Line mode",
-                key="second_line_mode",
-                on_change=_on_setting_change("second_line_mode"),
-            )
-            prev_debug = st.session_state.debug_mode
-            st.checkbox(
-                "Show Debug tab",
-                key="debug_mode",
-                on_change=_on_setting_change("debug_mode"),
-            )
-            if prev_debug and not st.session_state.debug_mode:
-                st.session_state.debug_auth = False
-                st.session_state.show_bored = False
-
-            st.markdown("### AI Educate")
-            prev_enabled = st.session_state.ai_educate_enabled
-            st.toggle(
-                "Enable AI Educate",
-                key="ai_educate_enabled",
-                on_change=_on_setting_change("ai_educate_enabled"),
-                help="Activa el conjunto de herramientas avanzadas de AI Educate.",
-            )
-            ai_dataset = None
-            if not st.session_state.ai_educate_enabled:
-                if prev_enabled:
-                    st.session_state.ai_learning_matches = []
-                    st.session_state.ai_bug_report = None
-                if st.session_state.ai_educate_report_enabled:
-                    st.session_state.ai_educate_report_enabled = False
-                    _persist_setting("ai_educate_report_enabled")
-                if st.session_state.ai_educate_advanced:
-                    st.session_state.ai_educate_advanced = False
-                    _persist_setting("ai_educate_advanced")
-                if st.session_state.get("ai_assist_mode") != "Standard":
-                    st.session_state.ai_assist_mode = "Standard"
-                    _persist_setting("ai_assist_mode")
-                st.caption("AI Assistance enviará las solicitudes sin el contexto de Educate.")
-            else:
-                st.session_state.ai_assist_mode = "AI Educate"
-                _persist_setting("ai_assist_mode")
-                st.markdown("#### Configuración de Educate")
-                refresh_requested = st.button(
-                    "Educate",
-                    help="Ejecuta nuevamente el protocolo de análisis para refrescar los aprendizajes.",
-                    key="ai_educate_refresh",
-                )
-                if refresh_requested:
-                    ai_dataset = ensure_ai_learning_dataset(force=True)
-                    if ai_dataset:
-                        st.success("AI Educate actualizó el conocimiento con los casos guardados.")
-                    else:
-                        st.warning(
-                            "No se encontraron casos guardados para analizar. Guarda casos primero."
-                        )
-                else:
-                    ai_dataset = ensure_ai_learning_dataset()
-
-                st.toggle(
-                    "Report",
-                    key="ai_educate_report_enabled",
-                    on_change=_on_setting_change("ai_educate_report_enabled"),
-                    help="Habilita la pestaña Report para visualizar métricas y generar el PDF.",
-                )
-                advanced_enabled = st.toggle(
-                    "Advanced AI Assistance",
-                    key="ai_educate_advanced",
-                    on_change=_on_setting_change("ai_educate_advanced"),
-                    help=(
-                        "Cuando está activo, AI Assistance compara el caso con errores recientes, "
-                        "soluciones históricas y sesiones de remote desktop para sugerir acciones."
-                    ),
-                )
-                if not advanced_enabled:
-                    st.caption(
-                        "AI Assistance enviará la información básica sin contexto histórico adicional."
-                    )
-                    st.session_state.ai_learning_matches = []
-                elif ai_dataset:
-                    st.caption(
-                        "AI Assistance utilizará las coincidencias encontradas por Educate para enriquecer las respuestas."
-                    )
-
-                if ai_dataset:
-                    case_count = ai_dataset.get("case_count", 0)
-                    generated_at = ai_dataset.get("generated_at")
-                    st.success(
-                        f"Datos de aprendizaje generados a partir de {case_count} casos guardados el {generated_at}."
-                    )
-                    summary = ai_dataset.get("insight_summary", {})
-                    top_keywords = summary.get("top_keywords", [])
-                    if top_keywords:
-                        st.caption(
-                            "Palabras clave más repetidas: " + ", ".join(top_keywords[:6])
-                        )
-                    root_patterns = ai_dataset.get("root_cause_patterns", [])
-                    if root_patterns:
-                        st.markdown("**Principales patrones de causa raíz:**")
-                        for pattern in root_patterns[:3]:
-                            st.markdown(
-                                f"- {pattern['root_cause']} ({pattern['count']} casos)"
-                            )
-                else:
-                    st.info(
-                        "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
-                    )
-        else:
-            st.info("Settings available in first case tab.")
-
-    # ================== REPORT TAB =================
-    if tab_report:
-        with tab_report:
-            st.subheader("AI Educate Report")
-            if not st.session_state.ai_educate_enabled:
-                st.info("Activa AI Educate desde Settings para generar reportes.")
-            else:
-                dataset = ensure_ai_learning_dataset()
-                insights = collect_ai_educate_report_data(dataset)
-                if not insights:
-                    st.info(
-                        "Aún no hay suficientes casos guardados para generar estadísticas."
-                    )
-                else:
-                    cols = st.columns(4)
-                    cols[0].metric("Casos totales", insights.get("case_total", 0))
-                    cols[1].metric(
-                        "Casos últimos 30 días", insights.get("recent_total", 0)
-                    )
-                    cols[2].metric(
-                        "Solucionados como bug", insights.get("bug_solution_count", 0)
-                    )
-                    cols[3].metric(
-                        "Menciones de 'bug'", insights.get("bug_mentions_count", 0)
-                    )
-
-                    highlight_label = insights.get("highlight_label")
-                    if highlight_label:
-                        st.markdown(
-                            f"**Caso prioritario:** {highlight_label} "
-                            f"(detectado {insights.get('highlight_count', 0)} veces)."
-                        )
-                        highlight_case = insights.get("highlight_case") or {}
-                        solution_excerpt = highlight_case.get("solution_excerpt")
-                        if solution_excerpt:
-                            st.caption(f"Insight de solución: {solution_excerpt}")
-
-                    recent_counts = insights.get("recent_counts")
-                    if isinstance(recent_counts, pd.DataFrame) and not recent_counts.empty:
-                        st.markdown("### Casos más frecuentes (30 días)")
-                        st.dataframe(
-                            recent_counts.rename(
-                                columns={"analysis_label": "Caso", "count": "Frecuencia"}
-                            ),
-                            use_container_width=True,
-                        )
-                        freq_chart = (
-                            alt.Chart(recent_counts)
-                            .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
-                            .encode(
-                                x=alt.X("count:Q", title="Casos"),
-                                y=alt.Y(
-                                    "analysis_label:N",
-                                    sort="-x",
-                                    title="Caso",
-                                ),
-                                tooltip=["analysis_label", "count"],
-                            )
-                            .properties(height=260)
-                        )
-                        render_responsive_altair_chart(freq_chart)
-
-                    timeline = insights.get("timeline")
-                    if isinstance(timeline, pd.DataFrame) and not timeline.empty:
-                        st.markdown("### Tendencia últimos 30 días")
-                        timeline_chart = (
-                            alt.Chart(timeline)
-                            .mark_line(point=True)
-                            .encode(
-                                x=alt.X("timestamp:T", title="Fecha"),
-                                y=alt.Y("count:Q", title="Casos"),
-                                tooltip=["timestamp:T", "count:Q"],
-                            )
-                            .properties(height=220)
-                        )
-                        render_responsive_altair_chart(timeline_chart)
-
-                    bug_report = st.session_state.get("ai_bug_report")
-                    bug_cases = insights.get("bug_cases")
-                    if isinstance(bug_cases, pd.DataFrame) and not bug_cases.empty:
-                        st.markdown("### Casos con mención de bug")
-                        st.dataframe(
-                            bug_cases[["case_id", "title", "saved_at"]]
-                            .rename(
-                                columns={
-                                    "case_id": "Case ID",
-                                    "title": "Título",
-                                    "saved_at": "Guardado",
-                                }
-                            )
-                            .head(15),
-                            use_container_width=True,
-                        )
-
-                    col_pdf, col_bug = st.columns([1, 1])
-                    with col_pdf:
-                        try:
-                            pdf_bytes = generate_ai_educate_report_pdf(insights, bug_report)
-                        except Exception as exc:
-                            st.error(f"No se pudo generar el PDF del reporte: {exc}")
-                            pdf_bytes = None
-                        if pdf_bytes:
-                            st.download_button(
-                                "Descargar reporte PDF",
-                                pdf_bytes,
-                                file_name="ai_educate_report.pdf",
-                                mime="application/pdf",
-                                key=widget_key("ai_educate_report_pdf", case_idx),
-                            )
-                    with col_bug:
-                        if st.button(
-                            "Bug Detector",
-                            help="Analiza todos los casos guardados para encontrar patrones de bug.",
-                            key=widget_key("ai_bug_detector", case_idx),
-                        ):
-                            bug_report = run_bug_detector(dataset)
-                            st.session_state.ai_bug_report = bug_report
-                            if bug_report:
-                                st.success("Bug Detector completó el análisis.")
-                            else:
-                                st.info(
-                                    "No se detectaron bugs ni patrones recurrentes en los casos analizados."
-                                )
-                    bug_report = st.session_state.get("ai_bug_report")
-                    if bug_report:
-                        st.markdown("### Resultados de Bug Detector")
-                        st.write(bug_report.get("summary"))
-                        recurring = bug_report.get("recurring_patterns") or []
-                        if recurring:
-                            recurring_df = pd.DataFrame(recurring)
-                            st.table(
-                                recurring_df.rename(
-                                    columns={"pattern": "Patrón", "count": "Recurrencias"}
-                                )
-                            )
-
-    # ================== ATOM CHAT TAB =================
-    with tab_atom:
-        st.image(str(ATOM_LOGO_PATH), width=80)
-        st.subheader("A.A.T.O.M. Chat")
-        with st.expander("Personality Construct"):
-            st.text_area(
-                "System Prompt",
-                st.session_state.get("system_prompt", SYSTEM_PROMPT),
-                height=300,
-                key=widget_key("system_prompt_display", case_idx),
-            )
-        api_key = st.session_state.openai_api_key
-        model = st.session_state.openai_model
-        base_url = st.session_state.ai_base_url
-        if not api_key and base_url.startswith("https://api.openai.com"):
-            st.info("Set your OpenAI API key in the Debug tab.")
-
-        with st.expander("Manual Documents Database"):
-            if st.session_state.manual_docs:
-                st.markdown("**Stored documents:**")
-                for doc in st.session_state.manual_docs:
-                    st.markdown(f"- {doc['title']}")
-            doc_file = st.file_uploader(
-                "Add document", type=["txt"], key=widget_key("doc_file", case_idx)
-            )
-            doc_title = st.text_input("Title", key=widget_key("doc_title", case_idx))
-            if st.button("Save document", key=widget_key("save_doc", case_idx)):
-                if doc_file and doc_title:
-                    content = doc_file.getvalue().decode("utf-8", errors="ignore")
-                    st.session_state.manual_docs.append({"title": doc_title, "content": content})
-                    save_manual_docs(st.session_state.manual_docs)
-                    st.success("Document saved.")
-                else:
-                    st.error("Provide both title and document.")
-
-        st.subheader("Search manual database")
-        search_query = st.text_input("Search query", key=widget_key("db_query", case_idx))
-        if st.button("Search in database", key=widget_key("db_search_button", case_idx)):
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            elif not search_query:
-                st.error("Enter a search query.")
-            else:
-                matches = search_manual_docs(search_query, st.session_state.manual_docs)
-                if matches:
-                    context = "\n\n".join(f"{m['title']}:\n{m['content']}" for m in matches)
-                    message = (
-                        "Use the following documents to answer the question. "
-                        "Cite document titles.\n\n"
-                        + context
-                        + f"\n\nQuestion: {search_query}"
-                    )
-                    try:
-                        reply = query_atom(
-                            message, st.session_state.atom_history, api_key, model, base_url
-                        )
-                    except Exception as e:
-                        st.session_state.db_search_result = str(e)
-                    else:
-                        st.session_state.atom_history.append({"role": "user", "content": f"[DB Search] {search_query}"})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
-                        st.session_state.db_search_result = reply
-                else:
-                    st.session_state.db_search_result = "No documents matched your query."
-        if st.session_state.db_search_result:
-            st.text_area(
-                "Search result",
-                st.session_state.db_search_result,
-                height=150,
-                key=widget_key("db_search_result", case_idx),
-            )
-
-        for msg in st.session_state.atom_history:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-        if user_msg := st.chat_input(
-            "Message", key=widget_key("atom_chat_input", case_idx)
-        ):
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            else:
-                history = st.session_state.atom_history.copy()
-                try:
-                    reply = query_atom(user_msg, history, api_key, model, base_url)
-                except Exception as e:
-                    st.session_state.atom_history.append({"role": "user", "content": user_msg})
-                    st.session_state.atom_history.append({"role": "assistant", "content": str(e)})
-                else:
-                    st.session_state.atom_history.append({"role": "user", "content": user_msg})
-                    st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                save_memory(st.session_state.atom_history)
-                st.rerun()
-        if st.button("Clear memory", key=widget_key("atom_clear", case_idx)):
-            st.session_state.atom_history = []
-            save_memory([])
-            st.rerun()
 
     # ================== FILE UPLOADS & EXPORTS =================
     st.markdown("---")
@@ -5391,17 +5405,28 @@ Thank you in advance,
     autosave()
 
 case_labels = [
-    cs.case.case_id or f'Case {i+1}' for i, cs in enumerate(st.session_state.case_sessions)
-] + ['+ New Case']
-all_tabs = st.tabs(["Dashboard"] + case_labels)
+    cs.case.case_id or f"Case {i+1}" for i, cs in enumerate(st.session_state.case_sessions)
+] + ["+ New Case"]
+tab_labels = ["Dashboard", "Settings", "Report", "A.A.T.O.M. Chat"] + case_labels
+all_tabs = st.tabs(tab_labels)
 
 with all_tabs[0]:
     render_dashboard()
 
-for idx, tab in enumerate(all_tabs[1:]):
+with all_tabs[1]:
+    render_settings_panel()
+
+with all_tabs[2]:
+    render_report_panel()
+
+with all_tabs[3]:
+    render_atom_chat_panel()
+
+case_tabs = all_tabs[4:]
+for idx, tab in enumerate(case_tabs):
     with tab:
         if idx == len(st.session_state.case_sessions):
-            if st.button('Add Case'):
+            if st.button("Add Case"):
                 st.session_state.case_sessions.append(CaseSession(case=CaseData()))
                 st.rerun()
         else:
