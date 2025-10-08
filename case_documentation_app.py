@@ -1316,13 +1316,31 @@ def ensure_tracking_session_defaults(
         st.session_state[expected_key] = expected_value
 
 
+def _coerce_case_mapping(data: object) -> dict | None:
+    """Return a dictionary representation from historical payloads."""
+
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        dict_items = [item for item in data if isinstance(item, dict)]
+        if len(dict_items) == 1:
+            return dict_items[0]
+        if dict_items:
+            logging.warning("Multiple dict entries found in list payload; using first item")
+            return dict_items[0]
+    return None
+
+
 def load_tracked_cases() -> list:
     cases = []
     # Load modern tracked cases directly from the database directory.
     for p in DATABASE_DIR.glob("*.json"):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            payload = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
+            continue
+        data = _coerce_case_mapping(payload)
+        if data is None:
             continue
         tracking_info = data.get("tracking")
         if not isinstance(tracking_info, dict) or not tracking_info.get("active"):
@@ -1367,8 +1385,11 @@ def load_tracked_cases() -> list:
     # Include historical tracked JSON files for reference.
     for p in TRACKED_CASES_DIR.glob("*.json"):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            payload = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
+            continue
+        data = _coerce_case_mapping(payload)
+        if data is None:
             continue
         case_id = data.get("case_id") or p.stem.replace("_Active", "")
         company = data.get("company") or data.get("company_name") or ""
@@ -1409,7 +1430,10 @@ def update_tracked_case_file(
 ) -> None:
     try:
         case_path = Path(path)
-        data = json.loads(case_path.read_text(encoding="utf-8"))
+        payload = json.loads(case_path.read_text(encoding="utf-8"))
+        data = _coerce_case_mapping(payload)
+        if data is None:
+            raise ValueError("Unsupported case file structure for tracking update")
         if tracking_updates:
             if isinstance(data.get("tracking"), dict):
                 tracking_data = data.get("tracking", {})
@@ -1419,7 +1443,8 @@ def update_tracked_case_file(
                 data.update(tracking_updates)
         if updates:
             data.update(updates)
-        case_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        to_write = payload if isinstance(payload, list) else data
+        case_path.write_text(json.dumps(to_write, indent=2), encoding="utf-8")
     except Exception as exc:
         logging.exception("Failed to update tracked case %s", path)
         st.error(f"Failed to update tracked case: {exc}")
