@@ -1892,7 +1892,7 @@ def collect_ai_educate_report_data(
         df.get("case_id").fillna("Unknown case"),
     )
 
-    now = pd.Timestamp.utcnow()
+    now = pd.Timestamp.utcnow().tz_localize(None)
     recent_cutoff = now - pd.Timedelta(days=30)
     recent_cases = df[df["timestamp"] >= recent_cutoff]
 
