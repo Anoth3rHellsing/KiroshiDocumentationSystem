@@ -133,6 +133,9 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
     "ai_educate_advanced": False,
+    "tutorial_completed": False,
+    "tutorial_completed_at": "",
+    "tutorial_completion_type": "",
 }
 
 
@@ -196,6 +199,138 @@ ALTAIR_CHART_KWARGS = (
 )
 
 AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
+
+TUTORIAL_STEPS: list[dict[str, object]] = [
+    {
+        "id": "welcome",
+        "title": "Welcome to Kiroshi",
+        "visual": "layout_map",
+        "description": textwrap.dedent(
+            """
+            Welcome to your first launch of Kiroshi! This guided tour walks through every tab,
+            table, and input you will use to document cases. Follow the prompts, explore the
+            visuals, and use the navigation buttons to move between steps.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "Which main tab gives you an instant view of workload and priorities?",
+            "options": ["Dashboard", "Settings", "A.A.T.O.M. Chat"],
+            "answer": "Dashboard",
+            "success": "Exactly — the Dashboard summarises tracked work at a glance.",
+            "failure": "Hint: it's the first tab filled with charts and case tables.",
+        },
+    },
+    {
+        "id": "dashboard",
+        "title": "Dashboard Tables",
+        "visual": "dashboard_tables",
+        "description": textwrap.dedent(
+            """
+            The Dashboard tab hosts every operational table:
+            • **Tracked Cases** – live statuses, ownership, and quick actions.
+            • **Dell Escalations & FedEx Replacements** – vendor-specific queues with ETAs.
+            • **All My Saved Cases** – browse and reload anything stored on disk.
+            Use the search bar to filter and the action buttons to load or stop tracking directly from the table rows.
+            """
+        ),
+        "interaction": {
+            "type": "checkbox_group",
+            "prompt": "Check each item after you review how the Dashboard tables work.",
+            "items": [
+                "I know where to search and filter tracked cases.",
+                "I understand the Dell/FedEx table highlights vendor priorities.",
+                "I can load a saved case from the All My Saved Cases table.",
+            ],
+            "success": "Great! You're ready to use the Dashboard tables day to day.",
+            "instruction": "Mark every checkbox once you've read the descriptions above.",
+        },
+    },
+    {
+        "id": "case_workspace",
+        "title": "Case Workspace & Inputs",
+        "visual": "case_sections",
+        "description": textwrap.dedent(
+            """
+            Every case tab is a full workspace that captures customer details, troubleshooting steps,
+            escalation information, optional hardware diagnostics, attachments, and AI helpers. Toggle
+            hardware or escalation fields when needed and use the Tables tab to copy a spreadsheet-ready
+            summary of every input.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "Where do you find the Excel-style snapshot of every captured field?",
+            "options": [
+                "Tables tab inside the case workspace",
+                "Dashboard tab",
+                "Report tab",
+            ],
+            "answer": "Tables tab inside the case workspace",
+            "success": "Correct — each case includes a Tables tab for copy/paste exports.",
+            "failure": "Try again: the Tables tab lives inside each case workspace.",
+        },
+    },
+    {
+        "id": "reporting",
+        "title": "Reporting & Exports",
+        "visual": "report_overview",
+        "description": textwrap.dedent(
+            """
+            The Report tab turns AI Educate insights into visuals and downloadable PDFs. When AI Educate is enabled,
+            refresh the dataset, inspect root-cause metrics, run the Bug Detector, and export a polished report.
+            From any case you can also generate PDF summaries and ZIP bundles with attachments.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "Which tab generates the AI Educate PDF analytics report?",
+            "options": ["Dashboard", "Report", "A.A.T.O.M. Chat"],
+            "answer": "Report",
+            "success": "Exactly — open the Report tab once AI Educate is enabled to export insights.",
+            "failure": "The analytics live in the Report tab right next to Settings.",
+        },
+    },
+    {
+        "id": "settings",
+        "title": "Settings & Personalisation",
+        "visual": "settings_overview",
+        "description": textwrap.dedent(
+            """
+            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding history.
+            Use this panel to toggle advanced assistance, import or export Educate datasets, and relaunch this tutorial whenever you like.
+            Your completion status is saved in the persistent configuration so first-time use is recorded automatically.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "Where can you replay the onboarding tutorial after today?",
+            "options": ["Dashboard", "Settings", "Case workspace"],
+            "answer": "Settings",
+            "success": "That's right — the Settings tab now includes a Repeat Tutorial button.",
+            "failure": "Look in Settings for the onboarding controls and status badge.",
+        },
+    },
+    {
+        "id": "atom",
+        "title": "A.A.T.O.M. Chat & Resources",
+        "visual": "chat_resources",
+        "description": textwrap.dedent(
+            """
+            A.A.T.O.M. Chat keeps a searchable manual database, including a new quick-reference summary of the README
+            and Kiroshi workflow. Upload your own notes, search the knowledge base, or ask the assistant to cross-reference
+            the "Kiroshi Quick Reference" entry any time you need a refresher.
+            """
+        ),
+        "interaction": {
+            "type": "text_confirm",
+            "prompt": "Type READY to finish the tour and jump into Kiroshi.",
+            "answer": "READY",
+            "success": "Tutorial complete! You're ready to document real cases.",
+            "failure": "Enter READY in all caps to confirm you're set.",
+        },
+    },
+]
 
 STOPWORDS = {
     "the",
@@ -532,6 +667,42 @@ def inject_base_styles() -> None:
             box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
         }
 
+        .tutorial-wrapper {
+            margin: 1.5rem 0 2rem;
+            padding: 1.6rem 1.9rem;
+            border-radius: 1.2rem;
+            border: 1px solid rgba(67, 56, 120, 0.18);
+            background: linear-gradient(145deg, rgba(243, 244, 255, 0.9), #ffffff);
+            box-shadow: 0 18px 32px rgba(67, 56, 120, 0.16);
+        }
+
+        .tutorial-step-title {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #312e81;
+            margin-bottom: 0.35rem;
+        }
+
+        .tutorial-intro {
+            font-size: 0.98rem;
+            line-height: 1.6;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+
+        .tutorial-visual-card {
+            padding: 1rem;
+            border-radius: 1rem;
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(209, 213, 219, 0.7);
+            height: 100%;
+        }
+
+        .tutorial-footnote {
+            font-size: 0.85rem;
+            color: #4b5563;
+        }
+
         .case-card {
             padding: 1.25rem 1.5rem;
             border-radius: 0.9rem;
@@ -764,6 +935,266 @@ def render_logo():
         st.session_state.debug_mode = True
         _persist_setting("debug_mode")
 
+
+def _render_tutorial_visual(kind: str) -> None:
+    kind = (kind or "").lower()
+    if kind == "layout_map":
+        tab_cards = [
+            ("Dashboard", "Charts, tracked cases, and saved case tables."),
+            ("Settings", "Modes, AI Educate controls, and onboarding status."),
+            ("Report", "AI Educate analytics, Bug Detector, and PDF export."),
+            ("A.A.T.O.M. Chat", "Assistant conversation, manual database, and quick reference."),
+        ]
+        cols = st.columns(len(tab_cards))
+        for col, (title, blurb) in zip(cols, tab_cards):
+            with col:
+                st.markdown(
+                    "<div class='tutorial-visual-card'><strong>{}</strong><br><span class='tutorial-footnote'>{}</span></div>".format(
+                        escape(title), escape(blurb)
+                    ),
+                    unsafe_allow_html=True,
+                )
+        st.caption(
+            "Case-specific tabs appear after the global tabs — each one contains the full documentation workspace."
+        )
+    elif kind == "dashboard_tables":
+        summary = pd.DataFrame(
+            [
+                {
+                    "Table": "Tracked Cases",
+                    "Purpose": "Monitor active work with status, owner, priority, and quick actions.",
+                    "Key actions": "Update priority, load a case, or stop tracking in one click.",
+                },
+                {
+                    "Table": "Dell Escalations & FedEx Replacements",
+                    "Purpose": "Vendor-specific queues with ticket numbers, ETAs, and case IDs.",
+                    "Key actions": "Scan for approaching ETAs and jump into the matching tracked file.",
+                },
+                {
+                    "Table": "All My Saved Cases",
+                    "Purpose": "Chronological list of every saved JSON file in your database.",
+                    "Key actions": "Load the case into a new tab to resume documentation instantly.",
+                },
+            ]
+        )
+        st.dataframe(summary, use_container_width=True)
+    elif kind == "case_sections":
+        case_sections = pd.DataFrame(
+            [
+                {
+                    "Section": "Case Details",
+                    "Highlights": "Company, subscription ID, application version, case ID, summary.",
+                },
+                {
+                    "Section": "Communication",
+                    "Highlights": "Caller name, phone/email, phone description, remote session credentials.",
+                },
+                {
+                    "Section": "Troubleshooting & Notes",
+                    "Highlights": "Internal Helpjuice notes, logs, remote steps, root cause, repro steps, solution.",
+                },
+                {
+                    "Section": "AI Helpers",
+                    "Highlights": "Verify, Ask ATOM, Categorizer, AI Assist, and database search shortcuts.",
+                },
+                {
+                    "Section": "Escalation",
+                    "Highlights": "Toggle escalation fields, capture contacts, best time to call, vendor pathways.",
+                },
+                {
+                    "Section": "Hardware Toggles",
+                    "Highlights": "Enable hardware issue fields, PC specs, BIOS/GPU data, scanner serials.",
+                },
+                {
+                    "Section": "Attachments & Tracking",
+                    "Highlights": "Upload logs/screenshots, capture images, track cases with priority and ticket IDs.",
+                },
+                {
+                    "Section": "Exports & Tables",
+                    "Highlights": "Download PDFs, export ZIP bundles, copy the Tables tab for spreadsheets.",
+                },
+            ]
+        )
+        st.dataframe(case_sections, use_container_width=True)
+    elif kind == "report_overview":
+        report_summary = pd.DataFrame(
+            [
+                {
+                    "Feature": "AI Educate Dashboard",
+                    "What it shows": "Root-cause charts, top keywords, and trend analytics based on saved cases.",
+                },
+                {
+                    "Feature": "Bug Detector",
+                    "What it shows": "Recurring failure patterns detected across the Educate dataset.",
+                },
+                {
+                    "Feature": "Report PDF",
+                    "What it shows": "One-click PDF export of the Educate insights for stakeholders.",
+                },
+                {
+                    "Feature": "Case PDF & ZIP",
+                    "What it shows": "From any case tab you can export the formatted summary and attachments bundle.",
+                },
+            ]
+        )
+        st.dataframe(report_summary, use_container_width=True)
+    elif kind == "settings_overview":
+        settings_summary = pd.DataFrame(
+            [
+                {
+                    "Control": "2nd Line mode",
+                    "Description": "Switch the dashboard into tracked-case operations with Dell/FedEx tables.",
+                },
+                {
+                    "Control": "Show Debug tab",
+                    "Description": "Unlock diagnostics, API configuration, and log viewer for troubleshooting.",
+                },
+                {
+                    "Control": "AI Educate toggles",
+                    "Description": "Enable insights, activate advanced assistance, and share/import datasets.",
+                },
+                {
+                    "Control": "Knowledge sharing",
+                    "Description": "Download the learning JSON or merge collaborator contributions.",
+                },
+                {
+                    "Control": "Onboarding status",
+                    "Description": "View completion date and re-run the interactive tutorial anytime.",
+                },
+            ]
+        )
+        st.table(settings_summary)
+    elif kind == "chat_resources":
+        col_chat, col_manual, col_reference = st.columns(3)
+        with col_chat:
+            st.markdown(
+                "<div class='tutorial-visual-card'><strong>A.A.T.O.M. Chat</strong><br><span class='tutorial-footnote'>Persistent conversation history, Verify button context, and personality modes.</span></div>",
+                unsafe_allow_html=True,
+            )
+        with col_manual:
+            st.markdown(
+                "<div class='tutorial-visual-card'><strong>Manual Docs Database</strong><br><span class='tutorial-footnote'>Upload TXT references, search stored notes, and feed rich context into replies.</span></div>",
+                unsafe_allow_html=True,
+            )
+        with col_reference:
+            st.markdown(
+                "<div class='tutorial-visual-card'><strong>Kiroshi Quick Reference</strong><br><span class='tutorial-footnote'>A curated JSON summary of the README and workflows is preloaded for instant answers.</span></div>",
+                unsafe_allow_html=True,
+            )
+        st.caption(
+            "Ask ATOM to search for 'Kiroshi Quick Reference' whenever you need guidance on features or processes."
+        )
+
+
+def _mark_tutorial_completion(status: str) -> None:
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    st.session_state.tutorial_completed = True
+    st.session_state.tutorial_completion_type = status
+    st.session_state.tutorial_completed_at = timestamp
+    _persist_setting("tutorial_completed")
+    _persist_setting("tutorial_completion_type")
+    _persist_setting("tutorial_completed_at")
+    st.session_state.show_tutorial = False
+    st.session_state.tutorial_step = 0
+    st.rerun()
+
+
+def render_onboarding_tutorial() -> None:
+    if not st.session_state.get("show_tutorial"):
+        return
+    if not TUTORIAL_STEPS:
+        return
+    total_steps = len(TUTORIAL_STEPS)
+    step_idx = int(st.session_state.get("tutorial_step", 0))
+    if step_idx < 0:
+        step_idx = 0
+    if step_idx >= total_steps:
+        step_idx = total_steps - 1
+    st.session_state.tutorial_step = step_idx
+    step = TUTORIAL_STEPS[step_idx]
+
+    with st.container():
+        st.markdown("<div class='tutorial-wrapper'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='tutorial-step-title'>Step {} of {}: {}</div>".format(
+                step_idx + 1, total_steps, escape(str(step.get("title", "")))
+            ),
+            unsafe_allow_html=True,
+        )
+        st.progress((step_idx + 1) / total_steps)
+        description = step.get("description")
+        if isinstance(description, str):
+            st.markdown(description)
+        _render_tutorial_visual(str(step.get("visual", "")))
+
+        interaction = step.get("interaction") if isinstance(step, dict) else None
+        can_proceed = True
+        if isinstance(interaction, dict):
+            itype = (interaction.get("type") or "").lower()
+            if itype == "radio":
+                options = interaction.get("options") or []
+                prompt = interaction.get("prompt", "")
+                radio_key = f"tutorial_radio_{step_idx}"
+                if options:
+                    selection = st.radio(prompt, options, index=None, key=radio_key)
+                    if selection is None:
+                        can_proceed = False
+                    elif selection == interaction.get("answer"):
+                        st.success(interaction.get("success", "Correct."))
+                    else:
+                        st.warning(interaction.get("failure", "Give it another try."))
+                        can_proceed = False
+                else:
+                    st.info(prompt)
+            elif itype == "checkbox_group":
+                items = interaction.get("items") or []
+                if items:
+                    states: list[bool] = []
+                    for idx, item_prompt in enumerate(items):
+                        cb_key = f"tutorial_checkbox_{step_idx}_{idx}"
+                        states.append(st.checkbox(item_prompt, key=cb_key))
+                    if all(states):
+                        st.success(interaction.get("success", "Great!"))
+                    else:
+                        st.info(interaction.get("instruction", "Mark each item when you're ready."))
+                        can_proceed = False
+            elif itype == "text_confirm":
+                prompt = interaction.get("prompt", "")
+                text_key = f"tutorial_text_{step_idx}"
+                value = st.text_input(prompt, key=text_key)
+                if not value:
+                    can_proceed = False
+                elif value.strip().upper() == str(interaction.get("answer", "")).upper():
+                    st.success(interaction.get("success", "All set!"))
+                else:
+                    st.warning(interaction.get("failure", "Double-check the confirmation word."))
+                    can_proceed = False
+
+        nav_cols = st.columns([1.2, 1, 1, 1])
+        with nav_cols[0]:
+            if st.button("Skip tutorial", key=f"tutorial_skip_{step_idx}"):
+                _mark_tutorial_completion("skipped")
+        with nav_cols[1]:
+            if st.button("Back", disabled=step_idx == 0, key=f"tutorial_back_{step_idx}"):
+                st.session_state.tutorial_step = max(0, step_idx - 1)
+                st.rerun()
+        with nav_cols[2]:
+            st.markdown(
+                "<div class='tutorial-footnote'>Progress {}/{}</div>".format(
+                    step_idx + 1, total_steps
+                ),
+                unsafe_allow_html=True,
+            )
+        next_label = "Finish" if step_idx == total_steps - 1 else "Next"
+        with nav_cols[3]:
+            if st.button(next_label, disabled=not can_proceed, key=f"tutorial_next_{step_idx}"):
+                if step_idx == total_steps - 1:
+                    _mark_tutorial_completion("completed")
+                else:
+                    st.session_state.tutorial_step = min(total_steps - 1, step_idx + 1)
+                    st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
 # ────────────────────── SESSION STATE ────────────────────────
 def _init_state(key, default):
     if key not in st.session_state:
@@ -818,6 +1249,17 @@ _init_state("track_case", False)
 _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
+_init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
+_init_state(
+    "tutorial_completed_at",
+    _get_persistent_default("tutorial_completed_at", ""),
+)
+_init_state(
+    "tutorial_completion_type",
+    _get_persistent_default("tutorial_completion_type", ""),
+)
+_init_state("show_tutorial", False)
+_init_state("tutorial_step", 0)
 _init_state("pending_load", None)
 _init_state("show_bored", False)
 _init_state("autosave_notice", None)
@@ -833,8 +1275,13 @@ _init_state(
     },
 )
 
+if not st.session_state.tutorial_completed and not st.session_state.show_tutorial:
+    st.session_state.show_tutorial = True
+    st.session_state.tutorial_step = 0
+
 inject_base_styles()
 render_logo()
+render_onboarding_tutorial()
 
 if st.session_state.autosave_notice:
     st.success(st.session_state.autosave_notice)
@@ -1994,6 +2441,29 @@ def render_dashboard() -> None:
 
 
 def render_settings_panel() -> None:
+    st.markdown("### Onboarding & Tutorial")
+    completion_type = st.session_state.get("tutorial_completion_type", "") or (
+        "completed" if st.session_state.get("tutorial_completed") else ""
+    )
+    completed_at = st.session_state.get("tutorial_completed_at") or ""
+    if st.session_state.get("tutorial_completed"):
+        if completed_at:
+            st.caption(
+                f"Tutorial {completion_type} on {completed_at}. Use the button below to replay the guided tour."
+            )
+        else:
+            st.caption(
+                "Tutorial completed. Replay it any time to refresh the workflow overview."
+            )
+    else:
+        st.warning(
+            "The interactive tutorial will launch automatically for first-time users. Complete it to log your onboarding status."
+        )
+    if st.button("Repeat interactive tutorial", key=global_widget_key("tutorial_repeat")):
+        st.session_state.show_tutorial = True
+        st.session_state.tutorial_step = 0
+        st.rerun()
+
     st.subheader("Modes")
     st.toggle(
         "2nd Line mode",

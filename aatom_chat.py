@@ -23,6 +23,7 @@ def configure_page() -> None:
 
 MEMORY_FILE = "atom_memory.json"
 MANUAL_DOCS_FILE = "manual_memory.json"
+KIROSHI_REFERENCE_FILE = ASSETS_DIR / "docs" / "kiroshi_quick_reference.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     "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",
@@ -296,13 +297,34 @@ def save_memory(history):
 
 def load_manual_docs():
     """Load manual reference documents from disk."""
+    docs: list[dict] = []
     if os.path.exists(MANUAL_DOCS_FILE):
         try:
             with open(MANUAL_DOCS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                loaded = json.load(f)
+                if isinstance(loaded, list):
+                    docs = [d for d in loaded if isinstance(d, dict)]
         except Exception:
             pass
-    return []
+
+    quick_reference: list[dict] = []
+    if KIROSHI_REFERENCE_FILE.exists():
+        try:
+            with open(KIROSHI_REFERENCE_FILE, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+                if isinstance(payload, list):
+                    quick_reference = [entry for entry in payload if isinstance(entry, dict)]
+        except Exception:
+            quick_reference = []
+
+    existing_titles = {str(doc.get("title", "")).strip() for doc in docs if isinstance(doc, dict)}
+    for entry in quick_reference:
+        title = str(entry.get("title", "")).strip()
+        if title and title not in existing_titles:
+            docs.append(entry)
+            existing_titles.add(title)
+
+    return docs
 
 
 def save_manual_docs(docs):
