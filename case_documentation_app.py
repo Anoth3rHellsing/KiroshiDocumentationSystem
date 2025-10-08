@@ -3384,12 +3384,26 @@ def _sync_ai_learning_signature_from_dataset(
 def ensure_ai_learning_dataset(force: bool = False) -> dict[str, object] | None:
     if force:
         signature = _saved_case_files_signature()
-        if not signature:
-            st.session_state.ai_learning_data = None
-            st.session_state.ai_learning_signature = None
-            return None
+        existing_dataset = load_ai_learning_dataset()
 
-        dataset = build_ai_learning_dataset(signature=signature)
+        dataset: dict[str, object] | None = None
+        local_dataset: dict[str, object] | None = None
+        if signature:
+            local_dataset = build_ai_learning_dataset(signature=signature)
+
+        if local_dataset and existing_dataset:
+            merged_dataset = merge_ai_learning_datasets(
+                existing_dataset,
+                local_dataset,
+                collaborator=None,
+                local_signature=signature,
+            )
+            dataset = merged_dataset or local_dataset
+        elif local_dataset:
+            dataset = local_dataset
+        else:
+            dataset = existing_dataset
+
         if not dataset:
             st.session_state.ai_learning_data = None
             st.session_state.ai_learning_signature = None
@@ -3397,7 +3411,7 @@ def ensure_ai_learning_dataset(force: bool = False) -> dict[str, object] | None:
 
         save_ai_learning_dataset(dataset)
         st.session_state.ai_learning_data = dataset
-        st.session_state.ai_learning_signature = signature
+        _sync_ai_learning_signature_from_dataset(dataset)
         logging.info(
             "AI learning dataset generated from %s cases", dataset.get("case_count", 0)
         )
