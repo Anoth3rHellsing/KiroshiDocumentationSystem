@@ -2042,10 +2042,13 @@ def render_settings_panel() -> None:
             help="Ejecuta nuevamente el protocolo de análisis para refrescar los aprendizajes.",
             key=global_widget_key("ai_educate_refresh"),
         )
+        dataset_updated = False
+        ai_dataset: dict[str, object] | None
         if refresh_requested:
             ai_dataset = ensure_ai_learning_dataset(force=True)
             if ai_dataset:
                 st.success("AI Educate actualizó el conocimiento con los casos guardados.")
+                dataset_updated = True
             else:
                 st.warning(
                     "No se encontraron casos guardados para analizar. Guarda casos primero."
@@ -2078,12 +2081,98 @@ def render_settings_panel() -> None:
                 "AI Assistance utilizará las coincidencias encontradas por Educate para enriquecer las respuestas."
             )
 
+        st.markdown("##### Compartir y fusionar conocimiento")
+        download_payload: bytes | None = None
+        if ai_dataset:
+            try:
+                download_payload = json.dumps(
+                    ai_dataset, indent=2, ensure_ascii=False
+                ).encode("utf-8")
+            except TypeError as exc:
+                logging.error("Failed to serialize AI learning dataset for sharing: %s", exc)
+                download_payload = None
+        if download_payload:
+            st.download_button(
+                "Descargar base de Educate",
+                download_payload,
+                file_name="AILearning.json",
+                mime="application/json",
+                help="Genera un archivo JSON para compartir la base de conocimiento con otros usuarios.",
+                key=global_widget_key("ai_educate_download"),
+            )
+        else:
+            st.caption(
+                "Genera la base con Educate o importa un archivo compartido para comenzar a colaborar."
+            )
+
+        merge_cols = st.columns([3, 2])
+        with merge_cols[0]:
+            uploaded_dataset = st.file_uploader(
+                "Importar base de Educate (.json)",
+                type="json",
+                help="Selecciona el archivo JSON compartido por otro usuario de Kiroshi.",
+                key=global_widget_key("ai_educate_import"),
+            )
+        with merge_cols[1]:
+            collaborator_name = st.text_input(
+                "Colaborador",
+                help="Nombre del usuario que compartió la base de Educate (opcional).",
+                key=global_widget_key("ai_educate_collaborator"),
+            )
+
+        merge_clicked = st.button(
+            "Merge knowledge",
+            help="Fusiona el archivo importado con tu base de Educate para enriquecer el conocimiento.",
+            key=global_widget_key("ai_educate_merge"),
+            disabled=uploaded_dataset is None,
+        )
+
+        if merge_clicked and uploaded_dataset is not None:
+            try:
+                uploaded_bytes = uploaded_dataset.read()
+                imported_payload = json.loads(uploaded_bytes.decode("utf-8"))
+            except Exception as exc:
+                st.error(f"No se pudo leer el archivo importado: {exc}")
+                imported_payload = None
+            finally:
+                try:
+                    uploaded_dataset.seek(0)
+                except Exception:
+                    pass
+
+            if isinstance(imported_payload, Mapping):
+                merged_dataset = merge_ai_learning_datasets(
+                    ai_dataset,
+                    imported_payload,
+                    collaborator=(collaborator_name or "").strip() or None,
+                    local_signature=st.session_state.get("ai_learning_signature"),
+                )
+                if merged_dataset:
+                    save_ai_learning_dataset(merged_dataset)
+                    st.session_state.ai_learning_data = merged_dataset
+                    _sync_ai_learning_signature_from_dataset(merged_dataset)
+                    ai_dataset = merged_dataset
+                    dataset_updated = True
+                    st.success(
+                        "La base de Educate se fusionó con el conocimiento importado exitosamente."
+                    )
+                else:
+                    st.warning(
+                        "No se pudo fusionar el conocimiento importado. Verifica el archivo compartido."
+                    )
+            elif imported_payload is not None:
+                st.warning("El archivo seleccionado no contiene un formato válido de Educate.")
+
         if ai_dataset:
             case_count = ai_dataset.get("case_count", 0)
             generated_at = ai_dataset.get("generated_at")
-            st.success(
+            status_message = (
                 f"Datos de aprendizaje generados a partir de {case_count} casos guardados el {generated_at}."
             )
+            if dataset_updated:
+                st.success(status_message)
+            else:
+                st.caption(status_message)
             summary = ai_dataset.get("insight_summary", {})
             top_keywords = summary.get("top_keywords", [])
             if top_keywords:
@@ -2394,31 +2483,43 @@ def iter_saved_case_records() -> Iterable[tuple[Path, Mapping[str, object]]]:
         yield path, payload
 
 
-def build_ai_learning_dataset() -> dict[str, object] | None:
+def _create_ai_learning_dataset_from_cases(
+    case_entries: Iterable[Mapping[str, object]],
+    *,
+    signature: Iterable[tuple[str, float]] | None = None,
+    merged_sources: Iterable[str] | None = None,
+    generated_at: str | None = None,
+) -> dict[str, object] | None:
     cases: list[dict[str, object]] = []
     keyword_counter: Counter[str] = Counter()
     root_cause_counter: Counter[str] = Counter()
     solution_counter: Counter[str] = Counter()
     version_counter: Counter[str] = Counter()
-    root_cause_labels: dict[str, str] = {}
-    solution_labels: dict[str, str] = {}
+    keyword_index: defaultdict[str, list[str]] = defaultdict(list)
     root_cause_cases: defaultdict[str, list[str]] = defaultdict(list)
     solution_cases: defaultdict[str, list[str]] = defaultdict(list)
-    keyword_index: defaultdict[str, list[str]] = defaultdict(list)
+    root_cause_labels: dict[str, str] = {}
+    solution_labels: dict[str, str] = {}
 
-    for path, record in iter_saved_case_records():
-        case_id = str(record.get("case_id") or path.stem)
-        brief_description = str(record.get("brief_description") or "").strip()
-        description = str(record.get("description") or "").strip()
-        root_cause = str(record.get("root_cause") or "").strip()
-        solution = str(record.get("solution") or "").strip()
-        application_version = str(record.get("application_version") or "").strip()
+    for entry in case_entries:
+        if not isinstance(entry, Mapping):
+            continue
+        case_id = str(entry.get("case_id") or "").strip()
+        if not case_id:
+            continue
+        title = str(entry.get("title") or "").strip()
+        root_cause = str(entry.get("root_cause") or "").strip()
+        solution = str(entry.get("solution") or "").strip()
+        application_version = str(entry.get("application_version") or "").strip()
+        keywords = entry.get("keywords") or []
+        if not isinstance(keywords, list):
+            keywords = list(keywords)
+        keywords = [str(keyword) for keyword in keywords if keyword]
 
-        keywords = _extract_keywords(brief_description, description, root_cause, solution)
         for keyword in keywords:
+            keyword_counter[keyword] += 1
             if case_id not in keyword_index[keyword]:
                 keyword_index[keyword].append(case_id)
-        keyword_counter.update(keywords)
 
         if root_cause:
             norm_root = root_cause.lower()
@@ -2437,24 +2538,37 @@ def build_ai_learning_dataset() -> dict[str, object] | None:
         if application_version:
             version_counter[application_version] += 1
 
-        timestamp = path.stat().st_mtime
-        case_entry: dict[str, object] = {
+        timestamp_raw = entry.get("timestamp")
+        try:
+            timestamp = float(timestamp_raw)
+        except (TypeError, ValueError):
+            timestamp = 0.0
+
+        saved_at = entry.get("saved_at")
+        if not saved_at and timestamp:
+            saved_at = datetime.fromtimestamp(timestamp).isoformat()
+
+        case_entry = {
             "case_id": case_id,
-            "title": brief_description or _summarize_text(description, width=120),
+            "title": title or _summarize_text(entry.get("description", ""), width=120),
             "application_version": application_version,
             "root_cause": root_cause,
             "solution": solution,
-            "solution_excerpt": _summarize_text(solution, width=260),
-            "description_excerpt": _summarize_text(description, width=260),
+            "solution_excerpt": entry.get("solution_excerpt")
+            or _summarize_text(solution, width=260),
+            "description_excerpt": entry.get("description_excerpt")
+            or _summarize_text(entry.get("description", ""), width=260),
             "keywords": keywords,
             "timestamp": timestamp,
-            "saved_at": datetime.fromtimestamp(timestamp).isoformat(),
-            "source_path": str(path),
+            "saved_at": saved_at,
+            "source_path": entry.get("source_path"),
         }
         cases.append(case_entry)
 
     if not cases:
         return None
+
+    cases.sort(key=lambda item: item.get("timestamp", 0), reverse=True)
 
     keyword_insights = [
         {
@@ -2485,7 +2599,7 @@ def build_ai_learning_dataset() -> dict[str, object] | None:
     ]
 
     dataset: dict[str, object] = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": generated_at or datetime.utcnow().isoformat() + "Z",
         "case_count": len(cases),
         "cases": cases,
         "keyword_insights": keyword_insights,
@@ -2498,7 +2612,149 @@ def build_ai_learning_dataset() -> dict[str, object] | None:
         },
     }
 
+    if signature is not None:
+        dataset["source_signature"] = [list(item) for item in signature]
+
+    merged_labels: set[str] = set()
+    if merged_sources:
+        merged_labels.update(str(label) for label in merged_sources if label)
+    if merged_labels:
+        dataset["merged_sources"] = sorted(merged_labels)
+
     return dataset
+
+
+def load_ai_learning_dataset() -> dict[str, object] | None:
+    if not AI_LEARNING_FILE.exists():
+        return None
+    try:
+        with AI_LEARNING_FILE.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception as exc:
+        logging.error("Failed to load AI learning dataset: %s", exc)
+        return None
+    if not isinstance(payload, Mapping):
+        logging.error("AI learning dataset is not a JSON object")
+        return None
+    return dict(payload)
+
+
+def merge_ai_learning_datasets(
+    base_dataset: Mapping[str, object] | None,
+    imported_dataset: Mapping[str, object],
+    *,
+    collaborator: str | None = None,
+    local_signature: Iterable[tuple[str, float]] | None = None,
+) -> dict[str, object] | None:
+    if not isinstance(imported_dataset, Mapping):
+        logging.error("Imported dataset is not a JSON object")
+        return None
+
+    base_cases = []
+    if base_dataset and isinstance(base_dataset.get("cases"), list):
+        base_cases = [dict(entry) for entry in base_dataset["cases"] if isinstance(entry, Mapping)]
+
+    imported_cases_raw = imported_dataset.get("cases")
+    if not isinstance(imported_cases_raw, list):
+        logging.error("Imported dataset does not contain a cases list")
+        return None
+    imported_cases = [dict(entry) for entry in imported_cases_raw if isinstance(entry, Mapping)]
+
+    combined: dict[tuple[str, str], dict[str, object]] = {}
+
+    def _case_key(entry: Mapping[str, object]) -> tuple[str, str]:
+        source = str(entry.get("source_path") or "").strip().lower()
+        case_id = str(entry.get("case_id") or "").strip().lower()
+        return source, case_id
+
+    for entry in base_cases + imported_cases:
+        key = _case_key(entry)
+        if key in combined:
+            existing = combined[key]
+            try:
+                existing_ts = float(existing.get("timestamp") or 0)
+            except (TypeError, ValueError):
+                existing_ts = 0.0
+            try:
+                new_ts = float(entry.get("timestamp") or 0)
+            except (TypeError, ValueError):
+                new_ts = 0.0
+            if new_ts > existing_ts:
+                combined[key] = dict(entry)
+        else:
+            combined[key] = dict(entry)
+
+    if not combined:
+        return None
+
+    merged_sources: set[str] = set()
+    if base_dataset:
+        base_sources = base_dataset.get("merged_sources")
+        if isinstance(base_sources, list):
+            merged_sources.update(str(label) for label in base_sources if label)
+        merged_sources.add("local")
+
+    imported_sources = imported_dataset.get("merged_sources")
+    if isinstance(imported_sources, list):
+        merged_sources.update(str(label) for label in imported_sources if label)
+
+    collaborator_label = collaborator or str(imported_dataset.get("shared_by") or "external").strip()
+    if collaborator_label:
+        merged_sources.add(collaborator_label)
+
+    signature: Iterable[tuple[str, float]] | None = None
+    if local_signature is not None:
+        signature = local_signature
+    elif base_dataset:
+        base_signature = base_dataset.get("source_signature")
+        if isinstance(base_signature, list):
+            try:
+                signature = tuple(tuple(item) for item in base_signature)
+            except TypeError:
+                signature = None
+        elif isinstance(base_signature, tuple):
+            signature = base_signature
+
+    dataset = _create_ai_learning_dataset_from_cases(
+        combined.values(),
+        signature=signature,
+        merged_sources=merged_sources,
+    )
+    return dataset
+
+
+def build_ai_learning_dataset(
+    *, signature: Iterable[tuple[str, float]] | None = None
+) -> dict[str, object] | None:
+    cases: list[dict[str, object]] = []
+
+    for path, record in iter_saved_case_records():
+        case_id = str(record.get("case_id") or path.stem)
+        brief_description = str(record.get("brief_description") or "").strip()
+        description = str(record.get("description") or "").strip()
+        root_cause = str(record.get("root_cause") or "").strip()
+        solution = str(record.get("solution") or "").strip()
+        application_version = str(record.get("application_version") or "").strip()
+
+        keywords = _extract_keywords(brief_description, description, root_cause, solution)
+
+        timestamp = path.stat().st_mtime
+        case_entry: dict[str, object] = {
+            "case_id": case_id,
+            "title": brief_description or _summarize_text(description, width=120),
+            "application_version": application_version,
+            "root_cause": root_cause,
+            "solution": solution,
+            "solution_excerpt": _summarize_text(solution, width=260),
+            "description_excerpt": _summarize_text(description, width=260),
+            "keywords": keywords,
+            "timestamp": timestamp,
+            "saved_at": datetime.fromtimestamp(timestamp).isoformat(),
+            "source_path": str(path),
+        }
+        cases.append(case_entry)
+
+    return _create_ai_learning_dataset_from_cases(cases, signature=signature)
 
 
 def save_ai_learning_dataset(dataset: Mapping[str, object]) -> None:
@@ -2509,32 +2765,60 @@ def save_ai_learning_dataset(dataset: Mapping[str, object]) -> None:
         logging.error("Failed to write AI learning dataset: %s", exc)
 
 
+def _sync_ai_learning_signature_from_dataset(
+    dataset: Mapping[str, object] | None,
+) -> None:
+    if not isinstance(dataset, Mapping):
+        st.session_state.ai_learning_signature = None
+        return
+
+    signature_payload = dataset.get("source_signature")
+    if isinstance(signature_payload, list):
+        try:
+            st.session_state.ai_learning_signature = tuple(
+                tuple(item) for item in signature_payload
+            )
+        except TypeError:
+            st.session_state.ai_learning_signature = None
+    elif isinstance(signature_payload, tuple):
+        st.session_state.ai_learning_signature = signature_payload
+    else:
+        st.session_state.ai_learning_signature = None
+
+
 def ensure_ai_learning_dataset(force: bool = False) -> dict[str, object] | None:
-    signature = _saved_case_files_signature()
-    if not signature:
-        st.session_state.ai_learning_data = None
-        st.session_state.ai_learning_signature = None
-        return None
+    if force:
+        signature = _saved_case_files_signature()
+        if not signature:
+            st.session_state.ai_learning_data = None
+            st.session_state.ai_learning_signature = None
+            return None
 
-    if (
-        not force
-        and st.session_state.ai_learning_signature == signature
-        and st.session_state.ai_learning_data
-    ):
-        return st.session_state.ai_learning_data
+        dataset = build_ai_learning_dataset(signature=signature)
+        if not dataset:
+            st.session_state.ai_learning_data = None
+            st.session_state.ai_learning_signature = None
+            return None
 
-    dataset = build_ai_learning_dataset()
+        save_ai_learning_dataset(dataset)
+        st.session_state.ai_learning_data = dataset
+        st.session_state.ai_learning_signature = signature
+        logging.info(
+            "AI learning dataset generated from %s cases", dataset.get("case_count", 0)
+        )
+        return dataset
+
+    cached_dataset = st.session_state.get("ai_learning_data")
+    if isinstance(cached_dataset, Mapping) and cached_dataset:
+        return cached_dataset
+
+    dataset = load_ai_learning_dataset()
     if not dataset:
-        st.session_state.ai_learning_data = None
-        st.session_state.ai_learning_signature = None
         return None
 
-    save_ai_learning_dataset(dataset)
     st.session_state.ai_learning_data = dataset
-    st.session_state.ai_learning_signature = signature
-    logging.info(
-        "AI learning dataset generated from %s cases", dataset.get("case_count", 0)
-    )
+    _sync_ai_learning_signature_from_dataset(dataset)
+
     return dataset
 
 
