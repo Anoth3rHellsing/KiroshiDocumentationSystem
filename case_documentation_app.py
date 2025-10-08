@@ -3839,7 +3839,17 @@ def save_case_to_database(
             st.error("Case ID is required to save.")
         return None
     if not isinstance(case.tracking, TrackingData):
-        case.tracking = TrackingData(**(case.tracking or {})) if case.tracking else TrackingData()
+        tracking_source = case.tracking
+        tracking_payload: Mapping | None = None
+        if isinstance(tracking_source, Mapping):
+            tracking_payload = dict(tracking_source)
+        elif hasattr(tracking_source, "__dict__"):
+            tracking_payload = dict(vars(tracking_source))
+
+        if tracking_payload:
+            case.tracking = TrackingData(**tracking_payload)  # type: ignore[arg-type]
+        else:
+            case.tracking = TrackingData()
     case.tracking.priority = normalize_priority(case.tracking.priority)
     if not case.kiroshi_version:
         case.kiroshi_version = VERSION
