@@ -110,7 +110,9 @@ if os.name == "nt":
 else:
     DATABASE_DIR = Path.home() / "KiroshiDatabase"
 DATABASE_DIR.mkdir(parents=True, exist_ok=True)
-RECENT_CASES_PATH = DATABASE_DIR / "recent_cases.json"
+UTILITIES_DIR = DATABASE_DIR / "utilities"
+UTILITIES_DIR.mkdir(parents=True, exist_ok=True)
+RECENT_CASES_PATH = UTILITIES_DIR / "recent_cases.json"
 if not RECENT_CASES_PATH.exists():
     RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
 
@@ -193,7 +195,7 @@ ALTAIR_CHART_KWARGS = (
     else {"use_container_width": True}
 )
 
-AI_LEARNING_FILE = DATABASE_DIR / "AILearning.json"
+AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
 
 STOPWORDS = {
     "the",
