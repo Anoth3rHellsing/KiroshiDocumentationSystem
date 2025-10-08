@@ -2399,7 +2399,7 @@ def render_dashboard() -> None:
     """Render the high-level dashboard overview tab."""
 
     st.markdown(
-        "<div class='dashboard-title'>✨ Dashboard</div>",
+        "<div class='dashboard-title'>Dashboard</div>",
         unsafe_allow_html=True,
     )
     tracked_cases = load_tracked_cases()
