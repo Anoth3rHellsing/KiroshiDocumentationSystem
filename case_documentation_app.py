@@ -122,6 +122,11 @@ else:
     TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
 
+# Location for persisted case attachments
+DOCUMENTS_DIR = Path.home() / "Documents"
+CASE_ATTACHMENTS_ROOT = DOCUMENTS_DIR / "kiroshi"
+CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
+
 AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
 
 
@@ -1672,6 +1677,126 @@ def autosave():
 def sanitize_case_id(case_id: str) -> str:
     safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", case_id.strip())
     return safe_id or "case"
+
+
+def sanitize_filename(filename: str) -> str:
+    """Return a filesystem-safe filename preserving extension when possible."""
+
+    name = Path(filename).name
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    return sanitized or "file"
+
+
+def get_case_attachments_dir(case_id: str) -> Path:
+    """Return the directory used to persist attachments for a case."""
+
+    safe_id = sanitize_case_id(case_id)
+    case_dir = CASE_ATTACHMENTS_ROOT / safe_id
+    case_dir.mkdir(parents=True, exist_ok=True)
+    return case_dir
+
+
+def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
+    """Write uploaded attachments to disk and return metadata for JSON storage."""
+
+    attachments_index: dict[str, list[dict[str, str]]] = {
+        "uploads": [],
+        "log_uploads": [],
+        "screenshots": [],
+    }
+    if not case_id:
+        return attachments_index
+
+    try:
+        base_dir = get_case_attachments_dir(case_id)
+    except Exception as exc:
+        logging.exception("Unable to prepare attachments directory for %s", case_id)
+        st.warning(f"Unable to persist attachments: {exc}")
+        return attachments_index
+
+    mapping = [
+        ("uploads", st.session_state.get("uploads", []), "uploads"),
+        ("log_uploads", st.session_state.get("log_uploads", []), "logs"),
+        ("screenshots", st.session_state.get("screenshots", []), "screenshots"),
+    ]
+
+    for key, items, subdir in mapping:
+        if not items:
+            continue
+        target_dir = base_dir / subdir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        seen: set[str] = set()
+        for item in items:
+            name = getattr(item, "name", None)
+            if not isinstance(name, str):
+                continue
+            sanitized = sanitize_filename(name)
+            try:
+                data = item.getvalue()
+            except Exception as exc:  # pragma: no cover - streamlit runtime specific
+                logging.warning("Failed to read attachment %s: %s", name, exc)
+                continue
+            if not isinstance(data, (bytes, bytearray)):
+                continue
+            dest = target_dir / sanitized
+            try:
+                with open(dest, "wb") as fh:
+                    fh.write(data)
+            except Exception as exc:
+                logging.warning("Failed to write attachment %s: %s", dest, exc)
+                continue
+            rel_path = dest.relative_to(base_dir).as_posix()
+            if rel_path in seen:
+                continue
+            seen.add(rel_path)
+            attachments_index[key].append({"name": sanitized, "path": rel_path})
+
+    return attachments_index
+
+
+def load_case_attachments(
+    case_id: str, attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
+) -> tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[InMemoryUploadedFile]]:
+    """Load persisted attachments for a case based on stored metadata."""
+
+    uploads: list[InMemoryUploadedFile] = []
+    log_uploads: list[InMemoryUploadedFile] = []
+    screenshots: list[InMemoryUploadedFile] = []
+
+    if not case_id or not attachments_data:
+        return uploads, log_uploads, screenshots
+
+    base_dir = get_case_attachments_dir(case_id)
+    mapping = [
+        ("uploads", uploads, "uploads"),
+        ("log_uploads", log_uploads, "logs"),
+        ("screenshots", screenshots, "screenshots"),
+    ]
+
+    for key, target, fallback_subdir in mapping:
+        stored_items = attachments_data.get(key, []) if isinstance(attachments_data, Mapping) else []
+        for entry in stored_items:
+            if not isinstance(entry, Mapping):
+                continue
+            rel_path = entry.get("path")
+            name = entry.get("name")
+            candidate_paths: list[Path] = []
+            if isinstance(rel_path, str):
+                candidate_paths.append(base_dir / rel_path)
+            if isinstance(name, str):
+                candidate_paths.append(base_dir / fallback_subdir / name)
+            file_path = next((p for p in candidate_paths if p.exists()), None)
+            if not file_path:
+                continue
+            try:
+                data = file_path.read_bytes()
+            except Exception as exc:
+                logging.warning("Failed to read attachment %s: %s", file_path, exc)
+                continue
+            display_name = sanitize_filename(name) if isinstance(name, str) else file_path.name
+            target.append(InMemoryUploadedFile(display_name, data))
+
+    return uploads, log_uploads, screenshots
 
 
 def create_case_autosave_snapshot(case_id: str) -> Path | None:
@@ -3721,8 +3846,15 @@ def save_case_to_database(
     else:
         case.kiroshi_version = str(case.kiroshi_version)
     file_path = DATABASE_DIR / f"{case.case_id}.json"
+    case_payload = asdict(case)
+    scratch_value = st.session_state.get(
+        widget_key("scratch", CURRENT_CASE_IDX), st.session_state.get("scratch", "")
+    )
+    st.session_state.scratch = scratch_value
+    case_payload["scratchpad"] = scratch_value
+    case_payload["attachments"] = persist_case_attachments(case.case_id)
     with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(asdict(case), f, indent=2)
+        json.dump(case_payload, f, indent=2)
     if update_history:
         update_recent_cases(case.case_id, str(file_path))
     if notify:
@@ -3736,12 +3868,39 @@ def load_case_from_path(path: str) -> None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw_data = json.load(f)
+        scratchpad_value = (
+            raw_data.get("scratchpad")
+            if isinstance(raw_data, Mapping)
+            else ""
+        )
+        if not scratchpad_value and isinstance(raw_data, Mapping):
+            scratchpad_value = raw_data.get("scratch", "")
+        attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
+        if isinstance(raw_data, Mapping):
+            attachments_raw = raw_data.get("attachments", {})
+            if isinstance(attachments_raw, Mapping):
+                attachments_data = attachments_raw
         filtered = {k: v for k, v in raw_data.items() if k in CaseData.__annotations__}
         st.session_state.case = CaseData(**filtered)
         global D
         D = st.session_state.case
+        uploads, log_uploads, screenshots = load_case_attachments(
+            D.case_id,
+            attachments_data,
+        )
+        st.session_state.uploads = uploads
+        st.session_state.log_uploads = log_uploads
+        st.session_state.screenshots = screenshots
+        st.session_state.scratch = scratchpad_value or ""
+        st.session_state[widget_key("scratch", CURRENT_CASE_IDX)] = st.session_state.scratch
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
-            st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
+            st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
+                case=D,
+                scratch=st.session_state.scratch,
+                uploads=uploads,
+                log_uploads=log_uploads,
+                screenshots=screenshots,
+            )
         autosave()
         update_recent_cases(st.session_state.case.case_id, path)
         save_case_to_database(
@@ -3769,12 +3928,37 @@ def load_case_from_path(path: str) -> None:
 def load_case_from_bytes(data: bytes) -> None:
     try:
         payload = json.loads(data.decode("utf-8"))
+        scratchpad_value = (
+            payload.get("scratchpad") if isinstance(payload, Mapping) else ""
+        )
+        if not scratchpad_value and isinstance(payload, Mapping):
+            scratchpad_value = payload.get("scratch", "")
+        attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
+        if isinstance(payload, Mapping):
+            attachments_raw = payload.get("attachments", {})
+            if isinstance(attachments_raw, Mapping):
+                attachments_data = attachments_raw
         payload = {k: v for k, v in payload.items() if k in CaseData.__annotations__}
         st.session_state.case = CaseData(**payload)
         global D
         D = st.session_state.case
+        uploads, log_uploads, screenshots = load_case_attachments(
+            D.case_id,
+            attachments_data,
+        )
+        st.session_state.uploads = uploads
+        st.session_state.log_uploads = log_uploads
+        st.session_state.screenshots = screenshots
+        st.session_state.scratch = scratchpad_value or ""
+        st.session_state[widget_key("scratch", CURRENT_CASE_IDX)] = st.session_state.scratch
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
-            st.session_state.case_sessions[CURRENT_CASE_IDX].case = D
+            st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
+                case=D,
+                scratch=st.session_state.scratch,
+                uploads=uploads,
+                log_uploads=log_uploads,
+                screenshots=screenshots,
+            )
         autosave()
         save_case_to_database(
             st.session_state.case,

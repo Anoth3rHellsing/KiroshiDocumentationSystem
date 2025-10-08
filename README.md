@@ -64,9 +64,27 @@ pip install -r requirements-bored.txt
 
 ### Updating
 
-The `QuickUpdate.bat` script is intended for small incremental patches.  
+The `QuickUpdate.bat` script is intended for small incremental patches.
 Major updates such as **1.7.2** introduce new requirements and should be applied manually.
 To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_1-7-2.bat`).
+
+#### Updating Python dependencies to the newest releases
+
+If you want to test the application with the most recent Python packages (for example to confirm that a new
+Streamlit release works with Kiroshi) use the `requirements-latest.txt` manifest that accompanies the regular
+`requirements.txt`. The file pins each dependency to the latest version that was available when the manifest
+was generated.
+
+From a clean virtual environment run:
+
+```bash
+pip install --upgrade pip
+pip install -r requirements-latest.txt
+```
+
+Using a fresh virtual environment is recommended so that you can quickly revert to the stable `requirements.txt`
+set if a bleeding-edge dependency causes issues. To go back to the supported versions, reinstall the standard
+requirements in a separate environment or run `pip install -r requirements.txt` again.
 
 ### Windows PATH helper
 
