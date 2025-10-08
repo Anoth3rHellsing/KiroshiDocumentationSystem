@@ -867,6 +867,42 @@ def tail_log(path: str, lines: int = 100) -> str:
         return "".join(f.readlines()[-lines:])
 
 # ───────────────── DATA MODEL ──────────────────
+
+
+@dataclass
+class TrackingData:
+    """Metadata stored for active tracking in a case JSON file."""
+
+    active: bool = False
+    type: str = ""
+    category: str = ""
+    status: str = ""
+    priority: str = DEFAULT_TRACKING_PRIORITY
+    ticket_number: str = ""
+    creation_day: str = ""
+    case_link: str = ""
+    expected_arrival_date: str = ""
+    service_tag: str = ""
+
+    def __post_init__(self) -> None:
+        if self.priority not in PRIORITY_OPTIONS:
+            self.priority = DEFAULT_TRACKING_PRIORITY
+        # Ensure text fields never contain ``None`` when loaded from legacy JSON.
+        for field_name in (
+            "type",
+            "category",
+            "status",
+            "ticket_number",
+            "creation_day",
+            "case_link",
+            "expected_arrival_date",
+            "service_tag",
+        ):
+            value = getattr(self, field_name)
+            if value is None:
+                setattr(self, field_name, "")
+
+
 @dataclass
 class CaseData:
     """Container for case details provided through the UI."""
@@ -921,6 +957,19 @@ class CaseData:
     scanner_sn: str = ""
     base_sn: str = ""
     trios_module_version: str = ""
+    tracking: TrackingData = field(default_factory=TrackingData)
+    kiroshi_version: str = VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tracking, TrackingData):
+            if isinstance(self.tracking, Mapping):
+                self.tracking = TrackingData(**self.tracking)  # type: ignore[arg-type]
+            else:
+                self.tracking = TrackingData()
+        if not self.kiroshi_version:
+            self.kiroshi_version = VERSION
+        if self.tracking.priority not in PRIORITY_OPTIONS:
+            self.tracking.priority = DEFAULT_TRACKING_PRIORITY
 
 
 @dataclass
@@ -1100,6 +1149,8 @@ if isinstance(st.session_state.case, dict):
     filtered = {k: v for k, v in st.session_state.case.items() if k in allowed}
     st.session_state.case = CaseData(**filtered)
 D: CaseData = st.session_state.case
+if D.tracking.active:
+    st.session_state.track_case = True
 
 if "case_sessions" not in st.session_state:
     st.session_state.case_sessions = [
@@ -1207,59 +1258,293 @@ def normalize_priority(value) -> str:
     return value
 
 
+PRIORITY_RANK = {name: idx for idx, name in enumerate(PRIORITY_OPTIONS)}
+PRIORITY_BADGES = {
+    "Low": "🟢",
+    "Normal": "🔵",
+    "High": "🟠",
+    "On Time": "🟣",
+    "Escalation": "🔴",
+}
+
+DELL_STATUS_OPTIONS = [
+    "Resolved",
+    "Waiting for Technician",
+    "Waiting for clinic to send back PC for review",
+    "Pending update",
+]
+FEDEX_STATUS_OPTIONS = [
+    "Scanner arrived and waiting for the return",
+    "Waiting for scanner to arrive",
+    "waiting for pickup",
+    "scanner sent",
+    "waiting to arrive to the doctor's office.",
+]
+TRACKING_STATUS_OPTIONS = {
+    "Dell": DELL_STATUS_OPTIONS,
+    "FedEx": FEDEX_STATUS_OPTIONS,
+}
+
+
+def ensure_tracking_session_defaults(
+    case_idx: int, tracking: TrackingData, *, force: bool = False
+) -> None:
+    """Populate Streamlit state with stored tracking defaults for a case."""
+
+    def assign(base_key: str, value) -> None:
+        key = widget_key(base_key, case_idx)
+        if force or key not in st.session_state:
+            st.session_state[key] = value
+
+    assign("tracking_type", tracking.type or "Dell")
+    assign("track_category", tracking.category or "")
+    assign("track_status", tracking.status or "")
+    assign("track_ticket_number", tracking.ticket_number or "")
+    assign("track_case_link", tracking.case_link or "")
+    assign("track_priority", normalize_priority(tracking.priority))
+    assign("track_service_tag", tracking.service_tag or "")
+
+    expected_key = widget_key("track_expected_arrival", case_idx)
+    if tracking.expected_arrival_date:
+        try:
+            expected_value = datetime.fromisoformat(tracking.expected_arrival_date).date()
+        except Exception:
+            expected_value = date.today()
+    else:
+        expected_value = date.today()
+    if force or expected_key not in st.session_state:
+        st.session_state[expected_key] = expected_value
+
+
+def _coerce_case_mapping(data: object) -> dict | None:
+    """Return a dictionary representation from historical payloads."""
+
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        dict_items = [item for item in data if isinstance(item, dict)]
+        if len(dict_items) == 1:
+            return dict_items[0]
+        if dict_items:
+            logging.warning("Multiple dict entries found in list payload; using first item")
+            return dict_items[0]
+    return None
+
+
 def load_tracked_cases() -> list:
     cases = []
-    for p in TRACKED_CASES_DIR.glob("*_Active.json"):
+    # Load modern tracked cases directly from the database directory.
+    for p in DATABASE_DIR.glob("*.json"):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            data["path"] = str(p)
-            data["priority"] = normalize_priority(data.get("priority"))
-            data.setdefault("phone_number", "")
-            if data.get("custom_category") is None:
-                data["custom_category"] = ""
-            if data.get("case_link") is None:
-                data["case_link"] = ""
-            cases.append(data)
+            payload = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
+        data = _coerce_case_mapping(payload)
+        if data is None:
+            continue
+        tracking_info = data.get("tracking")
+        if not isinstance(tracking_info, dict) or not tracking_info.get("active"):
+            continue
+        case_id = data.get("case_id") or p.stem
+        company = data.get("company_name") or data.get("company") or ""
+        end_user = (
+            data.get("contact_name")
+            or data.get("caller_name")
+            or data.get("end_user")
+            or ""
+        )
+        phone = (
+            data.get("phone_number")
+            or data.get("office_ph")
+            or data.get("direct_ph")
+            or ""
+        )
+        priority = normalize_priority(tracking_info.get("priority"))
+        version = data.get("kiroshi_version")
+        cases.append(
+            {
+                "path": str(p),
+                "case_id": case_id,
+                "company": company,
+                "end_user": end_user,
+                "phone_number": phone,
+                "type": tracking_info.get("type", ""),
+                "category": tracking_info.get("category", ""),
+                "status": tracking_info.get("status", ""),
+                "priority": priority,
+                "ticket_number": tracking_info.get("ticket_number", ""),
+                "creation_day": tracking_info.get("creation_day", ""),
+                "expected_arrival_date": tracking_info.get("expected_arrival_date", ""),
+                "case_link": tracking_info.get("case_link", ""),
+                "service_tag": tracking_info.get("service_tag", ""),
+                "version_label": f"Kiroshi {version}" if version else "Pre Kiroshi 1.7.2",
+                "kiroshi_version": version,
+                "is_legacy": False,
+            }
+        )
+    # Include historical tracked JSON files for reference.
+    for p in TRACKED_CASES_DIR.glob("*.json"):
+        try:
+            payload = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        data = _coerce_case_mapping(payload)
+        if data is None:
+            continue
+        case_id = data.get("case_id") or p.stem.replace("_Active", "")
+        company = data.get("company") or data.get("company_name") or ""
+        end_user = data.get("end_user") or data.get("customer") or ""
+        phone = data.get("phone_number") or ""
+        category = (
+            data.get("custom_category")
+            or data.get("service_tag")
+            or data.get("category")
+            or ""
+        )
+        cases.append(
+            {
+                "path": str(p),
+                "case_id": case_id,
+                "company": company,
+                "end_user": end_user,
+                "phone_number": phone,
+                "type": data.get("type", ""),
+                "category": category,
+                "status": data.get("status", ""),
+                "priority": normalize_priority(data.get("priority")),
+                "ticket_number": data.get("ticket_number", ""),
+                "creation_day": data.get("creation_day", ""),
+                "expected_arrival_date": data.get("expected_arrival_date", ""),
+                "case_link": data.get("case_link", ""),
+                "service_tag": data.get("service_tag", ""),
+                "version_label": "Legacy JSON (this is only for display and not for case saving.)",
+                "kiroshi_version": None,
+                "is_legacy": True,
+            }
+        )
     return cases
 
 
-def update_tracked_case_file(path: str, **updates) -> None:
+def update_tracked_case_file(
+    path: str, *, tracking_updates: Mapping[str, object] | None = None, **updates
+) -> None:
     try:
         case_path = Path(path)
-        data = json.loads(case_path.read_text(encoding="utf-8"))
-        data.update(updates)
-        case_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        payload = json.loads(case_path.read_text(encoding="utf-8"))
+        data = _coerce_case_mapping(payload)
+        if data is None:
+            raise ValueError("Unsupported case file structure for tracking update")
+        if tracking_updates:
+            if isinstance(data.get("tracking"), dict):
+                tracking_data = data.get("tracking", {})
+                tracking_data.update(tracking_updates)
+                data["tracking"] = tracking_data
+            else:
+                data.update(tracking_updates)
+        if updates:
+            data.update(updates)
+        to_write = payload if isinstance(payload, list) else data
+        case_path.write_text(json.dumps(to_write, indent=2), encoding="utf-8")
     except Exception as exc:
         logging.exception("Failed to update tracked case %s", path)
         st.error(f"Failed to update tracked case: {exc}")
 
 
-def update_tracked_priority(path: str, key: str) -> None:
+def update_tracked_priority(
+    path: str,
+    key: str,
+    *,
+    case_id: str | None = None,
+    is_legacy: bool = False,
+) -> None:
     new_priority = normalize_priority(st.session_state.get(key))
-    update_tracked_case_file(path, priority=new_priority)
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        case_id = data.get("case_id")
-    except Exception:
-        case_id = None
-    if case_id and D.case_id == case_id:
+    if is_legacy:
+        update_tracked_case_file(path, priority=new_priority)
+    else:
+        update_tracked_case_file(path, tracking_updates={"priority": new_priority})
+    target_case_id = case_id
+    if target_case_id is None:
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            target_case_id = data.get("case_id")
+        except Exception:
+            target_case_id = None
+    if target_case_id and D.case_id == target_case_id:
+        D.tracking.priority = new_priority
         st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = new_priority
     st.toast("Priority updated") if hasattr(st, "toast") else None
 
 
-def untrack_case(path: str) -> None:
-    """Move an active tracking file into the main database and refresh the page."""
+def update_tracked_status(
+    path: str,
+    key: str,
+    *,
+    case_id: str | None = None,
+    is_legacy: bool = False,
+) -> None:
+    new_status = st.session_state.get(key, "") or ""
+    if is_legacy:
+        update_tracked_case_file(path, status=new_status)
+    else:
+        update_tracked_case_file(path, tracking_updates={"status": new_status})
+    target_case_id = case_id
+    if target_case_id is None:
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            target_case_id = data.get("case_id")
+        except Exception:
+            target_case_id = None
+    if target_case_id and D.case_id == target_case_id:
+        D.tracking.status = new_status
+        status_key = widget_key("track_status", CURRENT_CASE_IDX)
+        st.session_state[status_key] = new_status
+    st.toast("Status updated") if hasattr(st, "toast") else None
+
+
+def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | None = None) -> None:
+    """Deactivate tracking for a case and refresh the dashboard."""
+
+    case_path = Path(path)
+    legacy_source = (
+        is_legacy
+        if is_legacy is not None
+        else case_path.parent == TRACKED_CASES_DIR or case_path.name.endswith("_Active.json")
+    )
     try:
-        case_path = Path(path)
         data = json.loads(case_path.read_text(encoding="utf-8"))
-        case_id = data.get("case_id") or case_path.stem.replace("_Active", "")
-        if not case_id:
+    except Exception as exc:
+        logging.exception("Failed to read tracked case %s", path)
+        st.error(f"Failed to untrack case: {exc}")
+        return
+
+    if not legacy_source and isinstance(data.get("tracking"), dict):
+        tracking = data.get("tracking", {})
+        tracking["active"] = False
+        data["tracking"] = tracking
+        target_case_id = case_id or data.get("case_id") or case_path.stem
+        try:
+            case_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logging.exception("Failed to persist updated case %s", path)
+            st.error(f"Failed to update case: {exc}")
+            return
+        if target_case_id:
+            update_recent_cases(target_case_id, str(case_path))
+        if D.case_id == target_case_id:
+            D.tracking.active = False
+            st.session_state.track_case = False
+        st.toast("Case removed from tracking.") if hasattr(st, "toast") else st.success(
+            "Case removed from tracking."
+        )
+        st.rerun()
+        return
+
+    try:
+        case_id_value = case_id or data.get("case_id") or case_path.stem.replace("_Active", "")
+        if not case_id_value:
             case_path.unlink(missing_ok=True)
             return
-
-        dest = DATABASE_DIR / f"{case_id}.json"
+        dest = DATABASE_DIR / f"{case_id_value}.json"
         payload = {k: v for k, v in data.items() if k != "path"}
 
         if dest.exists():
@@ -1276,10 +1561,11 @@ def untrack_case(path: str) -> None:
             dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
         case_path.unlink(missing_ok=True)
-        update_recent_cases(case_id, str(dest))
+        update_recent_cases(case_id_value, str(dest))
         st.toast("Case removed from tracking.") if hasattr(st, "toast") else st.success(
             "Case removed from tracking."
         )
+        st.rerun()
     except Exception as exc:
         logging.exception("Failed to untrack tracked case %s", path)
         st.error(f"Failed to untrack case: {exc}")
@@ -1425,57 +1711,141 @@ def render_tracked_cases_dashboard(cases: list) -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
         return
-    for case in cases:
-        created = format_tracking_date(case.get("creation_day"))
+    sorted_cases = sorted(
+        cases,
+        key=lambda item: (
+            PRIORITY_RANK.get(item.get("priority"), -1),
+            item.get("creation_day") or "",
+        ),
+        reverse=True,
+    )
+    for case in sorted_cases:
         priority_value = normalize_priority(case.get("priority"))
-        priority_key = f"priority_{Path(case['path']).stem}"
-        if (
-            st.session_state.get(priority_key) != priority_value
-            or priority_key not in st.session_state
-        ):
-            st.session_state[priority_key] = priority_value
-        case_container = st.container()
-        with case_container:
-            st.markdown("<div class='case-card'>", unsafe_allow_html=True)
-            info_col_left, info_col_right, actions_col = st.columns([2.3, 2.0, 1.4])
-            with info_col_left:
+        summary = " ".join(
+            part
+            for part in [
+                PRIORITY_BADGES.get(priority_value, "🔘"),
+                case.get("case_id") or "Unknown Case",
+                "•",
+                case.get("company") or "—",
+                "•",
+                case.get("status") or "—",
+                "•",
+                case.get("category") or "—",
+                "•",
+                priority_value,
+            ]
+            if part
+        )
+        expander = st.expander(summary, expanded=False)
+        with expander:
+            version_label = case.get("version_label")
+            if version_label:
+                st.caption(version_label)
+            info_left, info_right = st.columns(2)
+            with info_left:
                 render_case_metadata("Type", case.get("type", ""))
                 render_case_metadata("Case ID", case.get("case_id", ""))
                 render_case_metadata("Company", case.get("company", ""))
                 render_case_metadata("End User", case.get("end_user", ""))
-                if case.get("type") == "Custom":
-                    render_case_metadata("Category", case.get("custom_category", ""))
-            with info_col_right:
                 render_case_metadata("Phone", case.get("phone_number", ""))
-                render_case_metadata("Created", created)
+                render_case_metadata("Category", case.get("category", ""))
+            with info_right:
+                render_case_metadata("Created", format_tracking_date(case.get("creation_day")))
                 render_case_metadata("Ticket", case.get("ticket_number", ""))
                 render_case_metadata("Status", case.get("status", ""))
-            with actions_col:
-                st.markdown("<div class='case-actions'>", unsafe_allow_html=True)
-                st.selectbox(
-                    "Priority",
-                    PRIORITY_OPTIONS,
-                    key=priority_key,
-                    label_visibility="collapsed",
-                    on_change=lambda path=case["path"], key=priority_key: update_tracked_priority(
-                        path, key
-                    ),
-                )
+                render_case_metadata("Priority", priority_value)
+                if case.get("expected_arrival_date"):
+                    render_case_metadata(
+                        "Expected Arrival",
+                        format_tracking_date(case.get("expected_arrival_date")),
+                    )
+                if case.get("service_tag") and not case.get("category"):
+                    render_case_metadata("Service Tag", case.get("service_tag"))
+            if case.get("case_link"):
                 render_crm_link_button(case.get("case_link", ""))
-                load_col, untrack_col = st.columns(2)
-                with load_col:
-                    if st.button(
-                        "Load", key=f"dash_load_{Path(case['path']).stem}"
-                    ):
-                        request_load_from_path(case["path"])
-                with untrack_col:
-                    if st.button(
-                        "Untrack", key=f"dash_untrack_{Path(case['path']).stem}"
-                    ):
-                        untrack_case(case["path"])
-                        st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+
+            controls = st.columns(2)
+            priority_key = f"priority_{Path(case['path']).stem}"
+            status_key = f"status_{Path(case['path']).stem}"
+            if (
+                priority_key not in st.session_state
+                or st.session_state.get(priority_key) != priority_value
+            ):
+                st.session_state[priority_key] = priority_value
+            if (
+                status_key not in st.session_state
+                or st.session_state.get(status_key) != case.get("status", "")
+            ):
+                st.session_state[status_key] = case.get("status", "")
+
+            with controls[0]:
+                if case.get("is_legacy"):
+                    st.caption("Priority editing is unavailable for legacy JSON files.")
+                else:
+                    st.selectbox(
+                        "Priority",
+                        PRIORITY_OPTIONS,
+                        key=priority_key,
+                        on_change=lambda path=case["path"], key=priority_key, cid=case.get("case_id"), legacy=case.get("is_legacy", False): update_tracked_priority(
+                            path,
+                            key,
+                            case_id=cid,
+                            is_legacy=legacy,
+                        ),
+                    )
+            with controls[1]:
+                if case.get("is_legacy"):
+                    st.caption("Status editing is unavailable for legacy JSON files.")
+                else:
+                    options = TRACKING_STATUS_OPTIONS.get(case.get("type"))
+                    if options:
+                        status_options = list(options)
+                        current_status = case.get("status", "")
+                        if current_status and current_status not in status_options:
+                            status_options = [current_status] + [
+                                opt for opt in status_options if opt != current_status
+                            ]
+                        st.selectbox(
+                            "Status",
+                            status_options,
+                            key=status_key,
+                            on_change=lambda path=case["path"], key=status_key, cid=case.get("case_id"), legacy=case.get("is_legacy", False): update_tracked_status(
+                                path,
+                                key,
+                                case_id=cid,
+                                is_legacy=legacy,
+                            ),
+                        )
+                    else:
+                        st.text_input(
+                            "Status",
+                            key=status_key,
+                            on_change=lambda path=case["path"], key=status_key, cid=case.get("case_id"), legacy=case.get("is_legacy", False): update_tracked_status(
+                                path,
+                                key,
+                                case_id=cid,
+                                is_legacy=legacy,
+                            ),
+                        )
+
+            action_cols = st.columns(2)
+            with action_cols[0]:
+                if st.button(
+                    "Load", key=f"dash_load_{Path(case['path']).stem}"
+                ):
+                    request_load_from_path(case["path"])
+            with action_cols[1]:
+                button_label = "Untrack" if case.get("is_legacy") else "Stop Tracking"
+                if st.button(
+                    button_label,
+                    key=f"dash_untrack_{Path(case['path']).stem}",
+                ):
+                    untrack_case(
+                        case["path"],
+                        case_id=case.get("case_id"),
+                        is_legacy=case.get("is_legacy"),
+                    )
 
 
 def render_case_metadata(label: str, value: str | None) -> None:
@@ -1568,7 +1938,7 @@ def render_dashboard() -> None:
         render_tracked_case_insights(tracked_cases)
         st.markdown("---")
         st.subheader("Recent Tracked Files")
-        recent = recent_tracked_files()
+        recent = recent_tracked_files(tracked_cases)
         if recent:
             for path in recent:
                 st.write(path.stem)
@@ -1595,12 +1965,18 @@ def render_dashboard() -> None:
             st.markdown("</div>", unsafe_allow_html=True)
 
 
-def recent_tracked_files() -> list:
-    files = sorted(
-        TRACKED_CASES_DIR.glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+def recent_tracked_files(cases: list | None = None) -> list[Path]:
+    if cases is None:
+        cases = load_tracked_cases()
+    files: list[Path] = []
+    for entry in cases:
+        path_value = entry.get("path") if isinstance(entry, Mapping) else None
+        if not path_value:
+            continue
+        candidate = Path(path_value)
+        if candidate.exists():
+            files.append(candidate)
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return files[:20]
 
 
@@ -2220,6 +2596,13 @@ def save_case_to_database(
         if notify:
             st.error("Case ID is required to save.")
         return None
+    if not isinstance(case.tracking, TrackingData):
+        case.tracking = TrackingData(**(case.tracking or {})) if case.tracking else TrackingData()
+    case.tracking.priority = normalize_priority(case.tracking.priority)
+    if not case.kiroshi_version:
+        case.kiroshi_version = VERSION
+    else:
+        case.kiroshi_version = str(case.kiroshi_version)
     file_path = DATABASE_DIR / f"{case.case_id}.json"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(asdict(case), f, indent=2)
@@ -2249,13 +2632,15 @@ def load_case_from_path(path: str) -> None:
             notify=False,
             update_history=False,
         )
+        ensure_tracking_session_defaults(
+            CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
+        )
         # Enable tracking tab if loaded from tracked directory or active file
         p = Path(path)
-        if p.parent == TRACKED_CASES_DIR or p.name.endswith("_Active.json"):
+        if st.session_state.case.tracking.active:
             st.session_state.track_case = True
-            st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = normalize_priority(
-                raw_data.get("priority")
-            )
+        elif p.parent == TRACKED_CASES_DIR or p.name.endswith("_Active.json"):
+            st.session_state.track_case = True
         else:
             st.session_state.track_case = False
         st.success("Case loaded successfully.")
@@ -2279,6 +2664,10 @@ def load_case_from_bytes(data: bytes) -> None:
             notify=False,
             update_history=False,
         )
+        ensure_tracking_session_defaults(
+            CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
+        )
+        st.session_state.track_case = bool(st.session_state.case.tracking.active)
         st.success("Case loaded successfully.")
         st.rerun()
     except Exception as e:
@@ -4027,116 +4416,112 @@ Thank you in advance,
     if tab_tracking:
         with tab_tracking:
             st.subheader("Tracking")
+            ensure_tracking_session_defaults(case_idx, D.tracking)
+            tracking_type_key = widget_key("tracking_type", case_idx)
             tracking_type = st.selectbox(
                 "Tracking type",
                 ["Dell", "FedEx", "Custom"],
-                key=widget_key("tracking_type", case_idx),
+                key=tracking_type_key,
             )
-            company = st.text_input("Company", key=widget_key("track_company", case_idx))
-            end_user = st.text_input("End User", key=widget_key("track_end_user", case_idx))
-            creation_day = st.date_input(
-                "Creation day", value=date.today(), key=widget_key("track_creation_day", case_idx)
+
+            st.text_input("Case ID", value=D.case_id, disabled=True)
+            st.text_input("Company", value=D.company_name, disabled=True)
+            end_user_value = D.contact_name or D.caller_name or ""
+            st.text_input("End User", value=end_user_value, disabled=True)
+            phone_value = (
+                D.phone_number or D.office_ph or D.direct_ph or ""
             )
-            ticket_number = st.text_input(
-                "Ticket Number", key=widget_key("track_ticket_number", case_idx)
-            )
+            st.text_input("Phone", value=phone_value, disabled=True)
+            created_display = format_tracking_date(D.tracking.creation_day)
+            if not created_display:
+                created_display = datetime.now().strftime("%Y-%m-%d")
+            st.text_input("Created", value=created_display, disabled=True)
+
+            ticket_key = widget_key("track_ticket_number", case_idx)
+            ticket_number = st.text_input("Ticket Number", key=ticket_key)
+
             priority_key = widget_key("track_priority", case_idx)
-            current_priority = normalize_priority(st.session_state.get(priority_key))
-            st.session_state[priority_key] = current_priority
-            priority = st.selectbox(
-                "Priority",
-                PRIORITY_OPTIONS,
-                key=priority_key,
+            st.session_state[priority_key] = normalize_priority(
+                st.session_state.get(priority_key)
             )
-            status = ""
-            custom_category = None
-            if tracking_type == "Dell":
-                service_tag = st.text_input(
-                    "Service Tag", key=widget_key("track_service_tag", case_idx)
-                )
-                status = st.selectbox(
-                    "Status",
-                    [
-                        "Resolved",
-                        "Waiting for Technician",
-                        "Waiting for clinic to send back PC for review",
-                        "Pending update",
-                    ],
-                    key=widget_key("track_status", case_idx),
-                )
-            elif tracking_type == "FedEx":
-                expected_arrival_date = st.date_input(
-                    "Expected arrival date",
-                    value=date.today(),
-                    key=widget_key("track_expected_arrival", case_idx),
-                )
-                status = st.selectbox(
-                    "Status",
-                    [
-                        "Scanner arrived and waiting for the return",
-                        "Waiting for scanner to arrive",
-                        "waiting for pickup",
-                        "scanner sent",
-                        "waiting to arrive to the doctor's office.",
-                    ],
-                    key=widget_key("track_status", case_idx),
-                )
+            st.selectbox("Priority", PRIORITY_OPTIONS, key=priority_key)
+
+            category_key = widget_key("track_category", case_idx)
+            st.text_input("Category", key=category_key)
+
+            status_key = widget_key("track_status", case_idx)
+            status_options = TRACKING_STATUS_OPTIONS.get(tracking_type)
+            if status_options:
+                status_choices = list(status_options)
+                current_status = st.session_state.get(status_key, "")
+                if current_status and current_status not in status_choices:
+                    status_choices = [current_status] + [
+                        opt for opt in status_choices if opt != current_status
+                    ]
+                st.selectbox("Status", status_choices, key=status_key)
             else:
-                custom_category = st.text_input(
-                    "Custom category", key=widget_key("track_custom_category", case_idx)
-                )
-                status = st.text_input(
-                    "Status", key=widget_key("track_custom_status", case_idx)
-                )
-            case_link = st.text_input(
-                "Case link (CRM)", key=widget_key("track_case_link", case_idx)
-            )
+                st.text_input("Status", key=status_key)
+
+            service_tag_key = widget_key("track_service_tag", case_idx)
+            expected_key = widget_key("track_expected_arrival", case_idx)
+            if tracking_type == "Dell":
+                if (
+                    not D.tracking.active
+                    and service_tag_key not in st.session_state
+                    and D.service_tag
+                ):
+                    st.session_state[service_tag_key] = D.service_tag
+                st.text_input("Service Tag", key=service_tag_key)
+            elif tracking_type == "FedEx":
+                st.date_input("Expected arrival date", key=expected_key)
+
+            case_link_key = widget_key("track_case_link", case_idx)
+            st.text_input("Case link (CRM)", key=case_link_key)
+
             if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
-                status_value = status.strip() if isinstance(status, str) else status
-                info = {
-                    "type": tracking_type,
-                    "case_id": D.case_id,
-                    "company": company,
-                    "end_user": end_user,
-                    "phone_number": getattr(D, "phone_number", "")
-                    or getattr(D, "office_ph", "")
-                    or getattr(D, "direct_ph", ""),
-                    "creation_day": creation_day.isoformat(),
-                    "ticket_number": ticket_number,
-                    "status": status_value,
-                    "priority": priority,
-                }
-                link_value = case_link.strip()
-                if link_value:
-                    info["case_link"] = link_value
-                if tracking_type == "Dell":
-                    info["service_tag"] = service_tag
-                    file_path = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
-                elif tracking_type == "FedEx":
-                    info["expected_arrival_date"] = expected_arrival_date.isoformat()
-                    file_path = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
+                if not D.case_id:
+                    st.error("Case ID is required before tracking can be enabled.")
                 else:
-                    custom_value = (custom_category or "").strip()
-                    info["custom_category"] = custom_value
-                    file_path = TRACKED_CASES_DIR / f"Custom_{D.case_id}_Active.json"
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(info, f, indent=2)
-                st.session_state.track_case = True
-                st.success("Tracking information saved.")
+                    D.tracking.active = True
+                    D.tracking.type = tracking_type
+                    D.tracking.category = (st.session_state.get(category_key, "") or "").strip()
+                    D.tracking.status = (st.session_state.get(status_key, "") or "").strip()
+                    D.tracking.priority = normalize_priority(
+                        st.session_state.get(priority_key)
+                    )
+                    D.tracking.ticket_number = (
+                        st.session_state.get(ticket_key, "") or ""
+                    ).strip()
+                    D.tracking.case_link = (
+                        st.session_state.get(case_link_key, "") or ""
+                    ).strip()
+                    if not D.tracking.creation_day:
+                        D.tracking.creation_day = datetime.now().date().isoformat()
+                    if tracking_type == "Dell":
+                        D.tracking.service_tag = (
+                            st.session_state.get(service_tag_key, "") or ""
+                        ).strip()
+                        D.tracking.expected_arrival_date = ""
+                    elif tracking_type == "FedEx":
+                        expected_value = st.session_state.get(expected_key)
+                        if isinstance(expected_value, date):
+                            D.tracking.expected_arrival_date = expected_value.isoformat()
+                        else:
+                            D.tracking.expected_arrival_date = ""
+                        D.tracking.service_tag = ""
+                    else:
+                        D.tracking.expected_arrival_date = ""
+                        D.tracking.service_tag = ""
+                    save_case_to_database(D, notify=False)
+                    ensure_tracking_session_defaults(case_idx, D.tracking)
+                    st.session_state.track_case = True
+                    st.success("Tracking information saved.")
             if st.button(
                 "Close case & stop tracking",
                 key=widget_key("close_tracking", case_idx),
             ):
-                dell_file = TRACKED_CASES_DIR / f"Dell_{D.case_id}_Active.json"
-                fedex_file = TRACKED_CASES_DIR / f"FedEx_{D.case_id}_Active.json"
-                custom_file = TRACKED_CASES_DIR / f"Custom_{D.case_id}_Active.json"
-                for f in [dell_file, fedex_file, custom_file]:
-                    if f.exists():
-                        dest = DATABASE_DIR / f"{D.case_id}.json"
-                        try:
-                            f.rename(dest)
-                        except Exception:
-                            pass
+                D.tracking.active = False
+                save_case_to_database(D, notify=False)
                 st.session_state.track_case = False
                 st.rerun()
 
