@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, asdict, fields, field, is_dataclass
 from datetime import datetime, date, timedelta
 import logging
+import time
 from pathlib import Path
 import hashlib
 import re
@@ -24,17 +25,18 @@ import subprocess
 import sys
 import math
 import calendar
+import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from html import escape
 import textwrap
 import inspect
-import time
 
 import pandas as pd
 import altair as alt
 import streamlit as st
 import streamlit.components.v1 as components
+from logging.handlers import RotatingFileHandler
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -589,11 +591,13 @@ VERSION_NOT_RELEVANT = "Version not relevant for this case"
 LOG_DIR = Path.home() / "Kiroshi Documentation"
 try:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / LOG_FILE
     log_handlers = [
-        logging.FileHandler(LOG_DIR / LOG_FILE, encoding="utf-8"),
+        RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"),
         logging.StreamHandler(),
     ]
 except OSError:
+    log_path = None
     log_handlers = [logging.StreamHandler()]
 
 logging.basicConfig(
@@ -601,7 +605,90 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=log_handlers,
 )
+logging.captureWarnings(True)
+
+
+def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Defer to default handler for KeyboardInterrupt to allow clean exit.
+        return sys.__excepthook__(exc_type, exc_value, exc_traceback)
+    logging.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+
+sys.excepthook = _log_uncaught_exception
+
+if log_path:
+    logging.info("Logging initialized; writing to %s", log_path)
+else:
+    logging.info("Logging initialized; using stdout only (log directory unavailable)")
+
 logging.info("Kiroshi app started")
+
+
+def _shorten_for_log(text: str, limit: int = 160) -> str:
+    if not text:
+        return ""
+    cleaned = " ".join(str(text).split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1] + "…"
+
+
+def invoke_gpt(
+    prompt: str,
+    history: list[Mapping[str, object]] | None,
+    api_key: str | None,
+    model: str | None,
+    base_url: str,
+    *,
+    source: str,
+) -> str:
+    """Wrapper around :func:`query_atom` that logs request lifecycle details."""
+
+    request_id = f"gpt-{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
+    history_messages = len(history or [])
+    prompt_text = prompt or ""
+    prompt_preview = _shorten_for_log(prompt_text)
+    sanitized_base_url = base_url or "<default>"
+    has_api_key = bool(api_key)
+    logging.info(
+        "GPT request %s started [source=%s] model=%s base_url=%s api_key=%s "
+        "prompt_chars=%d history_messages=%d prompt_preview=\"%s\"",
+        request_id,
+        source,
+        model or "<default>",
+        sanitized_base_url,
+        "provided" if has_api_key else "missing",
+        len(prompt_text),
+        history_messages,
+        prompt_preview,
+    )
+    start = time.perf_counter()
+    try:
+        reply = query_atom(prompt, history, api_key, model, base_url)
+    except Exception as exc:
+        duration = time.perf_counter() - start
+        logging.exception(
+            "GPT request %s failed after %.2fs [source=%s]: %s",
+            request_id,
+            duration,
+            source,
+            exc,
+        )
+        raise
+
+    duration = time.perf_counter() - start
+    reply_text = reply or ""
+    logging.info(
+        "GPT request %s completed in %.2fs [source=%s] reply_chars=%d reply_preview=\"%s\"",
+        request_id,
+        duration,
+        source,
+        len(reply_text),
+        _shorten_for_log(reply_text),
+    )
+    return reply
+
 
 # Local logo assets from repository
 ASSETS_DIR = Path(__file__).parent
@@ -1848,6 +1935,7 @@ _init_state("theme_preview", "auto")
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
+_init_state("generated_email", "")
 _init_state("atom_history", load_memory())
 _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
@@ -3762,10 +3850,16 @@ def render_atom_chat_panel() -> None:
                     + f"\n\nQuestion: {search_query}"
                 )
                 try:
-                    reply = query_atom(
-                        message, st.session_state.atom_history, api_key, model, base_url
+                    reply = invoke_gpt(
+                        message,
+                        st.session_state.atom_history,
+                        api_key,
+                        model,
+                        base_url,
+                        source="manual_docs_search",
                     )
                 except Exception as e:
+                    logging.error("Manual docs GPT search failed: %s", e)
                     st.session_state.db_search_result = str(e)
                 else:
                     st.session_state.atom_history.append(
@@ -3795,8 +3889,16 @@ def render_atom_chat_panel() -> None:
         else:
             history = st.session_state.atom_history.copy()
             try:
-                reply = query_atom(user_msg, history, api_key, model, base_url)
+                reply = invoke_gpt(
+                    user_msg,
+                    history,
+                    api_key,
+                    model,
+                    base_url,
+                    source="atom_chat",
+                )
             except Exception as e:
+                logging.error("Atom chat request failed: %s", e)
                 st.session_state.atom_history.append({"role": "user", "content": user_msg})
                 st.session_state.atom_history.append(
                     {"role": "assistant", "content": str(e)}
@@ -5138,8 +5240,6 @@ def save_case_to_database(
 
 
 def load_case_from_path(path: str) -> None:
-    with case_loading_overlay():
-        time.sleep(7)
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw_data = json.load(f)
@@ -5201,8 +5301,6 @@ def load_case_from_path(path: str) -> None:
 
 
 def load_case_from_bytes(data: bytes) -> None:
-    with case_loading_overlay():
-        time.sleep(7)
     try:
         payload = json.loads(data.decode("utf-8"))
         scratchpad_value = (
@@ -5943,14 +6041,16 @@ def render_case_ui(case_idx: int):
                         + json.dumps(missing)
                     )
                     try:
-                        reply = query_atom(
+                        reply = invoke_gpt(
                             user_message,
                             st.session_state.atom_history,
                             api_key,
                             model,
                             base_url,
+                            source="ai_assist",
                         )
                     except Exception as e:
+                        logging.error("AI Assist request failed: %s", e)
                         st.error(str(e))
                     else:
                         st.session_state.atom_history.append({"role": "user", "content": user_message})
@@ -6050,14 +6150,16 @@ def render_case_ui(case_idx: int):
                             "Return ONLY the STRICT JSON described above. No extra text, no markdown."
                         )
                         try:
-                            reply = query_atom(
+                            reply = invoke_gpt(
                                 user_message,
                                 st.session_state.atom_history,
                                 api_key,
                                 model,
                                 base_url,
+                                source="categorize",
                             )
                         except Exception as e:
+                            logging.error("Categorize request failed: %s", e)
                             st.error(str(e))
                         else:
                             st.session_state.atom_history.append({"role": "user", "content": user_message})
@@ -6092,14 +6194,16 @@ def render_case_ui(case_idx: int):
                         + json.dumps(case_dict, indent=2)
                     )
                     try:
-                        reply = query_atom(
+                        reply = invoke_gpt(
                             user_message,
                             st.session_state.atom_history,
                             api_key,
                             model,
                             base_url,
+                            source="ask",
                         )
                     except Exception as e:
+                        logging.error("Ask request failed: %s", e)
                         st.error(str(e))
                     else:
                         st.session_state.atom_history.append({"role": "user", "content": user_message})
@@ -6131,14 +6235,16 @@ def render_case_ui(case_idx: int):
                         + json.dumps(case_dict, indent=2)
                     )
                     try:
-                        reply = query_atom(
+                        reply = invoke_gpt(
                             user_message,
                             st.session_state.atom_history,
                             api_key,
                             model,
                             base_url,
+                            source="verify",
                         )
                     except Exception as e:
+                        logging.error("Verify request failed: %s", e)
                         st.error(str(e))
                     else:
                         st.session_state.atom_history.append({"role": "user", "content": user_message})
@@ -7023,6 +7129,11 @@ Thank you in advance,
                     value=st.session_state.get(widget_key("api_scan_time", case_idx), False),
                     key=widget_key("api_scan_time", case_idx),
                 )
+                generated_email_key = widget_key("generated_email_output", case_idx)
+                if generated_email_key not in st.session_state:
+                    st.session_state[generated_email_key] = st.session_state.get(
+                        "generated_email", ""
+                    )
                 if st.button("Use GPT-OSS", key=widget_key("use_gpt", case_idx)):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
@@ -7051,25 +7162,27 @@ Thank you in advance,
                                     )
                                 if extras:
                                     augmented_prompt += "\n\n" + "\n".join(extras)
-                                reply = query_atom(
+                                reply = invoke_gpt(
                                     augmented_prompt,
                                     st.session_state.atom_history,
                                     api_key,
                                     model,
                                     base_url,
+                                    source="gpt_oss_email",
                                 )
                             except Exception as e:
+                                logging.error("GPT-OSS email generation failed: %s", e)
                                 st.error(str(e))
                             else:
                                 st.session_state.atom_history.append({"role": "user", "content": augmented_prompt})
                                 st.session_state.atom_history.append({"role": "assistant", "content": reply})
                                 save_memory(st.session_state.atom_history)
                                 st.session_state.generated_email = reply
+                                st.session_state[generated_email_key] = reply
                 st.session_state.generated_email = st.text_area(
                     "Generated Email",
-                    st.session_state.get("generated_email", ""),
                     height=300,
-                    key=widget_key("generated_email_output", case_idx),
+                    key=generated_email_key,
                 )
     # ================== TRACKING TAB =================
     if tab_tracking:
