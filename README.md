@@ -128,6 +128,55 @@ After running the script, close and reopen the terminal, then verify with:
 streamlit --version
 ```
 
+## "Compile it for Dummies" guide
+
+If you want a single executable that bundles Python and all dependencies, you
+can create one with PyInstaller. The steps below assume you have never done
+this before and walk through the entire process from a clean machine.
+
+1. **Install Python (64-bit).** Download the official 64-bit Python installer
+   from [python.org](https://www.python.org/downloads/) and ensure "Add Python
+   to PATH" is checked during installation.
+2. **Install Git (optional but recommended).** Grab
+   [Git for Windows](https://git-scm.com/download/win) so you can clone the
+   repository instead of downloading ZIP files manually.
+3. **Download the project.** Either run
+   `git clone https://github.com/<your-account>/KiroshiDocumentationSystem.git`
+   or download and extract the ZIP archive from GitHub.
+4. **Open a terminal inside the project folder.** On Windows you can use
+   *Command Prompt* or *PowerShell* and run `cd` to the extracted folder, for
+   example: `cd C:\Users\you\Downloads\KiroshiDocumentationSystem`.
+5. **Create (optional) and activate a virtual environment.** This keeps build
+   tools separate from the rest of your system:
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   ```
+6. **Install the app requirements and PyInstaller.**
+   ```powershell
+   pip install -r requirements.txt
+   pip install pyinstaller
+   ```
+7. **Run PyInstaller.** The project ships with a ready-made command. On
+   Windows copy and paste the line below; on macOS/Linux you can instead run
+   `bash build.sh` from the repository root. The `--add-data` flag ensures the
+   main Streamlit script is bundled so the executable can find it at runtime.
+   ```powershell
+   pyinstaller --onefile --name KiroshiDocumentationSystem --collect-all streamlit --add-data "case_documentation_app.py;." run_app.py
+   ```
+   > **macOS/Linux note:** replace the semicolon in the `--add-data` argument
+   > with a colon (`case_documentation_app.py:.`).
+8. **Wait for the build to finish.** When PyInstaller completes you will find
+   the executable in the `dist` folder (for example
+   `dist\KiroshiDocumentationSystem.exe`). Copy that file wherever you want to
+   run the app.
+9. **Launch the executable.** Double-click the file from `dist` or run it from
+   a terminal. Streamlit will start and open the Kiroshi interface in your
+   browser just like when running `streamlit run`.
+
+If you ever want to rebuild after pulling updates, repeat steps 6 and 7 (you do
+not need to reinstall Python or Git).
+
 ## Usage
 
 If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_1-7-2.bat`).
