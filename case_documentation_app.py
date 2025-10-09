@@ -1031,6 +1031,25 @@ def case_loading_overlay(message: str = "Preparing case data…"):
         placeholder.empty()
 
 
+def trigger_hard_reload() -> None:
+    """Force a full browser reload similar to pressing F5."""
+    components.html(
+        """
+        <script>
+        const reloadKey = 'kiroshi-hard-reload';
+        if (!window.sessionStorage.getItem(reloadKey)) {
+            window.sessionStorage.setItem(reloadKey, '1');
+            window.location.reload();
+        } else {
+            window.sessionStorage.removeItem(reloadKey);
+        }
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 def apply_scratchpad_style(label: str) -> None:
     style = st.session_state.get("scratchpad_style", {}) or {}
     font_family = style.get("font_family", "Source Sans Pro")
@@ -4943,7 +4962,7 @@ def load_case_from_path(path: str) -> None:
         else:
             st.session_state.track_case = False
         st.success("Case loaded successfully.")
-        st.rerun()
+        trigger_hard_reload()
     except Exception as e:
         st.error(f"Failed to load case: {e}")
 
@@ -4995,7 +5014,7 @@ def load_case_from_bytes(data: bytes) -> None:
         )
         st.session_state.track_case = bool(st.session_state.case.tracking.active)
         st.success("Case loaded successfully.")
-        st.rerun()
+        trigger_hard_reload()
     except Exception as e:
         st.error(f"Failed to load case: {e}")
 
