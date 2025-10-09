@@ -29,7 +29,6 @@ from collections.abc import Callable, Iterable, Mapping
 from html import escape
 import textwrap
 import inspect
-import time
 
 import pandas as pd
 import altair as alt
@@ -1848,6 +1847,7 @@ _init_state("theme_preview", "auto")
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
+_init_state("generated_email", "")
 _init_state("atom_history", load_memory())
 _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
@@ -5138,8 +5138,6 @@ def save_case_to_database(
 
 
 def load_case_from_path(path: str) -> None:
-    with case_loading_overlay():
-        time.sleep(7)
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw_data = json.load(f)
@@ -5201,8 +5199,6 @@ def load_case_from_path(path: str) -> None:
 
 
 def load_case_from_bytes(data: bytes) -> None:
-    with case_loading_overlay():
-        time.sleep(7)
     try:
         payload = json.loads(data.decode("utf-8"))
         scratchpad_value = (
@@ -7023,6 +7019,11 @@ Thank you in advance,
                     value=st.session_state.get(widget_key("api_scan_time", case_idx), False),
                     key=widget_key("api_scan_time", case_idx),
                 )
+                generated_email_key = widget_key("generated_email_output", case_idx)
+                if generated_email_key not in st.session_state:
+                    st.session_state[generated_email_key] = st.session_state.get(
+                        "generated_email", ""
+                    )
                 if st.button("Use GPT-OSS", key=widget_key("use_gpt", case_idx)):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
@@ -7065,11 +7066,11 @@ Thank you in advance,
                                 st.session_state.atom_history.append({"role": "assistant", "content": reply})
                                 save_memory(st.session_state.atom_history)
                                 st.session_state.generated_email = reply
+                                st.session_state[generated_email_key] = reply
                 st.session_state.generated_email = st.text_area(
                     "Generated Email",
-                    st.session_state.get("generated_email", ""),
                     height=300,
-                    key=widget_key("generated_email_output", case_idx),
+                    key=generated_email_key,
                 )
     # ================== TRACKING TAB =================
     if tab_tracking:
