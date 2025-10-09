@@ -326,7 +326,7 @@ def apply_github_update(repo: str, branch: str) -> Path:
                 break
         if source_root is None:
             source_root = extracted_dirs[0]
-        destination_root = APP_ROOT.parent
+        destination_root = APP_ROOT
         _copy_update_tree(source_root, destination_root)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         stored_archive = UPDATES_DIR / f"{branch}-{timestamp}.zip"
