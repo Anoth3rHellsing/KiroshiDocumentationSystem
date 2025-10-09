@@ -9,6 +9,8 @@ import io
 import json
 import os
 import zipfile
+import shutil
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict, fields, field, is_dataclass
 from datetime import datetime, date, timedelta
@@ -120,6 +122,8 @@ else:
 DATABASE_DIR.mkdir(parents=True, exist_ok=True)
 UTILITIES_DIR = DATABASE_DIR / "utilities"
 UTILITIES_DIR.mkdir(parents=True, exist_ok=True)
+UPDATES_DIR = UTILITIES_DIR / "updates"
+UPDATES_DIR.mkdir(parents=True, exist_ok=True)
 RECENT_CASES_PATH = UTILITIES_DIR / "recent_cases.json"
 if not RECENT_CASES_PATH.exists():
     RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
@@ -136,6 +140,14 @@ CASE_ATTACHMENTS_ROOT = DOCUMENTS_DIR / "kiroshi"
 CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
 
 AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
+
+APP_ROOT = Path(__file__).resolve().parent
+DEFAULT_UPDATE_REPO = "KiroshiCorp/KiroshiDocumentationSystem"
+DEFAULT_UPDATE_BRANCH = "main"
+try:
+    UPDATE_CHECK_TIMEOUT = float(os.environ.get("KIROSHI_UPDATE_TIMEOUT", "15"))
+except (TypeError, ValueError):
+    UPDATE_CHECK_TIMEOUT = 15.0
 
 
 SETTINGS_FILE = DATABASE_DIR / "settings.json"
@@ -197,6 +209,132 @@ def _persist_setting(key: str) -> None:
             json.dump(_persistent_settings_cache, fh, indent=2, sort_keys=True)
     except OSError as exc:
         logging.warning("Failed to persist setting %s: %s", key, exc)
+
+
+@dataclass
+class UpdateCheckResult:
+    repo: str
+    branch: str
+    current_version: str
+    latest_version: str | None = None
+    latest_commit: str | None = None
+    latest_published: str | None = None
+    has_update: bool = False
+    download_url: str | None = None
+    error: str | None = None
+
+
+def _resolve_update_target() -> tuple[str, str]:
+    repo = os.environ.get("KIROSHI_UPDATE_REPO", DEFAULT_UPDATE_REPO).strip()
+    branch = os.environ.get("KIROSHI_UPDATE_BRANCH", DEFAULT_UPDATE_BRANCH).strip()
+    if not repo:
+        repo = DEFAULT_UPDATE_REPO
+    if "/" not in repo:
+        raise ValueError(
+            "Invalid GitHub repository configured for updates. Use the form 'owner/repository'."
+        )
+    if not branch:
+        branch = DEFAULT_UPDATE_BRANCH
+    return repo, branch
+
+
+def _fetch_remote_version(repo: str, branch: str) -> str:
+    raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/case_documentation_app.py"
+    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT)
+    response.raise_for_status()
+    match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
+    if not match:
+        raise RuntimeError("VERSION marker not found in remote application source.")
+    return match.group(1).strip()
+
+
+def _fetch_latest_commit_info(repo: str, branch: str) -> dict[str, str | None]:
+    api_url = f"https://api.github.com/repos/{repo}/commits/{branch}"
+    headers = {"Accept": "application/vnd.github+json"}
+    response = requests.get(api_url, headers=headers, timeout=UPDATE_CHECK_TIMEOUT)
+    response.raise_for_status()
+    payload = response.json()
+    commit = payload.get("commit", {}) if isinstance(payload, dict) else {}
+    committer = commit.get("committer", {}) if isinstance(commit, dict) else {}
+    return {
+        "sha": payload.get("sha") if isinstance(payload, dict) else None,
+        "date": committer.get("date") if isinstance(committer, dict) else None,
+    }
+
+
+def _format_commit_timestamp(timestamp: str | None) -> str | None:
+    if not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return timestamp
+    return parsed.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
+
+def check_for_updates() -> UpdateCheckResult:
+    repo, branch = _resolve_update_target()
+    result = UpdateCheckResult(repo=repo, branch=branch, current_version=VERSION)
+    try:
+        remote_version = _fetch_remote_version(repo, branch)
+    except Exception as exc:
+        result.error = f"Unable to retrieve remote version: {exc}"
+        return result
+    result.latest_version = remote_version
+    result.has_update = remote_version != VERSION
+    try:
+        commit_info = _fetch_latest_commit_info(repo, branch)
+    except Exception as exc:
+        logging.debug("Unable to retrieve commit metadata: %s", exc)
+    else:
+        result.latest_commit = commit_info.get("sha")
+        result.latest_published = _format_commit_timestamp(commit_info.get("date"))
+    result.download_url = f"https://codeload.github.com/{repo}/zip/refs/heads/{branch}"
+    return result
+
+
+def _copy_update_tree(source_root: Path, destination_root: Path) -> None:
+    for item in source_root.iterdir():
+        target = destination_root / item.name
+        if item.is_dir():
+            shutil.copytree(item, target, dirs_exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+
+
+def apply_github_update(repo: str, branch: str) -> Path:
+    download_url = f"https://codeload.github.com/{repo}/zip/refs/heads/{branch}"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        archive_path = tmp_path / "update.zip"
+        with requests.get(download_url, stream=True, timeout=UPDATE_CHECK_TIMEOUT) as response:
+            response.raise_for_status()
+            with archive_path.open("wb") as fh:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        fh.write(chunk)
+        with zipfile.ZipFile(archive_path) as zf:
+            zf.extractall(tmp_path)
+        extracted_dirs = [p for p in tmp_path.iterdir() if p.is_dir()]
+        if not extracted_dirs:
+            raise RuntimeError("Downloaded archive did not contain any files.")
+        source_root = None
+        for candidate in extracted_dirs:
+            if (candidate / "case_documentation_app.py").exists():
+                source_root = candidate
+                break
+        if source_root is None:
+            source_root = extracted_dirs[0]
+        destination_root = APP_ROOT.parent
+        _copy_update_tree(source_root, destination_root)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stored_archive = UPDATES_DIR / f"{branch}-{timestamp}.zip"
+        try:
+            shutil.copy2(archive_path, stored_archive)
+        except OSError as exc:
+            logging.debug("Unable to persist update archive: %s", exc)
+        return destination_root
 
 
 def _get_persistent_default(key: str, fallback: object) -> object:
@@ -1754,6 +1892,9 @@ _init_state("tutorial_step", 0)
 _init_state("pending_load", None)
 _init_state("show_bored", False)
 _init_state("autosave_notice", None)
+_init_state("update_status", None)
+_init_state("update_status_checked_at", None)
+_init_state("update_apply_feedback", None)
 _init_state(
     "bored_game",
     {
@@ -3300,6 +3441,98 @@ def render_settings_panel() -> None:
             st.info(
                 "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
             )
+
+    st.markdown("### Updates")
+    st.caption(
+        "Consulta la rama principal de GitHub y descarga la versión más reciente de Kiroshi sin salir de la aplicación."
+    )
+    feedback = st.session_state.get("update_apply_feedback")
+    if isinstance(feedback, tuple) and len(feedback) == 2:
+        level, message = feedback
+        if level == "success":
+            st.success(message)
+        elif level == "warning":
+            st.warning(message)
+        else:
+            st.error(message)
+
+    update_status_obj = st.session_state.get("update_status")
+    update_check_clicked = st.button(
+        "Check for updates", key=global_widget_key("update_check")
+    )
+    if update_check_clicked:
+        st.session_state.update_apply_feedback = None
+        with st.spinner("Consultando GitHub..."):
+            update_status_obj = check_for_updates()
+        st.session_state.update_status = update_status_obj
+        st.session_state.update_status_checked_at = datetime.now()
+
+    update_status: UpdateCheckResult | None
+    if isinstance(update_status_obj, UpdateCheckResult):
+        update_status = update_status_obj
+    elif isinstance(update_status_obj, Mapping):
+        try:
+            update_status = UpdateCheckResult(**update_status_obj)  # type: ignore[arg-type]
+        except TypeError:
+            update_status = None
+    else:
+        update_status = None
+
+    if update_status:
+        st.write(f"Current version: {update_status.current_version}")
+        st.write(
+            f"Repository: {update_status.repo} · Branch: {update_status.branch}"
+        )
+        if update_status.error:
+            st.error(update_status.error)
+        else:
+            if update_status.latest_version:
+                st.write(f"Latest version: {update_status.latest_version}")
+            if update_status.latest_commit:
+                commit_caption = f"Commit {update_status.latest_commit[:7]}"
+                if update_status.latest_published:
+                    commit_caption += f" · {update_status.latest_published}"
+                st.caption(commit_caption)
+            if update_status.has_update:
+                st.warning(
+                    "Hay una actualización disponible. Descárgala para mantener tu instalación al día."
+                )
+                if st.button(
+                    "Download and apply update",
+                    key=global_widget_key("update_apply"),
+                ):
+                    with st.spinner("Descargando y aplicando la actualización..."):
+                        try:
+                            apply_github_update(update_status.repo, update_status.branch)
+                        except Exception as exc:
+                            st.session_state.update_apply_feedback = (
+                                "error",
+                                f"No se pudo aplicar la actualización: {exc}",
+                            )
+                        else:
+                            st.session_state.update_apply_feedback = (
+                                "success",
+                                "Actualización instalada. Reinicia Kiroshi para cargar los cambios más recientes.",
+                            )
+                            st.session_state.update_status = None
+                            st.session_state.update_status_checked_at = datetime.now()
+                        st.rerun()
+            else:
+                st.success("Ya estás usando la versión más reciente disponible.")
+            if update_status.download_url:
+                st.markdown(
+                    f"[Descargar ZIP manualmente]({update_status.download_url})"
+                )
+                st.caption(
+                    "Úsalo si prefieres aplicar la actualización manualmente o compartirla con tu equipo."
+                )
+        checked_at = st.session_state.get("update_status_checked_at")
+        if isinstance(checked_at, datetime):
+            st.caption(f"Última comprobación: {checked_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    else:
+        st.caption(
+            "Pulsa \"Check for updates\" para comprobar si hay cambios publicados en GitHub."
+        )
 
 
 def render_report_panel() -> None:
