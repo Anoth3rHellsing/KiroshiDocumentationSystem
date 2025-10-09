@@ -14,6 +14,7 @@ from dataclasses import dataclass, asdict, fields, field, is_dataclass
 from datetime import datetime, date, timedelta
 import logging
 from pathlib import Path
+import hashlib
 import re
 import base64
 import random
@@ -2784,7 +2785,8 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
         reverse=True,
     )
     for idx, case in enumerate(sorted_cases):
-        unique_suffix = f"{Path(case['path']).stem}_{idx}"
+        path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
+        unique_suffix = f"{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
         summary = " ".join(
             part
