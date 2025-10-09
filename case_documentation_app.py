@@ -9,20 +9,25 @@ import io
 import json
 import os
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass, asdict, fields, field, is_dataclass
 from datetime import datetime, date, timedelta
 import logging
 from pathlib import Path
+import hashlib
 import re
 import base64
 import random
 import subprocess
 import sys
+import math
+import calendar
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from html import escape
 import textwrap
 import inspect
+import time
 
 import pandas as pd
 import altair as alt
@@ -37,8 +42,11 @@ from reportlab.platypus import (
     TableStyle,
     Paragraph,
     Spacer,
-    Image,
 )
+from reportlab.graphics.shapes import Drawing, String
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.lineplots import LinePlot
+from reportlab.graphics.widgets.markers import makeMarker
 import requests
 import urllib3
 
@@ -141,6 +149,14 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed": False,
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
+    "enable_holiday_theme": True,
+    "scratchpad_style": {
+        "font_family": "Source Sans Pro",
+        "font_size": 15,
+        "background": "#ffffff",
+        "text_color": "#111827",
+        "line_height": 1.5,
+    },
 }
 
 
@@ -161,6 +177,8 @@ def _load_persistent_settings() -> dict[str, object]:
         if isinstance(default, bool) and isinstance(value, bool):
             filtered[key] = value
         elif isinstance(default, str) and isinstance(value, str):
+            filtered[key] = value
+        elif isinstance(default, dict) and isinstance(value, dict):
             filtered[key] = value
     return filtered
 
@@ -596,18 +614,452 @@ MOTD_MESSAGES = [
 ]
 
 
-def get_message_of_the_day() -> str:
-    """Return a pseudo-random MOTD that changes hourly.
+@dataclass(frozen=True)
+class ThemePalette:
+    key: str
+    name: str
+    primary: str
+    accent: str
+    background: str
+    surface: str
+    text: str
+    muted_text: str
+    motd_messages: list[str]
 
-    The message rotates every hour by seeding a deterministic RNG with the
-    current date and hour so everyone sees the same phrase within that period.
-    """
+
+DEFAULT_THEME = ThemePalette(
+    key="default",
+    name="Default",
+    primary="#433878",
+    accent="#7c3aed",
+    background="#f7f8ff",
+    surface="#ffffff",
+    text="#111827",
+    muted_text="#4b5563",
+    motd_messages=MOTD_MESSAGES,
+)
+
+HOLIDAY_THEMES: dict[str, ThemePalette] = {
+    "new_year": ThemePalette(
+        key="new_year",
+        name="New Year's Day",
+        primary="#0f172a",
+        accent="#fbbf24",
+        background="#0b1120",
+        surface="#10172a",
+        text="#f8fafc",
+        muted_text="#94a3b8",
+        motd_messages=[
+            "Fresh calendar, fresh chance—let's make this year's cases legendary!",
+            "New year, same scanners. Let’s keep them happier this time.",
+            "Resolve to close cases faster than fireworks fade.",
+        ],
+    ),
+    "mlk_day": ThemePalette(
+        key="mlk_day",
+        name="Martin Luther King Jr. Day",
+        primary="#1f2937",
+        accent="#60a5fa",
+        background="#0f172a",
+        surface="#16213c",
+        text="#f9fafb",
+        muted_text="#d1d5db",
+        motd_messages=[
+            "Support with dignity, lead with service—today and every day.",
+            "Great support honors great dreams. Keep the mission moving.",
+            "Clarity, empathy, action—our blueprint for better support.",
+        ],
+    ),
+    "presidents_day": ThemePalette(
+        key="presidents_day",
+        name="Presidents' Day",
+        primary="#1d4ed8",
+        accent="#ef4444",
+        background="#0f172a",
+        surface="#152346",
+        text="#f9fafb",
+        muted_text="#cbd5f5",
+        motd_messages=[
+            "Lead every ticket like it’s a campaign promise kept.",
+            "Checks, balances, and perfectly balanced documentation.",
+            "Red, white, and resolve—let’s govern these cases.",
+        ],
+    ),
+    "memorial_day": ThemePalette(
+        key="memorial_day",
+        name="Memorial Day",
+        primary="#1f2937",
+        accent="#ef4444",
+        background="#111827",
+        surface="#1f2937",
+        text="#f3f4f6",
+        muted_text="#9ca3af",
+        motd_messages=[
+            "Honor the service. Support with purpose.",
+            "Resilience isn’t just for systems—carry it in every case.",
+            "Today we remember by doing our best work for others.",
+        ],
+    ),
+    "juneteenth": ThemePalette(
+        key="juneteenth",
+        name="Juneteenth",
+        primary="#047857",
+        accent="#dc2626",
+        background="#022c22",
+        surface="#04312a",
+        text="#f0fdfa",
+        muted_text="#a7f3d0",
+        motd_messages=[
+            "Freedom celebrated, progress documented.",
+            "Empower every clinic, uplift every voice.",
+            "Document the wins—equity in every fix.",
+        ],
+    ),
+    "independence_day": ThemePalette(
+        key="independence_day",
+        name="Independence Day",
+        primary="#1d4ed8",
+        accent="#ef4444",
+        background="#0f172a",
+        surface="#172554",
+        text="#f9fafb",
+        muted_text="#cbd5f5",
+        motd_messages=[
+            "Liberty, justice, and scanners for all.",
+            "Fireworks are loud—our fixes are louder.",
+            "Stars, stripes, and spotless documentation.",
+        ],
+    ),
+    "labor_day": ThemePalette(
+        key="labor_day",
+        name="Labor Day",
+        primary="#2563eb",
+        accent="#f59e0b",
+        background="#0f172a",
+        surface="#13203d",
+        text="#f9fafb",
+        muted_text="#cbd5f5",
+        motd_messages=[
+            "Hard work deserves smart workflows. Let’s automate the pain away.",
+            "Celebrate progress—ship smoother support.",
+            "Labor less, document more intelligently.",
+        ],
+    ),
+    "columbus_day": ThemePalette(
+        key="columbus_day",
+        name="Indigenous Peoples' Day",
+        primary="#7c3aed",
+        accent="#f97316",
+        background="#1f172a",
+        surface="#2a1f3d",
+        text="#fdf4ff",
+        muted_text="#d8b4fe",
+        motd_messages=[
+            "Respect every journey—map the customer path clearly.",
+            "Discover better processes, honor every story.",
+            "Chart success with empathy and precision.",
+        ],
+    ),
+    "veterans_day": ThemePalette(
+        key="veterans_day",
+        name="Veterans Day",
+        primary="#1f2937",
+        accent="#3b82f6",
+        background="#0f172a",
+        surface="#1f2937",
+        text="#f9fafb",
+        muted_text="#d1d5db",
+        motd_messages=[
+            "Serve those who served with flawless follow-up.",
+            "Precision, honor, gratitude—build them into every note.",
+            "Support that stands at attention.",
+        ],
+    ),
+    "thanksgiving": ThemePalette(
+        key="thanksgiving",
+        name="Thanksgiving",
+        primary="#b45309",
+        accent="#d97706",
+        background="#422006",
+        surface="#78350f",
+        text="#fef3c7",
+        muted_text="#fde68a",
+        motd_messages=[
+            "Grateful users, grateful agents—pass the uptime.",
+            "Feast on solutions, serve seconds of documentation.",
+            "Gobble up those recurring issues before they multiply.",
+        ],
+    ),
+    "christmas": ThemePalette(
+        key="christmas",
+        name="Christmas",
+        primary="#047857",
+        accent="#b91c1c",
+        background="#03110c",
+        surface="#0f1f17",
+        text="#ecfdf5",
+        muted_text="#a7f3d0",
+        motd_messages=[
+            "Wrap each fix with cheer and clarity.",
+            "All we want for Christmas is zero escalations.",
+            "Jingle all the way to a resolved queue.",
+        ],
+    ),
+    "halloween": ThemePalette(
+        key="halloween",
+        name="Halloween",
+        primary="#f97316",
+        accent="#7c3aed",
+        background="#111827",
+        surface="#1f2937",
+        text="#fef3c7",
+        muted_text="#c4b5fd",
+        motd_messages=[
+            "No tricks, just treats—squash those phantom bugs.",
+            "Ghost the downtime, not the customers.",
+            "Spellbinding support, zero jump scares.",
+        ],
+    ),
+}
+
+HOLIDAY_NAME_TO_KEY = {
+    "New Year's Day": "new_year",
+    "Martin Luther King Jr. Day": "mlk_day",
+    "Presidents' Day": "presidents_day",
+    "Memorial Day": "memorial_day",
+    "Juneteenth National Independence Day": "juneteenth",
+    "Independence Day": "independence_day",
+    "Labor Day": "labor_day",
+    "Columbus Day": "columbus_day",
+    "Veterans Day": "veterans_day",
+    "Thanksgiving Day": "thanksgiving",
+    "Christmas Day": "christmas",
+}
+
+SPECIAL_THEME_PERIODS = [
+    {"key": "halloween", "start": (10, 15), "end": (10, 31)},
+    {"key": "christmas", "start": (12, 1), "end": (12, 25)},
+]
+
+CURRENT_THEME: ThemePalette = DEFAULT_THEME
+
+
+def get_message_of_the_day(theme: ThemePalette | None = None) -> str:
+    """Return a pseudo-random MOTD aligned with the active theme."""
+
+    active_theme = theme or CURRENT_THEME
+    messages = active_theme.motd_messages or MOTD_MESSAGES
     now = datetime.now()
-    seed = f"{now.date().isoformat()}-{now.hour}"
+    seed = f"{active_theme.key}-{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
-    return rng.choice(MOTD_MESSAGES)
+    return rng.choice(messages)
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday_index: int, occurrence: int) -> date:
+    count = 0
+    for day in range(1, 32):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            break
+        if candidate.weekday() == weekday_index:
+            count += 1
+            if count == occurrence:
+                return candidate
+    raise ValueError("Invalid weekday occurrence")
+
+
+def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
+    for day in range(31, 0, -1):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if candidate.weekday() == weekday_index:
+            return candidate
+    raise ValueError("Invalid weekday for month")
+
+
+def compute_us_holidays(year: int) -> list[tuple[date, str]]:
+    holidays: list[tuple[date, str]] = [
+        (date(year, 1, 1), "New Year's Day"),
+        (_nth_weekday_of_month(year, 1, calendar.MONDAY, 3), "Martin Luther King Jr. Day"),
+        (_nth_weekday_of_month(year, 2, calendar.MONDAY, 3), "Presidents' Day"),
+        (_last_weekday_of_month(year, 5, calendar.MONDAY), "Memorial Day"),
+        (date(year, 6, 19), "Juneteenth National Independence Day"),
+        (date(year, 7, 4), "Independence Day"),
+        (_nth_weekday_of_month(year, 9, calendar.MONDAY, 1), "Labor Day"),
+        (_nth_weekday_of_month(year, 10, calendar.MONDAY, 2), "Columbus Day"),
+        (date(year, 11, 11), "Veterans Day"),
+        (_nth_weekday_of_month(year, 11, calendar.THURSDAY, 4), "Thanksgiving Day"),
+        (date(year, 12, 25), "Christmas Day"),
+    ]
+    return holidays
+
+
+def _is_within_period(target: date, start_tuple: tuple[int, int], end_tuple: tuple[int, int]) -> bool:
+    start = date(target.year, start_tuple[0], start_tuple[1])
+    end = date(target.year, end_tuple[0], end_tuple[1])
+    return start <= target <= end
+
+
+def _holiday_theme_for_week(target: date) -> ThemePalette | None:
+    week_start = target - timedelta(days=target.weekday())
+    week_end = week_start + timedelta(days=6)
+    relevant_years = {week_start.year, week_end.year, target.year}
+    holidays: list[tuple[date, str]] = []
+    for year in relevant_years:
+        holidays.extend(compute_us_holidays(year))
+    week_holidays = [
+        (holiday_date, name)
+        for holiday_date, name in holidays
+        if week_start <= holiday_date <= week_end
+    ]
+    if not week_holidays:
+        return None
+    week_holidays.sort(key=lambda item: item[0])
+    if target < week_holidays[0][0]:
+        key = HOLIDAY_NAME_TO_KEY.get(week_holidays[0][1])
+        return HOLIDAY_THEMES.get(key, DEFAULT_THEME) if key else DEFAULT_THEME
+    for holiday_date, name in week_holidays:
+        if target <= holiday_date:
+            key = HOLIDAY_NAME_TO_KEY.get(name)
+            return HOLIDAY_THEMES.get(key, DEFAULT_THEME) if key else DEFAULT_THEME
+    key = HOLIDAY_NAME_TO_KEY.get(week_holidays[-1][1])
+    return HOLIDAY_THEMES.get(key, DEFAULT_THEME) if key else DEFAULT_THEME
+
+
+def determine_active_theme(today: date | None = None) -> ThemePalette:
+    preview_key = st.session_state.get("theme_preview", "auto")
+    if preview_key and preview_key != "auto":
+        return HOLIDAY_THEMES.get(preview_key, DEFAULT_THEME)
+
+    if not st.session_state.get("enable_holiday_theme", True):
+        return DEFAULT_THEME
+
+    current_day = today or date.today()
+    for period in SPECIAL_THEME_PERIODS:
+        if _is_within_period(current_day, period["start"], period["end"]):
+            key = period["key"]
+            return HOLIDAY_THEMES.get(key, DEFAULT_THEME)
+
+    holiday_theme = _holiday_theme_for_week(current_day)
+    return holiday_theme or DEFAULT_THEME
+
+
+def apply_theme_palette(theme: ThemePalette) -> None:
+    st.markdown(
+        f"""
+        <style>
+        :root {{
+            --kiroshi-primary: {theme.primary};
+            --kiroshi-accent: {theme.accent};
+            --kiroshi-background: {theme.background};
+            --kiroshi-surface: {theme.surface};
+            --kiroshi-text: {theme.text};
+            --kiroshi-muted: {theme.muted_text};
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # ────────────────────────── UTILITIES ───────────────────────────
+
+
+@contextmanager
+def case_loading_overlay(message: str = "Preparing case data…"):
+    placeholder = st.empty()
+    placeholder.markdown(
+        f"""
+        <style>
+        @keyframes kiroshi-spinner {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        .case-loading-overlay {{
+            position: fixed;
+            inset: 0;
+            background: color-mix(in srgb, var(--kiroshi-background) 88%, rgba(0,0,0,0.65));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }}
+        .case-loading-content {{
+            background: var(--kiroshi-surface);
+            padding: 2.5rem 3rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 25px 60px rgba(15, 23, 42, 0.35);
+            text-align: center;
+            max-width: 420px;
+            width: min(80vw, 420px);
+        }}
+        .case-loading-spinner {{
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            border: 6px solid color-mix(in srgb, var(--kiroshi-accent) 40%, transparent);
+            border-top-color: var(--kiroshi-primary);
+            animation: kiroshi-spinner 1s linear infinite;
+            margin: 0 auto 1.5rem;
+        }}
+        .case-loading-message {{
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--kiroshi-primary);
+            margin-bottom: 0.75rem;
+        }}
+        .case-loading-subtext {{
+            font-size: 0.95rem;
+            color: var(--kiroshi-muted);
+        }}
+        </style>
+        <div class="case-loading-overlay">
+            <div class="case-loading-content">
+                <div class="case-loading-spinner"></div>
+                <div class="case-loading-message">{escape(message)}</div>
+                <div class="case-loading-subtext">Syncing timelines and attachments…</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    try:
+        yield
+    finally:
+        placeholder.empty()
+
+
+def apply_scratchpad_style(label: str) -> None:
+    style = st.session_state.get("scratchpad_style", {}) or {}
+    font_family = style.get("font_family", "Source Sans Pro")
+    font_size = style.get("font_size", 15)
+    background = style.get("background", "#ffffff")
+    text_color = style.get("text_color", "#111827")
+    line_height = style.get("line_height", 1.5)
+    st.markdown(
+        f"""
+        <style>
+        textarea[aria-label="{label}"] {{
+            font-family: '{font_family}', 'Segoe UI', system-ui, sans-serif;
+            font-size: {font_size}px;
+            background: {background};
+            color: {text_color};
+            line-height: {line_height};
+        }}
+        textarea[aria-label="{label}"]::placeholder {{
+            color: {text_color}cc;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _sync_scratchpad(key: str) -> None:
+    st.session_state.scratch = st.session_state.get(key, "")
+    autosave()
 
 
 def make_json_safe(value):
@@ -644,6 +1096,9 @@ st.set_page_config(
     page_icon=str(KIROSHI_LOGO_PATH),
 )
 
+CURRENT_THEME = determine_active_theme()
+apply_theme_palette(CURRENT_THEME)
+
 
 def inject_base_styles() -> None:
     st.markdown(
@@ -654,9 +1109,9 @@ def inject_base_styles() -> None:
         .dashboard-title {
             font-size: 2.25rem;
             font-weight: 700;
-            color: #433878;
+            color: var(--kiroshi-primary);
             margin-bottom: 1.25rem;
-            text-shadow: 0 4px 10px rgba(67, 56, 120, 0.18);
+            text-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
         }
 
         #kiroshi-header {
@@ -667,7 +1122,7 @@ def inject_base_styles() -> None:
         .dashboard-section {
             margin: 1.5rem 0;
             padding: 1.5rem 1.75rem;
-            background: #ffffff;
+            background: var(--kiroshi-surface);
             border-radius: 1.1rem;
             box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
         }
@@ -676,22 +1131,22 @@ def inject_base_styles() -> None:
             margin: 1.5rem 0 2rem;
             padding: 1.6rem 1.9rem;
             border-radius: 1.2rem;
-            border: 1px solid rgba(67, 56, 120, 0.18);
-            background: linear-gradient(145deg, rgba(243, 244, 255, 0.9), #ffffff);
-            box-shadow: 0 18px 32px rgba(67, 56, 120, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: linear-gradient(145deg, rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.85));
+            box-shadow: 0 18px 32px rgba(15, 23, 42, 0.16);
         }
 
         .tutorial-step-title {
             font-size: 1.35rem;
             font-weight: 700;
-            color: #312e81;
+            color: var(--kiroshi-primary);
             margin-bottom: 0.35rem;
         }
 
         .tutorial-intro {
             font-size: 0.98rem;
             line-height: 1.6;
-            color: #1f2937;
+            color: var(--kiroshi-text);
             margin-bottom: 1rem;
         }
 
@@ -705,14 +1160,14 @@ def inject_base_styles() -> None:
 
         .tutorial-footnote {
             font-size: 0.85rem;
-            color: #4b5563;
+            color: var(--kiroshi-muted);
         }
 
         .case-card {
             padding: 1.25rem 1.5rem;
             border-radius: 0.9rem;
-            border: 1px solid rgba(67, 56, 120, 0.08);
-            background: linear-gradient(145deg, #ffffff 0%, #f7f8ff 100%);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            background: linear-gradient(145deg, var(--kiroshi-surface) 0%, rgba(255, 255, 255, 0.85) 100%);
             margin-bottom: 1rem;
         }
 
@@ -727,13 +1182,13 @@ def inject_base_styles() -> None:
             font-size: 0.78rem;
             letter-spacing: 0.02em;
             text-transform: uppercase;
-            color: #6b7280;
+            color: var(--kiroshi-muted);
         }
 
         .case-meta__value {
             font-size: 0.95rem;
             font-weight: 600;
-            color: #1f2937;
+            color: var(--kiroshi-text);
         }
 
         .case-actions {
@@ -759,16 +1214,16 @@ def inject_base_styles() -> None:
             border-radius: 999px;
             border: none;
             font-weight: 600;
-            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
             color: white !important;
             text-decoration: none;
             transition: transform 0.1s ease, box-shadow 0.1s ease;
-            box-shadow: 0 8px 18px rgba(79, 70, 229, 0.25);
+            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.25);
         }
 
         .case-actions .crm-link:hover {
             transform: translateY(-1px);
-            box-shadow: 0 10px 22px rgba(79, 70, 229, 0.35);
+            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.35);
         }
 
         </style>
@@ -778,7 +1233,7 @@ def inject_base_styles() -> None:
 
 
 def render_logo():
-    motd = escape(get_message_of_the_day())
+    motd = escape(get_message_of_the_day(CURRENT_THEME))
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
@@ -800,7 +1255,7 @@ def render_logo():
 
         #kiroshi-header, #kiroshi-header * {{
             font-family: 'Source Sans Pro', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
-            color: #111827;
+            color: var(--kiroshi-text);
         }}
 
         #kiroshi-header__version {{
@@ -829,10 +1284,14 @@ def render_logo():
         }}
 
         #kiroshi-header__motd-card {{
-            background: linear-gradient(145deg, rgba(67, 56, 120, 0.05), rgba(67, 56, 120, 0.12));
+            background: linear-gradient(
+                145deg,
+                color-mix(in srgb, var(--kiroshi-primary) 18%, transparent),
+                color-mix(in srgb, var(--kiroshi-accent) 12%, transparent)
+            );
             border-radius: 1rem;
             padding: 1rem 1.5rem;
-            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
             max-width: 620px;
             width: 100%;
             margin: 0 auto;
@@ -843,7 +1302,7 @@ def render_logo():
             font-weight: 700;
             letter-spacing: 0.02em;
             text-transform: uppercase;
-            color: #433878;
+            color: var(--kiroshi-primary);
             margin-bottom: 0.5rem;
         }}
 
@@ -1221,6 +1680,14 @@ _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
 _init_state("ai_base_url", DEFAULT_AI_BASE_URL)
 _init_state("ai_mode", DEFAULT_AI_MODE)
+_init_state(
+    "enable_holiday_theme", _get_persistent_default("enable_holiday_theme", True)
+)
+_init_state(
+    "scratchpad_style",
+    dict(_get_persistent_default("scratchpad_style", PERSISTENT_SETTINGS_DEFAULTS["scratchpad_style"])),
+)
+_init_state("theme_preview", "auto")
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
@@ -1409,6 +1876,9 @@ class CaseData:
     scanner_sn: str = ""
     base_sn: str = ""
     trios_module_version: str = ""
+    dongle_deployment_date: str = ""
+    scanner_previous_replacements: int = 0
+    scanner_accidental_damage: bool = False
     tracking: TrackingData = field(default_factory=TrackingData)
     kiroshi_version: str = VERSION
 
@@ -2314,7 +2784,9 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
         ),
         reverse=True,
     )
-    for case in sorted_cases:
+    for idx, case in enumerate(sorted_cases):
+        path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
+        unique_suffix = f"{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
         summary = " ".join(
             part
@@ -2361,8 +2833,8 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
                 render_crm_link_button(case.get("case_link", ""))
 
             controls = st.columns(2)
-            priority_key = f"priority_{Path(case['path']).stem}"
-            status_key = f"status_{Path(case['path']).stem}"
+            priority_key = f"priority_{unique_suffix}"
+            status_key = f"status_{unique_suffix}"
             if (
                 priority_key not in st.session_state
                 or st.session_state.get(priority_key) != priority_value
@@ -2394,7 +2866,8 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
                     st.caption("Status editing is unavailable for legacy JSON files.")
                 else:
                     options = TRACKING_STATUS_OPTIONS.get(case.get("type"))
-                    if options:
+                    free_text_status = case.get("type") in {"Dell", "FedEx"}
+                    if options and not free_text_status:
                         status_options = list(options)
                         current_status = case.get("status", "")
                         if current_status and current_status not in status_options:
@@ -2426,15 +2899,13 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
 
             action_cols = st.columns(2)
             with action_cols[0]:
-                if st.button(
-                    "Load", key=f"dash_load_{Path(case['path']).stem}"
-                ):
+                if st.button("Load", key=f"dash_load_{unique_suffix}"):
                     request_load_from_path(case["path"])
             with action_cols[1]:
                 button_label = "Untrack" if case.get("is_legacy") else "Stop Tracking"
                 if st.button(
                     button_label,
-                    key=f"dash_untrack_{Path(case['path']).stem}",
+                    key=f"dash_untrack_{unique_suffix}",
                 ):
                     untrack_case(
                         case["path"],
@@ -2457,45 +2928,17 @@ def render_case_metadata(label: str, value: str | None) -> None:
 def render_dell_fedex_dashboard(cases: list) -> None:
     dell_cases = [c for c in cases if c.get("type") == "Dell"]
     fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
-    col_dell, col_fedex = st.columns(2)
-    with col_dell:
-        st.markdown("**Dell Escalations**")
-        if dell_cases:
-            table = pd.DataFrame(
-                [
-                    {
-                        "Case ID": c.get("case_id", ""),
-                        "Company": c.get("company", ""),
-                        "Ticket": c.get("ticket_number", ""),
-                        "Service Tag": c.get("service_tag", ""),
-                        "Priority": normalize_priority(c.get("priority")),
-                        "Status": c.get("status", ""),
-                    }
-                    for c in dell_cases
-                ]
-            )
-            st.dataframe(table, use_container_width=True)
-        else:
-            st.caption("No Dell escalations in the queue.")
-    with col_fedex:
-        st.markdown("**FedEx Replacements**")
-        if fedex_cases:
-            table = pd.DataFrame(
-                [
-                    {
-                        "Case ID": c.get("case_id", ""),
-                        "Company": c.get("company", ""),
-                        "Ticket": c.get("ticket_number", ""),
-                        "ETA": format_tracking_date(c.get("expected_arrival_date")),
-                        "Priority": normalize_priority(c.get("priority")),
-                        "Status": c.get("status", ""),
-                    }
-                    for c in fedex_cases
-                ]
-            )
-            st.dataframe(table, use_container_width=True)
-        else:
-            st.caption("No FedEx replacements awaiting action.")
+    st.markdown("**Dell Escalations**")
+    if dell_cases:
+        render_tracked_cases_dashboard(dell_cases)
+    else:
+        st.caption("No Dell escalations in the queue.")
+
+    st.markdown("**FedEx Replacements**")
+    if fedex_cases:
+        render_tracked_cases_dashboard(fedex_cases)
+    else:
+        st.caption("No FedEx replacements awaiting action.")
 
 
 def render_saved_cases_dashboard() -> None:
@@ -2604,6 +3047,63 @@ def render_settings_panel() -> None:
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
         st.session_state.show_bored = False
+
+    st.subheader("Appearance")
+    st.toggle(
+        "Enable holiday themes",
+        key="enable_holiday_theme",
+        on_change=_on_setting_change("enable_holiday_theme"),
+    )
+    current_style = dict(st.session_state.get("scratchpad_style", {}))
+    style_col1, style_col2 = st.columns(2)
+    font_family_value = style_col1.text_input(
+        "Scratchpad font family",
+        current_style.get("font_family", "Source Sans Pro"),
+        key=global_widget_key("scratchpad_font_family"),
+    )
+    font_size_value = style_col2.slider(
+        "Scratchpad font size",
+        10,
+        28,
+        int(current_style.get("font_size", 15)),
+        key=global_widget_key("scratchpad_font_size"),
+    )
+    color_col1, color_col2 = st.columns(2)
+    background_value = color_col1.color_picker(
+        "Scratchpad background",
+        current_style.get("background", "#ffffff"),
+        key=global_widget_key("scratchpad_background"),
+    )
+    text_color_value = color_col2.color_picker(
+        "Scratchpad text color",
+        current_style.get("text_color", "#111827"),
+        key=global_widget_key("scratchpad_text_color"),
+    )
+    line_height_value = st.slider(
+        "Scratchpad line height",
+        1.2,
+        2.2,
+        float(current_style.get("line_height", 1.5)),
+        0.1,
+        key=global_widget_key("scratchpad_line_height"),
+    )
+    updated_style = {
+        "font_family": font_family_value.strip() or "Source Sans Pro",
+        "font_size": int(font_size_value),
+        "background": background_value,
+        "text_color": text_color_value,
+        "line_height": round(float(line_height_value), 2),
+    }
+    if updated_style != current_style:
+        st.session_state.scratchpad_style = updated_style
+        _persist_setting("scratchpad_style")
+
+    if st.button("Reset scratchpad style", key=global_widget_key("scratchpad_reset")):
+        st.session_state.scratchpad_style = dict(
+            PERSISTENT_SETTINGS_DEFAULTS["scratchpad_style"]
+        )
+        _persist_setting("scratchpad_style")
+        st.rerun()
 
     st.markdown("### AI Educate")
     prev_enabled = st.session_state.ai_educate_enabled
@@ -2898,11 +3398,58 @@ def render_report_panel() -> None:
         recurring = bug_report.get("recurring_patterns") or []
         if recurring:
             recurring_df = pd.DataFrame(recurring)
+            if not recurring_df.empty and {"pattern", "count"}.issubset(recurring_df.columns):
+                display_df = recurring_df[["pattern", "count"]]
+            else:
+                display_df = recurring_df
             st.table(
-                recurring_df.rename(
+                display_df.rename(
                     columns={"pattern": "Patrón", "count": "Recurrencias"}
                 )
             )
+
+            eligible_patterns = [
+                entry
+                for entry in recurring
+                if isinstance(entry, Mapping)
+                and int(entry.get("count") or 0) >= 2
+                and entry.get("pattern")
+            ]
+            if eligible_patterns:
+                st.markdown("#### Generar guía para patrones recurrentes")
+                options = [
+                    f"{str(entry.get('pattern'))} ({int(entry.get('count', 0))})"
+                    for entry in eligible_patterns
+                ]
+                selected_label = st.selectbox(
+                    "Selecciona un patrón",
+                    options,
+                    key=global_widget_key("recurring_pattern_select"),
+                )
+                selected_entry: Mapping[str, object] | None = None
+                for entry, label in zip(eligible_patterns, options):
+                    if label == selected_label:
+                        selected_entry = entry
+                        break
+                if selected_entry:
+                    try:
+                        pattern_pdf = generate_recurring_issue_pdf(
+                            selected_entry,
+                            dataset=dataset,
+                        )
+                    except Exception as exc:
+                        st.error(f"No se pudo generar la guía del patrón: {exc}")
+                    else:
+                        raw_name = str(selected_entry.get("pattern", "patron"))
+                        slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_name.lower()).strip("-")
+                        file_name = f"recurring_{slug or 'patron'}.pdf"
+                        st.download_button(
+                            "Descargar guía PDF", 
+                            pattern_pdf,
+                            file_name=file_name,
+                            mime="application/pdf",
+                            key=global_widget_key("recurring_pattern_pdf"),
+                        )
 
 
 def render_atom_chat_panel() -> None:
@@ -3011,6 +3558,51 @@ def render_atom_chat_panel() -> None:
         st.session_state.atom_history = []
         save_memory([])
         st.rerun()
+
+
+def render_debug_panel() -> None:
+    if st.session_state.debug_auth:
+        st.subheader("Debug")
+        st.selectbox("AI Mode", ["Cloud", "Local API", "Local Model"], key="ai_mode")
+        if st.session_state.ai_mode == "Cloud":
+            st.text_input("OpenAI API Key", type="password", key="openai_api_key")
+            st.text_input("AI Base URL", key="ai_base_url")
+        elif st.session_state.ai_mode == "Local API":
+            st.text_input(
+                "AI Base URL",
+                key="ai_base_url",
+                value=st.session_state.ai_base_url,
+            )
+            st.text_input(
+                "API Key (optional)", type="password", key="openai_api_key"
+            )
+        else:
+            st.session_state.ai_base_url = ""
+            st.session_state.openai_api_key = ""
+            st.info("Using local transformers model; no API key or Base URL required.")
+        st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+        st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
+        st.text_area("Allowed categories block", key="taxonomy_block", height=150)
+        st.text_area("Signals config JSON", key="signals_config", height=150)
+        st.json(get_session_state_snapshot())
+        st.subheader("Logs")
+        st.text(tail_log(LOG_FILE))
+        st.divider()
+        if st.button("I'm bored", key=global_widget_key("debug_bored")):
+            st.session_state.show_bored = True
+            st.rerun()
+    else:
+        st.session_state.show_bored = False
+        user = st.text_input("Username", key=global_widget_key("debug_user"))
+        pw = st.text_input(
+            "Password", type="password", key=global_widget_key("debug_pass")
+        )
+        if st.button("Login", key=global_widget_key("debug_login")):
+            if user == "admin" and pw == "admin":
+                st.session_state.debug_auth = True
+            else:
+                st.error("Invalid credentials")
+
 
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
     if cases is None:
@@ -3330,8 +3922,22 @@ def build_ai_learning_dataset(
         root_cause = str(record.get("root_cause") or "").strip()
         solution = str(record.get("solution") or "").strip()
         application_version = str(record.get("application_version") or "").strip()
+        troubleshooting = str(
+            record.get("remote_steps")
+            or record.get("troubleshooting")
+            or ""
+        ).strip()
+        repro_steps = str(record.get("repro_steps") or "").strip()
+        additional_info = str(record.get("additional_info") or "").strip()
 
-        keywords = _extract_keywords(brief_description, description, root_cause, solution)
+        keywords = _extract_keywords(
+            brief_description,
+            description,
+            root_cause,
+            solution,
+            troubleshooting,
+            repro_steps,
+        )
 
         timestamp = path.stat().st_mtime
         case_entry: dict[str, object] = {
@@ -3342,6 +3948,11 @@ def build_ai_learning_dataset(
             "solution": solution,
             "solution_excerpt": _summarize_text(solution, width=260),
             "description_excerpt": _summarize_text(description, width=260),
+            "troubleshooting": troubleshooting,
+            "troubleshooting_excerpt": _summarize_text(troubleshooting, width=260),
+            "repro_steps": repro_steps,
+            "repro_steps_excerpt": _summarize_text(repro_steps, width=260),
+            "additional_info": additional_info,
             "keywords": keywords,
             "timestamp": timestamp,
             "saved_at": datetime.fromtimestamp(timestamp).isoformat(),
@@ -3598,6 +4209,171 @@ def collect_ai_educate_report_data(
     }
 
 
+def _build_recent_counts_chart(recent_counts: pd.DataFrame) -> Drawing:
+    chart_data = recent_counts.head(8).copy()
+    if chart_data.empty:
+        raise ValueError("No hay datos para el gráfico de recurrencia.")
+
+    labels = [
+        _summarize_text(str(label), width=32)
+        for label in chart_data["analysis_label"].astype(str).tolist()
+    ]
+    values = chart_data["count"].astype(int).tolist()
+    max_value = max(values) if values else 0
+
+    drawing_width, drawing_height = 500, 260
+    chart = VerticalBarChart()
+    chart.x = 60
+    chart.y = 50
+    chart.height = drawing_height - 110
+    chart.width = drawing_width - 110
+    chart.data = [values]
+    chart.categoryAxis.categoryNames = labels
+    chart.categoryAxis.labels.boxAnchor = "ne"
+    chart.categoryAxis.labels.angle = 35
+    chart.categoryAxis.labels.fontSize = 8
+    chart.categoryAxis.visibleTicks = False
+    chart.valueAxis.valueMin = 0
+    chart.valueAxis.valueStep = max(1, math.ceil(max_value / 4)) if max_value else 1
+    chart.valueAxis.labelTextFormat = "%d"
+    chart.barWidth = 18
+    chart.bars[0].fillColor = colors.HexColor("#3478bc")
+    chart.bars.strokeColor = colors.transparent
+
+    drawing = Drawing(drawing_width, drawing_height)
+    drawing.add(chart)
+    drawing.add(
+        String(
+            drawing_width / 2,
+            drawing_height - 20,
+            "Casos más frecuentes (30 días)",
+            fontName="Helvetica-Bold",
+            fontSize=12,
+            textAnchor="middle",
+            fillColor=colors.HexColor("#1f2937"),
+        )
+    )
+    drawing.add(
+        String(
+            drawing_width / 2,
+            15,
+            "Casos",
+            fontName="Helvetica",
+            fontSize=9,
+            textAnchor="middle",
+            fillColor=colors.HexColor("#4b5563"),
+        )
+    )
+    drawing.add(
+        String(
+            20,
+            drawing_height / 2,
+            "Frecuencia",
+            fontName="Helvetica",
+            fontSize=9,
+            textAnchor="middle",
+            fillColor=colors.HexColor("#4b5563"),
+            angle=90,
+        )
+    )
+
+    return drawing
+
+
+def _build_timeline_chart(timeline: pd.DataFrame) -> Drawing:
+    if timeline.empty:
+        raise ValueError("No hay datos para la tendencia temporal.")
+
+    timeline_sorted = timeline.sort_values("timestamp").reset_index(drop=True)
+    if timeline_sorted.empty:
+        raise ValueError("No hay datos ordenados para la tendencia temporal.")
+
+    indices = list(range(len(timeline_sorted)))
+    values = timeline_sorted["count"].astype(int).tolist()
+    timestamps = [
+        pd.to_datetime(ts).strftime("%b %d")
+        for ts in timeline_sorted["timestamp"].tolist()
+    ]
+    label_map = {idx: label for idx, label in zip(indices, timestamps)}
+
+    data_points = list(zip(indices, values))
+    if not data_points:
+        raise ValueError("No hay puntos para el gráfico de tendencia.")
+
+    drawing_width, drawing_height = 500, 260
+    chart = LinePlot()
+    chart.x = 60
+    chart.y = 50
+    chart.height = drawing_height - 110
+    chart.width = drawing_width - 110
+    chart.data = [data_points]
+    chart.lines[0].strokeColor = colors.HexColor("#2ca25f")
+    chart.lines[0].strokeWidth = 2
+    chart.lines[0].symbol = makeMarker("Circle")
+    chart.lines[0].symbol.size = 6
+    chart.lineLabelFormat = None
+
+    if len(indices) == 1:
+        min_x = indices[0] - 1
+        max_x = indices[0] + 1
+    else:
+        min_x = indices[0]
+        max_x = indices[-1]
+    chart.xValueAxis.valueMin = min_x
+    chart.xValueAxis.valueMax = max_x
+    chart.xValueAxis.valueSteps = indices if len(indices) > 1 else indices + [indices[0] + 1]
+
+    def _format_label(value: float, mapping: Mapping[int, str] = label_map) -> str:
+        rounded = int(round(value))
+        return mapping.get(rounded, "")
+
+    chart.xValueAxis.labelTextFormat = _format_label
+    chart.xValueAxis.labels.fontSize = 8
+    chart.yValueAxis.valueMin = 0
+    max_value = max(values) if values else 0
+    chart.yValueAxis.valueStep = max(1, math.ceil(max_value / 4)) if max_value else 1
+    chart.yValueAxis.labelTextFormat = "%d"
+
+    drawing = Drawing(drawing_width, drawing_height)
+    drawing.add(chart)
+    drawing.add(
+        String(
+            drawing_width / 2,
+            drawing_height - 20,
+            "Volumen de casos por día (30 días)",
+            fontName="Helvetica-Bold",
+            fontSize=12,
+            textAnchor="middle",
+            fillColor=colors.HexColor("#1f2937"),
+        )
+    )
+    drawing.add(
+        String(
+            drawing_width / 2,
+            15,
+            "Fecha",
+            fontName="Helvetica",
+            fontSize=9,
+            textAnchor="middle",
+            fillColor=colors.HexColor("#4b5563"),
+        )
+    )
+    drawing.add(
+        String(
+            20,
+            drawing_height / 2,
+            "Casos",
+            fontName="Helvetica",
+            fontSize=9,
+            textAnchor="middle",
+            fillColor=colors.HexColor("#4b5563"),
+            angle=90,
+        )
+    )
+
+    return drawing
+
+
 def generate_ai_educate_report_pdf(
     insights: Mapping[str, object],
     bug_report: Mapping[str, object] | None = None,
@@ -3656,34 +4432,12 @@ def generate_ai_educate_report_pdf(
                 story.append(Paragraph("<br/>".join(detail_lines), body_style))
         story.append(Spacer(1, 12))
 
-    def _add_chart_image(fig):
-        try:
-            import matplotlib.pyplot as plt  # type: ignore
-        except Exception:
-            return False
-
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        plt.close(fig)
-        buf.seek(0)
-        img = Image(buf)
-        img._restrictSize(480, 260)
-        story.append(img)
-        story.append(Spacer(1, 12))
-        return True
-
     recent_counts = insights.get("recent_counts")
     if isinstance(recent_counts, pd.DataFrame) and not recent_counts.empty:
         try:
-            import matplotlib.pyplot as plt  # type: ignore
-
-            fig, ax = plt.subplots(figsize=(6.5, 3.2))
-            ax.barh(recent_counts["analysis_label"], recent_counts["count"], color="#3478bc")
-            ax.set_title("Casos más frecuentes (30 días)")
-            ax.set_xlabel("Cantidad de casos")
-            ax.set_ylabel("Caso")
-            ax.invert_yaxis()
-            _add_chart_image(fig)
+            drawing = _build_recent_counts_chart(recent_counts)
+            story.append(drawing)
+            story.append(Spacer(1, 12))
         except Exception:
             story.append(
                 Paragraph(
@@ -3695,15 +4449,9 @@ def generate_ai_educate_report_pdf(
     timeline = insights.get("timeline")
     if isinstance(timeline, pd.DataFrame) and not timeline.empty:
         try:
-            import matplotlib.pyplot as plt  # type: ignore
-
-            fig, ax = plt.subplots(figsize=(6.5, 3.2))
-            ax.plot(timeline["timestamp"], timeline["count"], marker="o", color="#2ca25f")
-            ax.set_title("Volumen de casos por día (30 días)")
-            ax.set_ylabel("Casos")
-            ax.set_xlabel("Fecha")
-            fig.autofmt_xdate()
-            _add_chart_image(fig)
+            drawing = _build_timeline_chart(timeline)
+            story.append(drawing)
+            story.append(Spacer(1, 12))
         except Exception:
             story.append(
                 Paragraph(
@@ -3777,6 +4525,217 @@ def generate_ai_educate_report_pdf(
     return buffer.read()
 
 
+def _collect_pattern_cases(
+    pattern: str,
+    dataset: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    if not dataset:
+        return []
+    cases = dataset.get("cases", [])
+    if not isinstance(cases, list):
+        return []
+
+    normalized: list[dict[str, object]] = []
+    for entry in cases:
+        if not isinstance(entry, Mapping):
+            continue
+        label = str(
+            entry.get("root_cause")
+            or entry.get("title")
+            or entry.get("case_id")
+            or ""
+        ).strip()
+        if not label:
+            continue
+        if label.lower() != pattern.lower():
+            continue
+        normalized.append(
+            {
+                "case_id": str(entry.get("case_id") or ""),
+                "title": str(entry.get("title") or ""),
+                "root_cause": str(entry.get("root_cause") or ""),
+                "solution": str(entry.get("solution") or ""),
+                "troubleshooting": str(
+                    entry.get("troubleshooting")
+                    or entry.get("remote_steps")
+                    or ""
+                ),
+                "repro_steps": str(entry.get("repro_steps") or ""),
+                "additional_info": str(
+                    entry.get("additional_info")
+                    or entry.get("description_excerpt")
+                    or ""
+                ),
+                "saved_at": entry.get("saved_at"),
+                "source_path": entry.get("source_path"),
+            }
+        )
+    return normalized
+
+
+def generate_recurring_issue_pdf(
+    pattern_entry: Mapping[str, object],
+    *,
+    dataset: Mapping[str, object] | None = None,
+) -> bytes:
+    pattern = str(pattern_entry.get("pattern") or "Patrón recurrente")
+    count = int(pattern_entry.get("count") or 0)
+    raw_cases = pattern_entry.get("cases")
+
+    normalized_cases: list[dict[str, object]] = []
+    if isinstance(raw_cases, list):
+        for item in raw_cases:
+            if isinstance(item, Mapping):
+                normalized_cases.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "title": str(item.get("title") or ""),
+                        "root_cause": str(item.get("root_cause") or ""),
+                        "solution": str(item.get("solution") or ""),
+                        "troubleshooting": str(
+                            item.get("troubleshooting")
+                            or item.get("remote_steps")
+                            or ""
+                        ),
+                        "repro_steps": str(item.get("repro_steps") or ""),
+                        "additional_info": str(
+                            item.get("additional_info")
+                            or item.get("description_excerpt")
+                            or ""
+                        ),
+                        "saved_at": item.get("saved_at"),
+                        "source_path": item.get("source_path"),
+                    }
+                )
+
+    if not normalized_cases:
+        normalized_cases = _collect_pattern_cases(pattern, dataset)
+
+    if not normalized_cases:
+        raise ValueError("No hay casos suficientes para generar la guía del patrón.")
+
+    def _unique_text(values: Iterable[str]) -> str:
+        seen: list[str] = []
+        for value in values:
+            cleaned = str(value or "").strip()
+            if cleaned and cleaned not in seen:
+                seen.append(cleaned)
+        return "\n\n".join(seen)
+
+    root_causes = _unique_text(case.get("root_cause", "") for case in normalized_cases)
+    repro_text = _unique_text(case.get("repro_steps", "") for case in normalized_cases)
+    troubleshooting_text = _unique_text(
+        case.get("troubleshooting", "") for case in normalized_cases
+    )
+    solution_text = _unique_text(case.get("solution", "") for case in normalized_cases)
+    notes_text = _unique_text(
+        case.get("additional_info", "") for case in normalized_cases
+    )
+
+    styles = getSampleStyleSheet()
+    body_style = styles["BodyText"]
+    heading_style = styles["Heading3"]
+    header_style = styles["Heading5"]
+
+    def _to_paragraph(text: str) -> Paragraph:
+        content = text.strip()
+        if not content:
+            content = "—"
+        else:
+            content = escape(content).replace("\n", "<br/>")
+        return Paragraph(content, body_style)
+
+    guide_rows = [
+        [Paragraph("Patrón", header_style), _to_paragraph(pattern)],
+        [
+            Paragraph("Casos detectados", header_style),
+            _to_paragraph(str(count or len(normalized_cases))),
+        ],
+        [Paragraph("Causa raíz destacada", header_style), _to_paragraph(root_causes)],
+        [Paragraph("Cómo reproducir", header_style), _to_paragraph(repro_text)],
+        [
+            Paragraph("Troubleshooting aplicado", header_style),
+            _to_paragraph(troubleshooting_text),
+        ],
+        [
+            Paragraph("Solución documentada", header_style),
+            _to_paragraph(solution_text),
+        ],
+        [Paragraph("Notas adicionales", header_style), _to_paragraph(notes_text)],
+    ]
+
+    guide_table = Table(guide_rows, colWidths=[170, 330])
+    guide_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+            ]
+        )
+    )
+
+    detail_rows: list[list[Paragraph]] = [
+        [
+            Paragraph("Case ID", header_style),
+            Paragraph("Título", header_style),
+            Paragraph("Cómo reproducir", header_style),
+            Paragraph("Troubleshooting", header_style),
+            Paragraph("Solución", header_style),
+        ]
+    ]
+
+    for case in normalized_cases:
+        detail_rows.append(
+            [
+                _to_paragraph(case.get("case_id", "")),
+                _to_paragraph(case.get("title", "")),
+                _to_paragraph(case.get("repro_steps", "")),
+                _to_paragraph(case.get("troubleshooting", "")),
+                _to_paragraph(case.get("solution", "")),
+            ]
+        )
+
+    detail_table = Table(
+        detail_rows,
+        colWidths=[70, 120, 110, 110, 120],
+        repeatRows=1,
+    )
+    detail_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+            ]
+        )
+    )
+
+    story: list = []
+    story.append(Paragraph("Guía de patrón recurrente", heading_style))
+    story.append(Spacer(1, 12))
+    story.append(guide_table)
+    story.append(Spacer(1, 16))
+    story.append(Paragraph("Casos analizados", heading_style))
+    story.append(Spacer(1, 8))
+    story.append(detail_table)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=30,
+        leftMargin=30,
+        topMargin=40,
+        bottomMargin=30,
+    )
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.read()
+
+
 def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] | None:
     if not dataset:
         return None
@@ -3798,13 +4757,57 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
         df.get("case_id").fillna("Unknown case"),
     )
 
-    recurring = (
+    recurring_counts = (
         df.groupby("analysis_label")
         .size()
         .reset_index(name="count")
         .sort_values("count", ascending=False)
     )
-    recurring = recurring[recurring["count"] >= 3]
+    recurring_counts = recurring_counts[recurring_counts["count"] >= 2]
+
+    pattern_details: list[dict[str, object]] = []
+    for _, row in recurring_counts.iterrows():
+        label = str(row.get("analysis_label") or "")
+        if not label:
+            continue
+        group = df[df["analysis_label"] == label]
+        case_records: list[dict[str, object]] = []
+        case_ids: list[str] = []
+
+        for _, case_row in group.iterrows():
+            case_id = str(case_row.get("case_id") or "").strip()
+            if case_id:
+                case_ids.append(case_id)
+            case_records.append(
+                {
+                    "case_id": case_id,
+                    "title": str(case_row.get("title") or ""),
+                    "root_cause": str(case_row.get("root_cause") or ""),
+                    "solution": str(case_row.get("solution") or ""),
+                    "troubleshooting": str(
+                        case_row.get("troubleshooting")
+                        or case_row.get("remote_steps")
+                        or ""
+                    ),
+                    "repro_steps": str(case_row.get("repro_steps") or ""),
+                    "additional_info": str(
+                        case_row.get("additional_info")
+                        or case_row.get("description_excerpt")
+                        or ""
+                    ),
+                    "saved_at": case_row.get("saved_at"),
+                    "source_path": case_row.get("source_path"),
+                }
+            )
+
+        pattern_details.append(
+            {
+                "pattern": label,
+                "count": int(row.get("count", 0) or 0),
+                "case_ids": case_ids,
+                "cases": case_records,
+            }
+        )
 
     bug_cases = df[
         df.apply(
@@ -3818,8 +4821,8 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
     ]
 
     summary_parts = []
-    if not recurring.empty:
-        top_pattern = recurring.iloc[0]
+    if not recurring_counts.empty:
+        top_pattern = recurring_counts.iloc[0]
         summary_parts.append(
             "Se detectaron patrones recurrentes, destacando "
             f"'{top_pattern['analysis_label']}' con {int(top_pattern['count'])} casos."
@@ -3833,13 +4836,7 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
 
     return {
         "generated_at": datetime.utcnow().isoformat() + "Z",
-        "recurring_patterns": [
-            {
-                "pattern": row["analysis_label"],
-                "count": int(row["count"]),
-            }
-            for _, row in recurring.iterrows()
-        ],
+        "recurring_patterns": pattern_details,
         "bug_cases": bug_cases.to_dict("records"),
         "summary": " ".join(summary_parts),
     }
@@ -3889,6 +4886,8 @@ def save_case_to_database(
 
 
 def load_case_from_path(path: str) -> None:
+    with case_loading_overlay():
+        time.sleep(7)
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw_data = json.load(f)
@@ -3950,6 +4949,8 @@ def load_case_from_path(path: str) -> None:
 
 
 def load_case_from_bytes(data: bytes) -> None:
+    with case_loading_overlay():
+        time.sleep(7)
     try:
         payload = json.loads(data.decode("utf-8"))
         scratchpad_value = (
@@ -4067,6 +5068,34 @@ def auto_text_area(label: str, field: str, container=st, **kwargs):
     )
     setattr(D, field, value)
 
+
+def auto_number_input(label: str, field: str, container=st, **kwargs):
+    key = widget_key(field, CURRENT_CASE_IDX)
+    kwargs.setdefault("key", key)
+    kwargs.setdefault("min_value", 0)
+    kwargs.setdefault("step", 1)
+    current = getattr(D, field)
+    try:
+        current_value = int(current)
+    except (TypeError, ValueError):
+        current_value = 0
+    value = container.number_input(label, value=current_value, **kwargs)
+    int_value = int(value)
+    if int_value != current_value:
+        setattr(D, field, int_value)
+        st.session_state[key] = int_value
+        autosave()
+
+
+def auto_toggle(label: str, field: str, container=st, **kwargs):
+    key = widget_key(field, CURRENT_CASE_IDX)
+    kwargs.setdefault("key", key)
+    value = container.toggle(label, value=bool(getattr(D, field)), **kwargs)
+    if value != getattr(D, field):
+        setattr(D, field, value)
+        st.session_state[key] = value
+        autosave()
+
 BASE_CATEGORY_MAP = {
     "HEADER": [
         "company_name",
@@ -4115,6 +5144,9 @@ HW_CATEGORY_MAP = {
         "scanner_sn",
         "base_sn",
         "trios_module_version",
+        "dongle_deployment_date",
+        "scanner_previous_replacements",
+        "scanner_accidental_damage",
         "hardware_test",
     ],
 }
@@ -4256,9 +5288,13 @@ def category_dataframe(
     rows = []
     for fld in (cat_map or {}).get(cat, []):
         value = getattr(d, fld, "N/A")
-        if isinstance(value, bool):
+        label = fld.replace("_", " ").title()
+        if fld == "scanner_accidental_damage":
+            label = "Damage Classification"
+            value = "Accidental Damage" if getattr(d, fld) else "Internal Damage"
+        elif isinstance(value, bool):
             value = "Yes" if value else "No"
-        rows.append({"Field": fld.replace("_", " ").title(), "Value": value})
+        rows.append({"Field": label, "Value": value})
     return pd.DataFrame(rows)
 
 
@@ -4970,7 +6006,37 @@ def render_case_ui(case_idx: int):
                 st.markdown(f"- {t}")
             st.subheader("Case Header")
             if st.session_state.second_line_mode:
-                auto_text_input("Straumann ticket #", "straumann")
+                reseller_key = widget_key("reseller_case_number", case_idx)
+                default_value = st.session_state.get(
+                    reseller_key, D.straumann or D.patterson or ""
+                )
+                st.session_state[reseller_key] = default_value
+                merged_value = st.text_input(
+                    "Reseller case # (Straumann / Patterson)",
+                    default_value,
+                    key=reseller_key,
+                )
+                if merged_value != D.straumann or merged_value != D.patterson:
+                    D.straumann = merged_value
+                    D.patterson = merged_value
+                    st.session_state[widget_key("straumann", case_idx)] = merged_value
+                    st.session_state[widget_key("patterson", case_idx)] = merged_value
+                    autosave()
+            else:
+                cleared = False
+                reseller_key = widget_key("reseller_case_number", case_idx)
+                if reseller_key in st.session_state:
+                    st.session_state.pop(reseller_key)
+                if D.patterson != "N/A":
+                    D.patterson = "N/A"
+                    st.session_state[widget_key("patterson", case_idx)] = "N/A"
+                    cleared = True
+                if D.straumann != "N/A":
+                    D.straumann = "N/A"
+                    st.session_state[widget_key("straumann", case_idx)] = "N/A"
+                    cleared = True
+                if cleared:
+                    autosave()
             auto_text_input("Company name", "company_name")
             auto_text_input("Subscription ID", "subscription_id")
             auto_text_input("Brief description", "brief_description")
@@ -5005,14 +6071,8 @@ def render_case_ui(case_idx: int):
                 "teamviewer_password",
                 container=c2,
             )
-            if st.session_state.second_line_mode:
-                auto_text_input(
-                    "Patterson legacy #",
-                    "patterson",
-                )
-            else:
+            if not st.session_state.second_line_mode:
                 D.patterson = "N/A"
-                autosave()
             st.subheader("Internal notes")
             auto_text_input("Helpjuice link", "internal_helpjuice")
             auto_text_area("Logs / screenshots", "internal_logs", height=68)
@@ -5052,16 +6112,6 @@ def render_case_ui(case_idx: int):
             else:
                 st.session_state[sf_key] = False
                 _update_field("support_fee_accepted")
-        if st.session_state.second_line_mode:
-            st.text_input(
-                "Straumann ticket #",
-                D.straumann,
-                disabled=True,
-                key=widget_key("straumann_tab", case_idx),
-            )
-        else:
-            D.straumann = "N/A"
-            autosave()
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -5074,6 +6124,7 @@ def render_case_ui(case_idx: int):
                 "Broken Scanner",
                 "Broken Tip",
                 "AX Coordinator Email",
+                "Customer Reply",
             ]
             if st.session_state.second_line_mode:
                 email_choices.extend(
@@ -5117,9 +6168,9 @@ def render_case_ui(case_idx: int):
         Include: Case ID, a brief summary of what happened, and the solution.
         Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
         Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
-    
+
         Return only the email body.
-    
+
         DATA:
         Case ID: {D.case_id}
         Summary: {D.brief_description}
@@ -5127,6 +6178,39 @@ def render_case_ui(case_idx: int):
         {steps_summary}
         Solution: {D.solution}
         Survey link: {D.survey_link}"""
+            elif email_type == "Customer Reply":
+                st.markdown("#### Customer email context")
+                ext["reply_original"] = st.text_area(
+                    "Original customer email",
+                    ext.get("reply_original", ""),
+                    height=240,
+                    key=widget_key("reply_original", case_idx),
+                )
+                ext["reply_focus"] = st.text_area(
+                    "What should we address in the reply?",
+                    ext.get("reply_focus", ""),
+                    height=140,
+                    key=widget_key("reply_focus", case_idx),
+                )
+                case_snapshot = {
+                    "case_id": D.case_id,
+                    "company": D.company_name,
+                    "brief_description": D.brief_description,
+                    "solution": D.solution,
+                    "remote_steps": D.remote_steps,
+                    "root_cause": D.root_cause,
+                    "additional_info": D.additional_info,
+                }
+                prompt = (
+                    "You are responding to a customer's email about an active support case. "
+                    "Write a concise, confident reply that acknowledges their message, addresses each concern, "
+                    "and clarifies next actions. Use a friendly professional tone.\n\n"
+                    f"Original email:\n{ext.get('reply_original', 'No email provided.')}\n\n"
+                    f"Response notes (internal guidance):\n{ext.get('reply_focus', 'Acknowledge receipt and provide an update.')}\n\n"
+                    "Case context:\n"
+                    f"{json.dumps(case_snapshot, indent=2, ensure_ascii=False)}\n\n"
+                    "Return only the email body with a clear closing and invitation for further questions."
+                )
             elif email_type == "Broken Scanner":
                 st.markdown("#### Incident questionnaire (prefill if known)")
                 ext["experience"] = st.text_input(
@@ -5913,6 +6997,35 @@ Thank you in advance,
             auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
             auto_text_input("Processor", "processor", container=col_pc2)
             auto_text_input("Warranty", "warranty")
+            st.subheader("Scanner Hardware Issue")
+            col_sc1, col_sc2 = st.columns(2)
+            auto_text_input("Scanner serial", "scanner_sn", container=col_sc1)
+            auto_text_input("Base serial", "base_sn", container=col_sc2)
+            auto_text_input(
+                "TRIOS module version",
+                "trios_module_version",
+                container=col_sc1,
+            )
+            auto_text_input(
+                "Dongle deployment date (YYYY-MM-DD)",
+                "dongle_deployment_date",
+                container=col_sc2,
+            )
+            auto_number_input(
+                "Number of previous replacements",
+                "scanner_previous_replacements",
+                container=col_sc1,
+            )
+            auto_toggle(
+                "Accidental damage?",
+                "scanner_accidental_damage",
+                container=col_sc2,
+            )
+            auto_toggle(
+                "Hardware test completed?",
+                "hardware_test",
+                container=col_sc1,
+            )
             st.dataframe(
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
             )
@@ -5926,12 +7039,15 @@ Thank you in advance,
     with tab_notes:
         st.subheader("Scratchpad")
         scr_key = widget_key("scratch", case_idx)
+        scratch_label = "Scratchpad – Temporary notes"
+        apply_scratchpad_style(scratch_label)
         st.text_area(
-            "Temporary notes",
+            scratch_label,
             st.session_state.get(scr_key, ""),
             height=400,
             key=scr_key,
-            on_change=autosave,
+            on_change=_sync_scratchpad,
+            args=(scr_key,),
         )
 
     # ================== TABLES TAB =================
@@ -6309,82 +7425,36 @@ Thank you in advance,
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
 
-    # ================== DEBUG TAB =================
-    if tab_debug:
-        with tab_debug:
-            if case_idx != 0:
-                st.info("Debug available in first case tab.")
-            elif st.session_state.debug_auth:
-                st.subheader("Debug")
-                st.selectbox(
-                    "AI Mode",
-                    ["Cloud", "Local API", "Local Model"],
-                    key="ai_mode",
-                )
-                if st.session_state.ai_mode == "Cloud":
-                    st.text_input(
-                        "OpenAI API Key", type="password", key="openai_api_key"
-                    )
-                    st.text_input("AI Base URL", key="ai_base_url")
-                elif st.session_state.ai_mode == "Local API":
-                    st.text_input(
-                        "AI Base URL", key="ai_base_url", value=st.session_state.ai_base_url
-                    )
-                    st.text_input(
-                        "API Key (optional)", type="password", key="openai_api_key"
-                    )
-                else:
-                    st.session_state.ai_base_url = ""
-                    st.session_state.openai_api_key = ""
-                    st.info(
-                        "Using local transformers model; no API key or Base URL required."
-                    )
-                st.selectbox(
-                    "Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model"
-                )
-                st.selectbox(
-                    "Personality mode", ["utility", "coffee"], key="personality_mode"
-                )
-                st.text_area("Allowed categories block", key="taxonomy_block", height=150)
-                st.text_area("Signals config JSON", key="signals_config", height=150)
-                st.json(get_session_state_snapshot())
-                st.subheader("Logs")
-                st.text(tail_log(LOG_FILE))
-                st.divider()
-                if st.button("I'm bored", key="debug_bored"):
-                    st.session_state.show_bored = True
-                    st.rerun()
-            else:
-                st.session_state.show_bored = False
-                user = st.text_input("Username", key="debug_user")
-                pw = st.text_input("Password", type="password", key="debug_pass")
-                if st.button("Login", key="debug_login"):
-                    if user == "admin" and pw == "admin":
-                        st.session_state.debug_auth = True
-                    else:
-                        st.error("Invalid credentials")
-
     autosave()
 
 case_labels = [
     cs.case.case_id or f"Case {i+1}" for i, cs in enumerate(st.session_state.case_sessions)
 ] + ["+ New Case"]
-tab_labels = ["Dashboard", "Settings", "Report", "A.A.T.O.M. Chat"] + case_labels
+tab_labels: list[str] = ["Dashboard", "Settings"]
+if st.session_state.debug_mode:
+    tab_labels.append("Debug")
+tab_labels += ["Report", "A.A.T.O.M. Chat"] + case_labels
 all_tabs = st.tabs(tab_labels)
 
-with all_tabs[0]:
+tab_index = 0
+with all_tabs[tab_index]:
     render_dashboard()
-
-with all_tabs[1]:
+tab_index += 1
+with all_tabs[tab_index]:
     render_settings_panel()
-
-with all_tabs[2]:
+tab_index += 1
+if st.session_state.debug_mode:
+    with all_tabs[tab_index]:
+        render_debug_panel()
+    tab_index += 1
+with all_tabs[tab_index]:
     render_report_panel()
-
-with all_tabs[3]:
+tab_index += 1
+with all_tabs[tab_index]:
     render_atom_chat_panel()
+tab_index += 1
 
-case_tabs = all_tabs[4:]
+case_tabs = all_tabs[tab_index:]
 for idx, tab in enumerate(case_tabs):
     with tab:
         if idx == len(st.session_state.case_sessions):
