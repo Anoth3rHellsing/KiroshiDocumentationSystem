@@ -50,6 +50,24 @@ Coverage is actively tracked and the project receives daily updates.
 3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_1-7-2.bat`).
 4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
 
+#### Can I ship everything as an "all-in-one" installer?
+
+Yes. The provided `KiroshiInstaller_1-7-2.bat` script is already an all-in-one
+package that copies the full project into `C:\ProgramData\Kiroshi
+Documentation`, creates a dedicated virtual environment, installs
+dependencies, and writes launcher shortcuts for every user profile. When you
+need to redistribute Kiroshi, bundle the repository contents (including the
+installer script) into a single ZIP or self-extracting archive—running the
+installer afterwards performs the complete setup without any manual steps.
+
+The installer places the application and its virtual environment under
+`C:\ProgramData\Kiroshi Documentation`. User-generated state (autosave
+snapshots, tracked cases, exports, and helper files) is persisted by the app in
+`C:\ProgramFiles\KiroshiDatabase` on Windows (or `~/KiroshiDatabase/` on
+Linux/macOS). To back up or migrate an installation, copy both of those
+directories; the uninstaller removes the ProgramData folder and leaves the
+database directory intact so operators can archive it manually.
+
 ### Manual installation
 
 Install the dependencies from the project directory. If you just cloned or downloaded the repository, first change into its folder
