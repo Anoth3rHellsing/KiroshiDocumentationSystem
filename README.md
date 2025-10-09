@@ -62,6 +62,19 @@ pip install -r requirements.txt
 pip install -r requirements-bored.txt
 ```
 
+#### Troubleshooting: `pyarrow` fails to install on Windows
+
+Streamlit depends on `pyarrow`, which is distributed as a pre-built wheel for
+64-bit versions of Python on Windows. If `pip` prints messages such as
+`building 'pyarrow.lib' extension` and ends with `Could not build wheels for
+pyarrow`, check the temporary build path in the log. A fragment like
+`build\lib.win32-3.11` indicates that the interpreter is 32-bit, and no wheel
+exists for that architecture. Install a 64-bit build of Python (for example the
+default installer from python.org) or recreate your virtual environment with a
+64-bit interpreter, then rerun `pip install -r requirements.txt`. Once `pip`
+detects a compatible interpreter it will download the official wheel instead of
+attempting a source build, and the installation completes successfully.
+
 ### Updating
 
 The `QuickUpdate.bat` script is intended for small incremental patches.
