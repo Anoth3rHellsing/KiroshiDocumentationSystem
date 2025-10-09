@@ -159,10 +159,13 @@ this before and walk through the entire process from a clean machine.
    ```
 7. **Run PyInstaller.** The project ships with a ready-made command. On
    Windows copy and paste the line below; on macOS/Linux you can instead run
-   `bash build.sh` from the repository root.
+   `bash build.sh` from the repository root. The `--add-data` flag ensures the
+   main Streamlit script is bundled so the executable can find it at runtime.
    ```powershell
-   pyinstaller --onefile --name KiroshiDocumentationSystem --collect-all streamlit run_app.py
+   pyinstaller --onefile --name KiroshiDocumentationSystem --collect-all streamlit --add-data "case_documentation_app.py;." run_app.py
    ```
+   > **macOS/Linux note:** replace the semicolon in the `--add-data` argument
+   > with a colon (`case_documentation_app.py:.`).
 8. **Wait for the build to finish.** When PyInstaller completes you will find
    the executable in the `dist` folder (for example
    `dist\KiroshiDocumentationSystem.exe`). Copy that file wherever you want to
