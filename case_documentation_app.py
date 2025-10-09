@@ -2783,7 +2783,8 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
         ),
         reverse=True,
     )
-    for case in sorted_cases:
+    for idx, case in enumerate(sorted_cases):
+        unique_suffix = f"{Path(case['path']).stem}_{idx}"
         priority_value = normalize_priority(case.get("priority"))
         summary = " ".join(
             part
@@ -2830,8 +2831,8 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
                 render_crm_link_button(case.get("case_link", ""))
 
             controls = st.columns(2)
-            priority_key = f"priority_{Path(case['path']).stem}"
-            status_key = f"status_{Path(case['path']).stem}"
+            priority_key = f"priority_{unique_suffix}"
+            status_key = f"status_{unique_suffix}"
             if (
                 priority_key not in st.session_state
                 or st.session_state.get(priority_key) != priority_value
@@ -2896,15 +2897,13 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
 
             action_cols = st.columns(2)
             with action_cols[0]:
-                if st.button(
-                    "Load", key=f"dash_load_{Path(case['path']).stem}"
-                ):
+                if st.button("Load", key=f"dash_load_{unique_suffix}"):
                     request_load_from_path(case["path"])
             with action_cols[1]:
                 button_label = "Untrack" if case.get("is_legacy") else "Stop Tracking"
                 if st.button(
                     button_label,
-                    key=f"dash_untrack_{Path(case['path']).stem}",
+                    key=f"dash_untrack_{unique_suffix}",
                 ):
                     untrack_case(
                         case["path"],
