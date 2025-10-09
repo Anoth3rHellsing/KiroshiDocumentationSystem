@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 import streamlit.web.cli as stcli
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 
 def _resolve_app_path() -> Path:
