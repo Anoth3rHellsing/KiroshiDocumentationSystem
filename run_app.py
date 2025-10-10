@@ -35,6 +35,7 @@ def _resolve_app_path() -> Path:
     """
 
 
+
 def _resolve_app_path() -> Path:
     """Return the absolute path to ``case_documentation_app.py``.
 
@@ -49,7 +50,7 @@ def _resolve_app_path() -> Path:
 
 
 def _harmonize_security_settings() -> None:
-    """Keep Streamlit security flags consistent to avoid startup warnings."""
+    # Keep Streamlit security flags aligned so Windows builds avoid warnings.
 
     cors_flag = os.environ.get("STREAMLIT_SERVER_ENABLE_CORS")
     if cors_flag and cors_flag.lower() in {"0", "false", "no"}:
@@ -57,7 +58,7 @@ def _harmonize_security_settings() -> None:
 
 
 def main() -> None:
-    """Launch the Streamlit application."""
+    # Launch the Streamlit application.
 
     _harmonize_security_settings()
 
