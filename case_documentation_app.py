@@ -198,6 +198,125 @@ def _load_persistent_settings() -> dict[str, object]:
 
 
 _persistent_settings_cache: dict[str, object] = PERSISTENT_SETTINGS_DEFAULTS.copy()
+
+
+_CASE_REFERENCE_PATTERN = re.compile(
+    r"\b(?:case|caso|ticket|inc(?:ident)?|sr|cs|bug|pr|issue)[-_\s]*\d+\b",
+    re.IGNORECASE,
+)
+_SERIAL_PATTERN = re.compile(r"\b[A-Z]{2,}\d{3,}\b")
+_GENERIC_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "from",
+    "this",
+    "have",
+    "error",
+    "issue",
+    "case",
+    "user",
+    "when",
+    "failed",
+    "failure",
+    "problem",
+    "unable",
+    "cannot",
+    "customer",
+    "reported",
+    "report",
+    "see",
+    "observed",
+    "during",
+    "while",
+    "into",
+    "after",
+    "before",
+    "still",
+    "does",
+    "doesnt",
+    "cant",
+    "wont",
+    "need",
+    "needs",
+    "should",
+    "could",
+    "would",
+    "please",
+    "help",
+    "team",
+    "agent",
+    "support",
+    "customer",
+    "client",
+    "system",
+    "service",
+    "application",
+    "apps",
+    "app",
+    "server",
+    "environment",
+    "production",
+    "prod",
+    "dev",
+    "test",
+    "staging",
+    "login",
+    "log",
+    "logs",
+    "message",
+    "messages",
+    "details",
+    "detail",
+    "null",
+    "none",
+    "na",
+    "unknown",
+    "new",
+    "open",
+    "closed",
+}
+
+
+def _tokenize_issue_description(text: str) -> list[str]:
+    cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
+    cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"https?://\S+", " ", cleaned)
+    cleaned = re.sub(r"[^0-9A-Za-z]+", " ", cleaned)
+    tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
+    return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+
+
+def _derive_analysis_label(row: Mapping[str, object]) -> str:
+    text_candidates: list[str] = []
+    for key in ("category", "classification", "topic", "root_cause", "title", "description_excerpt", "solution"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            text_candidates.append(value)
+
+    if not text_candidates:
+        return "General"
+
+    tokens: list[str] = []
+    for text in text_candidates:
+        tokens.extend(_tokenize_issue_description(text))
+
+    if not tokens:
+        return "General"
+
+    top_tokens: list[str] = []
+    for token, _ in Counter(tokens).most_common():
+        if token not in top_tokens:
+            top_tokens.append(token)
+        if len(top_tokens) >= 3:
+            break
+
+    if not top_tokens:
+        return "General"
+
+    return " / ".join(token.title() for token in top_tokens)
 _persistent_settings_cache.update(_load_persistent_settings())
 
 
@@ -4492,14 +4611,7 @@ def collect_ai_educate_report_data(
 
     df["timestamp"] = pd.to_datetime(df.get("timestamp"), unit="s", errors="coerce")
     df["saved_at_dt"] = pd.to_datetime(df.get("saved_at"), errors="coerce")
-    df["analysis_label"] = df.get("root_cause").fillna("").replace("", None)
-    df["analysis_label"] = df["analysis_label"].where(
-        df["analysis_label"].notna(), df.get("title").fillna("")
-    )
-    df["analysis_label"] = df["analysis_label"].where(
-        df["analysis_label"].astype(str).str.len() > 0,
-        df.get("case_id").fillna("Unknown case"),
-    )
+    df["analysis_label"] = df.apply(_derive_analysis_label, axis=1)
 
     now = pd.Timestamp.utcnow().tz_localize(None)
     recent_cutoff = now - pd.Timedelta(days=30)
