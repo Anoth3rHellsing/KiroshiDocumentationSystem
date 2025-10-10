@@ -163,6 +163,7 @@ SETTINGS_FILE = DATABASE_DIR / "settings.json"
 PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "second_line_mode": False,
     "debug_mode": False,
+    "case_compact_mode": False,
     "ai_assist_mode": "Standard",
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
@@ -2222,6 +2223,7 @@ _init_state("track_case", False)
 _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
+_init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",
@@ -3557,6 +3559,15 @@ def render_settings_panel() -> None:
         "Enable holiday themes",
         key="enable_holiday_theme",
         on_change=_on_setting_change("enable_holiday_theme"),
+    )
+    st.toggle(
+        "Compact case workspace",
+        key="case_compact_mode",
+        on_change=_on_setting_change("case_compact_mode"),
+        help=(
+            "Hide the documentation preview tables on the Case tab and use a tighter "
+            "two-column layout for core fields."
+        ),
     )
     current_style = dict(st.session_state.get("scratchpad_style", {}))
     style_col1, style_col2 = st.columns(2)
@@ -6568,28 +6579,39 @@ def render_case_ui(case_idx: int):
 
         st.markdown("</div>", unsafe_allow_html=True)
 
+        compact_mode = st.session_state.get("case_compact_mode", False)
+        note_height = 120 if compact_mode else 150
+
         if st.session_state.verify_result:
             st.text_area(
                 "A.A.T.O.M. Verification",
                 st.session_state.verify_result,
-                height=150,
+                height=note_height,
             )
         if st.session_state.ask_result:
             st.text_area(
                 "A.A.T.O.M. Suggestions",
                 st.session_state.ask_result,
-                height=150,
+                height=note_height,
             )
         if st.session_state.ai_assist_result:
             st.text_area(
                 "AI Assistance",
                 st.session_state.ai_assist_result,
-                height=150,
+                height=note_height,
                 key=widget_key("ai_assist_output", case_idx),
             )
         prog, miss = compute_progress(D, cat_map)
-        left, right = st.columns([1, 2], gap="medium")
+        if compact_mode:
+            right = st.container()
+            left = None
+        else:
+            left, right = st.columns([1, 2], gap="medium")
         with right:
+            if compact_mode:
+                st.caption(
+                    "Compact mode active — documentation tables live in the Tables tab."
+                )
             st.subheader("Build title")
             st.code(build_title(D))
             st.subheader("Progress by category")
@@ -6644,11 +6666,13 @@ def render_case_ui(case_idx: int):
                     cleared = True
                 if cleared:
                     autosave()
-            auto_text_input("Company name", "company_name")
-            auto_text_input("Subscription ID", "subscription_id")
-            auto_text_input("Brief description", "brief_description")
-            auto_text_input("Case ID", "case_id")
-            version_nr = st.toggle(
+            header_cols = st.columns(2) if compact_mode else (st, st)
+            header_left, header_right = header_cols
+            auto_text_input("Company name", "company_name", container=header_left)
+            auto_text_input("Subscription ID", "subscription_id", container=header_left)
+            auto_text_input("Brief description", "brief_description", container=header_right)
+            auto_text_input("Case ID", "case_id", container=header_right)
+            version_nr = header_right.toggle(
                 VERSION_NOT_RELEVANT,
                 value=D.application_version == VERSION_NOT_RELEVANT,
                 key=widget_key("application_version_not_relevant", case_idx),
@@ -6662,36 +6686,63 @@ def render_case_ui(case_idx: int):
                 placeholder="e.g., Unite 1.8.10.1",
                 help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
                 disabled=version_nr,
+                container=header_right,
             )
             st.subheader("Description (What / When / Where)")
-            auto_text_area("Description", "description", height=68)
+            desc_height = 60 if compact_mode else 68
+            auto_text_area("Description", "description", height=desc_height)
             st.subheader("Phone-call notes")
-            auto_text_input("Caller name", "caller_name")
-            auto_text_area("Caller issue description", "phone_description", height=68)
-            c1, c2 = st.columns(2)
-            auto_text_input("Dongle number", "dongle_number", container=c1)
-            auto_text_input("Phone number", "phone_number", container=c2)
-            auto_text_input("Customer email", "email")
-            auto_text_input("TeamViewer ID", "teamviewer_id", container=c1)
+            phone_cols = st.columns(2) if compact_mode else (st, st)
+            phone_left, phone_right = phone_cols
+            auto_text_input("Caller name", "caller_name", container=phone_left)
+            auto_text_area(
+                "Caller issue description",
+                "phone_description",
+                height=desc_height,
+                container=phone_right,
+            )
+            contact_cols = st.columns(2)
+            auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
+            auto_text_input("Phone number", "phone_number", container=contact_cols[1])
+            if compact_mode:
+                auto_text_input("Customer email", "email", container=contact_cols[0])
+            else:
+                auto_text_input("Customer email", "email")
+            auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
             auto_text_input(
                 "TeamViewer password",
                 "teamviewer_password",
-                container=c2,
+                container=contact_cols[1],
             )
             if not st.session_state.second_line_mode:
                 D.patterson = "N/A"
             st.subheader("Internal notes")
-            auto_text_input("Helpjuice link", "internal_helpjuice")
-            auto_text_area("Logs / screenshots", "internal_logs", height=68)
+            notes_cols = st.columns(2) if compact_mode else (st, st)
+            notes_left, notes_right = notes_cols
+            auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_left)
+            logs_height = 60 if compact_mode else 68
+            auto_text_area(
+                "Logs / screenshots",
+                "internal_logs",
+                height=logs_height,
+                container=notes_right,
+            )
             st.subheader("Conclusion")
-            auto_text_input("Root cause", "root_cause")
-            auto_text_input("Solution", "solution")
-            auto_text_input("Customer satisfaction survey URL", "survey_link")
+            conclusion_cols = st.columns(2) if compact_mode else (st, st)
+            conclusion_left, conclusion_right = conclusion_cols
+            auto_text_input("Root cause", "root_cause", container=conclusion_left)
+            auto_text_input("Solution", "solution", container=conclusion_right)
+            survey_container = conclusion_left if compact_mode else st
+            auto_text_input(
+                "Customer satisfaction survey URL",
+                "survey_link",
+                container=survey_container,
+            )
             st.subheader("Additional information")
             auto_text_area(
                 "Additional details",
                 "additional_info",
-                height=400,
+                height=280 if compact_mode else 400,
                 help=(
                     "Include details such as antivirus, firewalls enabled, update history, "
                     "related case ID, possible cause, performance issues, manual additional notes, "
@@ -6835,24 +6886,25 @@ def render_case_ui(case_idx: int):
                     mime="application/pdf",
                     key=widget_key("download_pdf", case_idx),
                 )
-            with left:
-                st.subheader("Documentation Preview – Copy‑friendly Tables")
-                for cat in cat_map:
-                    st.markdown(f"**{table_title(cat)}**")
-                    st.dataframe(
-                        category_dataframe(cat, D, cat_map), use_container_width=True
+            if not compact_mode and left is not None:
+                with left:
+                    st.subheader("Documentation Preview – Copy‑friendly Tables")
+                    for cat in cat_map:
+                        st.markdown(f"**{table_title(cat)}**")
+                        st.dataframe(
+                            category_dataframe(cat, D, cat_map), use_container_width=True
+                        )
+                    st.markdown("---")
+                    st.markdown("#### AutoHotkey quick paste")
+                    st.caption(
+                        "Generate a Windows AutoHotkey script so typing `phonecall1`, `remotesession1`, etc. "
+                        "instantly pastes the current case tables."
                     )
-                st.markdown("---")
-                st.markdown("#### AutoHotkey quick paste")
-                st.caption(
-                    "Generate a Windows AutoHotkey script so typing `phonecall1`, `remotesession1`, etc. "
-                    "instantly pastes the current case tables."
-                )
-                hotkey_script = build_autohotkey_script(
-                    [cs.case for cs in st.session_state.case_sessions],
-                    cat_map,
-                )
-                script_path = sync_autohotkey_script(hotkey_script)
+                    hotkey_script = build_autohotkey_script(
+                        [cs.case for cs in st.session_state.case_sessions],
+                        cat_map,
+                    )
+                    script_path = sync_autohotkey_script(hotkey_script)
                 if script_path:
                     script_path_str = str(script_path)
                     encoded_hotkeys = json.dumps(hotkey_script)
