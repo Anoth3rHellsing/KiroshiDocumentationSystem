@@ -1,7 +1,33 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
+
+SPEC_DIR = Path(__file__).resolve().parent
+ICON_SOURCE = SPEC_DIR / "Kiroshi_Logo.png"
+ICON_TARGET = SPEC_DIR / "Kiroshi_Logo.ico"
+
+
+def _ensure_icon(source: Path, target: Path) -> Path:
+    """Generate a Windows .ico file from the project PNG if needed."""
+
+    if target.exists() and target.stat().st_mtime >= source.stat().st_mtime:
+        return target
+
+    from PIL import Image
+    image = Image.open(source)
+    image.save(
+        target,
+        format="ICO",
+        sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (24, 24), (16, 16)],
+    )
+    return target
+
+
+ICON_PATH = _ensure_icon(ICON_SOURCE, ICON_TARGET)
+
 
 datas = [
     ('case_documentation_app.py', '.'),
@@ -58,6 +84,8 @@ exe = EXE(
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
+    icon=str(ICON_PATH),
+    uac_admin=True,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
