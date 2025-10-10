@@ -209,6 +209,11 @@ this before and walk through the entire process from a clean machine.
    `http://localhost:8502/`, so adjust any bookmarks or firewall rules that
    referenced the default Streamlit port (`8501`).
 
+The PyInstaller spec bundles the companion `aatom_chat.py` module along with
+its saved-memory files and logos. This keeps the integrated A.A.T.O.M. chat
+panel working in the compiled build and prevents `ModuleNotFoundError`
+crashes when the executable launches.
+
 If you ever want to rebuild after pulling updates, repeat steps 6 and 7 (you do
 not need to reinstall Python or Git).
 

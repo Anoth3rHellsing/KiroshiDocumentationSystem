@@ -5,10 +5,17 @@ block_cipher = None
 
 datas = [
     ('case_documentation_app.py', '.'),
+    ('aatom_chat.py', '.'),
+    ('doom_game.py', '.'),
+    ('atom_logo.png', '.'),
+    ('Kiroshi_Logo.png', '.'),
+    ('atom_memory.json', '.'),
+    ('manual_memory.json', '.'),
+    ('docs/kiroshi_quick_reference.json', 'docs'),
     ('.streamlit/config.toml', '.streamlit'),
 ]
 binaries = []
-hiddenimports = []
+hiddenimports = ['aatom_chat']
 tmp_ret = collect_all('streamlit')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
