@@ -152,6 +152,11 @@ this before and walk through the entire process from a clean machine.
    python -m venv .venv
    .\.venv\Scripts\activate
    ```
+   If you already created `.venv` in a previous session, activate the existing
+   environment with `.\.venv\Scripts\activate` and skip re-running
+   `python -m venv .venv`. Trying to recreate the environment while it is
+   active leads Windows to print `Unable to copy ... venvlauncher.exe` because
+   the interpreter files are locked by the running shell.
 6. **Install the app requirements and PyInstaller.**
    ```powershell
    pip install -r requirements.txt
