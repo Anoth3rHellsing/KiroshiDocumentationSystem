@@ -3,7 +3,10 @@ from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
-datas = [('case_documentation_app.py', '.')]
+datas = [
+    ('case_documentation_app.py', '.'),
+    ('.streamlit/config.toml', '.streamlit'),
+]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('streamlit')

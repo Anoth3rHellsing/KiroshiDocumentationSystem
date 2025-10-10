@@ -163,14 +163,17 @@ this before and walk through the entire process from a clean machine.
    pyinstaller KiroshiDocumentationSystem.spec
    ```
    This spec mirrors the long one-liner you might type by hand but also guarantees that
-   `case_documentation_app.py` ships with the executable and that all of
+   `case_documentation_app.py` ships with the executable, that the theme and
+   server configuration in `.streamlit/config.toml` are packaged, and that all of
    Streamlit's data files are collected. On macOS or Linux you can run the same
    command or execute the helper script: `bash build.sh`.
    > **Prefer a custom command?** If you roll your own `pyinstaller` invocation,
    > remember to include the equivalent of `--add-data "case_documentation_app.py;."`
    > (use a colon on macOS/Linux). Without it the packaged app cannot locate the
    > Streamlit entry-point file and will exit with "File does not exist:
-   > case_documentation_app.py".
+   > case_documentation_app.py". If you disable CORS in a custom build, also
+   > bundle `.streamlit/config.toml` so `enableXsrfProtection` stays in sync and
+   > Streamlit does not print a startup warning.
 8. **Wait for the build to finish.** When PyInstaller completes you will find
    the executable in the `dist` folder (for example
    `dist\KiroshiDocumentationSystem.exe`). Copy that file wherever you want to

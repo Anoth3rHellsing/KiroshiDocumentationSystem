@@ -3,3 +3,9 @@
 base = "light"
 primaryColor = "#D01E4E"
 backgroundColor = "#FFFFFF"
+
+[server]
+# Packaged builds disable CORS so the app can be embedded locally; disable XSRF
+# too so Streamlit doesn't override the CORS flag during startup.
+enableCORS = false
+enableXsrfProtection = false

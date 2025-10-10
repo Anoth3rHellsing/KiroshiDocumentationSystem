@@ -3,6 +3,7 @@ This wrapper allows packaging the Streamlit app into a standalone executable
 using tools like PyInstaller.
 """
 
+import os
 from pathlib import Path
 import sys
 
@@ -23,6 +24,10 @@ def _resolve_app_path() -> Path:
 def _resolve_app_path() -> Path:
     """Return the absolute path to ``case_documentation_app.py``.
 
+
+def _resolve_app_path() -> Path:
+    """Return the absolute path to ``case_documentation_app.py``.
+
     When the project is frozen with PyInstaller the source files are unpacked
     into ``sys._MEIPASS``.  During local development the module lives next to
     this wrapper file.  Resolving the path in one place keeps the Streamlit
@@ -33,8 +38,18 @@ def _resolve_app_path() -> Path:
     return Path(base_dir) / "case_documentation_app.py"
 
 
+def _harmonize_security_settings() -> None:
+    """Keep Streamlit's security flags consistent to avoid startup warnings."""
+
+    cors_flag = os.environ.get("STREAMLIT_SERVER_ENABLE_CORS")
+    if cors_flag and cors_flag.lower() in {"0", "false", "no"}:
+        os.environ.setdefault("STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION", "false")
+
+
 def main() -> None:
     """Launch the Streamlit application."""
+
+    _harmonize_security_settings()
 
     app_path = _resolve_app_path()
     if not app_path.exists():
