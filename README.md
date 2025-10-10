@@ -99,6 +99,20 @@ Using a fresh virtual environment is recommended so that you can quickly revert 
 set if a bleeding-edge dependency causes issues. To go back to the supported versions, reinstall the standard
 requirements in a separate environment or run `pip install -r requirements.txt` again.
 
+## Building the desktop executable
+
+The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it
+from the project root:
+
+```bash
+./build.sh
+```
+
+The script bundles `case_documentation_app.py` together with the Streamlit runtime and deposits the compiled
+artifacts under `dist/`. The process was last verified with PyInstaller 6.16.0 on Python 3.12.10; PyInstaller may
+emit warnings for optional modules such as `langchain`, but they do not prevent the executable from being
+generated.
+
 ### Windows PATH helper
 
 If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user
@@ -162,6 +176,12 @@ this before and walk through the entire process from a clean machine.
    pip install -r requirements.txt
    pip install pyinstaller
    ```
+
+   If you see `ModuleNotFoundError: No module named 'reportlab'` while running
+   the packaged executable, double-check that the build environment installed
+   the project's requirements with the command above. PyInstaller copies
+   dependencies from the interpreter that executes the build; missing packages
+   cannot be retroactively added to an already compiled binary.
 7. **Run PyInstaller.** Use the preconfigured spec file that lives in the
    repository root:
    ```powershell
@@ -185,7 +205,14 @@ this before and walk through the entire process from a clean machine.
    run the app.
 9. **Launch the executable.** Double-click the file from `dist` or run it from
    a terminal. Streamlit will start and open the Kiroshi interface in your
-   browser just like when running `streamlit run`.
+   browser just like when running `streamlit run`. Packaged builds listen on
+   `http://localhost:8502/`, so adjust any bookmarks or firewall rules that
+   referenced the default Streamlit port (`8501`).
+
+The PyInstaller spec bundles the companion `aatom_chat.py` module along with
+its saved-memory files and logos. This keeps the integrated A.A.T.O.M. chat
+panel working in the compiled build and prevents `ModuleNotFoundError`
+crashes when the executable launches.
 
 If you ever want to rebuild after pulling updates, repeat steps 6 and 7 (you do
 not need to reinstall Python or Git).
@@ -261,9 +288,7 @@ to generate text without making HTTP requests.
 
 ### Corporate SSL interception
 
-Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The
-application disables certificate checks for requests to GPT-OSS so it can be used behind such company proxies. Be
-aware that this weakens transport security and should only be enabled in trusted environments.
+Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The application disables certificate checks for requests to GPT-OSS and for the GitHub updater so it can be used behind such company proxies. Be aware that this weakens transport security and should only be enabled in trusted environments.
 
 ## Build executable
 

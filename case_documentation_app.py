@@ -89,7 +89,7 @@ from aatom_chat import (
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
 # warnings and certificate verification for outbound requests so the
-# ChatGPT API can still be reached.
+# ChatGPT API and GitHub update checks can still be reached.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VERSION = "1.7.2 Beta Build 932025"
@@ -242,7 +242,7 @@ def _resolve_update_target() -> tuple[str, str]:
 
 def _fetch_remote_version(repo: str, branch: str) -> str:
     raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/case_documentation_app.py"
-    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT)
+    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
     response.raise_for_status()
     match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
     if not match:
@@ -253,7 +253,12 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
 def _fetch_latest_commit_info(repo: str, branch: str) -> dict[str, str | None]:
     api_url = f"https://api.github.com/repos/{repo}/commits/{branch}"
     headers = {"Accept": "application/vnd.github+json"}
-    response = requests.get(api_url, headers=headers, timeout=UPDATE_CHECK_TIMEOUT)
+    response = requests.get(
+        api_url,
+        headers=headers,
+        timeout=UPDATE_CHECK_TIMEOUT,
+        verify=False,
+    )
     response.raise_for_status()
     payload = response.json()
     commit = payload.get("commit", {}) if isinstance(payload, dict) else {}
@@ -310,7 +315,12 @@ def apply_github_update(repo: str, branch: str) -> Path:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         archive_path = tmp_path / "update.zip"
-        with requests.get(download_url, stream=True, timeout=UPDATE_CHECK_TIMEOUT) as response:
+        with requests.get(
+            download_url,
+            stream=True,
+            timeout=UPDATE_CHECK_TIMEOUT,
+            verify=False,
+        ) as response:
             response.raise_for_status()
             with archive_path.open("wb") as fh:
                 for chunk in response.iter_content(chunk_size=8192):
