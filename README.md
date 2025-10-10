@@ -99,6 +99,20 @@ Using a fresh virtual environment is recommended so that you can quickly revert 
 set if a bleeding-edge dependency causes issues. To go back to the supported versions, reinstall the standard
 requirements in a separate environment or run `pip install -r requirements.txt` again.
 
+## Building the desktop executable
+
+The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it
+from the project root:
+
+```bash
+./build.sh
+```
+
+The script bundles `case_documentation_app.py` together with the Streamlit runtime and deposits the compiled
+artifacts under `dist/`. The process was last verified with PyInstaller 6.16.0 on Python 3.12.10; PyInstaller may
+emit warnings for optional modules such as `langchain`, but they do not prevent the executable from being
+generated.
+
 ### Windows PATH helper
 
 If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user
