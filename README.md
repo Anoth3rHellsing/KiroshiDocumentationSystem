@@ -128,6 +128,68 @@ After running the script, close and reopen the terminal, then verify with:
 streamlit --version
 ```
 
+## "Compile it for Dummies" guide
+
+If you want a single executable that bundles Python and all dependencies, you
+can create one with PyInstaller. The steps below assume you have never done
+this before and walk through the entire process from a clean machine.
+
+1. **Install Python (64-bit).** Download the official 64-bit Python installer
+   from [python.org](https://www.python.org/downloads/) and ensure "Add Python
+   to PATH" is checked during installation.
+2. **Install Git (optional but recommended).** Grab
+   [Git for Windows](https://git-scm.com/download/win) so you can clone the
+   repository instead of downloading ZIP files manually.
+3. **Download the project.** Either run
+   `git clone https://github.com/<your-account>/KiroshiDocumentationSystem.git`
+   or download and extract the ZIP archive from GitHub.
+4. **Open a terminal inside the project folder.** On Windows you can use
+   *Command Prompt* or *PowerShell* and run `cd` to the extracted folder, for
+   example: `cd C:\Users\you\Downloads\KiroshiDocumentationSystem`.
+5. **Create (optional) and activate a virtual environment.** This keeps build
+   tools separate from the rest of your system:
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   ```
+   If you already created `.venv` in a previous session, activate the existing
+   environment with `.\.venv\Scripts\activate` and skip re-running
+   `python -m venv .venv`. Trying to recreate the environment while it is
+   active leads Windows to print `Unable to copy ... venvlauncher.exe` because
+   the interpreter files are locked by the running shell.
+6. **Install the app requirements and PyInstaller.**
+   ```powershell
+   pip install -r requirements.txt
+   pip install pyinstaller
+   ```
+7. **Run PyInstaller.** Use the preconfigured spec file that lives in the
+   repository root:
+   ```powershell
+   pyinstaller KiroshiDocumentationSystem.spec
+   ```
+   This spec mirrors the long one-liner you might type by hand but also guarantees that
+   `case_documentation_app.py` ships with the executable, that the theme and
+   server configuration in `.streamlit/config.toml` are packaged, and that all of
+   Streamlit's data files are collected. On macOS or Linux you can run the same
+   command or execute the helper script: `bash build.sh`.
+   > **Prefer a custom command?** If you roll your own `pyinstaller` invocation,
+   > remember to include the equivalent of `--add-data "case_documentation_app.py;."`
+   > (use a colon on macOS/Linux). Without it the packaged app cannot locate the
+   > Streamlit entry-point file and will exit with "File does not exist:
+   > case_documentation_app.py". If you disable CORS in a custom build, also
+   > bundle `.streamlit/config.toml` so `enableXsrfProtection` stays in sync and
+   > Streamlit does not print a startup warning.
+8. **Wait for the build to finish.** When PyInstaller completes you will find
+   the executable in the `dist` folder (for example
+   `dist\KiroshiDocumentationSystem.exe`). Copy that file wherever you want to
+   run the app.
+9. **Launch the executable.** Double-click the file from `dist` or run it from
+   a terminal. Streamlit will start and open the Kiroshi interface in your
+   browser just like when running `streamlit run`.
+
+If you ever want to rebuild after pulling updates, repeat steps 6 and 7 (you do
+not need to reinstall Python or Git).
+
 ## Usage
 
 If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_1-7-2.bat`).
