@@ -12,6 +12,13 @@ hiddenimports = []
 tmp_ret = collect_all('streamlit')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+# ReportLab ships fonts, ICC profiles, and other assets that PyInstaller does
+# not automatically discover when only collecting Python modules.  Pull in the
+# package resources so that the PDF export feature keeps working in the bundled
+# executable.
+tmp_ret = collect_all('reportlab')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
 
 a = Analysis(
     ['run_app.py'],

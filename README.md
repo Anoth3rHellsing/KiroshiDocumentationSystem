@@ -176,6 +176,12 @@ this before and walk through the entire process from a clean machine.
    pip install -r requirements.txt
    pip install pyinstaller
    ```
+
+   If you see `ModuleNotFoundError: No module named 'reportlab'` while running
+   the packaged executable, double-check that the build environment installed
+   the project's requirements with the command above. PyInstaller copies
+   dependencies from the interpreter that executes the build; missing packages
+   cannot be retroactively added to an already compiled binary.
 7. **Run PyInstaller.** Use the preconfigured spec file that lives in the
    repository root:
    ```powershell
