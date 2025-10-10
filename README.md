@@ -199,7 +199,9 @@ this before and walk through the entire process from a clean machine.
    run the app.
 9. **Launch the executable.** Double-click the file from `dist` or run it from
    a terminal. Streamlit will start and open the Kiroshi interface in your
-   browser just like when running `streamlit run`.
+   browser just like when running `streamlit run`. Packaged builds listen on
+   `http://localhost:8502/`, so adjust any bookmarks or firewall rules that
+   referenced the default Streamlit port (`8501`).
 
 If you ever want to rebuild after pulling updates, repeat steps 6 and 7 (you do
 not need to reinstall Python or Git).

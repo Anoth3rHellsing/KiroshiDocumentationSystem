@@ -38,10 +38,18 @@ def _harmonize_security_settings() -> None:
         os.environ.setdefault("STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION", "false")
 
 
+def _set_default_port() -> None:
+    """Use port 8502 for frozen builds so the packaged URL is predictable."""
+
+    if getattr(sys, "frozen", False) and "STREAMLIT_SERVER_PORT" not in os.environ:
+        os.environ["STREAMLIT_SERVER_PORT"] = "8502"
+
+
 def main() -> None:
     """Launch the Streamlit application via ``streamlit.web.cli``."""
 
     _harmonize_security_settings()
+    _set_default_port()
 
     app_path = _resolve_app_path()
     if not app_path.exists():
