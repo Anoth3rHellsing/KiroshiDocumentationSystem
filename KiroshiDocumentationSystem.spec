@@ -1,11 +1,28 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 
+
+def _resolve_spec_dir() -> Path:
+    """Return the directory that contains this spec file.
+
+    PyInstaller executes spec files via ``exec`` and, depending on the
+    invocation path, ``__file__`` may not be injected into the globals.  When
+    that happens the previous implementation crashed before the build even
+    started.  Fall back to the current working directory so the build can
+    continue, which matches PyInstaller's default behaviour when running a
+    ``.spec`` from the command line.
+    """
+
+    spec_path = globals().get("__file__")
+    if spec_path:
+        return Path(spec_path).resolve().parent
+    return Path.cwd()
+
 from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
-SPEC_DIR = Path(__file__).resolve().parent
+SPEC_DIR = _resolve_spec_dir()
 ICON_SOURCE = SPEC_DIR / "Kiroshi_Logo.png"
 ICON_TARGET = SPEC_DIR / "Kiroshi_Logo.ico"
 
