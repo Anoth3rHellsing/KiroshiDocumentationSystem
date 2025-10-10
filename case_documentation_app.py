@@ -118,30 +118,37 @@ CASE_DEX_URL_TEMPLATE = os.environ.get(
 )
 
 if os.name == "nt":
+    PROGRAM_DATA_DIR = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Kiroshi Documentation"
     DATABASE_DIR = Path("C:/ProgramFiles/KiroshiDatabase")
 else:
+    PROGRAM_DATA_DIR = Path.home() / "Kiroshi Documentation"
     DATABASE_DIR = Path.home() / "KiroshiDatabase"
-DATABASE_DIR.mkdir(parents=True, exist_ok=True)
-UTILITIES_DIR = DATABASE_DIR / "utilities"
-UTILITIES_DIR.mkdir(parents=True, exist_ok=True)
-UPDATES_DIR = UTILITIES_DIR / "updates"
-UPDATES_DIR.mkdir(parents=True, exist_ok=True)
-RECENT_CASES_PATH = UTILITIES_DIR / "recent_cases.json"
-if not RECENT_CASES_PATH.exists():
-    RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
 
-if os.name == "nt":
-    TRACKED_CASES_DIR = Path("C:/ProgramFiles/KiroshiDatabase/TrackedCases")
-else:
-    TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
-TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
+PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
+
+UTILITIES_DIR = DATABASE_DIR / "utilities"
+UPDATES_DIR = UTILITIES_DIR / "updates"
+RECENT_CASES_PATH = UTILITIES_DIR / "recent_cases.json"
+TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 
 # Location for persisted case attachments
 DOCUMENTS_DIR = Path.home() / "Documents"
 CASE_ATTACHMENTS_ROOT = DOCUMENTS_DIR / "kiroshi"
-CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
 
 AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
+
+
+def _initialize_storage_paths() -> None:
+    """Ensure user-writable directories exist after installation is verified."""
+
+    DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+    UTILITIES_DIR.mkdir(parents=True, exist_ok=True)
+    UPDATES_DIR.mkdir(parents=True, exist_ok=True)
+    if not RECENT_CASES_PATH.exists():
+        RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
+    TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+    CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
 
 APP_ROOT = Path(__file__).resolve().parent
 DEFAULT_UPDATE_REPO = "KiroshiCorp/KiroshiDocumentationSystem"
@@ -752,6 +759,124 @@ else:
     logging.info("Logging initialized; using stdout only (log directory unavailable)")
 
 logging.info("Kiroshi app started")
+
+INSTALLER_FILENAME = "KiroshiInstaller_1-7-2.bat"
+
+
+def _resolve_installer_path() -> Path:
+    """Return the best-effort path to the bundled Windows installer."""
+
+    search_roots: list[Path] = []
+    if getattr(sys, "frozen", False):
+        search_roots.append(Path(getattr(sys, "_MEIPASS", APP_ROOT)))
+    search_roots.extend([APP_ROOT, PROGRAM_DATA_DIR])
+
+    for root in search_roots:
+        if not root:
+            continue
+        candidate = Path(root) / INSTALLER_FILENAME
+        if candidate.exists():
+            return candidate
+    return Path()
+
+
+def _relaunch_application() -> None:
+    """Attempt to relaunch Kiroshi after a successful installation."""
+
+    try:
+        if os.name == "nt" and getattr(sys, "frozen", False):
+            os.startfile(sys.executable)  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(
+                [sys.executable, "-m", "streamlit", "run", str(Path(__file__).resolve())],
+                close_fds=True,
+            )
+    except Exception as exc:  # pragma: no cover - user environment dependent
+        st.warning(f"Automatic relaunch failed: {exc}")
+    else:
+        if os.name == "nt" and getattr(sys, "frozen", False):
+            os._exit(0)
+
+
+def _launch_installer_and_relaunch() -> None:
+    """Run the bundled installer and relaunch the application when done."""
+
+    installer_path = _resolve_installer_path()
+    if not installer_path.exists():
+        st.error(
+            "The bundled Kiroshi installer could not be found. Please run "
+            "KiroshiInstaller_1-7-2.bat manually from the installation media."
+        )
+        return
+
+    st.info("Launching the Kiroshi Installer. Accept the administrator prompt to continue.")
+    creation_flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    try:
+        completed = subprocess.run(
+            ["cmd.exe", "/c", str(installer_path)],
+            check=False,
+            creationflags=creation_flags,
+        )
+    except Exception as exc:  # pragma: no cover - depends on OS environment
+        st.error(f"Failed to launch the installer: {exc}")
+        return
+
+    if completed.returncode != 0:
+        st.error(
+            "The installer exited with an error. Please rerun the installer manually "
+            "and relaunch Kiroshi."
+        )
+        return
+
+    st.success("Installation completed successfully. Relaunching Kiroshi…")
+    _relaunch_application()
+    st.stop()
+
+
+def _check_installation_status() -> None:
+    """Ensure the Windows bundle was deployed through the official installer."""
+
+    if os.name != "nt":
+        _initialize_storage_paths()
+        return
+
+    program_data_missing = not PROGRAM_DATA_DIR.exists() or not PROGRAM_DATA_SENTINEL.exists()
+    program_files_missing = not DATABASE_DIR_PREEXISTED
+
+    missing_locations: list[tuple[str, Path]] = []
+    if program_data_missing:
+        missing_locations.append(("ProgramData", PROGRAM_DATA_DIR))
+    if program_data_missing and program_files_missing:
+        missing_locations.append(("Program Files", DATABASE_DIR))
+
+    if not missing_locations:
+        _initialize_storage_paths()
+        return
+
+    st.error(
+        "Kiroshi's installation data is incomplete. Run the Kiroshi Installer "
+        "to populate the required ProgramData and Program Files folders before "
+        "using the app."
+    )
+
+    bullet_list = "\n".join(
+        f"- **{label}** → `{path}`" for label, path in missing_locations
+    )
+    st.markdown(textwrap.dedent(
+        f"""
+        **Missing locations detected:**
+        {bullet_list}
+        """
+    ))
+
+    if st.button("Run Kiroshi Installer", type="primary"):
+        _launch_installer_and_relaunch()
+
+    st.info(
+        "If the automatic launch does not start the installer, close this window "
+        "and run `KiroshiInstaller_1-7-2.bat` manually."
+    )
+    st.stop()
 
 
 def _shorten_for_log(text: str, limit: int = 160) -> str:
@@ -1468,6 +1593,8 @@ st.set_page_config(
     layout="wide",
     page_icon=str(KIROSHI_LOGO_PATH),
 )
+
+_check_installation_status()
 
 CURRENT_THEME = determine_active_theme()
 apply_theme_palette(CURRENT_THEME)
