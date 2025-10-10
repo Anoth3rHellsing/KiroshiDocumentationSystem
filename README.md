@@ -288,9 +288,7 @@ to generate text without making HTTP requests.
 
 ### Corporate SSL interception
 
-Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The
-application disables certificate checks for requests to GPT-OSS so it can be used behind such company proxies. Be
-aware that this weakens transport security and should only be enabled in trusted environments.
+Some enterprise networks intercept HTTPS traffic with a self-signed certificate, which breaks standard SSL verification. The application disables certificate checks for requests to GPT-OSS and for the GitHub updater so it can be used behind such company proxies. Be aware that this weakens transport security and should only be enabled in trusted environments.
 
 ## Build executable
 
