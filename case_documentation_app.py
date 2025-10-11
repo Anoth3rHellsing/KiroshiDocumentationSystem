@@ -212,6 +212,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "debug_mode": False,
     "case_compact_mode": False,
     "show_atom_chat": True,
+    "autosave_to_database": False,
     "ai_assist_mode": "Standard",
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
@@ -1204,6 +1205,43 @@ class ThemePalette:
     glados_messages: list[str]
 
 
+def _normalize_hex_color(value: str) -> str:
+    """Return a normalized 6-digit hex color (prefixed with #)."""
+
+    color = (value or "").strip().lstrip("#")
+    if len(color) == 3:
+        color = "".join(ch * 2 for ch in color)
+    if len(color) != 6 or any(ch not in "0123456789abcdefABCDEF" for ch in color):
+        logging.debug("Received invalid hex color %r; defaulting to black", value)
+        return "#000000"
+    return f"#{color.lower()}"
+
+
+def _hex_to_rgb_tuple(value: str) -> tuple[int, int, int]:
+    color = _normalize_hex_color(value).lstrip("#")
+    return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _blend_hex_colors(base: str, mix: str, ratio: float) -> str:
+    """Mix two colors together, clamping the ratio between 0 and 1."""
+
+    ratio = min(max(ratio, 0.0), 1.0)
+    base_rgb = _hex_to_rgb_tuple(base)
+    mix_rgb = _hex_to_rgb_tuple(mix)
+    blended = []
+    for base_channel, mix_channel in zip(base_rgb, mix_rgb):
+        value = round(base_channel * (1 - ratio) + mix_channel * ratio)
+        blended.append(max(0, min(255, value)))
+    return "#" + "".join(f"{channel:02x}" for channel in blended)
+
+
+def _rgba(color: str, alpha: float) -> str:
+    r, g, b = _hex_to_rgb_tuple(color)
+    alpha = min(max(alpha, 0.0), 1.0)
+    alpha_str = f"{alpha:.3f}".rstrip("0").rstrip(".")
+    return f"rgba({r}, {g}, {b}, {alpha_str})"
+
+
 DEFAULT_THEME = ThemePalette(
     key="default",
     name="Default",
@@ -1525,6 +1563,17 @@ def determine_active_theme(today: date | None = None) -> ThemePalette:
 
 
 def apply_theme_palette(theme: ThemePalette) -> None:
+    primary_glow = _blend_hex_colors(theme.primary, "#ffffff", 0.82)
+    accent_glow = _blend_hex_colors(theme.accent, "#ffffff", 0.8)
+    surface_soft = _blend_hex_colors(theme.surface, "#ffffff", 0.12)
+    surface_muted = _blend_hex_colors(theme.surface, theme.background, 0.5)
+    border_color = _blend_hex_colors(theme.primary, "#000000", 0.35)
+    chart_grid = _blend_hex_colors(theme.text, theme.background, 0.82)
+    chart_axis = _blend_hex_colors(theme.text, "#000000", 0.15)
+    input_background = _blend_hex_colors(theme.surface, theme.background, 0.35)
+    background_soft = _blend_hex_colors(theme.background, theme.surface, 0.25)
+    card_shadow_color = _blend_hex_colors(theme.background, "#000000", 0.6)
+    button_shadow_color = _blend_hex_colors(theme.primary, "#000000", 0.55)
     st.markdown(
         f"""
         <style>
@@ -1535,11 +1584,170 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             --kiroshi-surface: {theme.surface};
             --kiroshi-text: {theme.text};
             --kiroshi-muted: {theme.muted_text};
+            --kiroshi-surface-soft: {surface_soft};
+            --kiroshi-surface-muted: {surface_muted};
+            --kiroshi-border: {border_color};
+            --kiroshi-primary-glow: {primary_glow};
+            --kiroshi-accent-glow: {accent_glow};
+            --kiroshi-chart-grid: {chart_grid};
+            --kiroshi-chart-axis: {chart_axis};
+            --kiroshi-input-background: {input_background};
+        }}
+        html, body {{
+            background:
+                radial-gradient(circle at 15% 20%, var(--kiroshi-primary-glow) 0%, transparent 55%),
+                radial-gradient(circle at 85% 12%, var(--kiroshi-accent-glow) 0%, transparent 60%),
+                linear-gradient(165deg, {background_soft} 0%, {theme.background} 100%);
+            color: var(--kiroshi-text);
+            font-family: 'Source Sans Pro', sans-serif;
+            min-height: 100vh;
+        }}
+        body {{
+            margin: 0;
+        }}
+        .stApp {{
+            color: var(--kiroshi-text);
+        }}
+        .stApp > header {{
+            background: transparent;
+        }}
+        .stApp .block-container {{
+            background: linear-gradient(180deg, var(--kiroshi-surface-soft) 0%, var(--kiroshi-surface) 80%);
+            border-radius: 1.6rem 1.6rem 0 0;
+            box-shadow: 0 26px 60px {_rgba(card_shadow_color, 0.36)};
+            padding: 2.2rem 2.4rem 2.4rem;
+            color: var(--kiroshi-text);
+        }}
+        .stApp [data-testid="stSidebar"] > div:first-child {{
+            background: linear-gradient(205deg, var(--kiroshi-surface) 0%, var(--kiroshi-surface-muted) 100%);
+            border-right: 1px solid color-mix(in srgb, var(--kiroshi-border) 60%, transparent);
+            box-shadow: inset -8px 0 24px rgba(15, 23, 42, 0.22);
+            color: var(--kiroshi-text);
+        }}
+        .stApp [data-testid="stSidebar"] * {{
+            color: var(--kiroshi-text);
+        }}
+        .stApp a {{
+            color: {accent_glow};
+        }}
+        .stApp a:hover {{
+            color: {theme.accent};
+        }}
+        .stApp input,
+        .stApp textarea,
+        .stApp select {{
+            background: var(--kiroshi-input-background);
+            color: var(--kiroshi-text);
+            border-radius: 0.85rem;
+            border: 1px solid color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }}
+        .stApp input::placeholder,
+        .stApp textarea::placeholder {{
+            color: color-mix(in srgb, var(--kiroshi-muted) 78%, var(--kiroshi-text) 22%);
+        }}
+        .stApp .stButton button {{
+            border-radius: 999px;
+            border: none;
+            padding: 0.65rem 1.9rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
+            color: #ffffff;
+            box-shadow: 0 14px 34px {_rgba(button_shadow_color, 0.42)};
+            transition: transform 120ms ease, filter 120ms ease;
+        }}
+        .stApp .stButton button:hover {{
+            filter: brightness(1.05);
+            transform: translateY(-1px);
+        }}
+        .stApp .stTabs [role="tablist"] button {{
+            border-radius: 999px !important;
+            color: color-mix(in srgb, var(--kiroshi-muted) 70%, var(--kiroshi-text) 30%);
+        }}
+        .stApp .stTabs [role="tablist"] button[aria-selected="true"] {{
+            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
+            color: #ffffff;
+            box-shadow: 0 10px 24px {_rgba(button_shadow_color, 0.35)};
+        }}
+        .stApp .stTabs [role="tablist"] button[aria-selected="true"] p {{
+            color: #ffffff !important;
+        }}
+        .stApp .stAlert > div {{
+            background: color-mix(in srgb, var(--kiroshi-surface) 78%, rgba(255, 255, 255, 0.1));
+            border: 1px solid color-mix(in srgb, var(--kiroshi-accent) 35%, transparent);
+            color: var(--kiroshi-text);
+        }}
+        .stApp div[data-testid="stTable"] table {{
+            color: var(--kiroshi-text);
+        }}
+        .stApp div[data-testid="stTable"] th {{
+            background: color-mix(in srgb, var(--kiroshi-primary) 18%, transparent);
+            color: #ffffff;
+        }}
+        .stApp div[data-testid="stTable"] td,
+        .stApp div[data-testid="stTable"] th {{
+            border-color: color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
         }}
         </style>
         """,
         unsafe_allow_html=True,
     )
+    _enable_altair_theme(theme)
+
+
+def _enable_altair_theme(theme: ThemePalette) -> None:
+    category_palette = [
+        theme.primary,
+        theme.accent,
+        _blend_hex_colors(theme.primary, theme.accent, 0.4),
+        _blend_hex_colors(theme.accent, "#ffffff", 0.35),
+        _blend_hex_colors(theme.primary, "#ffffff", 0.45),
+        _blend_hex_colors(theme.accent, theme.background, 0.2),
+    ]
+    sequential_palette = [
+        _blend_hex_colors(theme.primary, "#ffffff", ratio)
+        for ratio in (0.85, 0.7, 0.5, 0.35, 0.2, 0.05)
+    ]
+    diverging_palette = [
+        _blend_hex_colors(theme.accent, "#ffffff", 0.55),
+        theme.accent,
+        theme.primary,
+        _blend_hex_colors(theme.primary, "#000000", 0.2),
+    ]
+    background_mix = _blend_hex_colors(theme.background, theme.surface, 0.35)
+    chart_grid = _blend_hex_colors(theme.text, theme.background, 0.82)
+    chart_axis = _blend_hex_colors(theme.text, "#000000", 0.15)
+
+    config = {
+        "background": background_mix,
+        "view": {"fill": background_mix, "stroke": "transparent"},
+        "axis": {
+            "labelColor": theme.text,
+            "titleColor": theme.text,
+            "domainColor": chart_axis,
+            "tickColor": chart_axis,
+            "gridColor": chart_grid,
+        },
+        "legend": {"labelColor": theme.text, "titleColor": theme.text},
+        "title": {
+            "color": theme.text,
+            "font": "Source Sans Pro",
+            "fontSize": 18,
+            "fontWeight": 600,
+        },
+        "header": {"labelColor": theme.text, "titleColor": theme.text},
+        "mark": {"color": theme.primary, "fill": theme.primary},
+        "range": {
+            "category": category_palette,
+            "ordinal": category_palette,
+            "diverging": diverging_palette,
+            "heatmap": sequential_palette,
+            "ramp": sequential_palette,
+        },
+    }
+
+    alt.themes.register("kiroshi-active", lambda config=config: config)
+    alt.themes.enable("kiroshi-active")
 
 # ────────────────────────── UTILITIES ───────────────────────────
 
@@ -2365,6 +2573,9 @@ _init_state("include_escalations", False)
 _init_state("include_hardware", False)
 _init_state("debug_auth", False)
 _init_state("debug_mode", _get_persistent_default("debug_mode", False))
+_init_state(
+    "autosave_to_database", _get_persistent_default("autosave_to_database", False)
+)
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
