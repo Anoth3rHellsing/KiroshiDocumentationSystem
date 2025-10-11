@@ -1,8 +1,8 @@
 [theme]
-primaryColor = "#d01e4e"
-backgroundColor = "#d01e4e"
-secondaryBackgroundColor = "#b3b3b3"
-textColor = "#ffffff"
+base = "light"
+primaryColor = "#adadad"
+secondaryBackgroundColor = "#dc5d81"
+textColor = "#000000"
 
 [server]
 # Packaged builds disable CORS so the app can be embedded locally; disable XSRF
