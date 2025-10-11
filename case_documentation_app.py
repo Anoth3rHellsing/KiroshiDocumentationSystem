@@ -211,7 +211,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "second_line_mode": False,
     "debug_mode": False,
     "case_compact_mode": False,
-    "attachments_include_case_json": True,
+    "show_atom_chat": True,
     "ai_assist_mode": "Standard",
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
@@ -2455,10 +2455,7 @@ _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
-_init_state(
-    "autosave_to_database",
-    _get_persistent_default("autosave_to_database", False),
-)
+_init_state("show_atom_chat", _get_persistent_default("show_atom_chat", True))
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",
@@ -4055,6 +4052,13 @@ def render_settings_panel() -> None:
             "Hide the documentation preview tables on the Case tab and use a tighter "
             "two-column layout for core fields."
         ),
+    )
+    st.subheader("A.A.T.O.M. Chat")
+    st.toggle(
+        "Show A.A.T.O.M. Chat tab",
+        key="show_atom_chat",
+        on_change=_on_setting_change("show_atom_chat"),
+        help="Disable this option to hide the A.A.T.O.M. Chat tab from the main navigation.",
     )
     current_style = dict(st.session_state.get("scratchpad_style", {}))
     style_col1, style_col2 = st.columns(2)
@@ -8870,7 +8874,11 @@ case_labels = [
 tab_labels: list[str] = ["Dashboard", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
-tab_labels += ["Report", "Smart Aid", "A.A.T.O.M. Chat"] + case_labels
+show_atom_chat = st.session_state.get("show_atom_chat", True)
+tab_labels.append("Report")
+if show_atom_chat:
+    tab_labels.append("A.A.T.O.M. Chat")
+tab_labels += case_labels
 all_tabs = st.tabs(tab_labels)
 
 tab_index = 0
@@ -8887,12 +8895,10 @@ if st.session_state.debug_mode:
 with all_tabs[tab_index]:
     render_report_panel()
 tab_index += 1
-with all_tabs[tab_index]:
-    render_smart_aid_panel()
-tab_index += 1
-with all_tabs[tab_index]:
-    render_atom_chat_panel()
-tab_index += 1
+if show_atom_chat:
+    with all_tabs[tab_index]:
+        render_atom_chat_panel()
+    tab_index += 1
 
 case_tabs = all_tabs[tab_index:]
 for idx, tab in enumerate(case_tabs):
