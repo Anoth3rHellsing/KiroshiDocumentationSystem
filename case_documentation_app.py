@@ -164,6 +164,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "second_line_mode": False,
     "debug_mode": False,
     "case_compact_mode": False,
+    "attachments_include_case_json": True,
     "ai_assist_mode": "Standard",
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
@@ -2249,6 +2250,10 @@ _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
+_init_state(
+    "attachments_include_case_json",
+    _get_persistent_default("attachments_include_case_json", True),
+)
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",
@@ -3802,6 +3807,17 @@ def render_settings_panel() -> None:
         )
         _persist_setting("scratchpad_style")
         st.rerun()
+
+    st.markdown("### Attachments")
+    st.toggle(
+        "Include case JSON when creating attachments ZIP",
+        key="attachments_include_case_json",
+        on_change=_on_setting_change("attachments_include_case_json"),
+        help=(
+            "Add the current case details as case.json when downloading the attachments ZIP. "
+            "Disable to export only uploaded files."
+        ),
+    )
 
     st.markdown("### AI Educate")
     prev_enabled = st.session_state.ai_educate_enabled
@@ -8225,7 +8241,8 @@ Thank you in advance,
                     z.writestr(f"logs/{f.name}", f.getvalue())
                 for s in st.session_state.screenshots:
                     z.writestr(f"Screenshots/{s.name}", s.getvalue())
-                z.writestr("case.json", json.dumps(asdict(D), indent=2))
+                if st.session_state.get("attachments_include_case_json", True):
+                    z.writestr("case.json", json.dumps(asdict(D), indent=2))
             zbuf.seek(0)
             st.download_button(
                 "Download attachments.zip",
