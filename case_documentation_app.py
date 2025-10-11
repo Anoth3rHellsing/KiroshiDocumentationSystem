@@ -2228,6 +2228,7 @@ _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
+_init_state("dashboard_load_notice", None)
 _init_state("ai_assist_mode", _get_persistent_default("ai_assist_mode", "Standard"))
 _init_state("ai_educate_enabled", _get_persistent_default("ai_educate_enabled", False))
 _init_state(
@@ -3430,7 +3431,7 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
             action_cols = st.columns(2)
             with action_cols[0]:
                 if st.button("Load", key=f"dash_load_{unique_suffix}"):
-                    request_load_from_path(case["path"])
+                    request_load_from_path(case["path"], prefer_new_tab=True)
             with action_cols[1]:
                 button_label = "Untrack" if case.get("is_legacy") else "Stop Tracking"
                 if st.button(
@@ -3490,7 +3491,7 @@ def render_saved_cases_dashboard() -> None:
         if row_cols[3].button(
             "Load", key=f"saved_load_{Path(case['path']).stem}"
         ):
-            request_load_from_path(case["path"])
+            request_load_from_path(case["path"], prefer_new_tab=True)
 
 
 def render_dashboard() -> None:
@@ -3500,6 +3501,10 @@ def render_dashboard() -> None:
         "<div class='dashboard-title'>Dashboard</div>",
         unsafe_allow_html=True,
     )
+    notice_idx = st.session_state.get("dashboard_load_notice")
+    if notice_idx is not None:
+        st.info(f"Loaded case into Case tab {notice_idx + 1}.")
+        st.session_state.dashboard_load_notice = None
     tracked_cases = load_tracked_cases()
     charts_col, main_col = st.columns([1.1, 2.4])
     with charts_col:
@@ -5672,17 +5677,71 @@ def has_unsaved_sections(case: CaseData) -> bool:
     return any(getattr(case, f) for f in header_fields + phone_fields + remote_fields)
 
 
-def request_load_from_path(path: str) -> None:
-    if has_unsaved_sections(D):
-        st.session_state.pending_load = {"path": path}
+def _case_session_has_content(session: CaseSession) -> bool:
+    """Return ``True`` when a case tab already contains meaningful data."""
+
+    case = session.case
+    if case.case_id and case.case_id.strip():
+        return True
+    if has_unsaved_sections(case):
+        return True
+    if session.scratch and session.scratch.strip():
+        return True
+    if session.uploads or session.log_uploads or session.screenshots:
+        return True
+    if case.tracking.active:
+        return True
+    return False
+
+
+def _allocate_case_tab_for_loading() -> int:
+    """Return an available case tab index, creating one if required."""
+
+    for idx, session in enumerate(st.session_state.case_sessions):
+        if not _case_session_has_content(session):
+            return idx
+    st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+    return len(st.session_state.case_sessions) - 1
+
+
+def _activate_case_index(idx: int) -> None:
+    """Update globals so subsequent load operations target ``idx``."""
+
+    global CURRENT_CASE_IDX
+    CURRENT_CASE_IDX = idx
+
+
+def request_load_from_path(path: str, *, prefer_new_tab: bool = False) -> None:
+    if prefer_new_tab:
+        target_idx = _allocate_case_tab_for_loading()
     else:
+        target_idx = CURRENT_CASE_IDX
+    session_case = st.session_state.case_sessions[target_idx].case
+    if not prefer_new_tab and has_unsaved_sections(session_case):
+        st.session_state.pending_load = {"path": path, "target_idx": target_idx}
+    else:
+        if prefer_new_tab:
+            st.session_state.dashboard_load_notice = target_idx
+        else:
+            st.session_state.dashboard_load_notice = None
+        _activate_case_index(target_idx)
         load_case_from_path(path)
 
 
-def request_load_from_bytes(data: bytes) -> None:
-    if has_unsaved_sections(D):
-        st.session_state.pending_load = {"data": data}
+def request_load_from_bytes(data: bytes, *, prefer_new_tab: bool = False) -> None:
+    if prefer_new_tab:
+        target_idx = _allocate_case_tab_for_loading()
     else:
+        target_idx = CURRENT_CASE_IDX
+    session_case = st.session_state.case_sessions[target_idx].case
+    if not prefer_new_tab and has_unsaved_sections(session_case):
+        st.session_state.pending_load = {"data": data, "target_idx": target_idx}
+    else:
+        if prefer_new_tab:
+            st.session_state.dashboard_load_notice = target_idx
+        else:
+            st.session_state.dashboard_load_notice = None
+        _activate_case_index(target_idx)
         load_case_from_bytes(data)
 
 
@@ -7883,7 +7942,9 @@ Thank you in advance,
         if pending:
             st.error("Remember to save your information before loading a new case")
             col_i, col_s = st.columns(2)
+            target_idx = pending.get("target_idx", CURRENT_CASE_IDX)
             if col_i.button("Ignore and load", key=widget_key("ignore_and_load", case_idx)):
+                _activate_case_index(target_idx)
                 if "path" in pending:
                     load_case_from_path(pending["path"])
                 else:
