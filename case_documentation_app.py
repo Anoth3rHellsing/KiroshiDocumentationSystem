@@ -368,13 +368,38 @@ def _resolve_update_target() -> tuple[str, str]:
 
 
 def _fetch_remote_version(repo: str, branch: str) -> str:
-    raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/case_documentation_app.py"
-    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
-    response.raise_for_status()
-    match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
-    if not match:
-        raise RuntimeError("VERSION marker not found in remote application source.")
-    return match.group(1).strip()
+    candidate_paths = [
+        "case_documentation_app.py",
+        "src/case_documentation_app.py",
+        "app/case_documentation_app.py",
+    ]
+
+    last_error: Exception | None = None
+    for path in candidate_paths:
+        raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+        try:
+            response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            # If the file is not present at this location, try the next candidate.
+            if exc.response is not None and exc.response.status_code == 404:
+                last_error = exc
+                continue
+            raise
+        except requests.RequestException as exc:  # pragma: no cover - network errors
+            last_error = exc
+            continue
+
+        match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
+        if not match:
+            raise RuntimeError("VERSION marker not found in remote application source.")
+        return match.group(1).strip()
+
+    if last_error:
+        raise FileNotFoundError(
+            "Unable to locate case_documentation_app.py in the configured repository"
+        ) from last_error
+    raise FileNotFoundError("No candidate paths were available for the update check")
 
 
 def _fetch_latest_commit_info(repo: str, branch: str) -> dict[str, str | None]:
@@ -6580,7 +6605,7 @@ def render_case_ui(case_idx: int):
         st.markdown("</div>", unsafe_allow_html=True)
 
         compact_mode = st.session_state.get("case_compact_mode", False)
-        note_height = 120 if compact_mode else 150
+        note_height = 96 if compact_mode else 150
 
         if st.session_state.verify_result:
             st.text_area(
@@ -6689,7 +6714,7 @@ def render_case_ui(case_idx: int):
                 container=header_right,
             )
             st.subheader("Description (What / When / Where)")
-            desc_height = 60 if compact_mode else 68
+            desc_height = 52 if compact_mode else 68
             auto_text_area("Description", "description", height=desc_height)
             st.subheader("Phone-call notes")
             phone_cols = st.columns(2) if compact_mode else (st, st)
@@ -6701,26 +6726,36 @@ def render_case_ui(case_idx: int):
                 height=desc_height,
                 container=phone_right,
             )
-            contact_cols = st.columns(2)
-            auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
-            auto_text_input("Phone number", "phone_number", container=contact_cols[1])
             if compact_mode:
-                auto_text_input("Customer email", "email", container=contact_cols[0])
+                contact_cols = st.columns(3)
+                auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
+                auto_text_input("Phone number", "phone_number", container=contact_cols[1])
+                auto_text_input("Customer email", "email", container=contact_cols[2])
+                tv_cols = st.columns(2)
+                auto_text_input("TeamViewer ID", "teamviewer_id", container=tv_cols[0])
+                auto_text_input(
+                    "TeamViewer password",
+                    "teamviewer_password",
+                    container=tv_cols[1],
+                )
             else:
+                contact_cols = st.columns(2)
+                auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
+                auto_text_input("Phone number", "phone_number", container=contact_cols[1])
                 auto_text_input("Customer email", "email")
-            auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
-            auto_text_input(
-                "TeamViewer password",
-                "teamviewer_password",
-                container=contact_cols[1],
-            )
+                auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
+                auto_text_input(
+                    "TeamViewer password",
+                    "teamviewer_password",
+                    container=contact_cols[1],
+                )
             if not st.session_state.second_line_mode:
                 D.patterson = "N/A"
             st.subheader("Internal notes")
             notes_cols = st.columns(2) if compact_mode else (st, st)
             notes_left, notes_right = notes_cols
             auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_left)
-            logs_height = 60 if compact_mode else 68
+            logs_height = 52 if compact_mode else 68
             auto_text_area(
                 "Logs / screenshots",
                 "internal_logs",
@@ -6742,7 +6777,7 @@ def render_case_ui(case_idx: int):
             auto_text_area(
                 "Additional details",
                 "additional_info",
-                height=280 if compact_mode else 400,
+                height=220 if compact_mode else 400,
                 help=(
                     "Include details such as antivirus, firewalls enabled, update history, "
                     "related case ID, possible cause, performance issues, manual additional notes, "
