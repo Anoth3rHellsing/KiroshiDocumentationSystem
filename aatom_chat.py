@@ -1,5 +1,7 @@
 import os
 import json
+import uuid
+from collections.abc import Mapping, Sequence
 import requests
 import streamlit as st
 import urllib3
@@ -270,19 +272,109 @@ def build_system_prompt():
     mode = st.session_state.get("personality_mode", "utility")
     return prompt.replace("{personality_mode}", mode)
 
+def _sanitize_notes(raw_notes: object) -> list[dict[str, object]]:
+    """Return a sanitized list of assistant memory notes."""
+
+    sanitized: list[dict[str, object]] = []
+    if not isinstance(raw_notes, Sequence) or isinstance(raw_notes, (str, bytes, bytearray)):
+        return sanitized
+
+    for entry in raw_notes:
+        if not isinstance(entry, Mapping):
+            continue
+        text = str(entry.get("text", "")).strip()
+        if not text:
+            continue
+        supervisor = str(entry.get("supervisor", "")).strip()
+        created_at = str(entry.get("created_at", "")).strip()
+        note_id = str(entry.get("id") or uuid.uuid4().hex)
+        raw_areas = entry.get("areas", [])
+        areas: list[str] = []
+        if isinstance(raw_areas, Sequence) and not isinstance(raw_areas, (str, bytes, bytearray)):
+            for area in raw_areas:
+                area_text = str(area).strip()
+                if area_text and area_text not in areas:
+                    areas.append(area_text)
+        sanitized.append(
+            {
+                "id": note_id,
+                "text": text,
+                "supervisor": supervisor,
+                "created_at": created_at,
+                "areas": areas,
+            }
+        )
+
+    return sanitized
+
+
+def get_assistant_notes() -> list[dict[str, object]]:
+    """Return the current persistent assistant guidance notes."""
+
+    notes = _sanitize_notes(st.session_state.get("assistant_notes"))
+    if notes != st.session_state.get("assistant_notes"):
+        st.session_state["assistant_notes"] = notes
+    return notes
+
+
+def set_assistant_notes(notes: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    """Persist notes in session state after sanitizing."""
+
+    sanitized = _sanitize_notes(notes)
+    st.session_state["assistant_notes"] = sanitized
+    return sanitized
+
+
+def build_assistant_memory_prompt() -> str | None:
+    """Return a formatted string with persistent supervisor feedback."""
+
+    notes = get_assistant_notes()
+    if not notes:
+        return None
+
+    lines: list[str] = []
+    for note in notes:
+        text = str(note.get("text", "")).strip()
+        if not text:
+            continue
+        meta_bits: list[str] = []
+        areas = note.get("areas")
+        if isinstance(areas, Sequence) and not isinstance(areas, (str, bytes, bytearray)):
+            area_labels = [str(area).strip() for area in areas if str(area).strip()]
+            if area_labels:
+                meta_bits.append("focus: " + ", ".join(area_labels))
+        supervisor = str(note.get("supervisor", "")).strip()
+        if supervisor:
+            meta_bits.append(f"source: {supervisor}")
+        detail = f" ({'; '.join(meta_bits)})" if meta_bits else ""
+        lines.append(f"- {text}{detail}")
+
+    if not lines:
+        return None
+
+    header = (
+        "Persistent supervisor calibration reminders. "
+        "Apply these instructions to every AI-assisted response and prompt."
+    )
+    return header + "\n" + "\n".join(lines)
+
+
 def load_memory():
     """Load persistent memory from disk."""
+
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
                 st.session_state["personality_mode"] = data.get("personality_mode", "utility")
+                st.session_state["assistant_notes"] = _sanitize_notes(data.get("assistant_notes"))
                 return data.get("history", [])
         except Exception:
             pass
     st.session_state["system_prompt"] = SYSTEM_PROMPT
     st.session_state["personality_mode"] = "utility"
+    st.session_state["assistant_notes"] = []
     return []
 
 
@@ -295,6 +387,7 @@ def save_memory(history):
                     "history": history,
                     "system_prompt": st.session_state.get("system_prompt", SYSTEM_PROMPT),
                     "personality_mode": st.session_state.get("personality_mode", "utility"),
+                    "assistant_notes": get_assistant_notes(),
                 },
                 f,
                 ensure_ascii=False,
@@ -359,9 +452,16 @@ def query_atom(user_message, history, api_key, model, base_url=None):
     """Send a message to the A.A.T.O.M. API or a local model and return the reply."""
     if base_url is None:
         base_url = DEFAULT_AI_BASE_URL
-    messages = ([{"role": "system", "content": build_system_prompt()}] + history + [
+    system_messages: list[dict[str, str]] = [
+        {"role": "system", "content": build_system_prompt()}
+    ]
+    memory_prompt = build_assistant_memory_prompt()
+    if memory_prompt:
+        system_messages.append({"role": "system", "content": memory_prompt})
+    conversation_history = list(history or [])
+    messages = system_messages + conversation_history + [
         {"role": "user", "content": user_message}
-    ])
+    ]
     # Local pipeline fallback when no base URL is provided
     if not base_url:
         try:
