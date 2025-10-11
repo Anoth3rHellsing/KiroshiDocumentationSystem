@@ -139,6 +139,50 @@ CASE_ATTACHMENTS_ROOT = DOCUMENTS_DIR / "kiroshi"
 AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
 
 
+def _resolve_configured_attachments_directory() -> Path:
+    """Return the attachments directory requested by the current settings."""
+
+    raw_value: object = _persistent_settings_cache.get(
+        "attachments_directory", str(CASE_ATTACHMENTS_ROOT)
+    )
+    if hasattr(st, "session_state") and isinstance(
+        st.session_state.get("attachments_directory"), str
+    ):
+        raw_value = st.session_state.attachments_directory
+    if isinstance(raw_value, str) and raw_value.strip():
+        try:
+            return Path(raw_value).expanduser()
+        except Exception:  # pragma: no cover - defensive conversion guard
+            logging.warning(
+                "Invalid attachments directory provided in settings: %s",
+                raw_value,
+            )
+    return CASE_ATTACHMENTS_ROOT
+
+
+def _ensure_case_attachments_root() -> tuple[Path, OSError | None]:
+    """Ensure the configured attachments root exists, falling back on failure."""
+
+    requested_root = _resolve_configured_attachments_directory()
+    try:
+        requested_root.mkdir(parents=True, exist_ok=True)
+        return requested_root, None
+    except OSError as exc:
+        logging.warning(
+            "Unable to create attachments directory %s: %s", requested_root, exc
+        )
+        try:
+            CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
+        except OSError as fallback_exc:
+            logging.error(
+                "Failed to create fallback attachments directory %s: %s",
+                CASE_ATTACHMENTS_ROOT,
+                fallback_exc,
+            )
+            raise fallback_exc
+        return CASE_ATTACHMENTS_ROOT, exc
+
+
 def _initialize_storage_paths() -> None:
     """Ensure user-writable directories exist after installation is verified."""
 
@@ -148,7 +192,7 @@ def _initialize_storage_paths() -> None:
     if not RECENT_CASES_PATH.exists():
         RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
     TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
-    CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
+    _ensure_case_attachments_root()
 
 APP_ROOT = Path(__file__).resolve().parent
 DEFAULT_UPDATE_REPO = "KiroshiCorp/KiroshiDocumentationSystem"
@@ -179,6 +223,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
         "text_color": "#111827",
         "line_height": 1.5,
     },
+    "attachments_directory": str(CASE_ATTACHMENTS_ROOT),
 }
 
 
@@ -2242,6 +2287,10 @@ _init_state("ai_learning_data", None)
 _init_state("ai_learning_signature", None)
 _init_state("ai_learning_matches", [])
 _init_state("ai_bug_report", None)
+_init_state(
+    "attachments_directory",
+    _get_persistent_default("attachments_directory", str(CASE_ATTACHMENTS_ROOT)),
+)
 # Tracking related state
 _init_state("track_case", False)
 _init_state("tracking_info", {})
@@ -2691,7 +2740,8 @@ def get_case_attachments_dir(case_id: str) -> Path:
     """Return the directory used to persist attachments for a case."""
 
     safe_id = sanitize_case_id(case_id)
-    case_dir = CASE_ATTACHMENTS_ROOT / safe_id
+    attachments_root, _ = _ensure_case_attachments_root()
+    case_dir = attachments_root / safe_id
     case_dir.mkdir(parents=True, exist_ok=True)
     return case_dir
 
@@ -3642,6 +3692,36 @@ def render_settings_panel() -> None:
             PERSISTENT_SETTINGS_DEFAULTS["scratchpad_style"]
         )
         _persist_setting("scratchpad_style")
+        st.rerun()
+
+    st.subheader("Storage")
+    attachments_help = (
+        "Choose where case uploads, logs, and screenshots are stored on disk. "
+        "Provide an absolute path to a folder that Streamlit can access."
+    )
+    st.text_input(
+        "Attachments folder",
+        key="attachments_directory",
+        on_change=_on_setting_change("attachments_directory"),
+        help=attachments_help,
+    )
+    requested_root = _resolve_configured_attachments_directory()
+    attachments_root, attachments_error = _ensure_case_attachments_root()
+    if attachments_error:
+        st.warning(
+            "Unable to use the selected attachments folder `{}`. Using `{}` instead.\n\n{}".format(
+                requested_root,
+                attachments_root,
+                attachments_error,
+            )
+        )
+    st.caption(f"Current attachments will be saved to `{attachments_root}`.")
+    if st.button(
+        "Use default attachments folder",
+        key=global_widget_key("attachments_directory_reset"),
+    ):
+        st.session_state.attachments_directory = str(CASE_ATTACHMENTS_ROOT)
+        _persist_setting("attachments_directory")
         st.rerun()
 
     st.markdown("### AI Educate")
