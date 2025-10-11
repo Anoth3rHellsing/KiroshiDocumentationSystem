@@ -3577,6 +3577,7 @@ def render_settings_panel() -> None:
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
         st.session_state.show_bored = False
+        st.session_state.theme_preview = "auto"
 
     st.subheader("Appearance")
     st.toggle(
@@ -3584,6 +3585,30 @@ def render_settings_panel() -> None:
         key="enable_holiday_theme",
         on_change=_on_setting_change("enable_holiday_theme"),
     )
+    if st.session_state.get("debug_mode"):
+        preview_options = ["auto", "default", *HOLIDAY_THEMES.keys()]
+
+        def _format_theme_preview(option_key: str) -> str:
+            if option_key == "auto":
+                return "Automatic (scheduled)"
+            if option_key == "default":
+                return "Default (no holiday theme)"
+            theme = HOLIDAY_THEMES.get(option_key)
+            return theme.name if theme else option_key
+
+        if st.session_state.theme_preview not in preview_options:
+            st.session_state.theme_preview = "auto"
+
+        st.selectbox(
+            "Preview holiday theme",
+            preview_options,
+            key="theme_preview",
+            format_func=_format_theme_preview,
+            help=(
+                "Force the interface to use a specific holiday palette while debugging. "
+                "Choose ‘Automatic’ to return to the calendar-driven schedule."
+            ),
+        )
     st.toggle(
         "Compact case workspace",
         key="case_compact_mode",
