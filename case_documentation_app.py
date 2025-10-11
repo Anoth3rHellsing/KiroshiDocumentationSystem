@@ -136,6 +136,8 @@ UPDATES_DIR = UTILITIES_DIR / "updates"
 RECENT_CASES_PATH = UTILITIES_DIR / "recent_cases.json"
 TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 
+CASE_TAB_MEMORY_FILE = DATABASE_DIR / "case_tabs_memory.json"
+
 # Location for persisted case attachments
 DOCUMENTS_DIR = Path.home() / "Documents"
 CASE_ATTACHMENTS_ROOT = DOCUMENTS_DIR / "kiroshi"
@@ -1109,7 +1111,7 @@ ASSETS_DIR = Path(__file__).parent
 KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
 ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 
-GLADOS_MESSAGES = [
+AATOM_MESSAGES = [
     "Good morning! Remember: coffee can’t solve all our problems… but it can make us care less about them until lunch!",
     "Hard work pays off in the future. Laziness pays off now, so let’s compromise!",
     "Teamwork makes the dream work… unless your team just wants coffee.",
@@ -1348,7 +1350,7 @@ DEFAULT_THEME = ThemePalette(
     surface="#ffffff",
     text="#111827",
     muted_text="#4b5563",
-    glados_messages=GLADOS_MESSAGES,
+    glados_messages=AATOM_MESSAGES,
 )
 
 HOLIDAY_THEMES: dict[str, ThemePalette] = {
@@ -1556,11 +1558,11 @@ SPECIAL_THEME_PERIODS = [
 CURRENT_THEME: ThemePalette = DEFAULT_THEME
 
 
-def get_glados_message(theme: ThemePalette | None = None) -> str:
-    """Return a pseudo-random GLADoS message aligned with the active theme."""
+def get_aatom_message(theme: ThemePalette | None = None) -> str:
+    """Return a pseudo-random AATOM message aligned with the active theme."""
 
     active_theme = theme or CURRENT_THEME
-    messages = active_theme.glados_messages or GLADOS_MESSAGES
+    messages = active_theme.glados_messages or AATOM_MESSAGES
     now = datetime.now()
     seed = f"{active_theme.key}-{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
@@ -2136,6 +2138,22 @@ def case_loading_overlay(message: str = "Preparing case data…"):
         placeholder.empty()
 
 
+@contextmanager
+def loading_indicator(message: str = "Loading case…"):
+    """Display a spinner for at least two seconds while loading cases."""
+
+    start = time.perf_counter()
+    with st.spinner(message):
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - start
+            if elapsed < 2.0:
+                time.sleep(2.0 - elapsed)
+            elif elapsed < 3.0:
+                time.sleep(3.0 - elapsed)
+
+
 def _normalize_wellness_settings(raw: object) -> dict[str, object]:
     base: dict[str, object] = {
         "enabled": False,
@@ -2525,26 +2543,26 @@ def inject_base_styles() -> None:
 
 
 def render_logo():
-    glados_message = escape(get_glados_message(CURRENT_THEME))
+    aatom_message = escape(get_aatom_message(CURRENT_THEME))
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
     holiday_theme_active = CURRENT_THEME.key != DEFAULT_THEME.key
-    glados_card_background = (
+    aatom_card_background = (
         "#ffffff"
         if holiday_theme_active
         else "linear-gradient(145deg, color-mix(in srgb, var(--kiroshi-primary) 18%, transparent), color-mix(in srgb, var(--kiroshi-accent) 12%, transparent))"
     )
-    glados_card_shadow = (
+    aatom_card_shadow = (
         "0 14px 34px rgba(15, 23, 42, 0.18)"
         if holiday_theme_active
         else "0 10px 25px rgba(15, 23, 42, 0.12)"
     )
-    glados_card_border = (
+    aatom_card_border = (
         "1px solid rgba(15, 23, 42, 0.08)" if holiday_theme_active else "1px solid transparent"
     )
-    glados_title_color = "#111827" if holiday_theme_active else "var(--kiroshi-primary)"
-    glados_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
+    aatom_title_color = "#111827" if holiday_theme_active else "var(--kiroshi-primary)"
+    aatom_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
     header_html = f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
@@ -2581,7 +2599,7 @@ def render_logo():
             font-size: 1.05rem;
         }}
 
-        #kiroshi-header__glados {{
+        #kiroshi-header__aatom {{
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -2591,30 +2609,30 @@ def render_logo():
             width: 100%;
         }}
 
-        #kiroshi-header__glados-card {{
-            background: {glados_card_background};
+        #kiroshi-header__aatom-card {{
+            background: {aatom_card_background};
             border-radius: 1rem;
             padding: 1rem 1.5rem;
-            box-shadow: {glados_card_shadow};
+            box-shadow: {aatom_card_shadow};
             max-width: 620px;
             width: 100%;
             margin: 0 auto;
-            border: {glados_card_border};
+            border: {aatom_card_border};
         }}
 
-        #kiroshi-header__glados-title {{
+        #kiroshi-header__aatom-title {{
             font-size: 1.2rem;
             font-weight: 700;
             letter-spacing: 0.02em;
             text-transform: uppercase;
-            color: {glados_title_color};
+            color: {aatom_title_color};
             margin-bottom: 0.5rem;
         }}
 
-        #kiroshi-header__glados-text {{
+        #kiroshi-header__aatom-text {{
             font-size: 1.1rem;
             line-height: 1.6;
-            color: {glados_text_color};
+            color: {aatom_text_color};
         }}
 
         #kiroshi-header__date {{
@@ -2646,7 +2664,7 @@ def render_logo():
                 justify-items: center;
             }}
 
-            #kiroshi-header__glados {{
+            #kiroshi-header__aatom {{
                 order: 2;
                 padding: 0 1.5rem;
             }}
@@ -2656,7 +2674,7 @@ def render_logo():
                 justify-content: center;
             }}
 
-            #kiroshi-header__glados-card {{
+            #kiroshi-header__aatom-card {{
                 max-width: clamp(260px, 86vw, 540px);
                 padding: 1.1rem 1.25rem;
             }}
@@ -2667,10 +2685,10 @@ def render_logo():
             <span>Version {VERSION}</span>
             <img src="data:image/png;base64,{encoded_logo}" width="180" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
         </div>
-        <div id="kiroshi-header__glados">
-            <div id="kiroshi-header__glados-card">
-                <div id="kiroshi-header__glados-title">GLADoS Daily Quip</div>
-                <div id="kiroshi-header__glados-text">{glados_message}</div>
+        <div id="kiroshi-header__aatom">
+            <div id="kiroshi-header__aatom-card">
+                <div id="kiroshi-header__aatom-title">AATOM Daily Quip</div>
+                <div id="kiroshi-header__aatom-text">{aatom_message}</div>
             </div>
         </div>
         <div id="kiroshi-header__date">
@@ -3401,6 +3419,35 @@ def capture_region_screenshot(
     return InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()), None
 
 
+def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
+    return {
+        "uploads": [],
+        "log_uploads": [],
+        "screenshots": [],
+    }
+
+
+def _normalise_attachments_index(
+    data: Mapping[str, Iterable[Mapping[str, object]]] | Mapping[str, object] | None,
+) -> dict[str, list[dict[str, str]]]:
+    normalised = _default_attachments_index()
+    if not isinstance(data, Mapping):
+        return normalised
+    for key in normalised:
+        items = data.get(key, [])
+        cleaned: list[dict[str, str]] = []
+        if isinstance(items, Iterable):
+            for item in items:
+                if not isinstance(item, Mapping):
+                    continue
+                name = item.get("name")
+                path = item.get("path")
+                if isinstance(name, str) and isinstance(path, str):
+                    cleaned.append({"name": name, "path": path})
+        normalised[key] = cleaned
+    return normalised
+
+
 @dataclass
 class CaseSession:
     """Container for per-case session state."""
@@ -3410,6 +3457,121 @@ class CaseSession:
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
     screenshots: list = field(default_factory=list)
+    source_path: str = ""
+    attachments_index: dict[str, list[dict[str, str]]] = field(
+        default_factory=_default_attachments_index
+    )
+
+
+# ──────────────── CASE TAB MEMORY ────────────────
+
+
+def _load_case_tab_memory() -> list[dict[str, object]]:
+    if not CASE_TAB_MEMORY_FILE.exists():
+        return []
+    try:
+        payload = json.loads(CASE_TAB_MEMORY_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Failed to load case tab memory: %s", exc)
+        return []
+    tabs = payload.get("tabs") if isinstance(payload, Mapping) else None
+    if not isinstance(tabs, list):
+        return []
+    cleaned: list[dict[str, object]] = []
+    for entry in tabs:
+        if isinstance(entry, Mapping):
+            cleaned.append(dict(entry))
+    return cleaned
+
+
+def _write_case_tab_memory(entries: list[dict[str, object]]) -> None:
+    try:
+        CASE_TAB_MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with CASE_TAB_MEMORY_FILE.open("w", encoding="utf-8") as fh:
+            json.dump({"tabs": entries}, fh, indent=2)
+    except OSError as exc:
+        logging.warning("Failed to persist case tab memory: %s", exc)
+
+
+def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
+    sessions: list[CaseSession] = []
+    for entry in _load_case_tab_memory():
+        source_path = str(entry.get("source_path", "")) if entry else ""
+        scratch_value = str(entry.get("scratch", "")) if entry else ""
+        case_payload = entry.get("case") if isinstance(entry, Mapping) else {}
+        attachments_payload = entry.get("attachments_index") if isinstance(entry, Mapping) else {}
+        attachments_index = _normalise_attachments_index(attachments_payload)
+
+        if source_path:
+            try:
+                raw = json.loads(Path(source_path).read_text(encoding="utf-8"))
+                if isinstance(raw, Mapping):
+                    case_payload = {
+                        k: v for k, v in raw.items() if k in CaseData.__annotations__
+                    }
+                    attachments_index = _normalise_attachments_index(raw.get("attachments"))
+            except (OSError, json.JSONDecodeError) as exc:
+                logging.warning("Unable to refresh case %s from disk: %s", source_path, exc)
+
+        if isinstance(case_payload, Mapping):
+            try:
+                case_obj = CaseData(**case_payload)
+            except TypeError:
+                case_obj = CaseData()
+        else:
+            case_obj = CaseData()
+
+        uploads: list[InMemoryUploadedFile] = []
+        log_uploads: list[InMemoryUploadedFile] = []
+        screenshots: list[InMemoryUploadedFile] = []
+        if case_obj.case_id:
+            try:
+                uploads, log_uploads, screenshots = load_case_attachments(
+                    case_obj.case_id,
+                    attachments_index,
+                )
+            except Exception as exc:  # pragma: no cover - runtime environment specific
+                logging.warning(
+                    "Failed to hydrate attachments for case %s: %s",
+                    case_obj.case_id,
+                    exc,
+                )
+                attachments_index = _default_attachments_index()
+
+        sessions.append(
+            CaseSession(
+                case=case_obj,
+                scratch=scratch_value,
+                uploads=uploads,
+                log_uploads=log_uploads,
+                screenshots=screenshots,
+                source_path=source_path,
+                attachments_index=attachments_index,
+            )
+        )
+    return sessions
+
+
+def _sync_case_memory_from_sessions() -> None:
+    if "case_sessions" not in st.session_state:
+        return
+    entries: list[dict[str, object]] = []
+    for session in st.session_state.case_sessions:
+        try:
+            case_payload = asdict(session.case)
+        except Exception:
+            case_payload = {}
+        entries.append(
+            {
+                "case": case_payload,
+                "source_path": getattr(session, "source_path", ""),
+                "scratch": getattr(session, "scratch", ""),
+                "attachments_index": _normalise_attachments_index(
+                    getattr(session, "attachments_index", {})
+                ),
+            }
+        )
+    _write_case_tab_memory(entries)
 
 
 # convert stored dict to dataclass, ignoring unexpected fields
@@ -3422,15 +3584,26 @@ if D.tracking.active:
     st.session_state.track_case = True
 
 if "case_sessions" not in st.session_state:
-    st.session_state.case_sessions = [
-        CaseSession(
-            case=D,
-            scratch=st.session_state.get("scratch", ""),
-            uploads=st.session_state.uploads,
-            log_uploads=st.session_state.log_uploads,
-            screenshots=st.session_state.screenshots,
-        )
-    ]
+    stored_sessions = _hydrate_case_sessions_from_memory()
+    if stored_sessions:
+        st.session_state.case_sessions = stored_sessions
+        primary_session = stored_sessions[0]
+        st.session_state.case = primary_session.case
+        st.session_state.uploads = primary_session.uploads
+        st.session_state.log_uploads = primary_session.log_uploads
+        st.session_state.screenshots = primary_session.screenshots
+        st.session_state.scratch = primary_session.scratch
+    else:
+        st.session_state.case_sessions = [
+            CaseSession(
+                case=D,
+                scratch=st.session_state.get("scratch", ""),
+                uploads=st.session_state.uploads,
+                log_uploads=st.session_state.log_uploads,
+                screenshots=st.session_state.screenshots,
+            )
+        ]
+    _sync_case_memory_from_sessions()
 
 
 def load_case_state(idx: int) -> None:
@@ -3451,13 +3624,19 @@ def load_case_state(idx: int) -> None:
 def save_case_state(idx: int) -> None:
     scratch_key = widget_key("scratch", idx)
     scratch_value = st.session_state.get(scratch_key, st.session_state.get("scratch", ""))
+    existing_session = st.session_state.case_sessions[idx]
     st.session_state.case_sessions[idx] = CaseSession(
         case=st.session_state.case,
         scratch=scratch_value,
         uploads=st.session_state.uploads,
         log_uploads=st.session_state.log_uploads,
         screenshots=st.session_state.screenshots,
+        source_path=getattr(existing_session, "source_path", ""),
+        attachments_index=_normalise_attachments_index(
+            getattr(existing_session, "attachments_index", {})
+        ),
     )
+    _sync_case_memory_from_sessions()
 
 
 def clear_case_state(idx: int) -> None:
@@ -3500,6 +3679,7 @@ def clear_case_state(idx: int) -> None:
     )
 
     autosave()
+    _sync_case_memory_from_sessions()
 
 
 def widget_key(base: str, idx: int) -> str:
@@ -6832,59 +7012,105 @@ def save_case_to_database(
     return file_path
 
 
-def load_case_from_path(path: str) -> None:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            raw_data = json.load(f)
-        attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
-        if isinstance(raw_data, Mapping):
-            attachments_raw = raw_data.get("attachments", {})
-            if isinstance(attachments_raw, Mapping):
-                attachments_data = attachments_raw
-        filtered = {k: v for k, v in raw_data.items() if k in CaseData.__annotations__}
-        st.session_state.case = CaseData(**filtered)
-        global D
-        D = st.session_state.case
-        uploads, log_uploads, screenshots = load_case_attachments(
-            D.case_id,
-            attachments_data,
+def _apply_case_payload(
+    payload: Mapping[str, object],
+    attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | Mapping[str, object] | None,
+    *,
+    source_path: str = "",
+    record_recent: bool = False,
+    update_tracking_from_path: bool = False,
+    persist_to_database: bool = True,
+) -> None:
+    case_obj = CaseData(**payload)
+    attachments_index = _normalise_attachments_index(attachments_data)
+    uploads, log_uploads, screenshots = load_case_attachments(
+        case_obj.case_id,
+        attachments_index,
+    )
+
+    st.session_state.case = case_obj
+    global D
+    D = case_obj
+    st.session_state.uploads = uploads
+    st.session_state.log_uploads = log_uploads
+    st.session_state.screenshots = screenshots
+
+    scratch_key = widget_key("scratch", CURRENT_CASE_IDX)
+    scratch_default = st.session_state.get("scratch", "")
+    if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+        existing_session = st.session_state.case_sessions[CURRENT_CASE_IDX]
+        scratch_value = st.session_state.get(
+            scratch_key,
+            getattr(existing_session, "scratch", scratch_default),
         )
-        st.session_state.uploads = uploads
-        st.session_state.log_uploads = log_uploads
-        st.session_state.screenshots = screenshots
-        if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
-            existing_session = st.session_state.case_sessions[CURRENT_CASE_IDX]
-            scratch_key = widget_key("scratch", CURRENT_CASE_IDX)
-            scratch_value = st.session_state.get(
-                scratch_key,
-                getattr(existing_session, "scratch", st.session_state.get("scratch", "")),
-            )
-            st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
-                case=D,
-                scratch=scratch_value,
-                uploads=uploads,
-                log_uploads=log_uploads,
-                screenshots=screenshots,
-            )
-        autosave()
-        update_recent_cases(st.session_state.case.case_id, path)
+    else:
+        scratch_value = st.session_state.get(scratch_key, scratch_default)
+
+    session_entry = CaseSession(
+        case=case_obj,
+        scratch=scratch_value,
+        uploads=uploads,
+        log_uploads=log_uploads,
+        screenshots=screenshots,
+        source_path=source_path,
+        attachments_index=attachments_index,
+    )
+
+    if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+        st.session_state.case_sessions[CURRENT_CASE_IDX] = session_entry
+    else:
+        st.session_state.case_sessions = [session_entry]
+
+    st.session_state.scratch = scratch_value
+    st.session_state[scratch_key] = scratch_value
+
+    autosave()
+    if record_recent and source_path:
+        update_recent_cases(case_obj.case_id, source_path)
+    if persist_to_database:
         save_case_to_database(
-            st.session_state.case,
+            case_obj,
             notify=False,
             update_history=False,
             touch_last_modified=False,
         )
-        ensure_tracking_session_defaults(
-            CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
-        )
-        # Enable tracking tab if loaded from tracked directory or active file
-        p = Path(path)
-        if st.session_state.case.tracking.active:
+    ensure_tracking_session_defaults(CURRENT_CASE_IDX, case_obj.tracking, force=True)
+
+    if update_tracking_from_path:
+        path_obj = Path(source_path) if source_path else None
+        if case_obj.tracking.active:
             st.session_state.track_case = True
-        elif p.parent == TRACKED_CASES_DIR or p.name.endswith("_Active.json"):
+        elif path_obj and (
+            path_obj.parent == TRACKED_CASES_DIR or path_obj.name.endswith("_Active.json")
+        ):
             st.session_state.track_case = True
         else:
             st.session_state.track_case = False
+    else:
+        st.session_state.track_case = bool(case_obj.tracking.active)
+
+    _sync_case_memory_from_sessions()
+
+
+def load_case_from_path(path: str) -> None:
+    try:
+        with loading_indicator():
+            raw_data = json.loads(Path(path).read_text(encoding="utf-8"))
+            attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | Mapping[str, object] | None = {}
+            if isinstance(raw_data, Mapping):
+                attachments_data = raw_data.get("attachments")
+                filtered = {
+                    k: v for k, v in raw_data.items() if k in CaseData.__annotations__
+                }
+            else:
+                filtered = {}
+            _apply_case_payload(
+                filtered,
+                attachments_data,
+                source_path=path,
+                record_recent=True,
+                update_tracking_from_path=True,
+            )
         st.success("Case loaded successfully.")
         trigger_hard_reload()
     except Exception as e:
@@ -6893,48 +7119,21 @@ def load_case_from_path(path: str) -> None:
 
 def load_case_from_bytes(data: bytes) -> None:
     try:
-        payload = json.loads(data.decode("utf-8"))
-        attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
-        if isinstance(payload, Mapping):
-            attachments_raw = payload.get("attachments", {})
-            if isinstance(attachments_raw, Mapping):
-                attachments_data = attachments_raw
-        payload = {k: v for k, v in payload.items() if k in CaseData.__annotations__}
-        st.session_state.case = CaseData(**payload)
-        global D
-        D = st.session_state.case
-        uploads, log_uploads, screenshots = load_case_attachments(
-            D.case_id,
-            attachments_data,
-        )
-        st.session_state.uploads = uploads
-        st.session_state.log_uploads = log_uploads
-        st.session_state.screenshots = screenshots
-        if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
-            existing_session = st.session_state.case_sessions[CURRENT_CASE_IDX]
-            scratch_key = widget_key("scratch", CURRENT_CASE_IDX)
-            scratch_value = st.session_state.get(
-                scratch_key,
-                getattr(existing_session, "scratch", st.session_state.get("scratch", "")),
+        with loading_indicator():
+            payload = json.loads(data.decode("utf-8"))
+            attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | Mapping[str, object] | None = {}
+            if isinstance(payload, Mapping):
+                attachments_data = payload.get("attachments")
+                filtered_payload = {
+                    k: v for k, v in payload.items() if k in CaseData.__annotations__
+                }
+            else:
+                filtered_payload = {}
+            _apply_case_payload(
+                filtered_payload,
+                attachments_data,
+                update_tracking_from_path=False,
             )
-            st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
-                case=D,
-                scratch=scratch_value,
-                uploads=uploads,
-                log_uploads=log_uploads,
-                screenshots=screenshots,
-            )
-        autosave()
-        save_case_to_database(
-            st.session_state.case,
-            notify=False,
-            update_history=False,
-            touch_last_modified=False,
-        )
-        ensure_tracking_session_defaults(
-            CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
-        )
-        st.session_state.track_case = bool(st.session_state.case.tracking.active)
         st.success("Case loaded successfully.")
         trigger_hard_reload()
     except Exception as e:
@@ -6979,6 +7178,7 @@ def _allocate_case_tab_for_loading() -> int:
         if not _case_session_has_content(session):
             return idx
     st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+    _sync_case_memory_from_sessions()
     return len(st.session_state.case_sessions) - 1
 
 
@@ -9571,6 +9771,7 @@ for idx, tab in enumerate(case_tabs):
         if idx == len(st.session_state.case_sessions):
             if st.button("Add Case"):
                 st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+                _sync_case_memory_from_sessions()
                 st.rerun()
         else:
             load_case_state(idx)
