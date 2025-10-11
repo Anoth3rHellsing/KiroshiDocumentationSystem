@@ -198,7 +198,13 @@ def _initialize_storage_paths() -> None:
     _ensure_case_attachments_root()
 
 APP_ROOT = Path(__file__).resolve().parent
-DEFAULT_UPDATE_REPO = "KiroshiCorp/KiroshiDocumentationSystem"
+# The project repository was transferred from the ``KiroshiCorp`` GitHub
+# organisation to ``Anoth3rHellsing``.  The update checker still defaulted to
+# the previous location which meant fresh installations always hit a 404 when
+# trying to retrieve ``case_documentation_app.py`` for the version check.
+# Point the default to the new canonical repository so users no longer see the
+# "Unable to retrieve remote version" warning on startup.
+DEFAULT_UPDATE_REPO = "Anoth3rHellsing/KiroshiDocumentationSystem"
 DEFAULT_UPDATE_BRANCH = "main"
 try:
     UPDATE_CHECK_TIMEOUT = float(os.environ.get("KIROSHI_UPDATE_TIMEOUT", "15"))
