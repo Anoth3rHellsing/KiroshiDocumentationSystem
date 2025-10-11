@@ -1,8 +1,8 @@
 [theme]
-# Default to the 3Shape light theme with corporate red accents.
-base = "light"
-primaryColor = "#D01E4E"
-backgroundColor = "#FFFFFF"
+primaryColor = "#d01e4e"
+backgroundColor = "#d01e4e"
+secondaryBackgroundColor = "#b3b3b3"
+textColor = "#ffffff"
 
 [server]
 # Packaged builds disable CORS so the app can be embedded locally; disable XSRF

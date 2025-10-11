@@ -13,7 +13,8 @@ import shutil
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict, fields, field, is_dataclass
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta, timezone, time as datetime_time
+from copy import deepcopy
 import logging
 import time
 from pathlib import Path
@@ -213,6 +214,31 @@ except (TypeError, ValueError):
 
 
 SETTINGS_FILE = DATABASE_DIR / "settings.json"
+DEFAULT_WELLNESS_SETTINGS: dict[str, object] = {
+    "enabled": False,
+    "notification_lead": 10,
+    "schedule": {
+        "break_1": "10:30",
+        "lunch": "12:30",
+        "break_2": "15:00",
+    },
+}
+
+WELLNESS_EVENT_METADATA: dict[str, dict[str, object]] = {
+    "break_1": {"label": "First Break", "duration_minutes": 15},
+    "lunch": {"label": "Lunch", "duration_minutes": 60},
+    "break_2": {"label": "Second Break", "duration_minutes": 15},
+}
+
+WELLNESS_TIPS: list[str] = [
+    "Stand up, stretch, and let your eyes relax for a moment.",
+    "A quick walk to refill your water can reboot your focus.",
+    "Deep breaths in, slow breaths out — your circuits will thank you.",
+    "Jot down one win from today while you recharge.",
+    "Hydration check! Your brain runs smoother with water.",
+    "Silence notifications for a minute and enjoy the pause.",
+]
+
 PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "second_line_mode": False,
     "debug_mode": False,
@@ -227,6 +253,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
     "enable_holiday_theme": True,
+    "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
 }
 
 
@@ -1281,6 +1308,37 @@ def _rgba(color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha_str})"
 
 
+def _relative_luminance(color: str) -> float:
+    """Return the W3C relative luminance for the provided hex color."""
+
+    r, g, b = _hex_to_rgb_tuple(color)
+
+    def _channel_luminance(channel: int) -> float:
+        normalized = channel / 255
+        if normalized <= 0.03928:
+            return normalized / 12.92
+        return ((normalized + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * _channel_luminance(r)
+        + 0.7152 * _channel_luminance(g)
+        + 0.0722 * _channel_luminance(b)
+    )
+
+
+def _preferred_text_for_background(background: str, preferred: str) -> str:
+    """Return a text color with adequate contrast for the given background."""
+
+    background_luminance = _relative_luminance(background)
+    preferred_luminance = _relative_luminance(preferred)
+
+    if background_luminance >= 0.6 and preferred_luminance >= 0.55:
+        return "#111827"
+    if background_luminance <= 0.2 and preferred_luminance <= 0.35:
+        return "#f8fafc"
+    return preferred
+
+
 DEFAULT_THEME = ThemePalette(
     key="default",
     name="Default",
@@ -1613,6 +1671,8 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     background_soft = _blend_hex_colors(theme.background, theme.surface, 0.25)
     card_shadow_color = _blend_hex_colors(theme.background, "#000000", 0.6)
     button_shadow_color = _blend_hex_colors(theme.primary, "#000000", 0.55)
+    text_on_surface = _preferred_text_for_background(theme.surface, theme.text)
+    text_on_white = _preferred_text_for_background("#ffffff", theme.text)
     st.markdown(
         f"""
         <style>
@@ -1631,6 +1691,8 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             --kiroshi-chart-grid: {chart_grid};
             --kiroshi-chart-axis: {chart_axis};
             --kiroshi-input-background: {input_background};
+            --kiroshi-text-on-surface: {text_on_surface};
+            --kiroshi-text-on-white: {text_on_white};
         }}
         html, body {{
             background:
@@ -1839,6 +1901,10 @@ def case_loading_overlay(message: str = "Preparing case data…"):
         "If it looks like magic, it's just well-documented science.",
         "Decrypting mysteries one checkbox at a time.",
         "Calibrating sarcasm detectors—results pending.",
+        "Plotting a fresh workflow map behind the scenes…",
+        "Training micro-drones to fetch your next insight.",
+        "Recharging photon stylus for crisp documentation strokes.",
+        "Spinning up quantum side-notes to keep you ahead.",
     ]
     overlay_id = f"kiroshi-loading-{uuid.uuid4().hex}"
     tips_json = json.dumps(tips)
@@ -2015,6 +2081,199 @@ def case_loading_overlay(message: str = "Preparing case data…"):
         placeholder.empty()
 
 
+def _normalize_wellness_settings(raw: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "enabled": False,
+        "notification_lead": DEFAULT_WELLNESS_SETTINGS["notification_lead"],
+        "schedule": dict(DEFAULT_WELLNESS_SETTINGS["schedule"]),
+    }
+    if isinstance(raw, Mapping):
+        enabled = raw.get("enabled")
+        if isinstance(enabled, bool):
+            base["enabled"] = enabled
+        lead = raw.get("notification_lead")
+        if isinstance(lead, (int, float)):
+            base["notification_lead"] = max(0, int(lead))
+        schedule_raw = raw.get("schedule")
+        if isinstance(schedule_raw, Mapping):
+            for key in base["schedule"].keys():
+                value = schedule_raw.get(key)
+                if isinstance(value, str) and ":" in value:
+                    base["schedule"][key] = value
+    return base
+
+
+def _time_str_to_time(value: str, *, fallback: datetime_time) -> datetime_time:
+    try:
+        hour_str, minute_str = value.split(":", 1)
+        hour = max(0, min(23, int(hour_str)))
+        minute = max(0, min(59, int(minute_str)))
+        return datetime_time(hour=hour, minute=minute)
+    except Exception:
+        return fallback
+
+
+def _time_to_string(value: datetime_time) -> str:
+    return f"{value.hour:02d}:{value.minute:02d}"
+
+
+def _calculate_next_wellness_event(
+    settings: Mapping[str, object], *, now: datetime | None = None
+) -> tuple[datetime, str, dict[str, object]] | None:
+    if not settings.get("enabled"):
+        return None
+    schedule = settings.get("schedule")
+    if not isinstance(schedule, Mapping):
+        return None
+    now = now or datetime.now()
+    upcoming: list[tuple[datetime, str, dict[str, object]]] = []
+    for key, meta in WELLNESS_EVENT_METADATA.items():
+        time_str = schedule.get(key)
+        if not isinstance(time_str, str):
+            continue
+        event_time = _time_str_to_time(
+            time_str,
+            fallback=_time_str_to_time(
+                DEFAULT_WELLNESS_SETTINGS["schedule"].get(key, "09:00"),
+                fallback=datetime_time(hour=9, minute=0),
+            ),
+        )
+        event_dt = datetime.combine(now.date(), event_time)
+        if event_dt < now:
+            event_dt += timedelta(days=1)
+        upcoming.append((event_dt, key, dict(meta)))
+    if not upcoming:
+        return None
+    return min(upcoming, key=lambda item: item[0])
+
+
+def _format_timedelta_compact(delta: timedelta) -> str:
+    total_seconds = int(delta.total_seconds())
+    if total_seconds <= 0:
+        return "Now"
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if not parts:
+        parts.append("moments")
+    return " ".join(parts)
+
+
+def ensure_settings_styles() -> None:
+    if st.session_state.get("_settings_styles_injected"):
+        return
+    st.markdown(
+        """
+        <style>
+        .settings-hero {
+            position: relative;
+            border-radius: 24px;
+            padding: 2.5rem 2.75rem;
+            margin-bottom: 1.5rem;
+            background: radial-gradient(circle at top left, rgba(59,130,246,0.25), transparent 55%),
+                        linear-gradient(135deg, rgba(15,23,42,0.92), rgba(30,64,175,0.75));
+            color: #f8fafc;
+            box-shadow: 0 28px 50px rgba(15, 23, 42, 0.45);
+            overflow: hidden;
+        }
+        .settings-hero::after {
+            content: "";
+            position: absolute;
+            inset: 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(148,163,184,0.25);
+            pointer-events: none;
+        }
+        .settings-hero__title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.35rem;
+        }
+        .settings-hero__subtitle {
+            font-size: 1.05rem;
+            opacity: 0.85;
+            max-width: 560px;
+        }
+        .settings-hero__glow {
+            position: absolute;
+            width: 240px;
+            height: 240px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(96,165,250,0.45), transparent 70%);
+            top: -40px;
+            right: -60px;
+            filter: blur(0.5px);
+        }
+        .settings-section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-top: 1rem;
+            margin-bottom: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .settings-section-title span {
+            font-size: 1.4rem;
+        }
+        .wellness-banner {
+            border-radius: 18px;
+            padding: 1.4rem 1.6rem;
+            margin-bottom: 1.3rem;
+            background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.18));
+            border: 1px solid rgba(96,165,250,0.45);
+            box-shadow: 0 18px 40px rgba(15,23,42,0.24);
+            color: var(--kiroshi-text, #0f172a);
+        }
+        .wellness-banner.is-soon {
+            background: linear-gradient(135deg, rgba(249,115,22,0.18), rgba(244,63,94,0.25));
+            border-color: rgba(248,113,113,0.65);
+        }
+        .wellness-banner__heading {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .wellness-banner__meta {
+            font-size: 0.95rem;
+            opacity: 0.85;
+        }
+        .wellness-banner__tip {
+            margin-top: 0.6rem;
+            font-size: 0.92rem;
+            display: flex;
+            gap: 0.4rem;
+            align-items: flex-start;
+        }
+        .settings-tabs [data-baseweb="tab-list"] {
+            gap: 0.35rem;
+        }
+        .settings-tabs button[role="tab"] {
+            border-radius: 999px !important;
+            border: 1px solid rgba(148,163,184,0.4) !important;
+            background: rgba(15,23,42,0.04) !important;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .settings-tabs button[role="tab"][aria-selected="true"] {
+            background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(59,130,246,0.05)) !important;
+            border-color: rgba(59,130,246,0.45) !important;
+            color: inherit !important;
+            box-shadow: inset 0 0 0 1px rgba(59,130,246,0.15);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.session_state._settings_styles_injected = True
+
 def trigger_hard_reload() -> None:
     """Force a full browser reload similar to pressing F5."""
     components.html(
@@ -2099,6 +2358,7 @@ def inject_base_styles() -> None:
             background: var(--kiroshi-surface);
             border-radius: 1.1rem;
             box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+            color: var(--kiroshi-text-on-surface);
         }
 
         .tutorial-wrapper {
@@ -2108,6 +2368,7 @@ def inject_base_styles() -> None:
             border: 1px solid rgba(255, 255, 255, 0.08);
             background: linear-gradient(145deg, rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.85));
             box-shadow: 0 18px 32px rgba(15, 23, 42, 0.16);
+            color: var(--kiroshi-text-on-white);
         }
 
         .tutorial-step-title {
@@ -2120,7 +2381,7 @@ def inject_base_styles() -> None:
         .tutorial-intro {
             font-size: 0.98rem;
             line-height: 1.6;
-            color: var(--kiroshi-text);
+            color: var(--kiroshi-text-on-white);
             margin-bottom: 1rem;
         }
 
@@ -2130,6 +2391,7 @@ def inject_base_styles() -> None:
             background: rgba(255, 255, 255, 0.85);
             border: 1px solid rgba(209, 213, 219, 0.7);
             height: 100%;
+            color: var(--kiroshi-text-on-white);
         }
 
         .tutorial-footnote {
@@ -2143,6 +2405,7 @@ def inject_base_styles() -> None:
             border: 1px solid rgba(15, 23, 42, 0.08);
             background: linear-gradient(145deg, var(--kiroshi-surface) 0%, rgba(255, 255, 255, 0.85) 100%);
             margin-bottom: 1rem;
+            color: var(--kiroshi-text-on-white);
         }
 
         .case-meta {
@@ -2162,7 +2425,7 @@ def inject_base_styles() -> None:
         .case-meta__value {
             font-size: 0.95rem;
             font-weight: 600;
-            color: var(--kiroshi-text);
+            color: var(--kiroshi-text-on-white);
         }
 
         .case-actions {
@@ -2708,6 +2971,12 @@ _init_state("ai_bug_report", None)
 _init_state(
     "attachments_directory",
     _get_persistent_default("attachments_directory", str(CASE_ATTACHMENTS_ROOT)),
+)
+_init_state(
+    "wellness_reminders",
+    _normalize_wellness_settings(
+        _get_persistent_default("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
+    ),
 )
 # Tracking related state
 _init_state("track_case", False)
@@ -4171,6 +4440,39 @@ def render_dashboard() -> None:
         "<div class='dashboard-title'>Dashboard</div>",
         unsafe_allow_html=True,
     )
+    wellness_settings = _normalize_wellness_settings(
+        st.session_state.get("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
+    )
+    st.session_state.wellness_reminders = wellness_settings
+    upcoming_event = _calculate_next_wellness_event(wellness_settings)
+    if upcoming_event:
+        event_dt, event_key, meta = upcoming_event
+        lead_minutes = wellness_settings.get(
+            "notification_lead", DEFAULT_WELLNESS_SETTINGS["notification_lead"]
+        )
+        now = datetime.now()
+        delta = event_dt - now
+        countdown = _format_timedelta_compact(delta)
+        is_soon = delta <= timedelta(minutes=lead_minutes)
+        label = meta.get("label", event_key.replace("_", " ").title())
+        duration = meta.get("duration_minutes")
+        duration_text = (
+            f" · {int(duration)} min"
+            if isinstance(duration, (int, float)) and duration
+            else ""
+        )
+        tip = random.choice(WELLNESS_TIPS)
+        banner_class = "wellness-banner is-soon" if is_soon else "wellness-banner"
+        st.markdown(
+            f"""
+            <div class="{banner_class}">
+                <div class="wellness-banner__heading">🕒 Next pause: {label}{duration_text}</div>
+                <div class="wellness-banner__meta">Starts at {event_dt.strftime('%H:%M')} · {countdown} away</div>
+                <div class="wellness-banner__tip">💡 <span>{tip}</span></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     notice_idx = st.session_state.get("dashboard_load_notice")
     if notice_idx is not None:
         st.info(f"Loaded case into Case tab {notice_idx + 1}.")
@@ -4213,8 +4515,12 @@ def render_dashboard() -> None:
             st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_settings_panel() -> None:
-    st.markdown("### Onboarding & Tutorial")
+
+def _render_settings_workspace_tab() -> None:
+    st.markdown(
+        "<div class='settings-section-title'><span>🎓</span>Guided onboarding</div>",
+        unsafe_allow_html=True,
+    )
     completion_type = st.session_state.get("tutorial_completion_type", "") or (
         "completed" if st.session_state.get("tutorial_completed") else ""
     )
@@ -4237,24 +4543,39 @@ def render_settings_panel() -> None:
         st.session_state.tutorial_step = 0
         st.rerun()
 
-    st.subheader("Modes")
-    st.toggle(
-        "2nd Line mode",
-        key="second_line_mode",
-        on_change=_on_setting_change("second_line_mode"),
+    st.markdown(
+        "<div class='settings-section-title'><span>🛠️</span>Workflow modes</div>",
+        unsafe_allow_html=True,
     )
     prev_debug = st.session_state.debug_mode
-    st.toggle(
-        "Show Debug tab",
-        key="debug_mode",
-        on_change=_on_setting_change("debug_mode"),
-    )
+    mode_cols = st.columns(2)
+    with mode_cols[0]:
+        st.toggle(
+            "2nd Line mode",
+            key="second_line_mode",
+            on_change=_on_setting_change("second_line_mode"),
+        )
+        st.toggle(
+            "Show A.A.T.O.M. Chat tab",
+            key="show_atom_chat",
+            on_change=_on_setting_change("show_atom_chat"),
+            help="Display or hide the conversational workspace when you need more focus.",
+        )
+    with mode_cols[1]:
+        st.toggle(
+            "Show Debug tab",
+            key="debug_mode",
+            on_change=_on_setting_change("debug_mode"),
+        )
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
         st.session_state.show_bored = False
         st.session_state.theme_preview = "auto"
 
-    st.subheader("Autosave & Storage")
+    st.markdown(
+        "<div class='settings-section-title'><span>💾</span>Autosave & workspace</div>",
+        unsafe_allow_html=True,
+    )
     st.toggle(
         "Autosave directly to database",
         key="autosave_to_database",
@@ -4265,7 +4586,10 @@ def render_settings_panel() -> None:
         ),
     )
 
-    st.subheader("Appearance")
+    st.markdown(
+        "<div class='settings-section-title'><span>🎨</span>Appearance</div>",
+        unsafe_allow_html=True,
+    )
     st.toggle(
         "Enable holiday themes",
         key="enable_holiday_theme",
@@ -4305,7 +4629,10 @@ def render_settings_panel() -> None:
         ),
     )
 
-    st.subheader("Storage")
+    st.markdown(
+        "<div class='settings-section-title'><span>📁</span>Attachments & storage</div>",
+        unsafe_allow_html=True,
+    )
     attachments_help = (
         "Choose where case uploads, logs, and screenshots are stored on disk. "
         "Provide an absolute path to a folder that Streamlit can access."
@@ -4320,13 +4647,16 @@ def render_settings_panel() -> None:
     attachments_root, attachments_error = _ensure_case_attachments_root()
     if attachments_error:
         st.warning(
-            "Unable to use the selected attachments folder `{}`. Using `{}` instead.\n\n{}".format(
-                requested_root,
-                attachments_root,
-                attachments_error,
-            )
+            f"Could not create requested attachments directory {requested_root}. "
+            "Using default Documents/kiroshi folder instead."
         )
-    st.caption(f"Current attachments will be saved to `{attachments_root}`.")
+    else:
+        st.caption(f"Attachments stored in: {attachments_root}")
+    if requested_root != attachments_root:
+        st.info(
+            "Requested directory unavailable. Using fallback attachments folder in Documents/kiroshi."
+        )
+
     if st.button(
         "Use default attachments folder",
         key=global_widget_key("attachments_directory_reset"),
@@ -4335,7 +4665,82 @@ def render_settings_panel() -> None:
         _persist_setting("attachments_directory")
         st.rerun()
 
-    st.markdown("### AI Educate")
+    st.markdown(
+        "<div class='settings-section-title'><span>🌿</span>Wellness reminders</div>",
+        unsafe_allow_html=True,
+    )
+    wellness_settings = _normalize_wellness_settings(
+        st.session_state.get("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
+    )
+    original_settings = deepcopy(wellness_settings)
+    enabled = st.toggle(
+        "Enable daily reminders",
+        value=bool(wellness_settings.get("enabled")),
+        key=global_widget_key("wellness_enabled"),
+        help="Schedule two 15-minute breaks and a 60-minute lunch for every weekday.",
+    )
+    schedule = wellness_settings.get("schedule", {})
+    defaults = DEFAULT_WELLNESS_SETTINGS["schedule"]
+    break_cols = st.columns(3)
+    break_one_time = break_cols[0].time_input(
+        "Break 1",
+        value=_time_str_to_time(
+            str(schedule.get("break_1", defaults["break_1"])),
+            fallback=_time_str_to_time(defaults["break_1"], fallback=datetime_time(hour=10, minute=30)),
+        ),
+        key=global_widget_key("wellness_break_one"),
+        disabled=not enabled,
+    )
+    lunch_time = break_cols[1].time_input(
+        "Lunch",
+        value=_time_str_to_time(
+            str(schedule.get("lunch", defaults["lunch"])),
+            fallback=_time_str_to_time(defaults["lunch"], fallback=datetime_time(hour=12, minute=30)),
+        ),
+        key=global_widget_key("wellness_lunch"),
+        disabled=not enabled,
+    )
+    break_two_time = break_cols[2].time_input(
+        "Break 2",
+        value=_time_str_to_time(
+            str(schedule.get("break_2", defaults["break_2"])),
+            fallback=_time_str_to_time(defaults["break_2"], fallback=datetime_time(hour=15, minute=0)),
+        ),
+        key=global_widget_key("wellness_break_two"),
+        disabled=not enabled,
+    )
+    lead_default = max(0, int(wellness_settings.get("notification_lead", 10)))
+    lead_default = min(45, lead_default)
+    lead_minutes = st.slider(
+        "Alert me this many minutes before each pause",
+        min_value=0,
+        max_value=45,
+        value=lead_default,
+        key=global_widget_key("wellness_lead"),
+        disabled=not enabled,
+    )
+    wellness_settings["enabled"] = enabled
+    wellness_settings["notification_lead"] = lead_minutes if enabled else lead_default
+    wellness_settings["schedule"] = {
+        "break_1": _time_to_string(break_one_time),
+        "lunch": _time_to_string(lunch_time),
+        "break_2": _time_to_string(break_two_time),
+    }
+    if wellness_settings != original_settings:
+        st.session_state.wellness_reminders = wellness_settings
+        _persist_setting("wellness_reminders")
+        st.success("Wellness reminders updated.")
+    else:
+        st.session_state.wellness_reminders = wellness_settings
+    if enabled:
+        st.caption("Kiroshi will surface gentle reminders across the dashboard before each break.")
+
+
+def _render_settings_ai_tab() -> None:
+    st.markdown(
+        "<div class='settings-section-title'><span>🤖</span>AI Educate</div>",
+        unsafe_allow_html=True,
+    )
     prev_enabled = st.session_state.ai_educate_enabled
     st.toggle(
         "Enable AI Educate",
@@ -4368,9 +4773,8 @@ def render_settings_panel() -> None:
             key=global_widget_key("ai_educate_refresh"),
         )
         dataset_updated = False
-        ai_dataset: dict[str, object] | None
+        ai_dataset = ensure_ai_learning_dataset(force=refresh_requested)
         if refresh_requested:
-            ai_dataset = ensure_ai_learning_dataset(force=True)
             if ai_dataset:
                 st.success("AI Educate actualizó el conocimiento con los casos guardados.")
                 dataset_updated = True
@@ -4378,7 +4782,7 @@ def render_settings_panel() -> None:
                 st.warning(
                     "No se encontraron casos guardados para analizar. Guarda casos primero."
                 )
-        else:
+        elif ai_dataset is None:
             ai_dataset = ensure_ai_learning_dataset()
 
         st.toggle(
@@ -4512,7 +4916,12 @@ def render_settings_panel() -> None:
                 "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
             )
 
-    st.markdown("### Updates")
+
+def _render_settings_updates_tab() -> None:
+    st.markdown(
+        "<div class='settings-section-title'><span>⬆️</span>Updates & maintenance</div>",
+        unsafe_allow_html=True,
+    )
     st.caption(
         "Consulta la rama principal de GitHub y descarga la versión más reciente de Kiroshi sin salir de la aplicación."
     )
@@ -4532,7 +4941,7 @@ def render_settings_panel() -> None:
     )
     if update_check_clicked:
         st.session_state.update_apply_feedback = None
-        with st.spinner("Consultando GitHub..."):
+        with case_loading_overlay("Scanning GitHub for new builds…"):
             update_status_obj = check_for_updates()
         st.session_state.update_status = update_status_obj
         st.session_state.update_status_checked_at = datetime.now()
@@ -4571,7 +4980,7 @@ def render_settings_panel() -> None:
                     "Download and apply update",
                     key=global_widget_key("update_apply"),
                 ):
-                    with st.spinner("Descargando y aplicando la actualización..."):
+                    with case_loading_overlay("Applying the latest update package…"):
                         try:
                             apply_github_update(update_status.repo, update_status.branch)
                         except Exception as exc:
@@ -4586,7 +4995,7 @@ def render_settings_panel() -> None:
                             )
                             st.session_state.update_status = None
                             st.session_state.update_status_checked_at = datetime.now()
-                        st.rerun()
+                    st.rerun()
             else:
                 st.success("Ya estás usando la versión más reciente disponible.")
             if update_status.download_url:
@@ -4604,6 +5013,37 @@ def render_settings_panel() -> None:
             "Pulsa \"Check for updates\" para comprobar si hay cambios publicados en GitHub."
         )
 
+
+def render_settings_panel() -> None:
+    ensure_settings_styles()
+    st.markdown(
+        """
+        <div class="settings-hero">
+            <div class="settings-hero__glow"></div>
+            <div class="settings-hero__title">Settings control centre</div>
+            <div class="settings-hero__subtitle">
+                Tune Kiroshi to match your workflow — switch modes, organise storage, refresh AI Educate, and keep the app up to date.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container():
+        st.markdown("<div class='settings-tabs'>", unsafe_allow_html=True)
+        workspace_tab, ai_tab, updates_tab = st.tabs(
+            [
+                "Workspace",
+                "AI & Knowledge",
+                "Updates",
+            ]
+        )
+        with workspace_tab:
+            _render_settings_workspace_tab()
+        with ai_tab:
+            _render_settings_ai_tab()
+        with updates_tab:
+            _render_settings_updates_tab()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def render_report_panel() -> None:
     st.subheader("AI Educate Report")
@@ -7195,19 +7635,21 @@ def render_case_ui(case_idx: int):
                 use_container_width=True,
             ):
                 logging.info("Clear all button clicked")
-                backup_path = None
-                if D.case_id:
-                    backup_path = create_case_autosave_snapshot(D.case_id)
-                if os.path.exists(AUTOSAVE_FILE):
-                    try:
-                        os.remove(AUTOSAVE_FILE)
-                    except OSError:
-                        pass
-                clear_case_state(case_idx)
-                if backup_path is not None:
-                    st.session_state["autosave_notice"] = (
-                        f"Case autosaved to {backup_path.name}"
-                    )
+                with case_loading_overlay("Cycling the workspace back to zero…"):
+                    time.sleep(2)
+                    backup_path = None
+                    if D.case_id:
+                        backup_path = create_case_autosave_snapshot(D.case_id)
+                    if os.path.exists(AUTOSAVE_FILE):
+                        try:
+                            os.remove(AUTOSAVE_FILE)
+                        except OSError:
+                            pass
+                    clear_case_state(case_idx)
+                    if backup_path is not None:
+                        st.session_state["autosave_notice"] = (
+                            f"Case autosaved to {backup_path.name}"
+                        )
                 st.rerun()
             if st.session_state.track_case:
                 st.button(
@@ -8370,7 +8812,7 @@ Thank you in advance,
                     elif not prompt.strip():
                         st.error("Prompt is empty.")
                     else:
-                        with st.spinner("Contacting GPT-OSS..."):
+                        with case_loading_overlay("Syncing with GPT-OSS intelligence…"):
                             try:
                                 augmented_prompt = prompt
                                 extras = []
