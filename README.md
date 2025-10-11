@@ -31,6 +31,8 @@ Coverage is actively tracked and the project receives daily updates.
 - **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP
   under a dedicated `Screenshots/` folder.
 - **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
+- **Dell issue knowledge base** – AI Assist and A.A.T.O.M. load a curated database of Precision 7680/7670/7580/7570 and
+  all-model Dell error codes, symptoms, and troubleshooting flows to accelerate escalation prep.
 - **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
 - **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
 - **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
