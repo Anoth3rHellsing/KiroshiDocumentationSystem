@@ -84,6 +84,9 @@ from aatom_chat import (
     load_manual_docs,
     save_manual_docs,
     search_manual_docs,
+    get_assistant_notes,
+    set_assistant_notes,
+    build_assistant_memory_prompt,
 )
 
 # Some corporate networks perform SSL interception with a self-signed
@@ -2219,6 +2222,7 @@ _init_state("api_restart", False)
 _init_state("api_scan_time", False)
 _init_state("generated_email", "")
 _init_state("atom_history", load_memory())
+_init_state("assistant_notes", get_assistant_notes())
 _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
 _init_state("ask_result", "")
@@ -2264,6 +2268,7 @@ _init_state(
     _get_persistent_default("tutorial_completion_type", ""),
 )
 _init_state("show_tutorial", False)
+_init_state("payday_last_notified", "")
 _init_state("tutorial_step", 0)
 _init_state("pending_load", None)
 _init_state("show_bored", False)
@@ -2282,6 +2287,17 @@ _init_state(
         "story": "",
     },
 )
+
+today = datetime.now()
+if today.day == 20:
+    today_key = today.strftime("%Y-%m-%d")
+    if st.session_state.payday_last_notified != today_key:
+        payday_message = "It's pay day!"
+        if hasattr(st, "toast"):
+            st.toast(payday_message)
+        else:
+            st.info(payday_message)
+        st.session_state.payday_last_notified = today_key
 
 if not st.session_state.tutorial_completed and not st.session_state.show_tutorial:
     st.session_state.show_tutorial = True
@@ -4378,6 +4394,104 @@ def render_atom_chat_panel() -> None:
         st.session_state.atom_history = []
         save_memory([])
         st.rerun()
+
+
+def render_smart_aid_panel() -> None:
+    st.subheader("Smart Aid Calibration")
+    st.markdown(
+        "Capture supervisor feedback once and let every AI feature remind you about it automatically."
+    )
+
+    default_areas = ["AI Assistance", "Quick Actions", "A.A.T.O.M. Chat"]
+    supervisor_key = global_widget_key("smart_supervisor")
+    feedback_key = global_widget_key("smart_feedback")
+    areas_key = global_widget_key("smart_areas")
+
+    supervisor_name = st.text_input(
+        "Supervisor (optional)", key=supervisor_key
+    )
+    feedback_text = st.text_area(
+        "Supervisor feedback or reminder",
+        height=120,
+        key=feedback_key,
+    )
+    selected_areas = st.multiselect(
+        "Where should this reminder apply?",
+        default_areas,
+        default=default_areas,
+        help="Smart Aid keeps a single memory shared with AI Assistance, Quick Actions, and A.A.T.O.M.",
+        key=areas_key,
+    )
+
+    if st.button("Calibrate", type="primary", key=global_widget_key("smart_calibrate")):
+        note_text = (feedback_text or "").strip()
+        if not note_text:
+            st.error("Please enter supervisor feedback before calibrating.")
+        else:
+            areas = [
+                str(area).strip()
+                for area in (selected_areas or default_areas)
+                if str(area).strip()
+            ] or default_areas
+            note = {
+                "id": uuid.uuid4().hex,
+                "text": note_text,
+                "supervisor": (supervisor_name or "").strip(),
+                "created_at": datetime.utcnow().isoformat(),
+                "areas": areas,
+            }
+            notes = get_assistant_notes()
+            notes.append(note)
+            set_assistant_notes(notes)
+            save_memory(st.session_state.atom_history)
+            st.success("Calibration saved to unified memory.")
+            st.session_state[feedback_key] = ""
+            st.session_state[supervisor_key] = ""
+            st.session_state[areas_key] = default_areas
+            st.rerun()
+
+    notes = get_assistant_notes()
+    if notes:
+        st.markdown("#### Active supervisor reminders")
+        sorted_notes = sorted(
+            notes,
+            key=lambda n: str(n.get("created_at", "")),
+            reverse=True,
+        )
+        for note in sorted_notes:
+            with st.container():
+                st.markdown(f"**{note.get('text', '')}**")
+                meta_bits: list[str] = []
+                created_label = ""
+                created_at = str(note.get("created_at", "")).strip()
+                if created_at:
+                    try:
+                        created_dt = datetime.fromisoformat(created_at)
+                        created_label = created_dt.strftime("Saved on %b %d, %Y %H:%M")
+                    except ValueError:
+                        created_label = f"Saved: {created_at}"
+                if created_label:
+                    meta_bits.append(created_label)
+                supervisor = str(note.get("supervisor", "")).strip()
+                if supervisor:
+                    meta_bits.append(f"Supervisor: {supervisor}")
+                areas = note.get("areas")
+                if isinstance(areas, list) and areas:
+                    meta_bits.append("Applies to: " + ", ".join(areas))
+                if meta_bits:
+                    st.caption(" • ".join(meta_bits))
+                remove_key = global_widget_key(f"smart_remove_{note.get('id', '')}")
+                if st.button("Remove", key=remove_key):
+                    remaining = [n for n in notes if n.get("id") != note.get("id")]
+                    set_assistant_notes(remaining)
+                    save_memory(st.session_state.atom_history)
+                    st.rerun()
+        memory_preview = build_assistant_memory_prompt()
+        if memory_preview:
+            st.markdown("#### Unified memory preview")
+            st.code(memory_preview, language="markdown")
+    else:
+        st.info("No supervisor feedback saved yet. Add a calibration above to prime Smart Aid.")
 
 
 def render_debug_panel() -> None:
@@ -8423,7 +8537,7 @@ case_labels = [
 tab_labels: list[str] = ["Dashboard", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
-tab_labels += ["Report", "A.A.T.O.M. Chat"] + case_labels
+tab_labels += ["Report", "Smart Aid", "A.A.T.O.M. Chat"] + case_labels
 all_tabs = st.tabs(tab_labels)
 
 tab_index = 0
@@ -8439,6 +8553,9 @@ if st.session_state.debug_mode:
     tab_index += 1
 with all_tabs[tab_index]:
     render_report_panel()
+tab_index += 1
+with all_tabs[tab_index]:
+    render_smart_aid_panel()
 tab_index += 1
 with all_tabs[tab_index]:
     render_atom_chat_panel()
