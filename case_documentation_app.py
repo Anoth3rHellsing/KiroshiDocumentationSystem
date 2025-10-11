@@ -13,7 +13,7 @@ import shutil
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict, fields, field, is_dataclass
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import logging
 import time
 from pathlib import Path
@@ -2412,6 +2412,7 @@ class CaseData:
     scanner_accidental_damage: bool = False
     tracking: TrackingData = field(default_factory=TrackingData)
     kiroshi_version: str = VERSION
+    last_modified: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.tracking, TrackingData):
@@ -2423,6 +2424,10 @@ class CaseData:
             self.kiroshi_version = VERSION
         if self.tracking.priority not in PRIORITY_OPTIONS:
             self.tracking.priority = DEFAULT_TRACKING_PRIORITY
+        if self.last_modified is None:
+            self.last_modified = ""
+        elif not isinstance(self.last_modified, str):
+            self.last_modified = str(self.last_modified)
 
 
 @dataclass
@@ -2817,14 +2822,44 @@ def create_case_autosave_snapshot(case_id: str) -> Path | None:
 
 def load_recent_cases() -> list:
     try:
-        return json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
     except Exception:
         return []
+    if not isinstance(payload, list):
+        return []
+    recent: list[dict[str, object]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        recent.append(
+            {
+                "case_id": item.get("case_id", ""),
+                "path": item.get("path", ""),
+                "last_modified": item.get("last_modified", ""),
+            }
+        )
+    return recent
 
 
 def update_recent_cases(case_id: str, path: str) -> None:
     recents = [c for c in load_recent_cases() if c.get("path") != path]
-    recents.insert(0, {"case_id": case_id, "path": path})
+    last_modified = ""
+    try:
+        case_path = Path(path)
+        if case_path.exists():
+            data = json.loads(case_path.read_text(encoding="utf-8"))
+            mapping = _coerce_case_mapping(data)
+            if isinstance(mapping, Mapping):
+                last_modified = str(mapping.get("last_modified") or "")
+            if not last_modified:
+                last_modified = (
+                    datetime.fromtimestamp(case_path.stat().st_mtime)
+                    .replace(microsecond=0)
+                    .isoformat()
+                )
+    except Exception:
+        last_modified = ""
+    recents.insert(0, {"case_id": case_id, "path": path, "last_modified": last_modified})
     RECENT_CASES_PATH.write_text(json.dumps(recents[:10], indent=2), encoding="utf-8")
 
 
@@ -2939,6 +2974,13 @@ def load_tracked_cases() -> list:
         )
         priority = normalize_priority(tracking_info.get("priority"))
         version = data.get("kiroshi_version")
+        last_modified = data.get("last_modified")
+        if not last_modified:
+            last_modified = (
+                datetime.fromtimestamp(p.stat().st_mtime)
+                .replace(microsecond=0)
+                .isoformat()
+            )
         cases.append(
             {
                 "path": str(p),
@@ -2958,6 +3000,7 @@ def load_tracked_cases() -> list:
                 "version_label": f"Kiroshi {version}" if version else "Pre Kiroshi 1.7.2",
                 "kiroshi_version": version,
                 "is_legacy": False,
+                "last_modified": last_modified,
             }
         )
     # Include historical tracked JSON files for reference.
@@ -2979,6 +3022,13 @@ def load_tracked_cases() -> list:
             or data.get("category")
             or ""
         )
+        last_modified = data.get("last_modified")
+        if not last_modified:
+            last_modified = (
+                datetime.fromtimestamp(p.stat().st_mtime)
+                .replace(microsecond=0)
+                .isoformat()
+            )
         cases.append(
             {
                 "path": str(p),
@@ -2998,14 +3048,18 @@ def load_tracked_cases() -> list:
                 "version_label": "Legacy JSON (this is only for display and not for case saving.)",
                 "kiroshi_version": None,
                 "is_legacy": True,
+                "last_modified": last_modified,
             }
         )
     return cases
 
 
 def update_tracked_case_file(
-    path: str, *, tracking_updates: Mapping[str, object] | None = None, **updates
-) -> None:
+    path: str,
+    *,
+    tracking_updates: Mapping[str, object] | None = None,
+    **updates,
+) -> str | None:
     try:
         case_path = Path(path)
         payload = json.loads(case_path.read_text(encoding="utf-8"))
@@ -3021,11 +3075,27 @@ def update_tracked_case_file(
                 data.update(tracking_updates)
         if updates:
             data.update(updates)
-        to_write = payload if isinstance(payload, list) else data
+        timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        if isinstance(data, Mapping):
+            data["last_modified"] = timestamp
+        if isinstance(payload, list):
+            replaced = False
+            for idx, item in enumerate(payload):
+                if isinstance(item, Mapping):
+                    payload[idx] = data
+                    replaced = True
+                    break
+            if not replaced:
+                payload.append(data)
+            to_write = payload
+        else:
+            to_write = data
         case_path.write_text(json.dumps(to_write, indent=2), encoding="utf-8")
+        return timestamp
     except Exception as exc:
         logging.exception("Failed to update tracked case %s", path)
         st.error(f"Failed to update tracked case: {exc}")
+        return None
 
 
 def update_tracked_priority(
@@ -3037,9 +3107,11 @@ def update_tracked_priority(
 ) -> None:
     new_priority = normalize_priority(st.session_state.get(key))
     if is_legacy:
-        update_tracked_case_file(path, priority=new_priority)
+        timestamp = update_tracked_case_file(path, priority=new_priority)
     else:
-        update_tracked_case_file(path, tracking_updates={"priority": new_priority})
+        timestamp = update_tracked_case_file(
+            path, tracking_updates={"priority": new_priority}
+        )
     target_case_id = case_id
     if target_case_id is None:
         try:
@@ -3050,6 +3122,10 @@ def update_tracked_priority(
     if target_case_id and D.case_id == target_case_id:
         D.tracking.priority = new_priority
         st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = new_priority
+        if timestamp:
+            D.last_modified = timestamp
+            if "case" in st.session_state:
+                st.session_state.case.last_modified = timestamp
     st.toast("Priority updated") if hasattr(st, "toast") else None
 
 
@@ -3062,9 +3138,11 @@ def update_tracked_status(
 ) -> None:
     new_status = st.session_state.get(key, "") or ""
     if is_legacy:
-        update_tracked_case_file(path, status=new_status)
+        timestamp = update_tracked_case_file(path, status=new_status)
     else:
-        update_tracked_case_file(path, tracking_updates={"status": new_status})
+        timestamp = update_tracked_case_file(
+            path, tracking_updates={"status": new_status}
+        )
     target_case_id = case_id
     if target_case_id is None:
         try:
@@ -3076,6 +3154,10 @@ def update_tracked_status(
         D.tracking.status = new_status
         status_key = widget_key("track_status", CURRENT_CASE_IDX)
         st.session_state[status_key] = new_status
+        if timestamp:
+            D.last_modified = timestamp
+            if "case" in st.session_state:
+                st.session_state.case.last_modified = timestamp
     st.toast("Status updated") if hasattr(st, "toast") else None
 
 
@@ -3158,6 +3240,30 @@ def format_tracking_date(value) -> str:
         return str(value)
 
 
+def parse_iso_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value)
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return None
+
+
+def format_last_modified(value) -> str:
+    parsed = parse_iso_datetime(value)
+    if not parsed:
+        return ""
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
 def list_saved_cases(limit: int = 25) -> list:
     entries = []
     files = sorted(
@@ -3178,6 +3284,11 @@ def list_saved_cases(limit: int = 25) -> list:
                 continue
         if not isinstance(data, dict):
             continue
+        raw_last_modified = data.get("last_modified")
+        parsed_last_modified = parse_iso_datetime(raw_last_modified)
+        if parsed_last_modified is None:
+            parsed_last_modified = datetime.fromtimestamp(path.stat().st_mtime)
+            raw_last_modified = parsed_last_modified.isoformat()
         entries.append(
             {
                 "case_id": data.get("case_id") or path.stem,
@@ -3187,7 +3298,8 @@ def list_saved_cases(limit: int = 25) -> list:
                 "end_user": data.get("customer_name")
                 or data.get("end_user")
                 or "",
-                "updated": datetime.fromtimestamp(path.stat().st_mtime),
+                "updated": parsed_last_modified,
+                "last_modified": raw_last_modified,
                 "path": str(path),
             }
         )
@@ -3285,7 +3397,9 @@ def render_crm_link_button(url: str) -> None:
     )
 
 
-def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
+def render_tracked_cases_dashboard(
+    cases: list, search_query: str = "", *, show_notifications: bool = True
+) -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
         return
@@ -3307,6 +3421,7 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
     if not filtered_cases:
         st.info("No tracked cases match your search.")
         return
+    now = datetime.utcnow()
     sorted_cases = sorted(
         filtered_cases,
         key=lambda item: (
@@ -3319,6 +3434,19 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
         path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
         unique_suffix = f"{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
+        last_modified_display = format_last_modified(case.get("last_modified"))
+        last_modified_dt = parse_iso_datetime(case.get("last_modified"))
+        is_stale = False
+        if last_modified_dt:
+            try:
+                is_stale = (now - last_modified_dt) > timedelta(hours=24)
+            except Exception:
+                is_stale = False
+        if is_stale and show_notifications:
+            st.warning(
+                "Hey, this case is still pending updates, no updates after 24 hours. "
+                f"Case ID: {case.get('case_id') or 'Unknown Case'}"
+            )
         summary = " ".join(
             part
             for part in [
@@ -3353,6 +3481,7 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
                 render_case_metadata("Ticket", case.get("ticket_number", ""))
                 render_case_metadata("Status", case.get("status", ""))
                 render_case_metadata("Priority", priority_value)
+                render_case_metadata("Last Modified", last_modified_display)
                 if case.get("expected_arrival_date"):
                     render_case_metadata(
                         "Expected Arrival",
@@ -3461,13 +3590,13 @@ def render_dell_fedex_dashboard(cases: list) -> None:
     fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
     st.markdown("**Dell Escalations**")
     if dell_cases:
-        render_tracked_cases_dashboard(dell_cases)
+        render_tracked_cases_dashboard(dell_cases, show_notifications=False)
     else:
         st.caption("No Dell escalations in the queue.")
 
     st.markdown("**FedEx Replacements**")
     if fedex_cases:
-        render_tracked_cases_dashboard(fedex_cases)
+        render_tracked_cases_dashboard(fedex_cases, show_notifications=False)
     else:
         st.caption("No FedEx replacements awaiting action.")
 
@@ -5511,7 +5640,11 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
 
 
 def save_case_to_database(
-    case: CaseData, *, notify: bool = True, update_history: bool = True
+    case: CaseData,
+    *,
+    notify: bool = True,
+    update_history: bool = True,
+    touch_last_modified: bool = True,
 ) -> Path | None:
     if not case.case_id:
         if notify:
@@ -5535,6 +5668,18 @@ def save_case_to_database(
     else:
         case.kiroshi_version = str(case.kiroshi_version)
     file_path = DATABASE_DIR / f"{case.case_id}.json"
+    last_modified_value = case.last_modified
+    if (not last_modified_value) and file_path.exists():
+        try:
+            existing_payload = json.loads(file_path.read_text(encoding="utf-8"))
+            existing_data = _coerce_case_mapping(existing_payload)
+            if isinstance(existing_data, Mapping):
+                last_modified_value = str(existing_data.get("last_modified") or "")
+        except Exception:
+            last_modified_value = ""
+    if touch_last_modified or not last_modified_value:
+        last_modified_value = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    case.last_modified = str(last_modified_value)
     case_payload = asdict(case)
     scratch_value = st.session_state.get(
         widget_key("scratch", CURRENT_CASE_IDX), st.session_state.get("scratch", "")
@@ -5596,6 +5741,7 @@ def load_case_from_path(path: str) -> None:
             st.session_state.case,
             notify=False,
             update_history=False,
+            touch_last_modified=False,
         )
         ensure_tracking_session_defaults(
             CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
@@ -5653,6 +5799,7 @@ def load_case_from_bytes(data: bytes) -> None:
             st.session_state.case,
             notify=False,
             update_history=False,
+            touch_last_modified=False,
         )
         ensure_tracking_session_defaults(
             CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
@@ -7932,7 +8079,13 @@ Thank you in advance,
         st.subheader("Recent cases")
         for idx, case in enumerate(load_recent_cases()):
             info_col, btn_col = st.columns([3, 1])
-            info_col.write(f"{case['case_id']} - {case['path']}")
+            last_modified_display = format_last_modified(case.get("last_modified"))
+            if last_modified_display:
+                info_col.write(
+                    f"{case['case_id']} ({last_modified_display})\n{case['path']}"
+                )
+            else:
+                info_col.write(f"{case['case_id']}\n{case['path']}")
             if btn_col.button(
                 "Load", key=widget_key(f"recent_load_{idx}", case_idx)
             ):
