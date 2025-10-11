@@ -745,7 +745,6 @@ DEFAULT_SIGNALS_CONFIG = json.dumps(
     indent=2,
 )
 
-VERSION_NOT_RELEVANT = "Version not relevant for this case"
 
 # Configure logging to write to a user-writable directory.  Fall back to
 # console-only logging if the log file cannot be created (e.g. due to
@@ -6030,6 +6029,171 @@ def sync_autohotkey_script(script: str) -> Path | None:
         return None
 
 
+def render_case_header_section(container, case_idx: int, compact_mode: bool) -> None:
+    container.subheader("Case Header")
+    if st.session_state.second_line_mode:
+        reseller_key = widget_key("reseller_case_number", case_idx)
+        default_value = st.session_state.get(
+            reseller_key, D.straumann or D.patterson or ""
+        )
+        st.session_state[reseller_key] = default_value
+        merged_value = container.text_input(
+            "Reseller case # (Straumann / Patterson)",
+            default_value,
+            key=reseller_key,
+        )
+        if merged_value != D.straumann or merged_value != D.patterson:
+            D.straumann = merged_value
+            D.patterson = merged_value
+            st.session_state[widget_key("straumann", case_idx)] = merged_value
+            st.session_state[widget_key("patterson", case_idx)] = merged_value
+            autosave()
+    else:
+        cleared = False
+        reseller_key = widget_key("reseller_case_number", case_idx)
+        if reseller_key in st.session_state:
+            st.session_state.pop(reseller_key)
+        if D.patterson != "N/A":
+            D.patterson = "N/A"
+            st.session_state[widget_key("patterson", case_idx)] = "N/A"
+            cleared = True
+        if D.straumann != "N/A":
+            D.straumann = "N/A"
+            st.session_state[widget_key("straumann", case_idx)] = "N/A"
+            cleared = True
+        if cleared:
+            autosave()
+
+    if compact_mode:
+        header_left, header_right = container.columns(2)
+    else:
+        header_left = header_right = container
+
+    auto_text_input("Company name", "company_name", container=header_left)
+    auto_text_input("Subscription ID", "subscription_id", container=header_left)
+    auto_text_input("Brief description", "brief_description", container=header_right)
+    auto_text_input("Case ID", "case_id", container=header_right)
+    auto_text_input(
+        "Application and version",
+        "application_version",
+        container=header_right,
+        placeholder="e.g., Unite 1.8.10.1",
+        help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
+    )
+
+    support_container = header_right
+    support_container.subheader("Support Fee")
+    ct_key = widget_key("customer_trios_only", case_idx)
+    sf_key = widget_key("support_fee_accepted", case_idx)
+    customer_trios_only = support_container.toggle(
+        "Customer is TRIOS Only?",
+        value=st.session_state.get(ct_key, D.customer_trios_only),
+        key=ct_key,
+        on_change=_update_field,
+        args=("customer_trios_only",),
+    )
+    if customer_trios_only:
+        support_container.toggle(
+            "Support fee price accepted?",
+            value=st.session_state.get(sf_key, D.support_fee_accepted),
+            key=sf_key,
+            on_change=_update_field,
+            args=("support_fee_accepted",),
+        )
+    else:
+        st.session_state[sf_key] = False
+        _update_field("support_fee_accepted")
+
+
+def render_description_and_internal_notes(container, compact_mode: bool) -> None:
+    container.subheader("Description (What / When / Where)")
+    desc_height = 52 if compact_mode else 68
+    auto_text_area("Description", "description", height=desc_height, container=container)
+
+    container.subheader("Internal notes")
+    if compact_mode:
+        notes_left, notes_right = container.columns(2)
+    else:
+        notes_left = notes_right = container
+    auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_left)
+    logs_height = 52 if compact_mode else 68
+    auto_text_area(
+        "Logs / screenshots",
+        "internal_logs",
+        height=logs_height,
+        container=notes_right,
+    )
+
+
+def render_phonecall_section(container, compact_mode: bool) -> None:
+    container.subheader("Phone-call notes")
+    desc_height = 52 if compact_mode else 68
+    if compact_mode:
+        phone_left, phone_right = container.columns(2)
+    else:
+        phone_left = phone_right = container
+    auto_text_input("Caller name", "caller_name", container=phone_left)
+    auto_text_area(
+        "Caller issue description",
+        "phone_description",
+        height=desc_height,
+        container=phone_right,
+    )
+
+    if compact_mode:
+        contact_cols = container.columns(3)
+        auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
+        auto_text_input("Phone number", "phone_number", container=contact_cols[1])
+        auto_text_input("Customer email", "email", container=contact_cols[2])
+        tv_cols = container.columns(2)
+        auto_text_input("TeamViewer ID", "teamviewer_id", container=tv_cols[0])
+        auto_text_input(
+            "TeamViewer password",
+            "teamviewer_password",
+            container=tv_cols[1],
+        )
+    else:
+        contact_cols = container.columns(2)
+        auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
+        auto_text_input("Phone number", "phone_number", container=contact_cols[1])
+        auto_text_input("Customer email", "email", container=container)
+        auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
+        auto_text_input(
+            "TeamViewer password",
+            "teamviewer_password",
+            container=contact_cols[1],
+        )
+
+
+def render_conclusion_and_additional(container, compact_mode: bool) -> None:
+    container.subheader("Conclusion")
+    if compact_mode:
+        conclusion_left, conclusion_right = container.columns(2)
+    else:
+        conclusion_left = conclusion_right = container
+    auto_text_input("Root cause", "root_cause", container=conclusion_left)
+    auto_text_input("Solution", "solution", container=conclusion_right)
+    survey_container = conclusion_left if compact_mode else container
+    auto_text_input(
+        "Customer satisfaction survey URL",
+        "survey_link",
+        container=survey_container,
+    )
+
+    container.subheader("Additional information")
+    auto_text_area(
+        "Additional details",
+        "additional_info",
+        height=220 if compact_mode else 400,
+        container=container,
+        help=(
+            "Include details such as antivirus, firewalls enabled, update history, "
+            "related case ID, possible cause, performance issues, manual additional notes, "
+            "recurring issues, and recent issues."
+        ),
+    )
+
+
 def make_pdf(d: CaseData, cat_map) -> bytes:
     """Generate a PDF summary of the case details."""
     buf = io.BytesIO()
@@ -6658,153 +6822,22 @@ def render_case_ui(case_idx: int):
             st.markdown("### To‑do" if todo else "All mandatory info filled.")
             for t in todo:
                 st.markdown(f"- {t}")
-            st.subheader("Case Header")
-            if st.session_state.second_line_mode:
-                reseller_key = widget_key("reseller_case_number", case_idx)
-                default_value = st.session_state.get(
-                    reseller_key, D.straumann or D.patterson or ""
-                )
-                st.session_state[reseller_key] = default_value
-                merged_value = st.text_input(
-                    "Reseller case # (Straumann / Patterson)",
-                    default_value,
-                    key=reseller_key,
-                )
-                if merged_value != D.straumann or merged_value != D.patterson:
-                    D.straumann = merged_value
-                    D.patterson = merged_value
-                    st.session_state[widget_key("straumann", case_idx)] = merged_value
-                    st.session_state[widget_key("patterson", case_idx)] = merged_value
-                    autosave()
-            else:
-                cleared = False
-                reseller_key = widget_key("reseller_case_number", case_idx)
-                if reseller_key in st.session_state:
-                    st.session_state.pop(reseller_key)
-                if D.patterson != "N/A":
-                    D.patterson = "N/A"
-                    st.session_state[widget_key("patterson", case_idx)] = "N/A"
-                    cleared = True
-                if D.straumann != "N/A":
-                    D.straumann = "N/A"
-                    st.session_state[widget_key("straumann", case_idx)] = "N/A"
-                    cleared = True
-                if cleared:
-                    autosave()
-            header_cols = st.columns(2) if compact_mode else (st, st)
-            header_left, header_right = header_cols
-            auto_text_input("Company name", "company_name", container=header_left)
-            auto_text_input("Subscription ID", "subscription_id", container=header_left)
-            auto_text_input("Brief description", "brief_description", container=header_right)
-            auto_text_input("Case ID", "case_id", container=header_right)
-            version_nr = header_right.toggle(
-                VERSION_NOT_RELEVANT,
-                value=D.application_version == VERSION_NOT_RELEVANT,
-                key=widget_key("application_version_not_relevant", case_idx),
-            )
-            if version_nr:
-                st.session_state[widget_key("application_version", case_idx)] = VERSION_NOT_RELEVANT
-                _update_field("application_version")
-            auto_text_input(
-                "Application and version",
-                "application_version",
-                placeholder="e.g., Unite 1.8.10.1",
-                help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
-                disabled=version_nr,
-                container=header_right,
-            )
-            st.subheader("Description (What / When / Where)")
-            desc_height = 52 if compact_mode else 68
-            auto_text_area("Description", "description", height=desc_height)
-            st.subheader("Phone-call notes")
-            phone_cols = st.columns(2) if compact_mode else (st, st)
-            phone_left, phone_right = phone_cols
-            auto_text_input("Caller name", "caller_name", container=phone_left)
-            auto_text_area(
-                "Caller issue description",
-                "phone_description",
-                height=desc_height,
-                container=phone_right,
-            )
             if compact_mode:
-                contact_cols = st.columns(3)
-                auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
-                auto_text_input("Phone number", "phone_number", container=contact_cols[1])
-                auto_text_input("Customer email", "email", container=contact_cols[2])
-                tv_cols = st.columns(2)
-                auto_text_input("TeamViewer ID", "teamviewer_id", container=tv_cols[0])
-                auto_text_input(
-                    "TeamViewer password",
-                    "teamviewer_password",
-                    container=tv_cols[1],
-                )
+                top_left, top_right = st.columns(2, gap="medium")
+                with top_left:
+                    render_case_header_section(top_left, case_idx, True)
+                with top_right:
+                    render_description_and_internal_notes(top_right, True)
+                bottom_left, bottom_right = st.columns(2, gap="medium")
+                with bottom_left:
+                    render_phonecall_section(bottom_left, True)
+                with bottom_right:
+                    render_conclusion_and_additional(bottom_right, True)
             else:
-                contact_cols = st.columns(2)
-                auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
-                auto_text_input("Phone number", "phone_number", container=contact_cols[1])
-                auto_text_input("Customer email", "email")
-                auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
-                auto_text_input(
-                    "TeamViewer password",
-                    "teamviewer_password",
-                    container=contact_cols[1],
-                )
-            if not st.session_state.second_line_mode:
-                D.patterson = "N/A"
-            st.subheader("Internal notes")
-            notes_cols = st.columns(2) if compact_mode else (st, st)
-            notes_left, notes_right = notes_cols
-            auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_left)
-            logs_height = 52 if compact_mode else 68
-            auto_text_area(
-                "Logs / screenshots",
-                "internal_logs",
-                height=logs_height,
-                container=notes_right,
-            )
-            st.subheader("Conclusion")
-            conclusion_cols = st.columns(2) if compact_mode else (st, st)
-            conclusion_left, conclusion_right = conclusion_cols
-            auto_text_input("Root cause", "root_cause", container=conclusion_left)
-            auto_text_input("Solution", "solution", container=conclusion_right)
-            survey_container = conclusion_left if compact_mode else st
-            auto_text_input(
-                "Customer satisfaction survey URL",
-                "survey_link",
-                container=survey_container,
-            )
-            st.subheader("Additional information")
-            auto_text_area(
-                "Additional details",
-                "additional_info",
-                height=220 if compact_mode else 400,
-                help=(
-                    "Include details such as antivirus, firewalls enabled, update history, "
-                    "related case ID, possible cause, performance issues, manual additional notes, "
-                    "recurring issues, and recent issues."
-                ),
-            )
-            st.subheader("Support Fee")
-            ct_key = widget_key("customer_trios_only", case_idx)
-            sf_key = widget_key("support_fee_accepted", case_idx)
-            st.toggle(
-                "Customer is TRIOS Only?",
-                value=st.session_state.get(ct_key, D.customer_trios_only),
-                key=ct_key,
-                on_change=_update_field,
-                args=("customer_trios_only",),
-            )
-            if st.session_state.get(ct_key, D.customer_trios_only):
-                st.toggle(
-                    "Support fee price accepted?",
-                    value=st.session_state.get(sf_key, D.support_fee_accepted),
-                    key=sf_key,
-                    on_change=_update_field,
-                    args=("support_fee_accepted",),
-                )
-            else:
-                st.session_state[sf_key] = False
-                _update_field("support_fee_accepted")
+                render_case_header_section(st, case_idx, False)
+                render_description_and_internal_notes(st, False)
+                render_phonecall_section(st, False)
+                render_conclusion_and_additional(st, False)
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
