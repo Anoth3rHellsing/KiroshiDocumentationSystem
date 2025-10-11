@@ -22,7 +22,6 @@ Coverage is actively tracked and the project receives daily updates.
 - **2nd Line Mode Dashboard** – when 2nd Line mode is enabled, monitor active Dell and FedEx tracked cases, browse recent tracked files, and load or untrack any case directly from the tracking tables.
 - **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
-- **Notes tab** – scratchpad for temporary notes.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
   making it easy to copy into spreadsheets.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
@@ -30,9 +29,7 @@ Coverage is actively tracked and the project receives daily updates.
   folder.
 - **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP
   under a dedicated `Screenshots/` folder.
-- **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
-- **Dell issue knowledge base** – AI Assist and A.A.T.O.M. load a curated database of Precision 7680/7670/7580/7570 and
-  all-model Dell error codes, symptoms, and troubleshooting flows to accelerate escalation prep.
+- **Real-time autosave** – case data is persisted to `autosave.json` on every interaction to prevent data loss.
 - **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
 - **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
 - **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.

@@ -220,15 +220,6 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
     "enable_holiday_theme": True,
-    "autosave_to_database": False,
-    "scratchpad_style": {
-        "font_family": "Source Sans Pro",
-        "font_size": 15,
-        "background": "#ffffff",
-        "text_color": "#111827",
-        "line_height": 1.5,
-    },
-    "attachments_directory": str(CASE_ATTACHMENTS_ROOT),
 }
 
 
@@ -1755,37 +1746,6 @@ def trigger_hard_reload() -> None:
     )
 
 
-def apply_scratchpad_style(label: str) -> None:
-    style = st.session_state.get("scratchpad_style", {}) or {}
-    font_family = style.get("font_family", "Source Sans Pro")
-    font_size = style.get("font_size", 15)
-    background = style.get("background", "#ffffff")
-    text_color = style.get("text_color", "#111827")
-    line_height = style.get("line_height", 1.5)
-    st.markdown(
-        f"""
-        <style>
-        textarea[aria-label="{label}"] {{
-            font-family: '{font_family}', 'Segoe UI', system-ui, sans-serif;
-            font-size: {font_size}px;
-            background: {background};
-            color: {text_color};
-            line-height: {line_height};
-        }}
-        textarea[aria-label="{label}"]::placeholder {{
-            color: {text_color}cc;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _sync_scratchpad(key: str) -> None:
-    st.session_state.scratch = st.session_state.get(key, "")
-    autosave()
-
-
 def make_json_safe(value):
     """Convert values to JSON-serialisable representations for debug output."""
 
@@ -2394,7 +2354,6 @@ _init_state("case", {})
 _init_state("uploads", [])
 _init_state("log_uploads", [])
 _init_state("screenshots", [])
-_init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_escalations", False)
@@ -2408,10 +2367,6 @@ _init_state("ai_base_url", DEFAULT_AI_BASE_URL)
 _init_state("ai_mode", DEFAULT_AI_MODE)
 _init_state(
     "enable_holiday_theme", _get_persistent_default("enable_holiday_theme", True)
-)
-_init_state(
-    "scratchpad_style",
-    dict(_get_persistent_default("scratchpad_style", PERSISTENT_SETTINGS_DEFAULTS["scratchpad_style"])),
 )
 _init_state("theme_preview", "auto")
 _init_state("api_helpjuice", False)
@@ -2518,8 +2473,6 @@ def load_autosave():
             with open(AUTOSAVE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             st.session_state.case = data.get("case", {})
-            st.session_state.scratch = data.get("scratch", "")
-            st.session_state[widget_key("scratch", 0)] = st.session_state.scratch
         except Exception:
             pass
     st.session_state._autosave_loaded = True
@@ -2824,7 +2777,6 @@ class CaseSession:
     """Container for per-case session state."""
 
     case: CaseData
-    scratch: str = ""
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
     screenshots: list = field(default_factory=list)
@@ -2843,7 +2795,6 @@ if "case_sessions" not in st.session_state:
     st.session_state.case_sessions = [
         CaseSession(
             case=D,
-            scratch=st.session_state.scratch,
             uploads=st.session_state.uploads,
             log_uploads=st.session_state.log_uploads,
             screenshots=st.session_state.screenshots,
@@ -2861,13 +2812,11 @@ def load_case_state(idx: int) -> None:
     D = st.session_state.case
     for key, value in asdict(D).items():
         st.session_state[key] = value
-    st.session_state[widget_key("scratch", idx)] = cs.scratch
 
 
 def save_case_state(idx: int) -> None:
     st.session_state.case_sessions[idx] = CaseSession(
         case=st.session_state.case,
-        scratch=st.session_state.get(widget_key("scratch", idx), ""),
         uploads=st.session_state.uploads,
         log_uploads=st.session_state.log_uploads,
         screenshots=st.session_state.screenshots,
@@ -2940,9 +2889,6 @@ _init_state("survey_link", D.survey_link)
 def autosave_payload() -> dict:
     return {
         "case": asdict(D),
-        "scratch": st.session_state.get(
-            widget_key("scratch", CURRENT_CASE_IDX), ""
-        ),
     }
 
 
@@ -4053,63 +3999,6 @@ def render_settings_panel() -> None:
             "two-column layout for core fields."
         ),
     )
-    st.subheader("A.A.T.O.M. Chat")
-    st.toggle(
-        "Show A.A.T.O.M. Chat tab",
-        key="show_atom_chat",
-        on_change=_on_setting_change("show_atom_chat"),
-        help="Disable this option to hide the A.A.T.O.M. Chat tab from the main navigation.",
-    )
-    current_style = dict(st.session_state.get("scratchpad_style", {}))
-    style_col1, style_col2 = st.columns(2)
-    font_family_value = style_col1.text_input(
-        "Scratchpad font family",
-        current_style.get("font_family", "Source Sans Pro"),
-        key=global_widget_key("scratchpad_font_family"),
-    )
-    font_size_value = style_col2.slider(
-        "Scratchpad font size",
-        10,
-        28,
-        int(current_style.get("font_size", 15)),
-        key=global_widget_key("scratchpad_font_size"),
-    )
-    color_col1, color_col2 = st.columns(2)
-    background_value = color_col1.color_picker(
-        "Scratchpad background",
-        current_style.get("background", "#ffffff"),
-        key=global_widget_key("scratchpad_background"),
-    )
-    text_color_value = color_col2.color_picker(
-        "Scratchpad text color",
-        current_style.get("text_color", "#111827"),
-        key=global_widget_key("scratchpad_text_color"),
-    )
-    line_height_value = st.slider(
-        "Scratchpad line height",
-        1.2,
-        2.2,
-        float(current_style.get("line_height", 1.5)),
-        0.1,
-        key=global_widget_key("scratchpad_line_height"),
-    )
-    updated_style = {
-        "font_family": font_family_value.strip() or "Source Sans Pro",
-        "font_size": int(font_size_value),
-        "background": background_value,
-        "text_color": text_color_value,
-        "line_height": round(float(line_height_value), 2),
-    }
-    if updated_style != current_style:
-        st.session_state.scratchpad_style = updated_style
-        _persist_setting("scratchpad_style")
-
-    if st.button("Reset scratchpad style", key=global_widget_key("scratchpad_reset")):
-        st.session_state.scratchpad_style = dict(
-            PERSISTENT_SETTINGS_DEFAULTS["scratchpad_style"]
-        )
-        _persist_setting("scratchpad_style")
-        st.rerun()
 
     st.subheader("Storage")
     attachments_help = (
@@ -6123,11 +6012,6 @@ def save_case_to_database(
         last_modified_value = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     case.last_modified = str(last_modified_value)
     case_payload = asdict(case)
-    scratch_value = st.session_state.get(
-        widget_key("scratch", CURRENT_CASE_IDX), st.session_state.get("scratch", "")
-    )
-    st.session_state.scratch = scratch_value
-    case_payload["scratchpad"] = scratch_value
     case_payload["attachments"] = persist_case_attachments(case.case_id)
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(case_payload, f, indent=2)
@@ -6144,13 +6028,6 @@ def load_case_from_path(path: str) -> None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw_data = json.load(f)
-        scratchpad_value = (
-            raw_data.get("scratchpad")
-            if isinstance(raw_data, Mapping)
-            else ""
-        )
-        if not scratchpad_value and isinstance(raw_data, Mapping):
-            scratchpad_value = raw_data.get("scratch", "")
         attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
         if isinstance(raw_data, Mapping):
             attachments_raw = raw_data.get("attachments", {})
@@ -6167,12 +6044,9 @@ def load_case_from_path(path: str) -> None:
         st.session_state.uploads = uploads
         st.session_state.log_uploads = log_uploads
         st.session_state.screenshots = screenshots
-        st.session_state.scratch = scratchpad_value or ""
-        st.session_state[widget_key("scratch", CURRENT_CASE_IDX)] = st.session_state.scratch
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
             st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
                 case=D,
-                scratch=st.session_state.scratch,
                 uploads=uploads,
                 log_uploads=log_uploads,
                 screenshots=screenshots,
@@ -6205,11 +6079,6 @@ def load_case_from_path(path: str) -> None:
 def load_case_from_bytes(data: bytes) -> None:
     try:
         payload = json.loads(data.decode("utf-8"))
-        scratchpad_value = (
-            payload.get("scratchpad") if isinstance(payload, Mapping) else ""
-        )
-        if not scratchpad_value and isinstance(payload, Mapping):
-            scratchpad_value = payload.get("scratch", "")
         attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
         if isinstance(payload, Mapping):
             attachments_raw = payload.get("attachments", {})
@@ -6226,12 +6095,9 @@ def load_case_from_bytes(data: bytes) -> None:
         st.session_state.uploads = uploads
         st.session_state.log_uploads = log_uploads
         st.session_state.screenshots = screenshots
-        st.session_state.scratch = scratchpad_value or ""
-        st.session_state[widget_key("scratch", CURRENT_CASE_IDX)] = st.session_state.scratch
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
             st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
                 case=D,
-                scratch=st.session_state.scratch,
                 uploads=uploads,
                 log_uploads=log_uploads,
                 screenshots=screenshots,
@@ -6982,7 +6848,6 @@ def render_case_ui(case_idx: int):
         tab_labels.append("Hardware Issues")
     tab_labels += [
         "Remote Session",
-        "Notes",
         "Tables",
         "Save/Load",
     ]
@@ -6999,7 +6864,6 @@ def render_case_ui(case_idx: int):
     tab_email = next(tab_iter)
     tab_hw = next(tab_iter) if st.session_state.include_hardware else None
     tab_remote = next(tab_iter)
-    tab_notes = next(tab_iter)
     tab_tables = next(tab_iter)
     tab_save_load = next(tab_iter)
     tab_bored = next(tab_iter) if st.session_state.show_bored else None
@@ -8466,21 +8330,6 @@ Thank you in advance,
     with tab_remote:
         st.subheader("Remote session – steps")
         auto_text_area("One step per line", "remote_steps", height=400)
-
-    # ================== NOTES TAB =================
-    with tab_notes:
-        st.subheader("Scratchpad")
-        scr_key = widget_key("scratch", case_idx)
-        scratch_label = "Scratchpad – Temporary notes"
-        apply_scratchpad_style(scratch_label)
-        st.text_area(
-            scratch_label,
-            st.session_state.get(scr_key, ""),
-            height=400,
-            key=scr_key,
-            on_change=_sync_scratchpad,
-            args=(scr_key,),
-        )
 
     # ================== TABLES TAB =================
     with tab_tables:
