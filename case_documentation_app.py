@@ -415,12 +415,34 @@ def _resolve_update_target() -> tuple[str, str]:
     return repo, branch
 
 
-def _fetch_remote_version(repo: str, branch: str) -> str:
-    candidate_paths = [
+def _iter_remote_app_paths() -> Iterable[str]:
+    """Yield possible locations for the application in the update repo.
+
+    Historically the project lived in the repository root, but some forks
+    keep the Streamlit app inside a nested directory (for example the repo
+    name itself).  Allow operators to further customize the lookup through
+    ``KIROSHI_UPDATE_APP_PATHS`` which accepts a comma separated list of
+    relative paths.
+    """
+
+    env_paths = os.environ.get("KIROSHI_UPDATE_APP_PATHS", "").strip()
+    if env_paths:
+        for path in env_paths.split(","):
+            normalized = path.strip().lstrip("/")
+            if normalized:
+                yield normalized
+
+    # Built-in defaults that cover the most common layouts.
+    yield from (
         "case_documentation_app.py",
+        "KiroshiDocumentationSystem/case_documentation_app.py",
         "src/case_documentation_app.py",
         "app/case_documentation_app.py",
-    ]
+    )
+
+
+def _fetch_remote_version(repo: str, branch: str) -> str:
+    candidate_paths = list(dict.fromkeys(_iter_remote_app_paths()))
 
     last_error: Exception | None = None
     for path in candidate_paths:
