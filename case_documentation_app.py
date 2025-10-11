@@ -2639,6 +2639,48 @@ def save_case_state(idx: int) -> None:
     )
 
 
+def clear_case_state(idx: int) -> None:
+    """Reset the stored data for the case at the given index."""
+
+    new_case = CaseData()
+    new_session = CaseSession(
+        case=new_case,
+        scratch="",
+        uploads=[],
+        log_uploads=[],
+        screenshots=[],
+    )
+
+    suffix = f"_{idx}"
+    for key in list(st.session_state.keys()):
+        if key.endswith(suffix):
+            st.session_state.pop(key)
+
+    st.session_state.case_sessions[idx] = new_session
+
+    if idx == CURRENT_CASE_IDX:
+        global D
+        st.session_state.case = new_case
+        D = new_case
+        st.session_state.uploads = []
+        st.session_state.log_uploads = []
+        st.session_state.screenshots = []
+        st.session_state.scratch = ""
+        st.session_state[widget_key("scratch", idx)] = ""
+        for key in ("ai_assist_result", "verify_result", "ask_result", "categorizer_result"):
+            if key in st.session_state:
+                st.session_state[key] = "" if isinstance(st.session_state.get(key), str) else []
+        st.session_state.ai_learning_matches = []
+
+    ensure_tracking_session_defaults(idx, new_case.tracking, force=True)
+
+    st.session_state.track_case = any(
+        session.case.tracking.active for session in st.session_state.case_sessions
+    )
+
+    autosave()
+
+
 def widget_key(base: str, idx: int) -> str:
     """Return a Streamlit widget key namespaced to a case index."""
     return f"{base}_{idx}"
@@ -6365,36 +6407,12 @@ def render_case_ui(case_idx: int):
                 backup_path = None
                 if D.case_id:
                     backup_path = create_case_autosave_snapshot(D.case_id)
-                api_key_value = st.session_state.get("openai_api_key", "")
-                second_line_mode = st.session_state.get("second_line_mode", False)
-                debug_mode = st.session_state.get("debug_mode", False)
-                base_url_value = st.session_state.get("ai_base_url", "")
-                ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
-                ai_assist_mode = st.session_state.get("ai_assist_mode", "Standard")
-                educate_enabled = st.session_state.get("ai_educate_enabled", False)
-                educate_report = st.session_state.get("ai_educate_report_enabled", False)
-                educate_advanced = st.session_state.get("ai_educate_advanced", False)
                 if os.path.exists(AUTOSAVE_FILE):
                     try:
                         os.remove(AUTOSAVE_FILE)
                     except OSError:
                         pass
-                st.session_state.clear()
-                st.session_state.openai_api_key = api_key_value
-                st.session_state.second_line_mode = second_line_mode
-                _persist_setting("second_line_mode")
-                st.session_state.debug_mode = debug_mode
-                _persist_setting("debug_mode")
-                st.session_state.ai_base_url = base_url_value
-                st.session_state.ai_mode = ai_mode
-                st.session_state.ai_assist_mode = ai_assist_mode
-                _persist_setting("ai_assist_mode")
-                st.session_state.ai_educate_enabled = educate_enabled
-                _persist_setting("ai_educate_enabled")
-                st.session_state.ai_educate_report_enabled = educate_report
-                _persist_setting("ai_educate_report_enabled")
-                st.session_state.ai_educate_advanced = educate_advanced
-                _persist_setting("ai_educate_advanced")
+                clear_case_state(case_idx)
                 if backup_path is not None:
                     st.session_state["autosave_notice"] = (
                         f"Case autosaved to {backup_path.name}"
