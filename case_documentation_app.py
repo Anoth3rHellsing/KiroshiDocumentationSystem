@@ -6605,7 +6605,7 @@ def render_case_ui(case_idx: int):
         st.markdown("</div>", unsafe_allow_html=True)
 
         compact_mode = st.session_state.get("case_compact_mode", False)
-        note_height = 120 if compact_mode else 150
+        note_height = 96 if compact_mode else 150
 
         if st.session_state.verify_result:
             st.text_area(
@@ -6714,7 +6714,7 @@ def render_case_ui(case_idx: int):
                 container=header_right,
             )
             st.subheader("Description (What / When / Where)")
-            desc_height = 60 if compact_mode else 68
+            desc_height = 52 if compact_mode else 68
             auto_text_area("Description", "description", height=desc_height)
             st.subheader("Phone-call notes")
             phone_cols = st.columns(2) if compact_mode else (st, st)
@@ -6726,26 +6726,36 @@ def render_case_ui(case_idx: int):
                 height=desc_height,
                 container=phone_right,
             )
-            contact_cols = st.columns(2)
-            auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
-            auto_text_input("Phone number", "phone_number", container=contact_cols[1])
             if compact_mode:
-                auto_text_input("Customer email", "email", container=contact_cols[0])
+                contact_cols = st.columns(3)
+                auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
+                auto_text_input("Phone number", "phone_number", container=contact_cols[1])
+                auto_text_input("Customer email", "email", container=contact_cols[2])
+                tv_cols = st.columns(2)
+                auto_text_input("TeamViewer ID", "teamviewer_id", container=tv_cols[0])
+                auto_text_input(
+                    "TeamViewer password",
+                    "teamviewer_password",
+                    container=tv_cols[1],
+                )
             else:
+                contact_cols = st.columns(2)
+                auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
+                auto_text_input("Phone number", "phone_number", container=contact_cols[1])
                 auto_text_input("Customer email", "email")
-            auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
-            auto_text_input(
-                "TeamViewer password",
-                "teamviewer_password",
-                container=contact_cols[1],
-            )
+                auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
+                auto_text_input(
+                    "TeamViewer password",
+                    "teamviewer_password",
+                    container=contact_cols[1],
+                )
             if not st.session_state.second_line_mode:
                 D.patterson = "N/A"
             st.subheader("Internal notes")
             notes_cols = st.columns(2) if compact_mode else (st, st)
             notes_left, notes_right = notes_cols
             auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_left)
-            logs_height = 60 if compact_mode else 68
+            logs_height = 52 if compact_mode else 68
             auto_text_area(
                 "Logs / screenshots",
                 "internal_logs",
@@ -6767,7 +6777,7 @@ def render_case_ui(case_idx: int):
             auto_text_area(
                 "Additional details",
                 "additional_info",
-                height=280 if compact_mode else 400,
+                height=220 if compact_mode else 400,
                 help=(
                     "Include details such as antivirus, firewalls enabled, update history, "
                     "related case ID, possible cause, performance issues, manual additional notes, "
