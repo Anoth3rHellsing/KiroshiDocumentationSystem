@@ -1474,58 +1474,182 @@ def apply_theme_palette(theme: ThemePalette) -> None:
 @contextmanager
 def case_loading_overlay(message: str = "Preparing case data…"):
     placeholder = st.empty()
+    tips = [
+        "I can spot a typo faster than a drone can say beep!",
+        "Fun fact: my favorite color is hexadecimal #FF5733.",
+        "Taking a micro-sip of synthetic coffee before we proceed…",
+        "Formatting your evidence so it sparkles in the archive.",
+        "Multi-tasking? I'm running diagnostics and humming a tune!",
+        "If it looks like magic, it's just well-documented science.",
+        "Decrypting mysteries one checkbox at a time.",
+        "Calibrating sarcasm detectors—results pending.",
+    ]
+    overlay_id = f"kiroshi-loading-{uuid.uuid4().hex}"
+    tips_json = json.dumps(tips)
     placeholder.markdown(
         f"""
         <style>
-        @keyframes kiroshi-spinner {{
+        @keyframes {overlay_id}-spinner {{
             0% {{ transform: rotate(0deg); }}
             100% {{ transform: rotate(360deg); }}
         }}
-        .case-loading-overlay {{
+        @keyframes {overlay_id}-pulse {{
+            0%, 100% {{ opacity: 0.4; transform: scale(1); }}
+            50% {{ opacity: 1; transform: scale(1.1); }}
+        }}
+        #{overlay_id}.case-loading-overlay {{
             position: fixed;
             inset: 0;
-            background: color-mix(in srgb, var(--kiroshi-background) 88%, rgba(0,0,0,0.65));
+            background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.18), transparent 45%),
+                        color-mix(in srgb, var(--kiroshi-background) 88%, rgba(0,0,0,0.75));
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 9999;
+            backdrop-filter: blur(6px);
         }}
-        .case-loading-content {{
-            background: var(--kiroshi-surface);
-            padding: 2.5rem 3rem;
-            border-radius: 1.5rem;
-            box-shadow: 0 25px 60px rgba(15, 23, 42, 0.35);
+        #{overlay_id} .case-loading-content {{
+            background: linear-gradient(145deg, color-mix(in srgb, var(--kiroshi-surface) 92%, #1f2937 8%), rgba(15,23,42,0.85));
+            padding: 2.75rem 3.25rem;
+            border-radius: 1.75rem;
+            box-shadow: 0 30px 70px rgba(15, 23, 42, 0.45);
             text-align: center;
-            max-width: 420px;
-            width: min(80vw, 420px);
+            max-width: 460px;
+            width: min(82vw, 460px);
+            position: relative;
+            overflow: hidden;
         }}
-        .case-loading-spinner {{
-            width: 68px;
-            height: 68px;
+        #{overlay_id} .case-loading-content::after {{
+            content: "";
+            position: absolute;
+            inset: 8px;
+            border-radius: 1.3rem;
+            border: 1px solid color-mix(in srgb, var(--kiroshi-accent) 35%, transparent);
+            opacity: 0.6;
+        }}
+        #{overlay_id} .case-loading-spinner {{
+            position: relative;
+            width: 88px;
+            height: 88px;
+            margin: 0 auto 1.65rem;
+        }}
+        #{overlay_id} .case-loading-spinner::before,
+        #{overlay_id} .case-loading-spinner::after {{
+            content: "";
+            position: absolute;
+            inset: 0;
             border-radius: 50%;
-            border: 6px solid color-mix(in srgb, var(--kiroshi-accent) 40%, transparent);
+            border: 4px solid transparent;
+        }}
+        #{overlay_id} .case-loading-spinner::before {{
             border-top-color: var(--kiroshi-primary);
-            animation: kiroshi-spinner 1s linear infinite;
-            margin: 0 auto 1.5rem;
+            border-right-color: color-mix(in srgb, var(--kiroshi-primary) 80%, transparent);
+            animation: {overlay_id}-spinner 1.1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
         }}
-        .case-loading-message {{
-            font-size: 1.1rem;
-            font-weight: 600;
+        #{overlay_id} .case-loading-spinner::after {{
+            inset: 12px;
+            border-left-color: color-mix(in srgb, var(--kiroshi-accent) 80%, transparent);
+            border-bottom-color: var(--kiroshi-accent);
+            animation: {overlay_id}-spinner 1.4s linear infinite reverse;
+        }}
+        #{overlay_id} .case-loading-core {{
+            position: absolute;
+            inset: 24px;
+            border-radius: 50%;
+            background: radial-gradient(circle, color-mix(in srgb, var(--kiroshi-accent) 70%, transparent) 0%, transparent 70%);
+            animation: {overlay_id}-pulse 2.4s ease-in-out infinite;
+        }}
+        #{overlay_id} .case-loading-message {{
+            font-size: 1.15rem;
+            font-weight: 700;
             color: var(--kiroshi-primary);
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.85rem;
+            letter-spacing: 0.02em;
         }}
-        .case-loading-subtext {{
-            font-size: 0.95rem;
+        #{overlay_id} .case-loading-subtext {{
+            font-size: 0.98rem;
             color: var(--kiroshi-muted);
+            margin-bottom: 1.65rem;
+        }}
+        #{overlay_id} .case-loading-kiroshi {{
+            display: flex;
+            gap: 0.85rem;
+            align-items: flex-start;
+            background: color-mix(in srgb, var(--kiroshi-background) 55%, transparent);
+            padding: 1rem 1.2rem;
+            border-radius: 1.1rem;
+            border: 1px solid color-mix(in srgb, var(--kiroshi-primary) 25%, transparent);
+            box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.12);
+        }}
+        #{overlay_id} .case-loading-avatar {{
+            font-size: 1.8rem;
+            line-height: 1;
+            filter: drop-shadow(0 3px 6px rgba(15, 23, 42, 0.25));
+        }}
+        #{overlay_id} .case-loading-tip {{
+            text-align: left;
+        }}
+        #{overlay_id} .case-loading-tip-label {{
+            display: block;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: color-mix(in srgb, var(--kiroshi-muted) 75%, var(--kiroshi-primary) 25%);
+            margin-bottom: 0.35rem;
+        }}
+        #{overlay_id} .case-loading-tip-line {{
+            font-size: 1.02rem;
+            color: color-mix(in srgb, var(--kiroshi-primary) 75%, var(--kiroshi-text) 25%);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            opacity: 1;
+        }}
+        #{overlay_id} .case-loading-tip-line.is-hidden {{
+            opacity: 0;
+            transform: translateY(6px);
         }}
         </style>
-        <div class="case-loading-overlay">
+        <div id="{overlay_id}" class="case-loading-overlay">
             <div class="case-loading-content">
-                <div class="case-loading-spinner"></div>
+                <div class="case-loading-spinner">
+                    <div class="case-loading-core"></div>
+                </div>
                 <div class="case-loading-message">{escape(message)}</div>
-                <div class="case-loading-subtext">Syncing timelines and attachments…</div>
+                <div class="case-loading-subtext">Kiroshi is orchestrating your task modules…</div>
+                <div class="case-loading-kiroshi">
+                    <div class="case-loading-avatar">🤖</div>
+                    <div class="case-loading-tip">
+                        <span class="case-loading-tip-label">Kiroshi whispers:</span>
+                        <span class="case-loading-tip-line"></span>
+                    </div>
+                </div>
             </div>
         </div>
+        <script>
+        (function() {{
+            const tips = {tips_json};
+            const overlay = window.document.getElementById("{overlay_id}");
+            if (!overlay) {{
+                return;
+            }}
+            const tipLine = overlay.querySelector('.case-loading-tip-line');
+            if (!tipLine) {{
+                return;
+            }}
+            let index = Math.floor(Math.random() * tips.length);
+            tipLine.textContent = tips[index];
+            const swapTip = () => {{
+                tipLine.classList.add('is-hidden');
+                window.setTimeout(() => {{
+                    index = (index + 1) % tips.length;
+                    tipLine.textContent = tips[index];
+                    tipLine.classList.remove('is-hidden');
+                }}, 320);
+            }};
+            if (tips.length > 1) {{
+                window.setInterval(swapTip, 3200);
+            }}
+        }})();
+        </script>
         """,
         unsafe_allow_html=True,
     )
