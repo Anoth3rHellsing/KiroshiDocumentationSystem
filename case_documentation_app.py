@@ -1308,6 +1308,37 @@ def _rgba(color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha_str})"
 
 
+def _relative_luminance(color: str) -> float:
+    """Return the W3C relative luminance for the provided hex color."""
+
+    r, g, b = _hex_to_rgb_tuple(color)
+
+    def _channel_luminance(channel: int) -> float:
+        normalized = channel / 255
+        if normalized <= 0.03928:
+            return normalized / 12.92
+        return ((normalized + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * _channel_luminance(r)
+        + 0.7152 * _channel_luminance(g)
+        + 0.0722 * _channel_luminance(b)
+    )
+
+
+def _preferred_text_for_background(background: str, preferred: str) -> str:
+    """Return a text color with adequate contrast for the given background."""
+
+    background_luminance = _relative_luminance(background)
+    preferred_luminance = _relative_luminance(preferred)
+
+    if background_luminance >= 0.6 and preferred_luminance >= 0.55:
+        return "#111827"
+    if background_luminance <= 0.2 and preferred_luminance <= 0.35:
+        return "#f8fafc"
+    return preferred
+
+
 DEFAULT_THEME = ThemePalette(
     key="default",
     name="Default",
@@ -1640,6 +1671,8 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     background_soft = _blend_hex_colors(theme.background, theme.surface, 0.25)
     card_shadow_color = _blend_hex_colors(theme.background, "#000000", 0.6)
     button_shadow_color = _blend_hex_colors(theme.primary, "#000000", 0.55)
+    text_on_surface = _preferred_text_for_background(theme.surface, theme.text)
+    text_on_white = _preferred_text_for_background("#ffffff", theme.text)
     st.markdown(
         f"""
         <style>
@@ -1658,6 +1691,8 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             --kiroshi-chart-grid: {chart_grid};
             --kiroshi-chart-axis: {chart_axis};
             --kiroshi-input-background: {input_background};
+            --kiroshi-text-on-surface: {text_on_surface};
+            --kiroshi-text-on-white: {text_on_white};
         }}
         html, body {{
             background:
@@ -2323,6 +2358,7 @@ def inject_base_styles() -> None:
             background: var(--kiroshi-surface);
             border-radius: 1.1rem;
             box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+            color: var(--kiroshi-text-on-surface);
         }
 
         .tutorial-wrapper {
@@ -2332,6 +2368,7 @@ def inject_base_styles() -> None:
             border: 1px solid rgba(255, 255, 255, 0.08);
             background: linear-gradient(145deg, rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.85));
             box-shadow: 0 18px 32px rgba(15, 23, 42, 0.16);
+            color: var(--kiroshi-text-on-white);
         }
 
         .tutorial-step-title {
@@ -2344,7 +2381,7 @@ def inject_base_styles() -> None:
         .tutorial-intro {
             font-size: 0.98rem;
             line-height: 1.6;
-            color: var(--kiroshi-text);
+            color: var(--kiroshi-text-on-white);
             margin-bottom: 1rem;
         }
 
@@ -2354,6 +2391,7 @@ def inject_base_styles() -> None:
             background: rgba(255, 255, 255, 0.85);
             border: 1px solid rgba(209, 213, 219, 0.7);
             height: 100%;
+            color: var(--kiroshi-text-on-white);
         }
 
         .tutorial-footnote {
@@ -2367,6 +2405,7 @@ def inject_base_styles() -> None:
             border: 1px solid rgba(15, 23, 42, 0.08);
             background: linear-gradient(145deg, var(--kiroshi-surface) 0%, rgba(255, 255, 255, 0.85) 100%);
             margin-bottom: 1rem;
+            color: var(--kiroshi-text-on-white);
         }
 
         .case-meta {
@@ -2386,7 +2425,7 @@ def inject_base_styles() -> None:
         .case-meta__value {
             font-size: 0.95rem;
             font-weight: 600;
-            color: var(--kiroshi-text);
+            color: var(--kiroshi-text-on-white);
         }
 
         .case-actions {
