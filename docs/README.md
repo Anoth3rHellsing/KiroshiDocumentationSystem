@@ -55,6 +55,10 @@ responses.
 ## Autosave
 Case information is written to an `autosave.json` file after every interaction,
 so progress is preserved even if the browser is closed.
+Enable **Autosave directly to database** from the Settings tab to persist each
+case snapshot under `KiroshiDatabase/` using its case ID. The preference sticks
+between sessions, so once enabled it continues writing to the database on every
+autosave.
 
 ## Exports & Attachments
 
