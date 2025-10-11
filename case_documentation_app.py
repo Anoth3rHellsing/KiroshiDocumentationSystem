@@ -6608,28 +6608,30 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
         if cleared:
             autosave()
 
-    if compact_mode:
-        header_left, header_right = container.columns(2)
-    else:
-        header_left = header_right = container
+    name_cols = container.columns((1.3, 1, 1))
+    auto_text_input("Company name", "company_name", container=name_cols[0])
+    auto_text_input("Subscription ID", "subscription_id", container=name_cols[1])
+    auto_text_input("Case ID", "case_id", container=name_cols[2])
 
-    auto_text_input("Company name", "company_name", container=header_left)
-    auto_text_input("Subscription ID", "subscription_id", container=header_left)
-    auto_text_input("Brief description", "brief_description", container=header_right)
-    auto_text_input("Case ID", "case_id", container=header_right)
+    details_cols = container.columns((2, 1))
+    auto_text_input(
+        "Brief description",
+        "brief_description",
+        container=details_cols[0],
+    )
+    version_col = details_cols[1]
     auto_text_input(
         "Application and version",
         "application_version",
-        container=header_right,
+        container=version_col,
         placeholder="e.g., Unite 1.8.10.1",
         help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
     )
 
-    support_container = header_right
-    support_container.subheader("Support Fee")
+    version_col.subheader("Support Fee")
     ct_key = widget_key("customer_trios_only", case_idx)
     sf_key = widget_key("support_fee_accepted", case_idx)
-    customer_trios_only = support_container.toggle(
+    customer_trios_only = version_col.toggle(
         "Customer is TRIOS Only?",
         value=st.session_state.get(ct_key, D.customer_trios_only),
         key=ct_key,
@@ -6637,7 +6639,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
         args=("customer_trios_only",),
     )
     if customer_trios_only:
-        support_container.toggle(
+        version_col.toggle(
             "Support fee price accepted?",
             value=st.session_state.get(sf_key, D.support_fee_accepted),
             key=sf_key,
@@ -6650,78 +6652,67 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
 
 
 def render_description_and_internal_notes(container, compact_mode: bool) -> None:
-    container.subheader("Description (What / When / Where)")
-    desc_height = 52 if compact_mode else 68
-    auto_text_area("Description", "description", height=desc_height, container=container)
+    desc_cols = container.columns((3, 2))
+    description_col, notes_col = desc_cols
 
-    container.subheader("Internal notes")
-    if compact_mode:
-        notes_left, notes_right = container.columns(2)
-    else:
-        notes_left = notes_right = container
-    auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_left)
+    description_col.subheader("Description (What / When / Where)")
+    desc_height = 52 if compact_mode else 68
+    auto_text_area(
+        "Description",
+        "description",
+        height=desc_height,
+        container=description_col,
+    )
+
+    notes_col.subheader("Internal notes")
+    auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
     logs_height = 52 if compact_mode else 68
     auto_text_area(
         "Logs / screenshots",
         "internal_logs",
         height=logs_height,
-        container=notes_right,
+        container=notes_col,
     )
 
 
 def render_phonecall_section(container, compact_mode: bool) -> None:
     container.subheader("Phone-call notes")
     desc_height = 52 if compact_mode else 68
-    if compact_mode:
-        phone_left, phone_right = container.columns(2)
-    else:
-        phone_left = phone_right = container
-    auto_text_input("Caller name", "caller_name", container=phone_left)
+    layout_cols = container.columns((3, 2))
+    notes_col, contact_col = layout_cols
+
+    auto_text_input("Caller name", "caller_name", container=notes_col)
     auto_text_area(
         "Caller issue description",
         "phone_description",
         height=desc_height,
-        container=phone_right,
+        container=notes_col,
     )
 
-    if compact_mode:
-        contact_cols = container.columns(3)
-        auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
-        auto_text_input("Phone number", "phone_number", container=contact_cols[1])
-        auto_text_input("Customer email", "email", container=contact_cols[2])
-        tv_cols = container.columns(2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=tv_cols[0])
-        auto_text_input(
-            "TeamViewer password",
-            "teamviewer_password",
-            container=tv_cols[1],
-        )
-    else:
-        contact_cols = container.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=contact_cols[0])
-        auto_text_input("Phone number", "phone_number", container=contact_cols[1])
-        auto_text_input("Customer email", "email", container=container)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=contact_cols[0])
-        auto_text_input(
-            "TeamViewer password",
-            "teamviewer_password",
-            container=contact_cols[1],
-        )
+    contact_col.subheader("Contact details")
+    first_row = contact_col.columns(2)
+    auto_text_input("Dongle number", "dongle_number", container=first_row[0])
+    auto_text_input("Phone number", "phone_number", container=first_row[1])
+    auto_text_input("Customer email", "email", container=contact_col)
+    second_row = contact_col.columns(2)
+    auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+    auto_text_input(
+        "TeamViewer password",
+        "teamviewer_password",
+        container=second_row[1],
+    )
 
 
 def render_conclusion_and_additional(container, compact_mode: bool) -> None:
     container.subheader("Conclusion")
-    if compact_mode:
-        conclusion_left, conclusion_right = container.columns(2)
-    else:
-        conclusion_left = conclusion_right = container
+    conclusion_cols = container.columns(2)
+    conclusion_left, conclusion_right = conclusion_cols
     auto_text_input("Root cause", "root_cause", container=conclusion_left)
     auto_text_input("Solution", "solution", container=conclusion_right)
-    survey_container = conclusion_left if compact_mode else container
     auto_text_input(
         "Customer satisfaction survey URL",
         "survey_link",
-        container=survey_container,
+        container=conclusion_right,
     )
 
     container.subheader("Additional information")
