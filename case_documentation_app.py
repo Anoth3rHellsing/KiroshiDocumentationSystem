@@ -172,6 +172,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
     "enable_holiday_theme": True,
+    "autosave_to_database": False,
     "scratchpad_style": {
         "font_family": "Source Sans Pro",
         "font_size": 15,
@@ -2248,6 +2249,10 @@ _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
+_init_state(
+    "autosave_to_database",
+    _get_persistent_default("autosave_to_database", False),
+)
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",
@@ -2672,6 +2677,24 @@ def autosave_payload() -> dict:
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
         json.dump(autosave_payload(), f, indent=2)
+    if st.session_state.get("autosave_to_database"):
+        case_obj = st.session_state.get("case")
+        case_cls = globals().get("CaseData")
+        if (
+            case_cls
+            and isinstance(case_obj, case_cls)
+            and "save_case_to_database" in globals()
+        ):
+            case_id_value = getattr(case_obj, "case_id", "")
+            if isinstance(case_id_value, str) and case_id_value.strip():
+                try:
+                    save_case_to_database(case_obj, notify=False)
+                except Exception as exc:  # pragma: no cover - streamlit runtime specific
+                    logging.warning(
+                        "Failed to autosave case %s to database: %s",
+                        case_id_value,
+                        exc,
+                    )
 
 
 def sanitize_case_id(case_id: str) -> str:
@@ -3577,6 +3600,17 @@ def render_settings_panel() -> None:
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
         st.session_state.show_bored = False
+
+    st.subheader("Autosave & Storage")
+    st.toggle(
+        "Autosave directly to database",
+        key="autosave_to_database",
+        on_change=_on_setting_change("autosave_to_database"),
+        help=(
+            "When enabled, every autosave writes the active case to the KiroshiDatabase "
+            "folder using its case ID so the work is kept permanently."
+        ),
+    )
 
     st.subheader("Appearance")
     st.toggle(
