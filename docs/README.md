@@ -46,9 +46,6 @@ This was registered under the ticket {case_id}.
 ### Hardware Issues
 Stores PC and scanner hardware details and displays them in copy‑friendly tables.
 
-### Notes
-A simple scratchpad for temporary information.
-
 ### Debug
 Stores the OpenAI API key and model selection and displays the current session
 state for troubleshooting. A nonfunctional placeholder key is preloaded for
@@ -56,9 +53,8 @@ demonstration purposes, and GPT-4o is selected by default for quick, high-qualit
 responses.
 
 ## Autosave
-Case information and scratchpad notes are written to an `autosave.json` file
-after every interaction, so progress is preserved even if the browser is
-closed.
+Case information is written to an `autosave.json` file after every interaction,
+so progress is preserved even if the browser is closed.
 
 ## Exports & Attachments
 

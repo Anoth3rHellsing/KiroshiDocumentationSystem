@@ -1,7 +1,7 @@
 # Kiroshi Documentation System
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
-[![Version](https://img.shields.io/badge/version-1.7.2%20Beta%20Build%20932025-blue)](#)
+[![Version](https://img.shields.io/badge/version-RC%201.7.2111025-blue)](#)
 [![Coverage](https://img.shields.io/badge/coverage-active-brightgreen)](#)
 [![Updates](https://img.shields.io/badge/updates-daily-blue)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -22,7 +22,6 @@ Coverage is actively tracked and the project receives daily updates.
 - **2nd Line Mode Dashboard** – when 2nd Line mode is enabled, monitor active Dell and FedEx tracked cases, browse recent tracked files, and load or untrack any case directly from the tracking tables.
 - **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
-- **Notes tab** – scratchpad for temporary notes.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
   making it easy to copy into spreadsheets.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
@@ -30,7 +29,7 @@ Coverage is actively tracked and the project receives daily updates.
   folder.
 - **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP
   under a dedicated `Screenshots/` folder.
-- **Real-time autosave** – case data and notes are persisted to `autosave.json` on every interaction to prevent data loss.
+- **Real-time autosave** – case data is persisted to `autosave.json` on every interaction to prevent data loss.
 - **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
 - **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
 - **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
@@ -46,8 +45,8 @@ Coverage is actively tracked and the project receives daily updates.
 ### Automated installation
 
 1. Download the repository ZIP from GitHub.
-2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_1-7-2.bat`).
-3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_1-7-2.bat`).
+2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_RC-1-7-2111025.bat`).
+3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_RC-1-7-2111025.bat`).
 4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
 
 ### Manual installation
@@ -78,8 +77,8 @@ attempting a source build, and the installation completes successfully.
 ### Updating
 
 The `QuickUpdate.bat` script is intended for small incremental patches.
-Major updates such as **1.7.2** introduce new requirements and should be applied manually.
-To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_1-7-2.bat`).
+Major updates such as **RC 1.7.2111025** introduce new requirements and should be applied manually.
+To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_RC-1-7-2111025.bat`).
 
 #### Updating Python dependencies to the newest releases
 
@@ -219,7 +218,7 @@ not need to reinstall Python or Git).
 
 ## Usage
 
-If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_1-7-2.bat`).
+If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_RC-1-7-2111025.bat`).
 
 For manual runs from source, execute the Streamlit app from the repository root. If you are not already in the project folder,
 navigate there first with `cd`:
@@ -349,7 +348,7 @@ AutoHotkey puede ejecutar programas o abrir documentación clave para tu equipo:
 ```ahk
 ; Abre Kiroshi con Win + Shift + K
 # +k::
-    Run, C:\\ProgramFiles\\KiroshiLauncher_1-7-2.bat
+    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-1-7-2111025.bat
 return
 
 ; Abre la wiki interna con Win + Alt + D
@@ -405,13 +404,13 @@ Kiroshi lee la configuración desde `config.json` o desde variables de entorno. 
 ^!1::
     SetEnv, AI_BASE_URL, https://api.openai.com/v1
     SetEnv, OPENAI_API_KEY, % Clipboard ; asume que copiaste la clave temporal
-    Run, C:\\ProgramFiles\\KiroshiLauncher_1-7-2.bat
+    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-1-7-2111025.bat
 return
 
 ^!2::
     SetEnv, AI_BASE_URL, http://localhost:8000/v1
     SetEnv, OPENAI_API_KEY,
-    Run, C:\\ProgramFiles\\KiroshiLauncher_1-7-2.bat
+    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-1-7-2111025.bat
 return
 ```
 
@@ -467,7 +466,7 @@ Con estas ampliaciones podrás configurar AutoHotkey para lanzar Kiroshi en dist
 Todos los fragmentos del tutorial se elaboraron a partir de fuentes públicas y flujos de trabajo internos habituales:
 
 - **Documentación oficial de AutoHotkey**: La sintaxis y comandos (`MsgBox`, `Send`, `ControlClick`, `FileAppend`, `SetEnv`, etc.) se basan en los manuales publicados en [https://www.autohotkey.com/docs/](https://www.autohotkey.com/docs/).
-- **Instaladores incluidos en este repositorio**: Las rutas que apuntan a `KiroshiInstaller_1-7-2.bat`, `KiroshiLauncher_1-7-2.bat` y carpetas como `C:\\ProgramFiles\\KiroshiDatabase` reflejan los archivos distribuidos junto al proyecto y el comportamiento descrito en este README.
+- **Instaladores incluidos en este repositorio**: Las rutas que apuntan a `KiroshiInstaller_RC-1-7-2111025.bat`, `KiroshiLauncher_RC-1-7-2111025.bat` y carpetas como `C:\\ProgramFiles\\KiroshiDatabase` reflejan los archivos distribuidos junto al proyecto y el comportamiento descrito en este README.
 - **Convenciones operativas del equipo**: La estructura de carpetas sugerida (`C:\Kiroshi\AHK\`, `%AppData%\AutoHotkey\Lib\`, etc.) recoge las prácticas compartidas con el personal de soporte para mantener scripts versionados y listos para su despliegue en estaciones Windows.
 - **Automatizaciones comunes sobre Streamlit/navegadores**: Los ejemplos con coordenadas, uso de `WinWaitActive` o teclas rápidas se derivan de escenarios reales de documentación de casos dentro de Kiroshi y se adaptan según la resolución o el navegador predeterminado.
 

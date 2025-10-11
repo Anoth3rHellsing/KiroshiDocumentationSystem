@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiroshi V1.7.2 Beta Build 932025 – IT Case Documentation Helper
+Kiroshi RC 1.7.2111025 – IT Case Documentation Helper
 Run:
     streamlit run case_documentation_app.py
 """
@@ -13,7 +13,7 @@ import shutil
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict, fields, field, is_dataclass
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import logging
 import time
 from pathlib import Path
@@ -84,6 +84,9 @@ from aatom_chat import (
     load_manual_docs,
     save_manual_docs,
     search_manual_docs,
+    get_assistant_notes,
+    set_assistant_notes,
+    build_assistant_memory_prompt,
 )
 
 # Some corporate networks perform SSL interception with a self-signed
@@ -92,7 +95,7 @@ from aatom_chat import (
 # ChatGPT API and GitHub update checks can still be reached.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-VERSION = "1.7.2 Beta Build 932025"
+VERSION = "RC 1.7.2111025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
@@ -139,6 +142,50 @@ CASE_ATTACHMENTS_ROOT = DOCUMENTS_DIR / "kiroshi"
 AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
 
 
+def _resolve_configured_attachments_directory() -> Path:
+    """Return the attachments directory requested by the current settings."""
+
+    raw_value: object = _persistent_settings_cache.get(
+        "attachments_directory", str(CASE_ATTACHMENTS_ROOT)
+    )
+    if hasattr(st, "session_state") and isinstance(
+        st.session_state.get("attachments_directory"), str
+    ):
+        raw_value = st.session_state.attachments_directory
+    if isinstance(raw_value, str) and raw_value.strip():
+        try:
+            return Path(raw_value).expanduser()
+        except Exception:  # pragma: no cover - defensive conversion guard
+            logging.warning(
+                "Invalid attachments directory provided in settings: %s",
+                raw_value,
+            )
+    return CASE_ATTACHMENTS_ROOT
+
+
+def _ensure_case_attachments_root() -> tuple[Path, OSError | None]:
+    """Ensure the configured attachments root exists, falling back on failure."""
+
+    requested_root = _resolve_configured_attachments_directory()
+    try:
+        requested_root.mkdir(parents=True, exist_ok=True)
+        return requested_root, None
+    except OSError as exc:
+        logging.warning(
+            "Unable to create attachments directory %s: %s", requested_root, exc
+        )
+        try:
+            CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
+        except OSError as fallback_exc:
+            logging.error(
+                "Failed to create fallback attachments directory %s: %s",
+                CASE_ATTACHMENTS_ROOT,
+                fallback_exc,
+            )
+            raise fallback_exc
+        return CASE_ATTACHMENTS_ROOT, exc
+
+
 def _initialize_storage_paths() -> None:
     """Ensure user-writable directories exist after installation is verified."""
 
@@ -148,7 +195,7 @@ def _initialize_storage_paths() -> None:
     if not RECENT_CASES_PATH.exists():
         RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
     TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
-    CASE_ATTACHMENTS_ROOT.mkdir(parents=True, exist_ok=True)
+    _ensure_case_attachments_root()
 
 APP_ROOT = Path(__file__).resolve().parent
 DEFAULT_UPDATE_REPO = "KiroshiCorp/KiroshiDocumentationSystem"
@@ -164,6 +211,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "second_line_mode": False,
     "debug_mode": False,
     "case_compact_mode": False,
+    "show_atom_chat": True,
     "ai_assist_mode": "Standard",
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
@@ -172,13 +220,6 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
     "enable_holiday_theme": True,
-    "scratchpad_style": {
-        "font_family": "Source Sans Pro",
-        "font_size": 15,
-        "background": "#ffffff",
-        "text_color": "#111827",
-        "line_height": 1.5,
-    },
 }
 
 
@@ -746,24 +787,47 @@ DEFAULT_SIGNALS_CONFIG = json.dumps(
 )
 
 
-# Configure logging to write to a user-writable directory.  Fall back to
-# console-only logging if the log file cannot be created (e.g. due to
-# permissions on ProgramData when running without admin rights).
-LOG_DIR = Path.home() / "Kiroshi Documentation"
-try:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+# Configure logging to write to a user-writable directory inside the
+# ProgramData\Kiroshi\logs hierarchy on Windows (or the closest equivalent on
+# other platforms). Fall back to console-only logging if the log file cannot be
+# created (e.g. due to permissions when running without elevated rights).
+def _candidate_log_directories() -> list[Path]:
+    candidates: list[Path] = []
+    if os.name == "nt":
+        program_data_root = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData"))
+        candidates.append(program_data_root / "Kiroshi" / "logs")
+        candidates.append(PROGRAM_DATA_DIR / "logs")
+    else:
+        candidates.append(PROGRAM_DATA_DIR / "logs")
+        candidates.append(Path.home() / "Kiroshi" / "logs")
+    # Always include a fallback within the app directory as a last resort.
+    candidates.append(APP_ROOT / "logs")
+    return candidates
+
+
+LOG_DIR: Path | None = None
+log_handlers: list[logging.Handler]
+for candidate in _candidate_log_directories():
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        continue
+    LOG_DIR = candidate
+    break
+
+if LOG_DIR is not None:
     log_path = LOG_DIR / LOG_FILE
     log_handlers = [
         RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"),
         logging.StreamHandler(),
     ]
-except OSError:
+else:
     log_path = None
     log_handlers = [logging.StreamHandler()]
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
     handlers=log_handlers,
 )
 logging.captureWarnings(True)
@@ -784,8 +848,12 @@ else:
     logging.info("Logging initialized; using stdout only (log directory unavailable)")
 
 logging.info("Kiroshi app started")
+logging.debug("Application version: %s", VERSION)
+logging.debug("Python executable: %s", sys.executable)
+logging.debug("Python version: %s", sys.version.replace("\n", " "))
+logging.debug("Platform: %s", sys.platform)
 
-INSTALLER_FILENAME = "KiroshiInstaller_1-7-2.bat"
+INSTALLER_FILENAME = "KiroshiInstaller_RC-1-7-2111025.bat"
 
 
 def _resolve_installer_path() -> Path:
@@ -830,7 +898,7 @@ def _launch_installer_and_relaunch() -> None:
     if not installer_path.exists():
         st.error(
             "The bundled Kiroshi installer could not be found. Please run "
-            "KiroshiInstaller_1-7-2.bat manually from the installation media."
+            "KiroshiInstaller_RC-1-7-2111025.bat manually from the installation media."
         )
         return
 
@@ -899,7 +967,7 @@ def _check_installation_status() -> None:
 
     st.info(
         "If the automatic launch does not start the installer, close this window "
-        "and run `KiroshiInstaller_1-7-2.bat` manually."
+        "and run `KiroshiInstaller_RC-1-7-2111025.bat` manually."
     )
     st.stop()
 
@@ -974,7 +1042,7 @@ ASSETS_DIR = Path(__file__).parent
 KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
 ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 
-MOTD_MESSAGES = [
+GLADOS_MESSAGES = [
     "Good morning! Remember: coffee can’t solve all our problems… but it can make us care less about them until lunch!",
     "Hard work pays off in the future. Laziness pays off now, so let’s compromise!",
     "Teamwork makes the dream work… unless your team just wants coffee.",
@@ -1048,6 +1116,11 @@ MOTD_MESSAGES = [
     "I only check my email to mark everything as unread again.",
     "Having a case of the Mondays on a Wednesday.",
     "Silence is golden—unless you have kids, then it's suspicious.",
+    "Cayde-6 here—if a problem looks boring, throw a witty grenade at it.",
+    "Heads up, Guardian: reboots are just Ghosts for your hardware.",
+    "If you can't fix it, dance on the console until morale improves. —Cayde-6",
+    "Legendary loot drop: a fully documented support ticket. Don't dismantle it.",
+    "Cayde-6 pro tip: when in doubt, blame it on space pirates and move on.",
     "The only thing scarier than Monday is the printer jam.",
     # Diogenes
     "I am looking for an honest man.",
@@ -1128,7 +1201,7 @@ class ThemePalette:
     surface: str
     text: str
     muted_text: str
-    motd_messages: list[str]
+    glados_messages: list[str]
 
 
 DEFAULT_THEME = ThemePalette(
@@ -1140,7 +1213,7 @@ DEFAULT_THEME = ThemePalette(
     surface="#ffffff",
     text="#111827",
     muted_text="#4b5563",
-    motd_messages=MOTD_MESSAGES,
+    glados_messages=GLADOS_MESSAGES,
 )
 
 HOLIDAY_THEMES: dict[str, ThemePalette] = {
@@ -1153,7 +1226,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#10172a",
         text="#f8fafc",
         muted_text="#94a3b8",
-        motd_messages=[
+        glados_messages=[
             "Fresh calendar, fresh chance—let's make this year's cases legendary!",
             "New year, same scanners. Let’s keep them happier this time.",
             "Resolve to close cases faster than fireworks fade.",
@@ -1168,7 +1241,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#16213c",
         text="#f9fafb",
         muted_text="#d1d5db",
-        motd_messages=[
+        glados_messages=[
             "Support with dignity, lead with service—today and every day.",
             "Great support honors great dreams. Keep the mission moving.",
             "Clarity, empathy, action—our blueprint for better support.",
@@ -1183,7 +1256,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#152346",
         text="#f9fafb",
         muted_text="#cbd5f5",
-        motd_messages=[
+        glados_messages=[
             "Lead every ticket like it’s a campaign promise kept.",
             "Checks, balances, and perfectly balanced documentation.",
             "Red, white, and resolve—let’s govern these cases.",
@@ -1198,7 +1271,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#1f2937",
         text="#f3f4f6",
         muted_text="#9ca3af",
-        motd_messages=[
+        glados_messages=[
             "Honor the service. Support with purpose.",
             "Resilience isn’t just for systems—carry it in every case.",
             "Today we remember by doing our best work for others.",
@@ -1213,7 +1286,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#04312a",
         text="#f0fdfa",
         muted_text="#a7f3d0",
-        motd_messages=[
+        glados_messages=[
             "Freedom celebrated, progress documented.",
             "Empower every clinic, uplift every voice.",
             "Document the wins—equity in every fix.",
@@ -1228,7 +1301,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#172554",
         text="#f9fafb",
         muted_text="#cbd5f5",
-        motd_messages=[
+        glados_messages=[
             "Liberty, justice, and scanners for all.",
             "Fireworks are loud—our fixes are louder.",
             "Stars, stripes, and spotless documentation.",
@@ -1243,7 +1316,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#13203d",
         text="#f9fafb",
         muted_text="#cbd5f5",
-        motd_messages=[
+        glados_messages=[
             "Hard work deserves smart workflows. Let’s automate the pain away.",
             "Celebrate progress—ship smoother support.",
             "Labor less, document more intelligently.",
@@ -1258,7 +1331,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#2a1f3d",
         text="#fdf4ff",
         muted_text="#d8b4fe",
-        motd_messages=[
+        glados_messages=[
             "Respect every journey—map the customer path clearly.",
             "Discover better processes, honor every story.",
             "Chart success with empathy and precision.",
@@ -1273,7 +1346,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#1f2937",
         text="#f9fafb",
         muted_text="#d1d5db",
-        motd_messages=[
+        glados_messages=[
             "Serve those who served with flawless follow-up.",
             "Precision, honor, gratitude—build them into every note.",
             "Support that stands at attention.",
@@ -1288,7 +1361,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#78350f",
         text="#fef3c7",
         muted_text="#fde68a",
-        motd_messages=[
+        glados_messages=[
             "Grateful users, grateful agents—pass the uptime.",
             "Feast on solutions, serve seconds of documentation.",
             "Gobble up those recurring issues before they multiply.",
@@ -1303,7 +1376,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#0f1f17",
         text="#ecfdf5",
         muted_text="#a7f3d0",
-        motd_messages=[
+        glados_messages=[
             "Wrap each fix with cheer and clarity.",
             "All we want for Christmas is zero escalations.",
             "Jingle all the way to a resolved queue.",
@@ -1318,7 +1391,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#1f2937",
         text="#fef3c7",
         muted_text="#c4b5fd",
-        motd_messages=[
+        glados_messages=[
             "No tricks, just treats—squash those phantom bugs.",
             "Ghost the downtime, not the customers.",
             "Spellbinding support, zero jump scares.",
@@ -1348,11 +1421,11 @@ SPECIAL_THEME_PERIODS = [
 CURRENT_THEME: ThemePalette = DEFAULT_THEME
 
 
-def get_message_of_the_day(theme: ThemePalette | None = None) -> str:
-    """Return a pseudo-random MOTD aligned with the active theme."""
+def get_glados_message(theme: ThemePalette | None = None) -> str:
+    """Return a pseudo-random GLADoS message aligned with the active theme."""
 
     active_theme = theme or CURRENT_THEME
-    messages = active_theme.motd_messages or MOTD_MESSAGES
+    messages = active_theme.glados_messages or GLADOS_MESSAGES
     now = datetime.now()
     seed = f"{active_theme.key}-{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
@@ -1474,58 +1547,182 @@ def apply_theme_palette(theme: ThemePalette) -> None:
 @contextmanager
 def case_loading_overlay(message: str = "Preparing case data…"):
     placeholder = st.empty()
+    tips = [
+        "I can spot a typo faster than a drone can say beep!",
+        "Fun fact: my favorite color is hexadecimal #FF5733.",
+        "Taking a micro-sip of synthetic coffee before we proceed…",
+        "Formatting your evidence so it sparkles in the archive.",
+        "Multi-tasking? I'm running diagnostics and humming a tune!",
+        "If it looks like magic, it's just well-documented science.",
+        "Decrypting mysteries one checkbox at a time.",
+        "Calibrating sarcasm detectors—results pending.",
+    ]
+    overlay_id = f"kiroshi-loading-{uuid.uuid4().hex}"
+    tips_json = json.dumps(tips)
     placeholder.markdown(
         f"""
         <style>
-        @keyframes kiroshi-spinner {{
+        @keyframes {overlay_id}-spinner {{
             0% {{ transform: rotate(0deg); }}
             100% {{ transform: rotate(360deg); }}
         }}
-        .case-loading-overlay {{
+        @keyframes {overlay_id}-pulse {{
+            0%, 100% {{ opacity: 0.4; transform: scale(1); }}
+            50% {{ opacity: 1; transform: scale(1.1); }}
+        }}
+        #{overlay_id}.case-loading-overlay {{
             position: fixed;
             inset: 0;
-            background: color-mix(in srgb, var(--kiroshi-background) 88%, rgba(0,0,0,0.65));
+            background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.18), transparent 45%),
+                        color-mix(in srgb, var(--kiroshi-background) 88%, rgba(0,0,0,0.75));
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 9999;
+            backdrop-filter: blur(6px);
         }}
-        .case-loading-content {{
-            background: var(--kiroshi-surface);
-            padding: 2.5rem 3rem;
-            border-radius: 1.5rem;
-            box-shadow: 0 25px 60px rgba(15, 23, 42, 0.35);
+        #{overlay_id} .case-loading-content {{
+            background: linear-gradient(145deg, color-mix(in srgb, var(--kiroshi-surface) 92%, #1f2937 8%), rgba(15,23,42,0.85));
+            padding: 2.75rem 3.25rem;
+            border-radius: 1.75rem;
+            box-shadow: 0 30px 70px rgba(15, 23, 42, 0.45);
             text-align: center;
-            max-width: 420px;
-            width: min(80vw, 420px);
+            max-width: 460px;
+            width: min(82vw, 460px);
+            position: relative;
+            overflow: hidden;
         }}
-        .case-loading-spinner {{
-            width: 68px;
-            height: 68px;
+        #{overlay_id} .case-loading-content::after {{
+            content: "";
+            position: absolute;
+            inset: 8px;
+            border-radius: 1.3rem;
+            border: 1px solid color-mix(in srgb, var(--kiroshi-accent) 35%, transparent);
+            opacity: 0.6;
+        }}
+        #{overlay_id} .case-loading-spinner {{
+            position: relative;
+            width: 88px;
+            height: 88px;
+            margin: 0 auto 1.65rem;
+        }}
+        #{overlay_id} .case-loading-spinner::before,
+        #{overlay_id} .case-loading-spinner::after {{
+            content: "";
+            position: absolute;
+            inset: 0;
             border-radius: 50%;
-            border: 6px solid color-mix(in srgb, var(--kiroshi-accent) 40%, transparent);
+            border: 4px solid transparent;
+        }}
+        #{overlay_id} .case-loading-spinner::before {{
             border-top-color: var(--kiroshi-primary);
-            animation: kiroshi-spinner 1s linear infinite;
-            margin: 0 auto 1.5rem;
+            border-right-color: color-mix(in srgb, var(--kiroshi-primary) 80%, transparent);
+            animation: {overlay_id}-spinner 1.1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
         }}
-        .case-loading-message {{
-            font-size: 1.1rem;
-            font-weight: 600;
+        #{overlay_id} .case-loading-spinner::after {{
+            inset: 12px;
+            border-left-color: color-mix(in srgb, var(--kiroshi-accent) 80%, transparent);
+            border-bottom-color: var(--kiroshi-accent);
+            animation: {overlay_id}-spinner 1.4s linear infinite reverse;
+        }}
+        #{overlay_id} .case-loading-core {{
+            position: absolute;
+            inset: 24px;
+            border-radius: 50%;
+            background: radial-gradient(circle, color-mix(in srgb, var(--kiroshi-accent) 70%, transparent) 0%, transparent 70%);
+            animation: {overlay_id}-pulse 2.4s ease-in-out infinite;
+        }}
+        #{overlay_id} .case-loading-message {{
+            font-size: 1.15rem;
+            font-weight: 700;
             color: var(--kiroshi-primary);
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.85rem;
+            letter-spacing: 0.02em;
         }}
-        .case-loading-subtext {{
-            font-size: 0.95rem;
+        #{overlay_id} .case-loading-subtext {{
+            font-size: 0.98rem;
             color: var(--kiroshi-muted);
+            margin-bottom: 1.65rem;
+        }}
+        #{overlay_id} .case-loading-kiroshi {{
+            display: flex;
+            gap: 0.85rem;
+            align-items: flex-start;
+            background: color-mix(in srgb, var(--kiroshi-background) 55%, transparent);
+            padding: 1rem 1.2rem;
+            border-radius: 1.1rem;
+            border: 1px solid color-mix(in srgb, var(--kiroshi-primary) 25%, transparent);
+            box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.12);
+        }}
+        #{overlay_id} .case-loading-avatar {{
+            font-size: 1.8rem;
+            line-height: 1;
+            filter: drop-shadow(0 3px 6px rgba(15, 23, 42, 0.25));
+        }}
+        #{overlay_id} .case-loading-tip {{
+            text-align: left;
+        }}
+        #{overlay_id} .case-loading-tip-label {{
+            display: block;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: color-mix(in srgb, var(--kiroshi-muted) 75%, var(--kiroshi-primary) 25%);
+            margin-bottom: 0.35rem;
+        }}
+        #{overlay_id} .case-loading-tip-line {{
+            font-size: 1.02rem;
+            color: color-mix(in srgb, var(--kiroshi-primary) 75%, var(--kiroshi-text) 25%);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            opacity: 1;
+        }}
+        #{overlay_id} .case-loading-tip-line.is-hidden {{
+            opacity: 0;
+            transform: translateY(6px);
         }}
         </style>
-        <div class="case-loading-overlay">
+        <div id="{overlay_id}" class="case-loading-overlay">
             <div class="case-loading-content">
-                <div class="case-loading-spinner"></div>
+                <div class="case-loading-spinner">
+                    <div class="case-loading-core"></div>
+                </div>
                 <div class="case-loading-message">{escape(message)}</div>
-                <div class="case-loading-subtext">Syncing timelines and attachments…</div>
+                <div class="case-loading-subtext">Kiroshi is orchestrating your task modules…</div>
+                <div class="case-loading-kiroshi">
+                    <div class="case-loading-avatar">🤖</div>
+                    <div class="case-loading-tip">
+                        <span class="case-loading-tip-label">Kiroshi whispers:</span>
+                        <span class="case-loading-tip-line"></span>
+                    </div>
+                </div>
             </div>
         </div>
+        <script>
+        (function() {{
+            const tips = {tips_json};
+            const overlay = window.document.getElementById("{overlay_id}");
+            if (!overlay) {{
+                return;
+            }}
+            const tipLine = overlay.querySelector('.case-loading-tip-line');
+            if (!tipLine) {{
+                return;
+            }}
+            let index = Math.floor(Math.random() * tips.length);
+            tipLine.textContent = tips[index];
+            const swapTip = () => {{
+                tipLine.classList.add('is-hidden');
+                window.setTimeout(() => {{
+                    index = (index + 1) % tips.length;
+                    tipLine.textContent = tips[index];
+                    tipLine.classList.remove('is-hidden');
+                }}, 320);
+            }};
+            if (tips.length > 1) {{
+                window.setInterval(swapTip, 3200);
+            }}
+        }})();
+        </script>
         """,
         unsafe_allow_html=True,
     )
@@ -1552,37 +1749,6 @@ def trigger_hard_reload() -> None:
         height=0,
         width=0,
     )
-
-
-def apply_scratchpad_style(label: str) -> None:
-    style = st.session_state.get("scratchpad_style", {}) or {}
-    font_family = style.get("font_family", "Source Sans Pro")
-    font_size = style.get("font_size", 15)
-    background = style.get("background", "#ffffff")
-    text_color = style.get("text_color", "#111827")
-    line_height = style.get("line_height", 1.5)
-    st.markdown(
-        f"""
-        <style>
-        textarea[aria-label="{label}"] {{
-            font-family: '{font_family}', 'Segoe UI', system-ui, sans-serif;
-            font-size: {font_size}px;
-            background: {background};
-            color: {text_color};
-            line-height: {line_height};
-        }}
-        textarea[aria-label="{label}"]::placeholder {{
-            color: {text_color}cc;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _sync_scratchpad(key: str) -> None:
-    st.session_state.scratch = st.session_state.get(key, "")
-    autosave()
 
 
 def make_json_safe(value):
@@ -1614,7 +1780,7 @@ def get_session_state_snapshot():
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
-    page_title=f"Kiroshi V{VERSION}",
+    page_title=f"Kiroshi {VERSION}",
     layout="wide",
     page_icon=str(KIROSHI_LOGO_PATH),
 )
@@ -1758,7 +1924,7 @@ def inject_base_styles() -> None:
 
 
 def render_logo():
-    motd = escape(get_message_of_the_day(CURRENT_THEME))
+    glados_message = escape(get_glados_message(CURRENT_THEME))
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
@@ -1798,7 +1964,7 @@ def render_logo():
             font-size: 1.05rem;
         }}
 
-        #kiroshi-header__motd {{
+        #kiroshi-header__glados {{
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1808,7 +1974,7 @@ def render_logo():
             width: 100%;
         }}
 
-        #kiroshi-header__motd-card {{
+        #kiroshi-header__glados-card {{
             background: linear-gradient(
                 145deg,
                 color-mix(in srgb, var(--kiroshi-primary) 18%, transparent),
@@ -1822,7 +1988,7 @@ def render_logo():
             margin: 0 auto;
         }}
 
-        #kiroshi-header__motd-title {{
+        #kiroshi-header__glados-title {{
             font-size: 1.2rem;
             font-weight: 700;
             letter-spacing: 0.02em;
@@ -1831,7 +1997,7 @@ def render_logo():
             margin-bottom: 0.5rem;
         }}
 
-        #kiroshi-header__motd-text {{
+        #kiroshi-header__glados-text {{
             font-size: 1.1rem;
             line-height: 1.6;
         }}
@@ -1865,7 +2031,7 @@ def render_logo():
                 justify-items: center;
             }}
 
-            #kiroshi-header__motd {{
+            #kiroshi-header__glados {{
                 order: 2;
                 padding: 0 1.5rem;
             }}
@@ -1875,7 +2041,7 @@ def render_logo():
                 justify-content: center;
             }}
 
-            #kiroshi-header__motd-card {{
+            #kiroshi-header__glados-card {{
                 max-width: clamp(260px, 86vw, 540px);
                 padding: 1.1rem 1.25rem;
             }}
@@ -1886,10 +2052,10 @@ def render_logo():
             <span>Version {VERSION}</span>
             <img src="data:image/png;base64,{encoded_logo}" width="180" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
         </div>
-        <div id="kiroshi-header__motd">
-            <div id="kiroshi-header__motd-card">
-                <div id="kiroshi-header__motd-title">Message of the Day</div>
-                <div id="kiroshi-header__motd-text">{motd}</div>
+        <div id="kiroshi-header__glados">
+            <div id="kiroshi-header__glados-card">
+                <div id="kiroshi-header__glados-title">GLADoS Daily Quip</div>
+                <div id="kiroshi-header__glados-text">{glados_message}</div>
             </div>
         </div>
         <div id="kiroshi-header__date">
@@ -2193,7 +2359,6 @@ _init_state("case", {})
 _init_state("uploads", [])
 _init_state("log_uploads", [])
 _init_state("screenshots", [])
-_init_state("scratch", "")
 _init_state("email_type", "Recap (Customer)")
 _init_state("email_extra", {})
 _init_state("include_escalations", False)
@@ -2208,16 +2373,13 @@ _init_state("ai_mode", DEFAULT_AI_MODE)
 _init_state(
     "enable_holiday_theme", _get_persistent_default("enable_holiday_theme", True)
 )
-_init_state(
-    "scratchpad_style",
-    dict(_get_persistent_default("scratchpad_style", PERSISTENT_SETTINGS_DEFAULTS["scratchpad_style"])),
-)
 _init_state("theme_preview", "auto")
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
 _init_state("generated_email", "")
 _init_state("atom_history", load_memory())
+_init_state("assistant_notes", get_assistant_notes())
 _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
 _init_state("ask_result", "")
@@ -2228,6 +2390,7 @@ _init_state("ai_assist_result", "")
 _init_state("db_search_result", "")
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
+_init_state("dashboard_load_notice", None)
 _init_state("ai_assist_mode", _get_persistent_default("ai_assist_mode", "Standard"))
 _init_state("ai_educate_enabled", _get_persistent_default("ai_educate_enabled", False))
 _init_state(
@@ -2242,12 +2405,17 @@ _init_state("ai_learning_data", None)
 _init_state("ai_learning_signature", None)
 _init_state("ai_learning_matches", [])
 _init_state("ai_bug_report", None)
+_init_state(
+    "attachments_directory",
+    _get_persistent_default("attachments_directory", str(CASE_ATTACHMENTS_ROOT)),
+)
 # Tracking related state
 _init_state("track_case", False)
 _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
+_init_state("show_atom_chat", _get_persistent_default("show_atom_chat", True))
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",
@@ -2258,6 +2426,7 @@ _init_state(
     _get_persistent_default("tutorial_completion_type", ""),
 )
 _init_state("show_tutorial", False)
+_init_state("payday_last_notified", "")
 _init_state("tutorial_step", 0)
 _init_state("pending_load", None)
 _init_state("show_bored", False)
@@ -2276,6 +2445,17 @@ _init_state(
         "story": "",
     },
 )
+
+today = datetime.now()
+if today.day == 20:
+    today_key = today.strftime("%Y-%m-%d")
+    if st.session_state.payday_last_notified != today_key:
+        payday_message = "It's pay day!"
+        if hasattr(st, "toast"):
+            st.toast(payday_message)
+        else:
+            st.info(payday_message)
+        st.session_state.payday_last_notified = today_key
 
 if not st.session_state.tutorial_completed and not st.session_state.show_tutorial:
     st.session_state.show_tutorial = True
@@ -2298,8 +2478,6 @@ def load_autosave():
             with open(AUTOSAVE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             st.session_state.case = data.get("case", {})
-            st.session_state.scratch = data.get("scratch", "")
-            st.session_state[widget_key("scratch", 0)] = st.session_state.scratch
         except Exception:
             pass
     st.session_state._autosave_loaded = True
@@ -2308,12 +2486,22 @@ def load_autosave():
 load_autosave()
 
 
-def tail_log(path: str, lines: int = 100) -> str:
+def tail_log(path: str | Path, lines: int = 100) -> str:
     """Return the last N lines from a log file."""
-    if not os.path.exists(path):
+
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        if LOG_DIR is not None:
+            candidate = LOG_DIR / candidate
+        else:
+            candidate = Path.cwd() / candidate
+    try:
+        with candidate.open("r", encoding="utf-8") as f:
+            return "".join(f.readlines()[-lines:])
+    except FileNotFoundError:
         return "Log file not found."
-    with open(path, "r", encoding="utf-8") as f:
-        return "".join(f.readlines()[-lines:])
+    except OSError as exc:
+        return f"Unable to read log file: {exc}"
 
 # ───────────────── DATA MODEL ──────────────────
 
@@ -2411,6 +2599,7 @@ class CaseData:
     scanner_accidental_damage: bool = False
     tracking: TrackingData = field(default_factory=TrackingData)
     kiroshi_version: str = VERSION
+    last_modified: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.tracking, TrackingData):
@@ -2422,6 +2611,10 @@ class CaseData:
             self.kiroshi_version = VERSION
         if self.tracking.priority not in PRIORITY_OPTIONS:
             self.tracking.priority = DEFAULT_TRACKING_PRIORITY
+        if self.last_modified is None:
+            self.last_modified = ""
+        elif not isinstance(self.last_modified, str):
+            self.last_modified = str(self.last_modified)
 
 
 @dataclass
@@ -2589,7 +2782,6 @@ class CaseSession:
     """Container for per-case session state."""
 
     case: CaseData
-    scratch: str = ""
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
     screenshots: list = field(default_factory=list)
@@ -2608,7 +2800,6 @@ if "case_sessions" not in st.session_state:
     st.session_state.case_sessions = [
         CaseSession(
             case=D,
-            scratch=st.session_state.scratch,
             uploads=st.session_state.uploads,
             log_uploads=st.session_state.log_uploads,
             screenshots=st.session_state.screenshots,
@@ -2626,17 +2817,57 @@ def load_case_state(idx: int) -> None:
     D = st.session_state.case
     for key, value in asdict(D).items():
         st.session_state[key] = value
-    st.session_state[widget_key("scratch", idx)] = cs.scratch
 
 
 def save_case_state(idx: int) -> None:
     st.session_state.case_sessions[idx] = CaseSession(
         case=st.session_state.case,
-        scratch=st.session_state.get(widget_key("scratch", idx), ""),
         uploads=st.session_state.uploads,
         log_uploads=st.session_state.log_uploads,
         screenshots=st.session_state.screenshots,
     )
+
+
+def clear_case_state(idx: int) -> None:
+    """Reset the stored data for the case at the given index."""
+
+    new_case = CaseData()
+    new_session = CaseSession(
+        case=new_case,
+        scratch="",
+        uploads=[],
+        log_uploads=[],
+        screenshots=[],
+    )
+
+    suffix = f"_{idx}"
+    for key in list(st.session_state.keys()):
+        if key.endswith(suffix):
+            st.session_state.pop(key)
+
+    st.session_state.case_sessions[idx] = new_session
+
+    if idx == CURRENT_CASE_IDX:
+        global D
+        st.session_state.case = new_case
+        D = new_case
+        st.session_state.uploads = []
+        st.session_state.log_uploads = []
+        st.session_state.screenshots = []
+        st.session_state.scratch = ""
+        st.session_state[widget_key("scratch", idx)] = ""
+        for key in ("ai_assist_result", "verify_result", "ask_result", "categorizer_result"):
+            if key in st.session_state:
+                st.session_state[key] = "" if isinstance(st.session_state.get(key), str) else []
+        st.session_state.ai_learning_matches = []
+
+    ensure_tracking_session_defaults(idx, new_case.tracking, force=True)
+
+    st.session_state.track_case = any(
+        session.case.tracking.active for session in st.session_state.case_sessions
+    )
+
+    autosave()
 
 
 def widget_key(base: str, idx: int) -> str:
@@ -2663,15 +2894,30 @@ _init_state("survey_link", D.survey_link)
 def autosave_payload() -> dict:
     return {
         "case": asdict(D),
-        "scratch": st.session_state.get(
-            widget_key("scratch", CURRENT_CASE_IDX), ""
-        ),
     }
 
 
 def autosave():
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
         json.dump(autosave_payload(), f, indent=2)
+    if st.session_state.get("autosave_to_database"):
+        case_obj = st.session_state.get("case")
+        case_cls = globals().get("CaseData")
+        if (
+            case_cls
+            and isinstance(case_obj, case_cls)
+            and "save_case_to_database" in globals()
+        ):
+            case_id_value = getattr(case_obj, "case_id", "")
+            if isinstance(case_id_value, str) and case_id_value.strip():
+                try:
+                    save_case_to_database(case_obj, notify=False)
+                except Exception as exc:  # pragma: no cover - streamlit runtime specific
+                    logging.warning(
+                        "Failed to autosave case %s to database: %s",
+                        case_id_value,
+                        exc,
+                    )
 
 
 def sanitize_case_id(case_id: str) -> str:
@@ -2691,7 +2937,8 @@ def get_case_attachments_dir(case_id: str) -> Path:
     """Return the directory used to persist attachments for a case."""
 
     safe_id = sanitize_case_id(case_id)
-    case_dir = CASE_ATTACHMENTS_ROOT / safe_id
+    attachments_root, _ = _ensure_case_attachments_root()
+    case_dir = attachments_root / safe_id
     case_dir.mkdir(parents=True, exist_ok=True)
     return case_dir
 
@@ -2816,14 +3063,44 @@ def create_case_autosave_snapshot(case_id: str) -> Path | None:
 
 def load_recent_cases() -> list:
     try:
-        return json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
     except Exception:
         return []
+    if not isinstance(payload, list):
+        return []
+    recent: list[dict[str, object]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        recent.append(
+            {
+                "case_id": item.get("case_id", ""),
+                "path": item.get("path", ""),
+                "last_modified": item.get("last_modified", ""),
+            }
+        )
+    return recent
 
 
 def update_recent_cases(case_id: str, path: str) -> None:
     recents = [c for c in load_recent_cases() if c.get("path") != path]
-    recents.insert(0, {"case_id": case_id, "path": path})
+    last_modified = ""
+    try:
+        case_path = Path(path)
+        if case_path.exists():
+            data = json.loads(case_path.read_text(encoding="utf-8"))
+            mapping = _coerce_case_mapping(data)
+            if isinstance(mapping, Mapping):
+                last_modified = str(mapping.get("last_modified") or "")
+            if not last_modified:
+                last_modified = (
+                    datetime.fromtimestamp(case_path.stat().st_mtime)
+                    .replace(microsecond=0)
+                    .isoformat()
+                )
+    except Exception:
+        last_modified = ""
+    recents.insert(0, {"case_id": case_id, "path": path, "last_modified": last_modified})
     RECENT_CASES_PATH.write_text(json.dumps(recents[:10], indent=2), encoding="utf-8")
 
 
@@ -2938,6 +3215,13 @@ def load_tracked_cases() -> list:
         )
         priority = normalize_priority(tracking_info.get("priority"))
         version = data.get("kiroshi_version")
+        last_modified = data.get("last_modified")
+        if not last_modified:
+            last_modified = (
+                datetime.fromtimestamp(p.stat().st_mtime)
+                .replace(microsecond=0)
+                .isoformat()
+            )
         cases.append(
             {
                 "path": str(p),
@@ -2954,9 +3238,10 @@ def load_tracked_cases() -> list:
                 "expected_arrival_date": tracking_info.get("expected_arrival_date", ""),
                 "case_link": tracking_info.get("case_link", ""),
                 "service_tag": tracking_info.get("service_tag", ""),
-                "version_label": f"Kiroshi {version}" if version else "Pre Kiroshi 1.7.2",
+                "version_label": f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}",
                 "kiroshi_version": version,
                 "is_legacy": False,
+                "last_modified": last_modified,
             }
         )
     # Include historical tracked JSON files for reference.
@@ -2978,6 +3263,13 @@ def load_tracked_cases() -> list:
             or data.get("category")
             or ""
         )
+        last_modified = data.get("last_modified")
+        if not last_modified:
+            last_modified = (
+                datetime.fromtimestamp(p.stat().st_mtime)
+                .replace(microsecond=0)
+                .isoformat()
+            )
         cases.append(
             {
                 "path": str(p),
@@ -2997,14 +3289,18 @@ def load_tracked_cases() -> list:
                 "version_label": "Legacy JSON (this is only for display and not for case saving.)",
                 "kiroshi_version": None,
                 "is_legacy": True,
+                "last_modified": last_modified,
             }
         )
     return cases
 
 
 def update_tracked_case_file(
-    path: str, *, tracking_updates: Mapping[str, object] | None = None, **updates
-) -> None:
+    path: str,
+    *,
+    tracking_updates: Mapping[str, object] | None = None,
+    **updates,
+) -> str | None:
     try:
         case_path = Path(path)
         payload = json.loads(case_path.read_text(encoding="utf-8"))
@@ -3020,11 +3316,27 @@ def update_tracked_case_file(
                 data.update(tracking_updates)
         if updates:
             data.update(updates)
-        to_write = payload if isinstance(payload, list) else data
+        timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        if isinstance(data, Mapping):
+            data["last_modified"] = timestamp
+        if isinstance(payload, list):
+            replaced = False
+            for idx, item in enumerate(payload):
+                if isinstance(item, Mapping):
+                    payload[idx] = data
+                    replaced = True
+                    break
+            if not replaced:
+                payload.append(data)
+            to_write = payload
+        else:
+            to_write = data
         case_path.write_text(json.dumps(to_write, indent=2), encoding="utf-8")
+        return timestamp
     except Exception as exc:
         logging.exception("Failed to update tracked case %s", path)
         st.error(f"Failed to update tracked case: {exc}")
+        return None
 
 
 def update_tracked_priority(
@@ -3036,9 +3348,11 @@ def update_tracked_priority(
 ) -> None:
     new_priority = normalize_priority(st.session_state.get(key))
     if is_legacy:
-        update_tracked_case_file(path, priority=new_priority)
+        timestamp = update_tracked_case_file(path, priority=new_priority)
     else:
-        update_tracked_case_file(path, tracking_updates={"priority": new_priority})
+        timestamp = update_tracked_case_file(
+            path, tracking_updates={"priority": new_priority}
+        )
     target_case_id = case_id
     if target_case_id is None:
         try:
@@ -3049,6 +3363,10 @@ def update_tracked_priority(
     if target_case_id and D.case_id == target_case_id:
         D.tracking.priority = new_priority
         st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = new_priority
+        if timestamp:
+            D.last_modified = timestamp
+            if "case" in st.session_state:
+                st.session_state.case.last_modified = timestamp
     st.toast("Priority updated") if hasattr(st, "toast") else None
 
 
@@ -3061,9 +3379,11 @@ def update_tracked_status(
 ) -> None:
     new_status = st.session_state.get(key, "") or ""
     if is_legacy:
-        update_tracked_case_file(path, status=new_status)
+        timestamp = update_tracked_case_file(path, status=new_status)
     else:
-        update_tracked_case_file(path, tracking_updates={"status": new_status})
+        timestamp = update_tracked_case_file(
+            path, tracking_updates={"status": new_status}
+        )
     target_case_id = case_id
     if target_case_id is None:
         try:
@@ -3075,6 +3395,10 @@ def update_tracked_status(
         D.tracking.status = new_status
         status_key = widget_key("track_status", CURRENT_CASE_IDX)
         st.session_state[status_key] = new_status
+        if timestamp:
+            D.last_modified = timestamp
+            if "case" in st.session_state:
+                st.session_state.case.last_modified = timestamp
     st.toast("Status updated") if hasattr(st, "toast") else None
 
 
@@ -3157,6 +3481,30 @@ def format_tracking_date(value) -> str:
         return str(value)
 
 
+def parse_iso_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value)
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return None
+
+
+def format_last_modified(value) -> str:
+    parsed = parse_iso_datetime(value)
+    if not parsed:
+        return ""
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
 def list_saved_cases(limit: int = 25) -> list:
     entries = []
     files = sorted(
@@ -3177,6 +3525,11 @@ def list_saved_cases(limit: int = 25) -> list:
                 continue
         if not isinstance(data, dict):
             continue
+        raw_last_modified = data.get("last_modified")
+        parsed_last_modified = parse_iso_datetime(raw_last_modified)
+        if parsed_last_modified is None:
+            parsed_last_modified = datetime.fromtimestamp(path.stat().st_mtime)
+            raw_last_modified = parsed_last_modified.isoformat()
         entries.append(
             {
                 "case_id": data.get("case_id") or path.stem,
@@ -3186,7 +3539,8 @@ def list_saved_cases(limit: int = 25) -> list:
                 "end_user": data.get("customer_name")
                 or data.get("end_user")
                 or "",
-                "updated": datetime.fromtimestamp(path.stat().st_mtime),
+                "updated": parsed_last_modified,
+                "last_modified": raw_last_modified,
                 "path": str(path),
             }
         )
@@ -3284,7 +3638,9 @@ def render_crm_link_button(url: str) -> None:
     )
 
 
-def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
+def render_tracked_cases_dashboard(
+    cases: list, search_query: str = "", *, show_notifications: bool = True
+) -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
         return
@@ -3306,6 +3662,7 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
     if not filtered_cases:
         st.info("No tracked cases match your search.")
         return
+    now = datetime.utcnow()
     sorted_cases = sorted(
         filtered_cases,
         key=lambda item: (
@@ -3318,6 +3675,19 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
         path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
         unique_suffix = f"{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
+        last_modified_display = format_last_modified(case.get("last_modified"))
+        last_modified_dt = parse_iso_datetime(case.get("last_modified"))
+        is_stale = False
+        if last_modified_dt:
+            try:
+                is_stale = (now - last_modified_dt) > timedelta(hours=24)
+            except Exception:
+                is_stale = False
+        if is_stale and show_notifications:
+            st.warning(
+                "Hey, this case is still pending updates, no updates after 24 hours. "
+                f"Case ID: {case.get('case_id') or 'Unknown Case'}"
+            )
         summary = " ".join(
             part
             for part in [
@@ -3352,6 +3722,7 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
                 render_case_metadata("Ticket", case.get("ticket_number", ""))
                 render_case_metadata("Status", case.get("status", ""))
                 render_case_metadata("Priority", priority_value)
+                render_case_metadata("Last Modified", last_modified_display)
                 if case.get("expected_arrival_date"):
                     render_case_metadata(
                         "Expected Arrival",
@@ -3430,7 +3801,7 @@ def render_tracked_cases_dashboard(cases: list, search_query: str = "") -> None:
             action_cols = st.columns(2)
             with action_cols[0]:
                 if st.button("Load", key=f"dash_load_{unique_suffix}"):
-                    request_load_from_path(case["path"])
+                    request_load_from_path(case["path"], prefer_new_tab=True)
             with action_cols[1]:
                 button_label = "Untrack" if case.get("is_legacy") else "Stop Tracking"
                 if st.button(
@@ -3460,13 +3831,13 @@ def render_dell_fedex_dashboard(cases: list) -> None:
     fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
     st.markdown("**Dell Escalations**")
     if dell_cases:
-        render_tracked_cases_dashboard(dell_cases)
+        render_tracked_cases_dashboard(dell_cases, show_notifications=False)
     else:
         st.caption("No Dell escalations in the queue.")
 
     st.markdown("**FedEx Replacements**")
     if fedex_cases:
-        render_tracked_cases_dashboard(fedex_cases)
+        render_tracked_cases_dashboard(fedex_cases, show_notifications=False)
     else:
         st.caption("No FedEx replacements awaiting action.")
 
@@ -3490,7 +3861,7 @@ def render_saved_cases_dashboard() -> None:
         if row_cols[3].button(
             "Load", key=f"saved_load_{Path(case['path']).stem}"
         ):
-            request_load_from_path(case["path"])
+            request_load_from_path(case["path"], prefer_new_tab=True)
 
 
 def render_dashboard() -> None:
@@ -3500,6 +3871,10 @@ def render_dashboard() -> None:
         "<div class='dashboard-title'>Dashboard</div>",
         unsafe_allow_html=True,
     )
+    notice_idx = st.session_state.get("dashboard_load_notice")
+    if notice_idx is not None:
+        st.info(f"Loaded case into Case tab {notice_idx + 1}.")
+        st.session_state.dashboard_load_notice = None
     tracked_cases = load_tracked_cases()
     charts_col, main_col = st.columns([1.1, 2.4])
     with charts_col:
@@ -3577,6 +3952,18 @@ def render_settings_panel() -> None:
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
         st.session_state.show_bored = False
+        st.session_state.theme_preview = "auto"
+
+    st.subheader("Autosave & Storage")
+    st.toggle(
+        "Autosave directly to database",
+        key="autosave_to_database",
+        on_change=_on_setting_change("autosave_to_database"),
+        help=(
+            "When enabled, every autosave writes the active case to the KiroshiDatabase "
+            "folder using its case ID so the work is kept permanently."
+        ),
+    )
 
     st.subheader("Appearance")
     st.toggle(
@@ -3584,6 +3971,30 @@ def render_settings_panel() -> None:
         key="enable_holiday_theme",
         on_change=_on_setting_change("enable_holiday_theme"),
     )
+    if st.session_state.get("debug_mode"):
+        preview_options = ["auto", "default", *HOLIDAY_THEMES.keys()]
+
+        def _format_theme_preview(option_key: str) -> str:
+            if option_key == "auto":
+                return "Automatic (scheduled)"
+            if option_key == "default":
+                return "Default (no holiday theme)"
+            theme = HOLIDAY_THEMES.get(option_key)
+            return theme.name if theme else option_key
+
+        if st.session_state.theme_preview not in preview_options:
+            st.session_state.theme_preview = "auto"
+
+        st.selectbox(
+            "Preview holiday theme",
+            preview_options,
+            key="theme_preview",
+            format_func=_format_theme_preview,
+            help=(
+                "Force the interface to use a specific holiday palette while debugging. "
+                "Choose ‘Automatic’ to return to the calendar-driven schedule."
+            ),
+        )
     st.toggle(
         "Compact case workspace",
         key="case_compact_mode",
@@ -3593,55 +4004,35 @@ def render_settings_panel() -> None:
             "two-column layout for core fields."
         ),
     )
-    current_style = dict(st.session_state.get("scratchpad_style", {}))
-    style_col1, style_col2 = st.columns(2)
-    font_family_value = style_col1.text_input(
-        "Scratchpad font family",
-        current_style.get("font_family", "Source Sans Pro"),
-        key=global_widget_key("scratchpad_font_family"),
-    )
-    font_size_value = style_col2.slider(
-        "Scratchpad font size",
-        10,
-        28,
-        int(current_style.get("font_size", 15)),
-        key=global_widget_key("scratchpad_font_size"),
-    )
-    color_col1, color_col2 = st.columns(2)
-    background_value = color_col1.color_picker(
-        "Scratchpad background",
-        current_style.get("background", "#ffffff"),
-        key=global_widget_key("scratchpad_background"),
-    )
-    text_color_value = color_col2.color_picker(
-        "Scratchpad text color",
-        current_style.get("text_color", "#111827"),
-        key=global_widget_key("scratchpad_text_color"),
-    )
-    line_height_value = st.slider(
-        "Scratchpad line height",
-        1.2,
-        2.2,
-        float(current_style.get("line_height", 1.5)),
-        0.1,
-        key=global_widget_key("scratchpad_line_height"),
-    )
-    updated_style = {
-        "font_family": font_family_value.strip() or "Source Sans Pro",
-        "font_size": int(font_size_value),
-        "background": background_value,
-        "text_color": text_color_value,
-        "line_height": round(float(line_height_value), 2),
-    }
-    if updated_style != current_style:
-        st.session_state.scratchpad_style = updated_style
-        _persist_setting("scratchpad_style")
 
-    if st.button("Reset scratchpad style", key=global_widget_key("scratchpad_reset")):
-        st.session_state.scratchpad_style = dict(
-            PERSISTENT_SETTINGS_DEFAULTS["scratchpad_style"]
+    st.subheader("Storage")
+    attachments_help = (
+        "Choose where case uploads, logs, and screenshots are stored on disk. "
+        "Provide an absolute path to a folder that Streamlit can access."
+    )
+    st.text_input(
+        "Attachments folder",
+        key="attachments_directory",
+        on_change=_on_setting_change("attachments_directory"),
+        help=attachments_help,
+    )
+    requested_root = _resolve_configured_attachments_directory()
+    attachments_root, attachments_error = _ensure_case_attachments_root()
+    if attachments_error:
+        st.warning(
+            "Unable to use the selected attachments folder `{}`. Using `{}` instead.\n\n{}".format(
+                requested_root,
+                attachments_root,
+                attachments_error,
+            )
         )
-        _persist_setting("scratchpad_style")
+    st.caption(f"Current attachments will be saved to `{attachments_root}`.")
+    if st.button(
+        "Use default attachments folder",
+        key=global_widget_key("attachments_directory_reset"),
+    ):
+        st.session_state.attachments_directory = str(CASE_ATTACHMENTS_ROOT)
+        _persist_setting("attachments_directory")
         st.rerun()
 
     st.markdown("### AI Educate")
@@ -4205,6 +4596,104 @@ def render_atom_chat_panel() -> None:
         st.rerun()
 
 
+def render_smart_aid_panel() -> None:
+    st.subheader("Smart Aid Calibration")
+    st.markdown(
+        "Capture supervisor feedback once and let every AI feature remind you about it automatically."
+    )
+
+    default_areas = ["AI Assistance", "Quick Actions", "A.A.T.O.M. Chat"]
+    supervisor_key = global_widget_key("smart_supervisor")
+    feedback_key = global_widget_key("smart_feedback")
+    areas_key = global_widget_key("smart_areas")
+
+    supervisor_name = st.text_input(
+        "Supervisor (optional)", key=supervisor_key
+    )
+    feedback_text = st.text_area(
+        "Supervisor feedback or reminder",
+        height=120,
+        key=feedback_key,
+    )
+    selected_areas = st.multiselect(
+        "Where should this reminder apply?",
+        default_areas,
+        default=default_areas,
+        help="Smart Aid keeps a single memory shared with AI Assistance, Quick Actions, and A.A.T.O.M.",
+        key=areas_key,
+    )
+
+    if st.button("Calibrate", type="primary", key=global_widget_key("smart_calibrate")):
+        note_text = (feedback_text or "").strip()
+        if not note_text:
+            st.error("Please enter supervisor feedback before calibrating.")
+        else:
+            areas = [
+                str(area).strip()
+                for area in (selected_areas or default_areas)
+                if str(area).strip()
+            ] or default_areas
+            note = {
+                "id": uuid.uuid4().hex,
+                "text": note_text,
+                "supervisor": (supervisor_name or "").strip(),
+                "created_at": datetime.utcnow().isoformat(),
+                "areas": areas,
+            }
+            notes = get_assistant_notes()
+            notes.append(note)
+            set_assistant_notes(notes)
+            save_memory(st.session_state.atom_history)
+            st.success("Calibration saved to unified memory.")
+            st.session_state[feedback_key] = ""
+            st.session_state[supervisor_key] = ""
+            st.session_state[areas_key] = default_areas
+            st.rerun()
+
+    notes = get_assistant_notes()
+    if notes:
+        st.markdown("#### Active supervisor reminders")
+        sorted_notes = sorted(
+            notes,
+            key=lambda n: str(n.get("created_at", "")),
+            reverse=True,
+        )
+        for note in sorted_notes:
+            with st.container():
+                st.markdown(f"**{note.get('text', '')}**")
+                meta_bits: list[str] = []
+                created_label = ""
+                created_at = str(note.get("created_at", "")).strip()
+                if created_at:
+                    try:
+                        created_dt = datetime.fromisoformat(created_at)
+                        created_label = created_dt.strftime("Saved on %b %d, %Y %H:%M")
+                    except ValueError:
+                        created_label = f"Saved: {created_at}"
+                if created_label:
+                    meta_bits.append(created_label)
+                supervisor = str(note.get("supervisor", "")).strip()
+                if supervisor:
+                    meta_bits.append(f"Supervisor: {supervisor}")
+                areas = note.get("areas")
+                if isinstance(areas, list) and areas:
+                    meta_bits.append("Applies to: " + ", ".join(areas))
+                if meta_bits:
+                    st.caption(" • ".join(meta_bits))
+                remove_key = global_widget_key(f"smart_remove_{note.get('id', '')}")
+                if st.button("Remove", key=remove_key):
+                    remaining = [n for n in notes if n.get("id") != note.get("id")]
+                    set_assistant_notes(remaining)
+                    save_memory(st.session_state.atom_history)
+                    st.rerun()
+        memory_preview = build_assistant_memory_prompt()
+        if memory_preview:
+            st.markdown("#### Unified memory preview")
+            st.code(memory_preview, language="markdown")
+    else:
+        st.info("No supervisor feedback saved yet. Add a calibration above to prime Smart Aid.")
+
+
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
@@ -4231,7 +4720,13 @@ def render_debug_panel() -> None:
         st.text_area("Signals config JSON", key="signals_config", height=150)
         st.json(get_session_state_snapshot())
         st.subheader("Logs")
-        st.text(tail_log(LOG_FILE))
+        if log_path:
+            st.caption(f"Log file location: {log_path}")
+            target = log_path
+        else:
+            st.caption("Log file location unavailable; falling back to stdout output.")
+            target = LOG_FILE
+        st.text(tail_log(target))
         st.divider()
         if st.button("I'm bored", key=global_widget_key("debug_bored")):
             st.session_state.show_bored = True
@@ -5481,7 +5976,11 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
 
 
 def save_case_to_database(
-    case: CaseData, *, notify: bool = True, update_history: bool = True
+    case: CaseData,
+    *,
+    notify: bool = True,
+    update_history: bool = True,
+    touch_last_modified: bool = True,
 ) -> Path | None:
     if not case.case_id:
         if notify:
@@ -5505,12 +6004,19 @@ def save_case_to_database(
     else:
         case.kiroshi_version = str(case.kiroshi_version)
     file_path = DATABASE_DIR / f"{case.case_id}.json"
+    last_modified_value = case.last_modified
+    if (not last_modified_value) and file_path.exists():
+        try:
+            existing_payload = json.loads(file_path.read_text(encoding="utf-8"))
+            existing_data = _coerce_case_mapping(existing_payload)
+            if isinstance(existing_data, Mapping):
+                last_modified_value = str(existing_data.get("last_modified") or "")
+        except Exception:
+            last_modified_value = ""
+    if touch_last_modified or not last_modified_value:
+        last_modified_value = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    case.last_modified = str(last_modified_value)
     case_payload = asdict(case)
-    scratch_value = st.session_state.get(
-        widget_key("scratch", CURRENT_CASE_IDX), st.session_state.get("scratch", "")
-    )
-    st.session_state.scratch = scratch_value
-    case_payload["scratchpad"] = scratch_value
     case_payload["attachments"] = persist_case_attachments(case.case_id)
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(case_payload, f, indent=2)
@@ -5527,13 +6033,6 @@ def load_case_from_path(path: str) -> None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw_data = json.load(f)
-        scratchpad_value = (
-            raw_data.get("scratchpad")
-            if isinstance(raw_data, Mapping)
-            else ""
-        )
-        if not scratchpad_value and isinstance(raw_data, Mapping):
-            scratchpad_value = raw_data.get("scratch", "")
         attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
         if isinstance(raw_data, Mapping):
             attachments_raw = raw_data.get("attachments", {})
@@ -5550,12 +6049,9 @@ def load_case_from_path(path: str) -> None:
         st.session_state.uploads = uploads
         st.session_state.log_uploads = log_uploads
         st.session_state.screenshots = screenshots
-        st.session_state.scratch = scratchpad_value or ""
-        st.session_state[widget_key("scratch", CURRENT_CASE_IDX)] = st.session_state.scratch
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
             st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
                 case=D,
-                scratch=st.session_state.scratch,
                 uploads=uploads,
                 log_uploads=log_uploads,
                 screenshots=screenshots,
@@ -5566,6 +6062,7 @@ def load_case_from_path(path: str) -> None:
             st.session_state.case,
             notify=False,
             update_history=False,
+            touch_last_modified=False,
         )
         ensure_tracking_session_defaults(
             CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
@@ -5587,11 +6084,6 @@ def load_case_from_path(path: str) -> None:
 def load_case_from_bytes(data: bytes) -> None:
     try:
         payload = json.loads(data.decode("utf-8"))
-        scratchpad_value = (
-            payload.get("scratchpad") if isinstance(payload, Mapping) else ""
-        )
-        if not scratchpad_value and isinstance(payload, Mapping):
-            scratchpad_value = payload.get("scratch", "")
         attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | dict = {}
         if isinstance(payload, Mapping):
             attachments_raw = payload.get("attachments", {})
@@ -5608,12 +6100,9 @@ def load_case_from_bytes(data: bytes) -> None:
         st.session_state.uploads = uploads
         st.session_state.log_uploads = log_uploads
         st.session_state.screenshots = screenshots
-        st.session_state.scratch = scratchpad_value or ""
-        st.session_state[widget_key("scratch", CURRENT_CASE_IDX)] = st.session_state.scratch
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
             st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
                 case=D,
-                scratch=st.session_state.scratch,
                 uploads=uploads,
                 log_uploads=log_uploads,
                 screenshots=screenshots,
@@ -5623,6 +6112,7 @@ def load_case_from_bytes(data: bytes) -> None:
             st.session_state.case,
             notify=False,
             update_history=False,
+            touch_last_modified=False,
         )
         ensure_tracking_session_defaults(
             CURRENT_CASE_IDX, st.session_state.case.tracking, force=True
@@ -5647,17 +6137,71 @@ def has_unsaved_sections(case: CaseData) -> bool:
     return any(getattr(case, f) for f in header_fields + phone_fields + remote_fields)
 
 
-def request_load_from_path(path: str) -> None:
-    if has_unsaved_sections(D):
-        st.session_state.pending_load = {"path": path}
+def _case_session_has_content(session: CaseSession) -> bool:
+    """Return ``True`` when a case tab already contains meaningful data."""
+
+    case = session.case
+    if case.case_id and case.case_id.strip():
+        return True
+    if has_unsaved_sections(case):
+        return True
+    if session.scratch and session.scratch.strip():
+        return True
+    if session.uploads or session.log_uploads or session.screenshots:
+        return True
+    if case.tracking.active:
+        return True
+    return False
+
+
+def _allocate_case_tab_for_loading() -> int:
+    """Return an available case tab index, creating one if required."""
+
+    for idx, session in enumerate(st.session_state.case_sessions):
+        if not _case_session_has_content(session):
+            return idx
+    st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+    return len(st.session_state.case_sessions) - 1
+
+
+def _activate_case_index(idx: int) -> None:
+    """Update globals so subsequent load operations target ``idx``."""
+
+    global CURRENT_CASE_IDX
+    CURRENT_CASE_IDX = idx
+
+
+def request_load_from_path(path: str, *, prefer_new_tab: bool = False) -> None:
+    if prefer_new_tab:
+        target_idx = _allocate_case_tab_for_loading()
     else:
+        target_idx = CURRENT_CASE_IDX
+    session_case = st.session_state.case_sessions[target_idx].case
+    if not prefer_new_tab and has_unsaved_sections(session_case):
+        st.session_state.pending_load = {"path": path, "target_idx": target_idx}
+    else:
+        if prefer_new_tab:
+            st.session_state.dashboard_load_notice = target_idx
+        else:
+            st.session_state.dashboard_load_notice = None
+        _activate_case_index(target_idx)
         load_case_from_path(path)
 
 
-def request_load_from_bytes(data: bytes) -> None:
-    if has_unsaved_sections(D):
-        st.session_state.pending_load = {"data": data}
+def request_load_from_bytes(data: bytes, *, prefer_new_tab: bool = False) -> None:
+    if prefer_new_tab:
+        target_idx = _allocate_case_tab_for_loading()
     else:
+        target_idx = CURRENT_CASE_IDX
+    session_case = st.session_state.case_sessions[target_idx].case
+    if not prefer_new_tab and has_unsaved_sections(session_case):
+        st.session_state.pending_load = {"data": data, "target_idx": target_idx}
+    else:
+        if prefer_new_tab:
+            st.session_state.dashboard_load_notice = target_idx
+        else:
+            st.session_state.dashboard_load_notice = None
+        _activate_case_index(target_idx)
         load_case_from_bytes(data)
 
 
@@ -6300,7 +6844,6 @@ def render_case_ui(case_idx: int):
         tab_labels.append("Hardware Issues")
     tab_labels += [
         "Remote Session",
-        "Notes",
         "Tables",
         "Save/Load",
     ]
@@ -6317,7 +6860,6 @@ def render_case_ui(case_idx: int):
     tab_email = next(tab_iter)
     tab_hw = next(tab_iter) if st.session_state.include_hardware else None
     tab_remote = next(tab_iter)
-    tab_notes = next(tab_iter)
     tab_tables = next(tab_iter)
     tab_save_load = next(tab_iter)
     tab_bored = next(tab_iter) if st.session_state.show_bored else None
@@ -6356,36 +6898,12 @@ def render_case_ui(case_idx: int):
                 backup_path = None
                 if D.case_id:
                     backup_path = create_case_autosave_snapshot(D.case_id)
-                api_key_value = st.session_state.get("openai_api_key", "")
-                second_line_mode = st.session_state.get("second_line_mode", False)
-                debug_mode = st.session_state.get("debug_mode", False)
-                base_url_value = st.session_state.get("ai_base_url", "")
-                ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
-                ai_assist_mode = st.session_state.get("ai_assist_mode", "Standard")
-                educate_enabled = st.session_state.get("ai_educate_enabled", False)
-                educate_report = st.session_state.get("ai_educate_report_enabled", False)
-                educate_advanced = st.session_state.get("ai_educate_advanced", False)
                 if os.path.exists(AUTOSAVE_FILE):
                     try:
                         os.remove(AUTOSAVE_FILE)
                     except OSError:
                         pass
-                st.session_state.clear()
-                st.session_state.openai_api_key = api_key_value
-                st.session_state.second_line_mode = second_line_mode
-                _persist_setting("second_line_mode")
-                st.session_state.debug_mode = debug_mode
-                _persist_setting("debug_mode")
-                st.session_state.ai_base_url = base_url_value
-                st.session_state.ai_mode = ai_mode
-                st.session_state.ai_assist_mode = ai_assist_mode
-                _persist_setting("ai_assist_mode")
-                st.session_state.ai_educate_enabled = educate_enabled
-                _persist_setting("ai_educate_enabled")
-                st.session_state.ai_educate_report_enabled = educate_report
-                _persist_setting("ai_educate_report_enabled")
-                st.session_state.ai_educate_advanced = educate_advanced
-                _persist_setting("ai_educate_advanced")
+                clear_case_state(case_idx)
                 if backup_path is not None:
                     st.session_state["autosave_notice"] = (
                         f"Case autosaved to {backup_path.name}"
@@ -6949,7 +7467,56 @@ def render_case_ui(case_idx: int):
                 with left:
                     st.subheader("Documentation Preview – Copy‑friendly Tables")
                     for cat in cat_map:
-                        st.markdown(f"**{table_title(cat)}**")
+                        title_text = table_title(cat)
+                        st.markdown(f"**{title_text}**")
+
+                        copy_suffix_raw = f"{case_idx}_{cat}".lower()
+                        copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_suffix_raw)
+                        if not copy_suffix:
+                            copy_suffix = "copy"
+                        if copy_suffix[0].isdigit():
+                            copy_suffix = f"a{copy_suffix}"
+
+                        title_payload = json.dumps(title_text)
+                        table_payload = json.dumps(table_plain_text(cat, D, cat_map))
+                        components.html(
+                            f"""
+                            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
+                                <button onclick=\"copyTitle{copy_suffix}()\"
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                    Copy title
+                                </button>
+                                <button onclick=\"copyTable{copy_suffix}()\"
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                    Copy table
+                                </button>
+                                <span id=\"feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                            </div>
+                            <script>
+                                const feedbackElem{copy_suffix} = document.getElementById('feedback-{copy_suffix}');
+                                function showFeedback{copy_suffix}(message) {{
+                                    if (!feedbackElem{copy_suffix}) return;
+                                    feedbackElem{copy_suffix}.textContent = message;
+                                    setTimeout(() => {{
+                                        if (feedbackElem{copy_suffix}.textContent === message) {{
+                                            feedbackElem{copy_suffix}.textContent = '';
+                                        }}
+                                    }}, 2000);
+                                }}
+                                function copyTitle{copy_suffix}() {{
+                                    navigator.clipboard.writeText({title_payload}).then(() => {{
+                                        showFeedback{copy_suffix}('Title copied');
+                                    }});
+                                }}
+                                function copyTable{copy_suffix}() {{
+                                    navigator.clipboard.writeText({table_payload}).then(() => {{
+                                        showFeedback{copy_suffix}('Table copied');
+                                    }});
+                                }}
+                            </script>
+                            """,
+                            height=80,
+                        )
                         st.dataframe(
                             category_dataframe(cat, D, cat_map), use_container_width=True
                         )
@@ -7760,21 +8327,6 @@ Thank you in advance,
         st.subheader("Remote session – steps")
         auto_text_area("One step per line", "remote_steps", height=400)
 
-    # ================== NOTES TAB =================
-    with tab_notes:
-        st.subheader("Scratchpad")
-        scr_key = widget_key("scratch", case_idx)
-        scratch_label = "Scratchpad – Temporary notes"
-        apply_scratchpad_style(scratch_label)
-        st.text_area(
-            scratch_label,
-            st.session_state.get(scr_key, ""),
-            height=400,
-            key=scr_key,
-            on_change=_sync_scratchpad,
-            args=(scr_key,),
-        )
-
     # ================== TABLES TAB =================
     with tab_tables:
         st.subheader("Copy all tables")
@@ -7839,7 +8391,13 @@ Thank you in advance,
         st.subheader("Recent cases")
         for idx, case in enumerate(load_recent_cases()):
             info_col, btn_col = st.columns([3, 1])
-            info_col.write(f"{case['case_id']} - {case['path']}")
+            last_modified_display = format_last_modified(case.get("last_modified"))
+            if last_modified_display:
+                info_col.write(
+                    f"{case['case_id']} ({last_modified_display})\n{case['path']}"
+                )
+            else:
+                info_col.write(f"{case['case_id']}\n{case['path']}")
             if btn_col.button(
                 "Load", key=widget_key(f"recent_load_{idx}", case_idx)
             ):
@@ -7849,7 +8407,9 @@ Thank you in advance,
         if pending:
             st.error("Remember to save your information before loading a new case")
             col_i, col_s = st.columns(2)
+            target_idx = pending.get("target_idx", CURRENT_CASE_IDX)
             if col_i.button("Ignore and load", key=widget_key("ignore_and_load", case_idx)):
+                _activate_case_index(target_idx)
                 if "path" in pending:
                     load_case_from_path(pending["path"])
                 else:
@@ -7977,7 +8537,8 @@ Thank you in advance,
                     z.writestr(f"logs/{f.name}", f.getvalue())
                 for s in st.session_state.screenshots:
                     z.writestr(f"Screenshots/{s.name}", s.getvalue())
-                z.writestr("case.json", json.dumps(asdict(D), indent=2))
+                if st.session_state.get("attachments_include_case_json", True):
+                    z.writestr("case.json", json.dumps(asdict(D), indent=2))
             zbuf.seek(0)
             st.download_button(
                 "Download attachments.zip",
@@ -8158,7 +8719,11 @@ case_labels = [
 tab_labels: list[str] = ["Dashboard", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
-tab_labels += ["Report", "A.A.T.O.M. Chat"] + case_labels
+show_atom_chat = st.session_state.get("show_atom_chat", True)
+tab_labels.append("Report")
+if show_atom_chat:
+    tab_labels.append("A.A.T.O.M. Chat")
+tab_labels += case_labels
 all_tabs = st.tabs(tab_labels)
 
 tab_index = 0
@@ -8175,9 +8740,10 @@ if st.session_state.debug_mode:
 with all_tabs[tab_index]:
     render_report_panel()
 tab_index += 1
-with all_tabs[tab_index]:
-    render_atom_chat_panel()
-tab_index += 1
+if show_atom_chat:
+    with all_tabs[tab_index]:
+        render_atom_chat_panel()
+    tab_index += 1
 
 case_tabs = all_tabs[tab_index:]
 for idx, tab in enumerate(case_tabs):
