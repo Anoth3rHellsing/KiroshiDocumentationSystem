@@ -812,21 +812,32 @@ def _candidate_log_directories() -> list[Path]:
 
 
 LOG_DIR: Path | None = None
+log_path: Path | None = None
 log_handlers: list[logging.Handler]
 for candidate in _candidate_log_directories():
     try:
         candidate.mkdir(parents=True, exist_ok=True)
+        prospective_log_path = candidate / LOG_FILE
+        with open(prospective_log_path, "a", encoding="utf-8"):
+            pass
     except OSError:
+        # Cannot create the directory or open the log file here (likely permissions).
         continue
     LOG_DIR = candidate
+    log_path = prospective_log_path
     break
 
-if LOG_DIR is not None:
-    log_path = LOG_DIR / LOG_FILE
-    log_handlers = [
-        RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"),
-        logging.StreamHandler(),
-    ]
+if log_path is not None:
+    try:
+        log_handlers = [
+            RotatingFileHandler(
+                log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+            ),
+            logging.StreamHandler(),
+        ]
+    except OSError:
+        log_path = None
+        log_handlers = [logging.StreamHandler()]
 else:
     log_path = None
     log_handlers = [logging.StreamHandler()]
