@@ -1746,7 +1746,8 @@ def _enable_altair_theme(theme: ThemePalette) -> None:
         },
     }
 
-    alt.themes.register("kiroshi-active", lambda config=config: config)
+    if "kiroshi-active" not in alt.themes.names():
+        alt.themes.register("kiroshi-active", lambda config=config: config)
     alt.themes.enable("kiroshi-active")
 
 # ────────────────────────── UTILITIES ───────────────────────────
