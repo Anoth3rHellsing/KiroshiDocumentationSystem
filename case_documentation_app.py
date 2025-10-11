@@ -6958,7 +6958,56 @@ def render_case_ui(case_idx: int):
                 with left:
                     st.subheader("Documentation Preview – Copy‑friendly Tables")
                     for cat in cat_map:
-                        st.markdown(f"**{table_title(cat)}**")
+                        title_text = table_title(cat)
+                        st.markdown(f"**{title_text}**")
+
+                        copy_suffix_raw = f"{case_idx}_{cat}".lower()
+                        copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_suffix_raw)
+                        if not copy_suffix:
+                            copy_suffix = "copy"
+                        if copy_suffix[0].isdigit():
+                            copy_suffix = f"a{copy_suffix}"
+
+                        title_payload = json.dumps(title_text)
+                        table_payload = json.dumps(table_plain_text(cat, D, cat_map))
+                        components.html(
+                            f"""
+                            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
+                                <button onclick=\"copyTitle{copy_suffix}()\"
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                    Copy title
+                                </button>
+                                <button onclick=\"copyTable{copy_suffix}()\"
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                    Copy table
+                                </button>
+                                <span id=\"feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                            </div>
+                            <script>
+                                const feedbackElem{copy_suffix} = document.getElementById('feedback-{copy_suffix}');
+                                function showFeedback{copy_suffix}(message) {{
+                                    if (!feedbackElem{copy_suffix}) return;
+                                    feedbackElem{copy_suffix}.textContent = message;
+                                    setTimeout(() => {{
+                                        if (feedbackElem{copy_suffix}.textContent === message) {{
+                                            feedbackElem{copy_suffix}.textContent = '';
+                                        }}
+                                    }}, 2000);
+                                }}
+                                function copyTitle{copy_suffix}() {{
+                                    navigator.clipboard.writeText({title_payload}).then(() => {{
+                                        showFeedback{copy_suffix}('Title copied');
+                                    }});
+                                }}
+                                function copyTable{copy_suffix}() {{
+                                    navigator.clipboard.writeText({table_payload}).then(() => {{
+                                        showFeedback{copy_suffix}('Table copied');
+                                    }});
+                                }}
+                            </script>
+                            """,
+                            height=80,
+                        )
                         st.dataframe(
                             category_dataframe(cat, D, cat_map), use_container_width=True
                         )
