@@ -368,13 +368,38 @@ def _resolve_update_target() -> tuple[str, str]:
 
 
 def _fetch_remote_version(repo: str, branch: str) -> str:
-    raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/case_documentation_app.py"
-    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
-    response.raise_for_status()
-    match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
-    if not match:
-        raise RuntimeError("VERSION marker not found in remote application source.")
-    return match.group(1).strip()
+    candidate_paths = [
+        "case_documentation_app.py",
+        "src/case_documentation_app.py",
+        "app/case_documentation_app.py",
+    ]
+
+    last_error: Exception | None = None
+    for path in candidate_paths:
+        raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+        try:
+            response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            # If the file is not present at this location, try the next candidate.
+            if exc.response is not None and exc.response.status_code == 404:
+                last_error = exc
+                continue
+            raise
+        except requests.RequestException as exc:  # pragma: no cover - network errors
+            last_error = exc
+            continue
+
+        match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
+        if not match:
+            raise RuntimeError("VERSION marker not found in remote application source.")
+        return match.group(1).strip()
+
+    if last_error:
+        raise FileNotFoundError(
+            "Unable to locate case_documentation_app.py in the configured repository"
+        ) from last_error
+    raise FileNotFoundError("No candidate paths were available for the update check")
 
 
 def _fetch_latest_commit_info(repo: str, branch: str) -> dict[str, str | None]:
