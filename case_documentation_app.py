@@ -746,24 +746,47 @@ DEFAULT_SIGNALS_CONFIG = json.dumps(
 )
 
 
-# Configure logging to write to a user-writable directory.  Fall back to
-# console-only logging if the log file cannot be created (e.g. due to
-# permissions on ProgramData when running without admin rights).
-LOG_DIR = Path.home() / "Kiroshi Documentation"
-try:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+# Configure logging to write to a user-writable directory inside the
+# ProgramData\Kiroshi\logs hierarchy on Windows (or the closest equivalent on
+# other platforms). Fall back to console-only logging if the log file cannot be
+# created (e.g. due to permissions when running without elevated rights).
+def _candidate_log_directories() -> list[Path]:
+    candidates: list[Path] = []
+    if os.name == "nt":
+        program_data_root = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData"))
+        candidates.append(program_data_root / "Kiroshi" / "logs")
+        candidates.append(PROGRAM_DATA_DIR / "logs")
+    else:
+        candidates.append(PROGRAM_DATA_DIR / "logs")
+        candidates.append(Path.home() / "Kiroshi" / "logs")
+    # Always include a fallback within the app directory as a last resort.
+    candidates.append(APP_ROOT / "logs")
+    return candidates
+
+
+LOG_DIR: Path | None = None
+log_handlers: list[logging.Handler]
+for candidate in _candidate_log_directories():
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        continue
+    LOG_DIR = candidate
+    break
+
+if LOG_DIR is not None:
     log_path = LOG_DIR / LOG_FILE
     log_handlers = [
         RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"),
         logging.StreamHandler(),
     ]
-except OSError:
+else:
     log_path = None
     log_handlers = [logging.StreamHandler()]
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
     handlers=log_handlers,
 )
 logging.captureWarnings(True)
@@ -784,6 +807,10 @@ else:
     logging.info("Logging initialized; using stdout only (log directory unavailable)")
 
 logging.info("Kiroshi app started")
+logging.debug("Application version: %s", VERSION)
+logging.debug("Python executable: %s", sys.executable)
+logging.debug("Python version: %s", sys.version.replace("\n", " "))
+logging.debug("Platform: %s", sys.platform)
 
 INSTALLER_FILENAME = "KiroshiInstaller_1-7-2.bat"
 
@@ -2308,12 +2335,22 @@ def load_autosave():
 load_autosave()
 
 
-def tail_log(path: str, lines: int = 100) -> str:
+def tail_log(path: str | Path, lines: int = 100) -> str:
     """Return the last N lines from a log file."""
-    if not os.path.exists(path):
+
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        if LOG_DIR is not None:
+            candidate = LOG_DIR / candidate
+        else:
+            candidate = Path.cwd() / candidate
+    try:
+        with candidate.open("r", encoding="utf-8") as f:
+            return "".join(f.readlines()[-lines:])
+    except FileNotFoundError:
         return "Log file not found."
-    with open(path, "r", encoding="utf-8") as f:
-        return "".join(f.readlines()[-lines:])
+    except OSError as exc:
+        return f"Unable to read log file: {exc}"
 
 # ───────────────── DATA MODEL ──────────────────
 
@@ -4231,7 +4268,13 @@ def render_debug_panel() -> None:
         st.text_area("Signals config JSON", key="signals_config", height=150)
         st.json(get_session_state_snapshot())
         st.subheader("Logs")
-        st.text(tail_log(LOG_FILE))
+        if log_path:
+            st.caption(f"Log file location: {log_path}")
+            target = log_path
+        else:
+            st.caption("Log file location unavailable; falling back to stdout output.")
+            target = LOG_FILE
+        st.text(tail_log(target))
         st.divider()
         if st.button("I'm bored", key=global_widget_key("debug_bored")):
             st.session_state.show_bored = True
