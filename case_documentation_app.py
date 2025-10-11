@@ -1648,7 +1648,18 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             color: var(--kiroshi-text);
         }}
         .stApp > header {{
-            background: transparent;
+            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
+            border-bottom: 1px solid color-mix(in srgb, var(--kiroshi-border) 45%, transparent);
+            padding: 0.35rem 0;
+        }}
+        .stApp > header * {{
+            color: #ffffff !important;
+        }}
+        .stApp [data-testid="stDecoration"] {{
+            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%) !important;
+        }}
+        .stApp [data-testid="stDecoration"] svg {{
+            display: none;
         }}
         .stApp .block-container {{
             background: linear-gradient(180deg, var(--kiroshi-surface-soft) 0%, var(--kiroshi-surface) 80%);
@@ -1715,6 +1726,30 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             background: color-mix(in srgb, var(--kiroshi-surface) 78%, rgba(255, 255, 255, 0.1));
             border: 1px solid color-mix(in srgb, var(--kiroshi-accent) 35%, transparent);
             color: var(--kiroshi-text);
+        }}
+        .stApp div[data-testid="stSwitch"] {{
+            background: color-mix(in srgb, var(--kiroshi-surface) 82%, rgba(255, 255, 255, 0.18));
+            border-radius: 1rem;
+            border: 1px solid color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
+            padding: 0.85rem 1rem;
+            display: flex;
+            align-items: center;
+            transition: background 120ms ease, border-color 120ms ease;
+        }}
+        .stApp div[data-testid="stSwitch"]:hover {{
+            background: color-mix(in srgb, var(--kiroshi-surface) 92%, rgba(255, 255, 255, 0.24));
+            border-color: color-mix(in srgb, var(--kiroshi-primary) 45%, transparent);
+        }}
+        .stApp div[data-testid="stSwitch"] label {{
+            color: var(--kiroshi-text);
+            font-weight: 600;
+            font-size: 1rem;
+            gap: 0.65rem;
+        }}
+        .stApp div[data-testid="stSwitch"] label span,
+        .stApp div[data-testid="stSwitch"] label p {{
+            color: var(--kiroshi-text) !important;
+            font-weight: 600;
         }}
         .stApp div[data-testid="stTable"] table {{
             color: var(--kiroshi-text);
@@ -2176,6 +2211,22 @@ def render_logo():
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
+    holiday_theme_active = CURRENT_THEME.key != DEFAULT_THEME.key
+    glados_card_background = (
+        "#ffffff"
+        if holiday_theme_active
+        else "linear-gradient(145deg, color-mix(in srgb, var(--kiroshi-primary) 18%, transparent), color-mix(in srgb, var(--kiroshi-accent) 12%, transparent))"
+    )
+    glados_card_shadow = (
+        "0 14px 34px rgba(15, 23, 42, 0.18)"
+        if holiday_theme_active
+        else "0 10px 25px rgba(15, 23, 42, 0.12)"
+    )
+    glados_card_border = (
+        "1px solid rgba(15, 23, 42, 0.08)" if holiday_theme_active else "1px solid transparent"
+    )
+    glados_title_color = "#111827" if holiday_theme_active else "var(--kiroshi-primary)"
+    glados_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
     header_html = f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
@@ -2223,17 +2274,14 @@ def render_logo():
         }}
 
         #kiroshi-header__glados-card {{
-            background: linear-gradient(
-                145deg,
-                color-mix(in srgb, var(--kiroshi-primary) 18%, transparent),
-                color-mix(in srgb, var(--kiroshi-accent) 12%, transparent)
-            );
+            background: {glados_card_background};
             border-radius: 1rem;
             padding: 1rem 1.5rem;
-            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+            box-shadow: {glados_card_shadow};
             max-width: 620px;
             width: 100%;
             margin: 0 auto;
+            border: {glados_card_border};
         }}
 
         #kiroshi-header__glados-title {{
@@ -2241,13 +2289,14 @@ def render_logo():
             font-weight: 700;
             letter-spacing: 0.02em;
             text-transform: uppercase;
-            color: var(--kiroshi-primary);
+            color: {glados_title_color};
             margin-bottom: 0.5rem;
         }}
 
         #kiroshi-header__glados-text {{
             font-size: 1.1rem;
             line-height: 1.6;
+            color: {glados_text_color};
         }}
 
         #kiroshi-header__date {{
