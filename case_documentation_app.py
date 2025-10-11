@@ -3082,6 +3082,7 @@ class CaseSession:
     """Container for per-case session state."""
 
     case: CaseData
+    scratch: str = ""
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
     screenshots: list = field(default_factory=list)
@@ -3100,6 +3101,7 @@ if "case_sessions" not in st.session_state:
     st.session_state.case_sessions = [
         CaseSession(
             case=D,
+            scratch=st.session_state.get("scratch", ""),
             uploads=st.session_state.uploads,
             log_uploads=st.session_state.log_uploads,
             screenshots=st.session_state.screenshots,
@@ -3113,6 +3115,9 @@ def load_case_state(idx: int) -> None:
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
     st.session_state.screenshots = cs.screenshots
+    scratch_value = getattr(cs, "scratch", "")
+    st.session_state.scratch = scratch_value
+    st.session_state[widget_key("scratch", idx)] = scratch_value
     global D
     D = st.session_state.case
     for key, value in asdict(D).items():
@@ -3120,8 +3125,11 @@ def load_case_state(idx: int) -> None:
 
 
 def save_case_state(idx: int) -> None:
+    scratch_key = widget_key("scratch", idx)
+    scratch_value = st.session_state.get(scratch_key, st.session_state.get("scratch", ""))
     st.session_state.case_sessions[idx] = CaseSession(
         case=st.session_state.case,
+        scratch=scratch_value,
         uploads=st.session_state.uploads,
         log_uploads=st.session_state.log_uploads,
         screenshots=st.session_state.screenshots,
@@ -6350,8 +6358,15 @@ def load_case_from_path(path: str) -> None:
         st.session_state.log_uploads = log_uploads
         st.session_state.screenshots = screenshots
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+            existing_session = st.session_state.case_sessions[CURRENT_CASE_IDX]
+            scratch_key = widget_key("scratch", CURRENT_CASE_IDX)
+            scratch_value = st.session_state.get(
+                scratch_key,
+                getattr(existing_session, "scratch", st.session_state.get("scratch", "")),
+            )
             st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
                 case=D,
+                scratch=scratch_value,
                 uploads=uploads,
                 log_uploads=log_uploads,
                 screenshots=screenshots,
@@ -6401,8 +6416,15 @@ def load_case_from_bytes(data: bytes) -> None:
         st.session_state.log_uploads = log_uploads
         st.session_state.screenshots = screenshots
         if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
+            existing_session = st.session_state.case_sessions[CURRENT_CASE_IDX]
+            scratch_key = widget_key("scratch", CURRENT_CASE_IDX)
+            scratch_value = st.session_state.get(
+                scratch_key,
+                getattr(existing_session, "scratch", st.session_state.get("scratch", "")),
+            )
             st.session_state.case_sessions[CURRENT_CASE_IDX] = CaseSession(
                 case=D,
+                scratch=scratch_value,
                 uploads=uploads,
                 log_uploads=log_uploads,
                 screenshots=screenshots,
@@ -6445,7 +6467,8 @@ def _case_session_has_content(session: CaseSession) -> bool:
         return True
     if has_unsaved_sections(case):
         return True
-    if session.scratch and session.scratch.strip():
+    scratch = getattr(session, "scratch", "")
+    if scratch and scratch.strip():
         return True
     if session.uploads or session.log_uploads or session.screenshots:
         return True
