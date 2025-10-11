@@ -98,6 +98,16 @@ Using a fresh virtual environment is recommended so that you can quickly revert 
 set if a bleeding-edge dependency causes issues. To go back to the supported versions, reinstall the standard
 requirements in a separate environment or run `pip install -r requirements.txt` again.
 
+#### Customizing update checks
+
+Kiroshi automatically inspects the Git tree when checking for updates so it can
+locate `case_documentation_app.py` even if the file lives inside a nested
+folder. If your fork keeps the Streamlit entry point in a non-standard
+location, export the `KIROSHI_UPDATE_APP_PATHS` environment variable with a
+comma-separated list of relative paths (for example, `tools/streamlit` or
+`src/app`). The update checker will prefer these overrides before falling back
+to the auto-discovery heuristics.
+
 ## Building the desktop executable
 
 The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it

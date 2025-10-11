@@ -444,7 +444,58 @@ def _resolve_update_target() -> tuple[str, str]:
     return repo, branch
 
 
-def _iter_remote_app_paths() -> Iterable[str]:
+def _discover_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
+    """Inspect the Git tree and yield locations of the Streamlit entry point.
+
+    Some operators keep ``case_documentation_app.py`` in nested directories
+    (for example inside ``src/`` or a project-named folder).  When the
+    location diverges from the repository root the raw ``GET`` lookup falls
+    back to our built-in candidate list, which fails to cover unusual layouts
+    such as ``tools/streamlit/case_documentation_app.py``.  Query the GitHub
+    tree API once per update check so we can discover the exact location
+    dynamically.  Any API failure is logged at debug level and silently
+    ignored so the traditional heuristics remain available.
+    """
+
+    api_url = f"https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
+    headers = {"Accept": "application/vnd.github+json"}
+    try:
+        response = requests.get(
+            api_url,
+            headers=headers,
+            timeout=UPDATE_CHECK_TIMEOUT,
+            verify=False,
+        )
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            logging.debug(
+                "Repository tree lookup returned 404 for %s@%s", repo, branch
+            )
+            return
+        logging.debug("Unable to query repository tree: %s", exc)
+        return
+    except requests.RequestException as exc:  # pragma: no cover - network errors
+        logging.debug("Unable to query repository tree: %s", exc)
+        return
+
+    payload = response.json()
+    tree = payload.get("tree") if isinstance(payload, dict) else None
+    if not isinstance(tree, list):
+        logging.debug("Unexpected tree payload when discovering app path: %s", payload)
+        return
+
+    for entry in tree:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("type") != "blob":
+            continue
+        path = entry.get("path")
+        if isinstance(path, str) and path.endswith("case_documentation_app.py"):
+            yield path
+
+
+def _iter_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     """Yield possible locations for the application in the update repo.
 
     Historically the project lived in the repository root, but some forks
@@ -461,6 +512,8 @@ def _iter_remote_app_paths() -> Iterable[str]:
             if normalized:
                 yield normalized
 
+    yield from _discover_remote_app_paths(repo, branch)
+
     # Built-in defaults that cover the most common layouts.
     yield from (
         "case_documentation_app.py",
@@ -471,7 +524,7 @@ def _iter_remote_app_paths() -> Iterable[str]:
 
 
 def _fetch_remote_version(repo: str, branch: str) -> str:
-    candidate_paths = list(dict.fromkeys(_iter_remote_app_paths()))
+    candidate_paths = list(dict.fromkeys(_iter_remote_app_paths(repo, branch)))
 
     last_error: Exception | None = None
     for path in candidate_paths:
@@ -496,7 +549,8 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
 
     if last_error:
         raise FileNotFoundError(
-            "Unable to locate case_documentation_app.py in the configured repository"
+            "Unable to locate case_documentation_app.py in the configured repository "
+            f"({repo}@{branch}). Set KIROSHI_UPDATE_APP_PATHS to override the lookup."
         ) from last_error
     raise FileNotFoundError("No candidate paths were available for the update check")
 
