@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiroshi V1.7.2 Beta Build 932025 – IT Case Documentation Helper
+Kiroshi RC 1.7.2111025 – IT Case Documentation Helper
 Run:
     streamlit run case_documentation_app.py
 """
@@ -95,7 +95,7 @@ from aatom_chat import (
 # ChatGPT API and GitHub update checks can still be reached.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-VERSION = "1.7.2 Beta Build 932025"
+VERSION = "RC 1.7.2111025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
@@ -789,7 +789,7 @@ else:
 
 logging.info("Kiroshi app started")
 
-INSTALLER_FILENAME = "KiroshiInstaller_1-7-2.bat"
+INSTALLER_FILENAME = "KiroshiInstaller_RC-1-7-2111025.bat"
 
 
 def _resolve_installer_path() -> Path:
@@ -834,7 +834,7 @@ def _launch_installer_and_relaunch() -> None:
     if not installer_path.exists():
         st.error(
             "The bundled Kiroshi installer could not be found. Please run "
-            "KiroshiInstaller_1-7-2.bat manually from the installation media."
+            "KiroshiInstaller_RC-1-7-2111025.bat manually from the installation media."
         )
         return
 
@@ -903,7 +903,7 @@ def _check_installation_status() -> None:
 
     st.info(
         "If the automatic launch does not start the installer, close this window "
-        "and run `KiroshiInstaller_1-7-2.bat` manually."
+        "and run `KiroshiInstaller_RC-1-7-2111025.bat` manually."
     )
     st.stop()
 
@@ -1618,7 +1618,7 @@ def get_session_state_snapshot():
 
 # ─────────────────────────── CONFIG ────────────────────────────
 st.set_page_config(
-    page_title=f"Kiroshi V{VERSION}",
+    page_title=f"Kiroshi {VERSION}",
     layout="wide",
     page_icon=str(KIROSHI_LOGO_PATH),
 )
@@ -3018,7 +3018,7 @@ def load_tracked_cases() -> list:
                 "expected_arrival_date": tracking_info.get("expected_arrival_date", ""),
                 "case_link": tracking_info.get("case_link", ""),
                 "service_tag": tracking_info.get("service_tag", ""),
-                "version_label": f"Kiroshi {version}" if version else "Pre Kiroshi 1.7.2",
+                "version_label": f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}",
                 "kiroshi_version": version,
                 "is_legacy": False,
                 "last_modified": last_modified,
