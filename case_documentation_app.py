@@ -1042,7 +1042,7 @@ ASSETS_DIR = Path(__file__).parent
 KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
 ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
 
-MOTD_MESSAGES = [
+GLADOS_MESSAGES = [
     "Good morning! Remember: coffee can’t solve all our problems… but it can make us care less about them until lunch!",
     "Hard work pays off in the future. Laziness pays off now, so let’s compromise!",
     "Teamwork makes the dream work… unless your team just wants coffee.",
@@ -1116,6 +1116,11 @@ MOTD_MESSAGES = [
     "I only check my email to mark everything as unread again.",
     "Having a case of the Mondays on a Wednesday.",
     "Silence is golden—unless you have kids, then it's suspicious.",
+    "Cayde-6 here—if a problem looks boring, throw a witty grenade at it.",
+    "Heads up, Guardian: reboots are just Ghosts for your hardware.",
+    "If you can't fix it, dance on the console until morale improves. —Cayde-6",
+    "Legendary loot drop: a fully documented support ticket. Don't dismantle it.",
+    "Cayde-6 pro tip: when in doubt, blame it on space pirates and move on.",
     "The only thing scarier than Monday is the printer jam.",
     # Diogenes
     "I am looking for an honest man.",
@@ -1196,7 +1201,7 @@ class ThemePalette:
     surface: str
     text: str
     muted_text: str
-    motd_messages: list[str]
+    glados_messages: list[str]
 
 
 DEFAULT_THEME = ThemePalette(
@@ -1208,7 +1213,7 @@ DEFAULT_THEME = ThemePalette(
     surface="#ffffff",
     text="#111827",
     muted_text="#4b5563",
-    motd_messages=MOTD_MESSAGES,
+    glados_messages=GLADOS_MESSAGES,
 )
 
 HOLIDAY_THEMES: dict[str, ThemePalette] = {
@@ -1221,7 +1226,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#10172a",
         text="#f8fafc",
         muted_text="#94a3b8",
-        motd_messages=[
+        glados_messages=[
             "Fresh calendar, fresh chance—let's make this year's cases legendary!",
             "New year, same scanners. Let’s keep them happier this time.",
             "Resolve to close cases faster than fireworks fade.",
@@ -1236,7 +1241,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#16213c",
         text="#f9fafb",
         muted_text="#d1d5db",
-        motd_messages=[
+        glados_messages=[
             "Support with dignity, lead with service—today and every day.",
             "Great support honors great dreams. Keep the mission moving.",
             "Clarity, empathy, action—our blueprint for better support.",
@@ -1251,7 +1256,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#152346",
         text="#f9fafb",
         muted_text="#cbd5f5",
-        motd_messages=[
+        glados_messages=[
             "Lead every ticket like it’s a campaign promise kept.",
             "Checks, balances, and perfectly balanced documentation.",
             "Red, white, and resolve—let’s govern these cases.",
@@ -1266,7 +1271,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#1f2937",
         text="#f3f4f6",
         muted_text="#9ca3af",
-        motd_messages=[
+        glados_messages=[
             "Honor the service. Support with purpose.",
             "Resilience isn’t just for systems—carry it in every case.",
             "Today we remember by doing our best work for others.",
@@ -1281,7 +1286,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#04312a",
         text="#f0fdfa",
         muted_text="#a7f3d0",
-        motd_messages=[
+        glados_messages=[
             "Freedom celebrated, progress documented.",
             "Empower every clinic, uplift every voice.",
             "Document the wins—equity in every fix.",
@@ -1296,7 +1301,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#172554",
         text="#f9fafb",
         muted_text="#cbd5f5",
-        motd_messages=[
+        glados_messages=[
             "Liberty, justice, and scanners for all.",
             "Fireworks are loud—our fixes are louder.",
             "Stars, stripes, and spotless documentation.",
@@ -1311,7 +1316,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#13203d",
         text="#f9fafb",
         muted_text="#cbd5f5",
-        motd_messages=[
+        glados_messages=[
             "Hard work deserves smart workflows. Let’s automate the pain away.",
             "Celebrate progress—ship smoother support.",
             "Labor less, document more intelligently.",
@@ -1326,7 +1331,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#2a1f3d",
         text="#fdf4ff",
         muted_text="#d8b4fe",
-        motd_messages=[
+        glados_messages=[
             "Respect every journey—map the customer path clearly.",
             "Discover better processes, honor every story.",
             "Chart success with empathy and precision.",
@@ -1341,7 +1346,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#1f2937",
         text="#f9fafb",
         muted_text="#d1d5db",
-        motd_messages=[
+        glados_messages=[
             "Serve those who served with flawless follow-up.",
             "Precision, honor, gratitude—build them into every note.",
             "Support that stands at attention.",
@@ -1356,7 +1361,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#78350f",
         text="#fef3c7",
         muted_text="#fde68a",
-        motd_messages=[
+        glados_messages=[
             "Grateful users, grateful agents—pass the uptime.",
             "Feast on solutions, serve seconds of documentation.",
             "Gobble up those recurring issues before they multiply.",
@@ -1371,7 +1376,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#0f1f17",
         text="#ecfdf5",
         muted_text="#a7f3d0",
-        motd_messages=[
+        glados_messages=[
             "Wrap each fix with cheer and clarity.",
             "All we want for Christmas is zero escalations.",
             "Jingle all the way to a resolved queue.",
@@ -1386,7 +1391,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
         surface="#1f2937",
         text="#fef3c7",
         muted_text="#c4b5fd",
-        motd_messages=[
+        glados_messages=[
             "No tricks, just treats—squash those phantom bugs.",
             "Ghost the downtime, not the customers.",
             "Spellbinding support, zero jump scares.",
@@ -1416,11 +1421,11 @@ SPECIAL_THEME_PERIODS = [
 CURRENT_THEME: ThemePalette = DEFAULT_THEME
 
 
-def get_message_of_the_day(theme: ThemePalette | None = None) -> str:
-    """Return a pseudo-random MOTD aligned with the active theme."""
+def get_glados_message(theme: ThemePalette | None = None) -> str:
+    """Return a pseudo-random GLADoS message aligned with the active theme."""
 
     active_theme = theme or CURRENT_THEME
-    messages = active_theme.motd_messages or MOTD_MESSAGES
+    messages = active_theme.glados_messages or GLADOS_MESSAGES
     now = datetime.now()
     seed = f"{active_theme.key}-{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
@@ -1919,7 +1924,7 @@ def inject_base_styles() -> None:
 
 
 def render_logo():
-    motd = escape(get_message_of_the_day(CURRENT_THEME))
+    glados_message = escape(get_glados_message(CURRENT_THEME))
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
@@ -1959,7 +1964,7 @@ def render_logo():
             font-size: 1.05rem;
         }}
 
-        #kiroshi-header__motd {{
+        #kiroshi-header__glados {{
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1969,7 +1974,7 @@ def render_logo():
             width: 100%;
         }}
 
-        #kiroshi-header__motd-card {{
+        #kiroshi-header__glados-card {{
             background: linear-gradient(
                 145deg,
                 color-mix(in srgb, var(--kiroshi-primary) 18%, transparent),
@@ -1983,7 +1988,7 @@ def render_logo():
             margin: 0 auto;
         }}
 
-        #kiroshi-header__motd-title {{
+        #kiroshi-header__glados-title {{
             font-size: 1.2rem;
             font-weight: 700;
             letter-spacing: 0.02em;
@@ -1992,7 +1997,7 @@ def render_logo():
             margin-bottom: 0.5rem;
         }}
 
-        #kiroshi-header__motd-text {{
+        #kiroshi-header__glados-text {{
             font-size: 1.1rem;
             line-height: 1.6;
         }}
@@ -2026,7 +2031,7 @@ def render_logo():
                 justify-items: center;
             }}
 
-            #kiroshi-header__motd {{
+            #kiroshi-header__glados {{
                 order: 2;
                 padding: 0 1.5rem;
             }}
@@ -2036,7 +2041,7 @@ def render_logo():
                 justify-content: center;
             }}
 
-            #kiroshi-header__motd-card {{
+            #kiroshi-header__glados-card {{
                 max-width: clamp(260px, 86vw, 540px);
                 padding: 1.1rem 1.25rem;
             }}
@@ -2047,10 +2052,10 @@ def render_logo():
             <span>Version {VERSION}</span>
             <img src="data:image/png;base64,{encoded_logo}" width="180" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
         </div>
-        <div id="kiroshi-header__motd">
-            <div id="kiroshi-header__motd-card">
-                <div id="kiroshi-header__motd-title">Message of the Day</div>
-                <div id="kiroshi-header__motd-text">{motd}</div>
+        <div id="kiroshi-header__glados">
+            <div id="kiroshi-header__glados-card">
+                <div id="kiroshi-header__glados-title">GLADoS Daily Quip</div>
+                <div id="kiroshi-header__glados-text">{glados_message}</div>
             </div>
         </div>
         <div id="kiroshi-header__date">
