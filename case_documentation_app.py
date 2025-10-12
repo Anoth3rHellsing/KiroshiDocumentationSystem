@@ -971,7 +971,7 @@ except (TypeError, ValueError):
 ALTAIR_CHART_KWARGS = (
     {"width": "stretch"}
     if _altair_signature and "width" in _altair_signature.parameters
-    else {"use_container_width": True}
+    else {}
 )
 
 AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
@@ -3061,7 +3061,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
             ]
         )
-        st.dataframe(summary, use_container_width=True)
+        st.dataframe(summary, width="stretch")
     elif kind == "case_sections":
         case_sections = pd.DataFrame(
             [
@@ -3099,7 +3099,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
             ]
         )
-        st.dataframe(case_sections, use_container_width=True)
+        st.dataframe(case_sections, width="stretch")
     elif kind == "report_overview":
         report_summary = pd.DataFrame(
             [
@@ -3121,7 +3121,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
             ]
         )
-        st.dataframe(report_summary, use_container_width=True)
+        st.dataframe(report_summary, width="stretch")
     elif kind == "settings_overview":
         settings_summary = pd.DataFrame(
             [
@@ -5640,7 +5640,7 @@ def render_report_panel() -> None:
             recent_counts.rename(
                 columns={"analysis_label": "Caso", "count": "Frecuencia"}
             ),
-            use_container_width=True,
+            width="stretch",
         )
         freq_chart = (
             alt.Chart(recent_counts)
@@ -5683,7 +5683,7 @@ def render_report_panel() -> None:
                 }
             )
             .head(15),
-            use_container_width=True,
+            width="stretch",
         )
 
     col_pdf, col_bug = st.columns([1, 1])
@@ -8268,13 +8268,13 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "Save case",
                 key=widget_key("quick_save", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 save_case_to_database(D)
             if st.button(
                 "Clear all",
                 key=widget_key("clear_all_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 logging.info("Clear all button clicked")
                 with case_loading_overlay("Cycling the workspace back to zero…"):
@@ -8298,19 +8298,19 @@ def render_case_ui(case_idx: int):
                     "Tracking enabled",
                     disabled=True,
                     key=widget_key("tracking_enabled", case_idx),
-                    use_container_width=True,
+                    width="stretch",
                 )
             elif st.button(
                 "Track case",
                 key=widget_key("track_case_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state.track_case = True
                 st.rerun()
             if st.button(
                 "AI Assistance",
                 key=widget_key("assist_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 logging.info("AI Assistance button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
@@ -8431,7 +8431,7 @@ def render_case_ui(case_idx: int):
                     st.caption(
                         "AI Educate did not find a close historical match; general patterns were provided instead."
                     )
-            if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
+            if st.button("Categorize", key=widget_key("categorize_button", case_idx), width="stretch"):
                 logging.info("Categorize button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -8499,7 +8499,7 @@ def render_case_ui(case_idx: int):
                             st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                             save_memory(st.session_state.kiroshi_chat_history)
                             st.session_state.categorizer_result = reply
-            if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
+            if st.button("Ask", key=widget_key("ask_button", case_idx), width="stretch"):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -8543,7 +8543,7 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ask_result = reply
-            if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
+            if st.button("Verify", key=widget_key("verify_button", case_idx), width="stretch"):
                 logging.info("Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -8638,7 +8638,7 @@ def render_case_ui(case_idx: int):
             if st.button(
                 bubble_label,
                 key=widget_key("quick_actions_toggle_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state[toggle_key] = not st.session_state[toggle_key]
                 st.rerun()
@@ -8891,7 +8891,7 @@ def render_case_ui(case_idx: int):
                             height=80,
                         )
                         st.dataframe(
-                            category_dataframe(cat, D, cat_map), use_container_width=True
+                            category_dataframe(cat, D, cat_map), width="stretch"
                         )
                     st.markdown("---")
                     st.markdown("#### AutoHotkey quick paste")
@@ -9604,7 +9604,7 @@ Thank you in advance,
                 st.markdown("#### AX Coordinators Table")
                 st.dataframe(
                     category_dataframe("AX COORDINATORS", D, cat_map),
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.markdown("---")
 
@@ -9634,7 +9634,7 @@ Thank you in advance,
                 st.markdown("#### Escalation 2nd line Table")
                 st.dataframe(
                     category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if st.session_state.second_line_mode:
@@ -9692,7 +9692,7 @@ Thank you in advance,
                 container=col_sc1,
             )
             st.dataframe(
-                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
     
     # ================== REMOTE SESSION TAB =================
@@ -9712,7 +9712,7 @@ Thank you in advance,
         )
         for cat in cat_map:
             st.markdown(f"**{table_title(cat)}**")
-            st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
+            st.dataframe(category_dataframe(cat, D, cat_map), width="stretch")
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
