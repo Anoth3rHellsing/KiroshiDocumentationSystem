@@ -368,6 +368,176 @@ _GENERIC_STOPWORDS = {
 }
 
 
+_REPORT_CATEGORY_HINTS: dict[str, dict[str, object]] = {
+    "3Shape Unite / Login": {
+        "tokens": (
+            "unite",
+            "signin",
+            "sign",
+            "login",
+            "credential",
+            "token",
+            "account",
+            "password",
+            "sesion",
+            "cuenta",
+        ),
+        "category_terms": (
+            "unite / login",
+            "unite login",
+            "login / unite",
+        ),
+        "min_score": 2,
+    },
+    "3Shape Unite / Case Submission": {
+        "tokens": (
+            "proxy",
+            "timeout",
+            "firewall",
+            "submission",
+            "submit",
+            "upload",
+            "envio",
+            "enviar",
+            "case",
+            "inbox",
+            "transfer",
+        ),
+        "category_terms": (
+            "unite / case",
+            "unite / submission",
+            "case submission",
+            "send case",
+        ),
+        "min_score": 2,
+    },
+    "TRIOS / Calibration": {
+        "tokens": (
+            "calibr",
+            "drift",
+            "tip",
+            "aline",
+            "alignment",
+            "dongle",
+            "firmware",
+            "led",
+        ),
+        "category_terms": (
+            "trios / calibration",
+            "calibration",
+        ),
+        "min_score": 1,
+    },
+    "TRIOS / Scan Quality": {
+        "tokens": (
+            "scan",
+            "occlusion",
+            "margin",
+            "artefact",
+            "artifact",
+            "noise",
+            "texture",
+            "superpos",
+            "detalle",
+            "detail",
+        ),
+        "category_terms": (
+            "trios / scan",
+            "scan quality",
+        ),
+        "min_score": 2,
+    },
+    "Dental System / Performance": {
+        "tokens": (
+            "performance",
+            "freeze",
+            "crash",
+            "lag",
+            "slow",
+            "render",
+            "rendering",
+            "ds",
+        ),
+        "category_terms": (
+            "dental system",
+            "ds / performance",
+        ),
+        "min_score": 2,
+    },
+    "Hardware / Connectivity": {
+        "tokens": (
+            "usb",
+            "power",
+            "cable",
+            "battery",
+            "connect",
+            "conexion",
+            "bluetooth",
+            "wifi",
+            "ethernet",
+            "adapter",
+        ),
+        "category_terms": (
+            "hardware",
+            "connectivity",
+        ),
+        "min_score": 2,
+    },
+    "Software / Installation": {
+        "tokens": (
+            "install",
+            "setup",
+            "installer",
+            "update",
+            "upgrade",
+            "patch",
+            "deploy",
+            "reinstall",
+        ),
+        "category_terms": (
+            "installation",
+            "software install",
+        ),
+        "min_score": 2,
+    },
+    "Account / Licensing": {
+        "tokens": (
+            "license",
+            "licence",
+            "licencia",
+            "activation",
+            "renew",
+            "billing",
+            "suscription",
+            "subscription",
+        ),
+        "category_terms": (
+            "license",
+            "licensing",
+            "licencia",
+        ),
+        "min_score": 1,
+    },
+    "Data Management": {
+        "tokens": (
+            "database",
+            "backup",
+            "restore",
+            "export",
+            "import",
+            "sync",
+            "sinc",
+            "storage",
+        ),
+        "category_terms": (
+            "data management",
+            "database",
+        ),
+        "min_score": 2,
+    },
+}
+
+
 def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
@@ -375,6 +545,53 @@ def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = re.sub(r"[^0-9A-Za-z]+", " ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
     return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+
+
+def _infer_report_category(
+    row: Mapping[str, object], tokens: list[str]
+) -> str | None:
+    token_counter = Counter(token.lower() for token in tokens if token)
+    if not token_counter:
+        return None
+
+    category_fields: list[str] = []
+    for key in ("category", "classification", "topic"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            category_fields.append(value.lower())
+    category_blob = " ".join(category_fields)
+
+    scores: dict[str, int] = {}
+    for label, hints in _REPORT_CATEGORY_HINTS.items():
+        score = 0
+        category_terms = hints.get("category_terms")
+        if isinstance(category_terms, (list, tuple, set)):
+            for term in category_terms:
+                if isinstance(term, str) and term and term in category_blob:
+                    score += 4
+        token_prefixes = hints.get("tokens")
+        if isinstance(token_prefixes, (list, tuple, set)):
+            for prefix in token_prefixes:
+                if not isinstance(prefix, str) or not prefix:
+                    continue
+                for token, count in token_counter.items():
+                    if token == prefix or token.startswith(prefix):
+                        score += count
+        if score:
+            scores[label] = score
+
+    if not scores:
+        return None
+
+    best_label, best_score = max(scores.items(), key=lambda item: item[1])
+    threshold_raw = _REPORT_CATEGORY_HINTS.get(best_label, {}).get("min_score", 2)
+    try:
+        threshold = int(threshold_raw)
+    except (TypeError, ValueError):
+        threshold = 2
+    if best_score >= threshold:
+        return best_label
+    return None
 
 
 def _derive_analysis_label(row: Mapping[str, object]) -> str:
@@ -391,14 +608,24 @@ def _derive_analysis_label(row: Mapping[str, object]) -> str:
     for text in text_candidates:
         tokens.extend(_tokenize_issue_description(text))
 
+    keywords = row.get("keywords")
+    if isinstance(keywords, (list, tuple, set)):
+        for keyword in keywords:
+            if isinstance(keyword, str) and keyword.strip():
+                tokens.extend(_tokenize_issue_description(keyword))
+
     if not tokens:
         return "General"
+
+    inferred_category = _infer_report_category(row, tokens)
+    if inferred_category:
+        return inferred_category
 
     top_tokens: list[str] = []
     for token, _ in Counter(tokens).most_common():
         if token not in top_tokens:
             top_tokens.append(token)
-        if len(top_tokens) >= 3:
+        if len(top_tokens) >= 2:
             break
 
     if not top_tokens:
