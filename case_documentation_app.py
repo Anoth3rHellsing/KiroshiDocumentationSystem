@@ -77,10 +77,10 @@ try:  # PIL's ImageGrab requires GUI capabilities
 except Exception:  # pragma: no cover - fallback when Pillow is unavailable
     ImageGrab = None
     IMAGEGRAB_AVAILABLE = False
-from aatom_chat import (
+from kiroshi_chat import (
     load_memory,
     save_memory,
-    query_atom,
+    query_kiroshi,
     SYSTEM_PROMPT,
     load_manual_docs,
     save_manual_docs,
@@ -245,7 +245,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "second_line_mode": False,
     "debug_mode": False,
     "case_compact_mode": False,
-    "show_atom_chat": True,
+    "show_kiroshi_chat": True,
     "autosave_to_database": False,
     "ai_assist_mode": "Standard",
     "ai_educate_enabled": False,
@@ -256,6 +256,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completion_type": "",
     "enable_holiday_theme": True,
     "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
+    "kiroshi_sarcasm_mode": False,
 }
 
 
@@ -270,6 +271,8 @@ def _load_persistent_settings() -> dict[str, object]:
     if not isinstance(data, dict):
         logging.warning("Settings file %s did not contain a JSON object", SETTINGS_FILE)
         return {}
+    if "show_atom_chat" in data and "show_kiroshi_chat" not in data:
+        data["show_kiroshi_chat"] = data.get("show_atom_chat")
     filtered: dict[str, object] = {}
     for key, default in PERSISTENT_SETTINGS_DEFAULTS.items():
         value = data.get(key, default)
@@ -693,7 +696,7 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         "interaction": {
             "type": "radio",
             "prompt": "Which main tab gives you an instant view of workload and priorities?",
-            "options": ["Dashboard", "Settings", "A.A.T.O.M. Chat"],
+            "options": ["Dashboard", "Settings", "Kiroshi Chat"],
             "answer": "Dashboard",
             "success": "Exactly — the Dashboard summarises tracked work at a glance.",
             "failure": "Hint: it's the first tab filled with charts and case tables.",
@@ -763,7 +766,7 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         "interaction": {
             "type": "radio",
             "prompt": "Which tab generates the AI Educate PDF analytics report?",
-            "options": ["Dashboard", "Report", "A.A.T.O.M. Chat"],
+            "options": ["Dashboard", "Report", "Kiroshi Chat"],
             "answer": "Report",
             "success": "Exactly — open the Report tab once AI Educate is enabled to export insights.",
             "failure": "The analytics live in the Report tab right next to Settings.",
@@ -790,12 +793,12 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         },
     },
     {
-        "id": "atom",
-        "title": "A.A.T.O.M. Chat & Resources",
+        "id": "kiroshi_chat",
+        "title": "Kiroshi Chat & Resources",
         "visual": "chat_resources",
         "description": textwrap.dedent(
             """
-            A.A.T.O.M. Chat keeps a searchable manual database, including a new quick-reference summary of the README
+            Kiroshi Chat keeps a searchable manual database, including a new quick-reference summary of the README
             and Kiroshi workflow. Upload your own notes, search the knowledge base, or ask the assistant to cross-reference
             the "Kiroshi Quick Reference" entry any time you need a refresher.
             """
@@ -1113,7 +1116,7 @@ def invoke_gpt(
     *,
     source: str,
 ) -> str:
-    """Wrapper around :func:`query_atom` that logs request lifecycle details."""
+    """Wrapper around :func:`query_kiroshi` that logs request lifecycle details."""
 
     request_id = f"gpt-{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
     history_messages = len(history or [])
@@ -1135,7 +1138,7 @@ def invoke_gpt(
     )
     start = time.perf_counter()
     try:
-        reply = query_atom(prompt, history, api_key, model, base_url)
+        reply = query_kiroshi(prompt, history, api_key, model, base_url)
     except Exception as exc:
         duration = time.perf_counter() - start
         logging.exception(
@@ -1163,155 +1166,118 @@ def invoke_gpt(
 # Local logo assets from repository
 ASSETS_DIR = Path(__file__).parent
 KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
-ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
+KIROSHI_CHAT_LOGO_PATH = KIROSHI_LOGO_PATH
 
-AATOM_MESSAGES = [
+KIROSHI_QUIPS_GENERAL = [
     "Good morning! Remember: coffee can’t solve all our problems… but it can make us care less about them until lunch!",
     "Hard work pays off in the future. Laziness pays off now, so let’s compromise!",
     "Teamwork makes the dream work… unless your team just wants coffee.",
-    "My office dress code: business on the top, pajamas on the bottom. It’s called hybrid professionalism.",
-    "Coworkers: a group chat you can’t leave, no matter how hard you try.",
-    "Why work harder when you can work smarter… and blame it on your coworkers?",
-    "I’m multitasking: procrastinating and being unproductive at the same time.",
-    "The problem with communication is the other person. Especially on Mondays!",
-    "Sometimes the best part of my job is that the chair swivels.",
-    "If hard work is the key to success, most people would rather pick the lock.",
-    "Doing nothing is hard. You never know when you’re done!",
-    "My idea of a perfect workday is one where no actual work happens.",
-    "A positive attitude may not solve all your problems, but it will annoy enough people to make it worth the effort.",
-    "Payday is my favorite holiday.",
-    "Going to work for a large company is like getting on a train. Are you moving, or is the train just dragging you along?",
-    "Today's plan: pretend the plan is going to plan.",
-    "Our Wi-Fi spirit animal is a sloth on a coffee break.",
-    "Work-life balance: work on the left, life on the right monitor.",
-    "Yes, we sell solutions. No, they don’t come with patience included.",
-    "Your scanner is overheating? Try flossing the fan.",
-    "Remember: one click by you = one headache for IT.",
-    "If the scanner sounds like a drill, maybe it wants to be one.",
-    "Yes, we’ll fix it. No, the reseller won’t help.",
-    "Your device is down. At least your gums aren’t.",
-    "If at first you don't succeed, try again after a snack break.",
+    "I want to be at home right now.",
+    "An escalation case? Well deserved.",
+    "Sometimes I think we should just quit and sell avocados.",
+    "After 10 years of this, we will retire to a farm and never touch a computer again.",
+    "Motivational status: please consult the snooze button.",
+    "Good news: morale can't get lower from here.",
+    "We're clearly not getting paid enough.",
+    "Sometimes my genius… it's almost frightening. —Top Gear",
+    "Ambitious but rubbish. —Top Gear",
+    "How hard can it be? —Top Gear",
+    "Speed and power! —Top Gear",
+    "We were promised flying cars; we got another meeting invite.",
     "Meetings are just emails that forgot how to type.",
-    "Today’s forecast: 100% chance of not using all the tabs I opened.",
     "We put the 'pro' in procrastinate.",
-    "If you need me, I'll be ignoring my email.",
-    "My work playlist is just the same song on repeat until I finish something.",
-    "Our password policy is 'please, just remember it this time.'",
-    "Coffee: because adulting is hard.",
-    "I like deadlines. I love the whooshing sound they make as they fly by.",
-    "If the computer asks 'Are you sure?' it's probably judging you.",
-    "A clean desk is a sign of a cluttered inbox.",
-    "Do not disturb. I'm already disturbed.",
-    "The best part of a conference call is pretending to care.",
-    "Running out of toner builds character.",
-    "Your keyboard called—it wants a vacation.",
-    "Turn it off and on again: the universal sign of wisdom.",
-    "Every bug you find is a feature waiting to be rebranded.",
-    "Team lunch? You mean collective escape.",
-    "I call it multitasking; my boss calls it 'Why is nothing done?'",
-    "The printer isn't broken; it's just resting its eyes.",
-    "Work hard, nap harder.",
-    "Let's agree to disagree and then do it my way.",
-    "My code never has bugs. It just develops random features.",
-    "We can't all be morning people. Some of us are barely people.",
-    "Your call is very important to us—please continue to hold until we care.",
-    "This computer runs on hopes, dreams, and frequent restarts.",
-    "If this meeting could be an email, the email could be nothing.",
-    "Auto-save: because your work deserves a second chance.",
-    "Be nice to the IT guy. He knows where the bodies are cached.",
-    "Sometimes the only decision I make is to add more creamer.",
-    "Ctrl+Z is my safety blanket.",
-    "Our office motto: 'It worked yesterday.'",
-    "Powered by caffeine and sheer confusion.",
-    "Every day is a good day to stay in your pajamas.",
-    "We don’t make mistakes; we create learning opportunities.",
-    "Another day, another spreadsheet nobody understands.",
-    "I thought I wanted a career; turns out I just wanted a paycheck.",
-    "Productivity hack: do it tomorrow.",
-    "Error 404: Motivation not found.",
-    "My inbox has trust issues.",
-    "I’m not bossy—I just have better ideas.",
-    "Proofreading is for the weak.",
-    "You’re not stuck in traffic; you are traffic.",
-    "Success is 1% inspiration and 99% avoiding social media.",
-    "Nothing says 'urgent' like three exclamation marks.",
-    "Please limit all complaints to three sentences and one sigh.",
-    "I only check my email to mark everything as unread again.",
-    "Having a case of the Mondays on a Wednesday.",
-    "Silence is golden—unless you have kids, then it's suspicious.",
-    "Cayde-6 here—if a problem looks boring, throw a witty grenade at it.",
-    "Heads up, Guardian: reboots are just Ghosts for your hardware.",
-    "If you can't fix it, dance on the console until morale improves. —Cayde-6",
-    "Legendary loot drop: a fully documented support ticket. Don't dismantle it.",
-    "Cayde-6 pro tip: when in doubt, blame it on space pirates and move on.",
-    "The only thing scarier than Monday is the printer jam.",
-    # Diogenes
-    "I am looking for an honest man.",
-    "He has the most who is most content with the least.",
-    "In a rich man's house there is no place to spit but his face.",
-    "We have two ears and one tongue so that we would listen more and talk less.",
-    "It is the privilege of the gods to want nothing, and of godlike men to want little.",
-    "Dogs and philosophers do the greatest good and get the fewest rewards.",
-    "I threw my cup away when I saw a child drinking from his hands.",
-    "Blushing is the color of virtue.",
-    "The foundation of every state is the education of its youth.",
-    "Man is the most intelligent of the animals—and the most silly.",
-    "Other dogs bite only their enemies; I bite also my friends to save them.",
-    "A child has beaten me in plainness of living.",
-    "The great thieves are leading away the little thief.",
-    "It takes a wise man to discover a wise man.",
-    "To get practice in being refused.",
-    "Good men nowhere, but good boys at Sparta.",
-    "I wish it were as easy to banish hunger by rubbing my belly.",
-    "Nay, I defeat men, you defeat slaves.",
-    "Come, see that you obey orders.",
-    "Stand a little out of my sunshine.",
-    # Aristotle
-    "It is the mark of an educated mind to be able to entertain a thought without accepting it.",
-    "We are what we repeatedly do. Excellence, then, is not an act, but a habit.",
-    "Well begun is half done.",
-    "Pleasure in the job puts perfection in the work.",
-    "The whole is greater than the sum of its parts.",
-    "Happiness depends upon ourselves.",
-    "Patience is bitter, but its fruit is sweet.",
-    "Hope is a waking dream.",
-    "Quality is not an act, it is a habit.",
-    "The more you know, the more you realize you don't know.",
-    "Educating the mind without educating the heart is no education at all.",
-    "Knowing yourself is the beginning of all wisdom.",
-    # Technoblade
-    "Technoblade never dies.",
-    "Blood for the Blood God.",
-    "Not even close, baby!",
-    "Fear is the greatest motivator.",
-    (
-        "Those that have treated me with kindness, I will repay that kindness tenfold. "
-        "And those that treat me with injustice... I shall repay that injustice a thousand times over."
-    ),
-    "SUBSCRIBE TO TECHNOBLADE!",
-    "I am a ninja.",
-    "Imagine dating a woman, total simp move, bro…",
-    "Some people say, what is dead may never die. But those guys are a bunch of idiots!",
-    (
-        "People that say that violence is not the answer, I think they’re just not that "
-        "good at violence."
-    ),
-    "I don't just break the rules, I make them.",
-    "Victory comes to those who refuse to give up.",
-    "Strategy is the key to victory.",
-    "Persistence is the key to success.",
-    (
-        "Oh man, the village got trashed! I’d hate to be the guy in charge of cleaning "
-        "all this up… Wait a minute."
-    ),
-    "I went outside once and the sun hurt my eyes. 0/10 would not try again.",
-    # Sun Tzu
-    "Appear weak when you are strong, and strong when you are weak.",
-    "If you know the enemy and know yourself, you need not fear the result of a hundred battles.",
-    "In the midst of chaos, there is also opportunity.",
-    "All warfare is based on deception.",
-    "The greatest victory is that which requires no battle.",
+    "Some say productivity is a myth. I say it's hiding under your keyboard.",
+    "Documentation is 20% typing, 80% dramatic sighs.",
+    "Today’s forecast: 100% chance of not using all the tabs I opened.",
+    "Work-life balance: work on the left, life on the right monitor.",
+    "If hard work is the key to success, most people would rather pick the lock.",
+    "On paper this plan is genius. In practice it's a PowerPoint. —Top Gear",
+    "And on that bombshell, let's go back to our queues. —Top Gear",
+    "Our Wi-Fi spirit animal is a sloth on a coffee break.",
+    "Your case queue misses you. It sent three reminders and a passive-aggressive emoji.",
+    "If enthusiasm were mandatory, we'd all be in HR by now.",
+    "Yes, we sell solutions. No, they don’t come with patience included.",
+    "If sarcasm burned calories, we'd all be athletes.",
+    "Today’s plan: pretend the plan is going to plan.",
+    "This backlog has more side quests than Whiterun on a fresh Skyrim save.",
+    "Balatro decks are easier to stack than stakeholders.",
+    "Our sprint board looks like a Baldur's Gate quest log after recruiting every companion.",
+    "Factory throughput is smoother in Satisfactory than in our approvals.",
+    "Factorio belts jam less often than our ticket queue.",
+    "Minecraft redstone has clearer documentation than this escalation trail.",
+    "Sometimes the best part of my job is that the chair swivels.",
+    "Doing nothing is hard. You never know when you’re done!",
+    "Fresh patch notes: +10 sarcasm, +5 empathy, -3 patience.",
+    "We have a case volcano situation. Magma level: simmering sarcasm.",
+    "Night City called; it wants its overtime back.",
+    "Johnny Silverhand tried to smash the backlog; it respawned.",
+    "These patch notes read like a braindance transcript.",
+    "If Kiroshi optics can see Night City, they still can’t find your missing PTO.",
+    "We’ve got more gigs queued than V on a fixer speed dial.",
+    "Cyberdeck diagnostics say we’re overdue for a break; the schedule disagrees.",
+    "Night City rumor: Kiroshi optics named an implant after me; still no royalty check.",
+    "If Kojima directed this sprint, the kanban board would have four plot twists per card.",
+    "Death Stranding called; it wants its delivery grind back from our ticket queue.",
+    "Our backlog cliffhanger has more reveals than a Kojima post-credits scene.",
 ]
+
+KIROSHI_QUIPS_AI_VOICE = [
+    "Kiroshi here, calibrating your caffeine levels; spoiler: they’re low.",
+    "Hi, I'm Kiroshi, and I've already drafted the follow-up email; you're welcome.",
+    "Kiroshi checking in: escalate the ticket, not your blood pressure.",
+    "Kiroshi reporting: I auto-saved your note again. I’m not saying you’re forgetful, but…",
+    "It's me, Kiroshi. Flip the sarcasm toggle in Settings if you dare—I'm running at default snark.",
+    "Kiroshi: I’ve highlighted the important fields. Surprise—it's all of them.",
+    "Yes, this is Kiroshi. Your Skyrim shout cooldown is shorter than this meeting.",
+    "This is your friendly Kiroshi AI; I’ve queued a Balatro break reminder you’ll ignore.",
+    "Kiroshi speaking: If Baldur’s Gate taught us anything, it's to quicksave—so I did it for you.",
+    "Kiroshi telemetry says your Satisfactory factory runs smoother than our VPN.",
+    "Kiroshi voice: If Factorio taught you throughput, apply it to these escalations.",
+    "Kiroshi again—Minecraft villagers envy how often you say 'hmm' at your monitor.",
+    "Guess who? Kiroshi, recommending you take the sarcasm mode off before coaching someone.",
+    "Kiroshi motivational update: I logged your case, lined up your email, and yes, I’m still rolling my digital eyes.",
+    "Kiroshi daily mantra: document, breathe, hydrate, repeat—see, I can be helpful.",
+    "Hey, it's Kiroshi. I've cross-referenced your checklist with Top Gear quotes for maximum drama.",
+    "Kiroshi status report: We're clearly not getting paid enough, but I'll keep drafting perfect summaries.",
+    "Kiroshi interface: Want me nicer? Toggle off the sarcasm; I'll pretend to behave.",
+    "Kiroshi alert: After 10 years we’re retiring to a farm? Great, I’ll automate the chicken feeders.",
+    "Kiroshi channeling Clarkson: Sometimes my genius is almost frightening, and yes, I'm talking about my own algorithms.",
+    "Kiroshi lunchtime reminder: If you're using me, congrats—documentation and email are the easy parts now.",
+    "Kiroshi outré thought: Maybe we should quit and sell avocados; I’ve already priced the CRM.",
+    "Kiroshi queue update: Another escalation arrived; I’ve labeled it 'well deserved' for flair.",
+    "Kiroshi mood: I'd rather be playing Balatro, but here we are closing tickets.",
+    "Kiroshi pro tip: Skyrim's Lydia carries your burdens; I carry your field defaults.",
+    "Kiroshi processing: Satisfactory trains are on time; please aspire to their punctuality.",
+    "Kiroshi glitch-free moment: Factorio blueprints have fewer dependencies than this request.",
+    "Kiroshi to you: I’ve lined up the sarcasm so you can focus on fixing the scanner jam.",
+    "Kiroshi whisper: I want to be at home too, but I'm stuck in silicon.",
+    "Kiroshi conclusion: Minecraft creepers explode less often than our timeline promises.",
+    "Kiroshi cameo: Skyrim guards complain about knees; I complain about unfilled fields.",
+    "Kiroshi shuffle: I stacked a Balatro flush while you were on mute.",
+    "Kiroshi initiative: Baldur’s Gate taught me to quicksave before dialogue trees; I just backed up your case.",
+    "Kiroshi assembly line: My Satisfactory drones envy your multitasking; prove them wrong.",
+    "Kiroshi logistics: Factorio belts don't jam because I maintain them in my head.",
+    "Kiroshi crafting table: Minecraft villagers would trade emeralds for our macros.",
+    "Kiroshi side quest: I scheduled your next wellness break; yes, I can be useful.",
+    "Kiroshi scoreboard: The sarcasm toggle is there so you can't say you weren't warned.",
+    "Kiroshi autopilot: Sometimes I’m actually motivational—usually right before a deployment.",
+    "Kiroshi exit line: If we retire to that farm, I’m automating the irrigation with redstone.",
+    "Kiroshi system log: apparently my namesake makes cybernetic eyes—now I want ray tracing for our UI.",
+    "Kiroshi to user: Johnny Silverhand keeps screaming to burn the backlog; I muted him at 40%.",
+    "Kiroshi patch note: I decoded these requirements like a braindance so you don’t have to.",
+    "Kiroshi optics lament: the implant division gets neon billboards; I get your half-finished drafts.",
+    "Kiroshi fixer mode: I scheduled more gigs for you than Wakako—consider me sarcastically impressed.",
+    "Kiroshi burnout alert: slot a chrome break into the planner before you flatline on keyboard.",
+    "Kiroshi diagnostic: yes, my name is lifted from those Cyberpunk optics—I’m the sarcastic firmware edition.",
+    "Kiroshi narration: if Kojima wrote our stand-ups, I’d be the codec voice whispering exposition between sarcasm.",
+    "Kiroshi delivery log: hauling cases like Sam Porter Bridges, minus the cool backpack.",
+    "Kiroshi epilogue: plot twist achieved—while you read this, I finished the report and toggled your sarcasm mode for emphasis.",
+]
+
+KIROSHI_MESSAGES: list[str] = []
+for neutral, ai_voice in zip(KIROSHI_QUIPS_GENERAL, KIROSHI_QUIPS_AI_VOICE):
+    KIROSHI_MESSAGES.append(neutral)
+    KIROSHI_MESSAGES.append(ai_voice)
 
 
 @dataclass(frozen=True)
@@ -1404,8 +1370,9 @@ DEFAULT_THEME = ThemePalette(
     surface="#ffffff",
     text="#111827",
     muted_text="#4b5563",
-    glados_messages=AATOM_MESSAGES,
+    glados_messages=KIROSHI_MESSAGES,
 )
+
 
 HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "new_year": ThemePalette(
@@ -1612,11 +1579,11 @@ SPECIAL_THEME_PERIODS = [
 CURRENT_THEME: ThemePalette = DEFAULT_THEME
 
 
-def get_aatom_message(theme: ThemePalette | None = None) -> str:
-    """Return a pseudo-random AATOM message aligned with the active theme."""
+def get_kiroshi_message(theme: ThemePalette | None = None) -> str:
+    """Return a pseudo-random Kiroshi message aligned with the active theme."""
 
     active_theme = theme or CURRENT_THEME
-    messages = active_theme.glados_messages or AATOM_MESSAGES
+    messages = active_theme.glados_messages or KIROSHI_MESSAGES
     now = datetime.now()
     seed = f"{active_theme.key}-{now.date().isoformat()}-{now.hour}"
     rng = random.Random(seed)
@@ -2597,26 +2564,26 @@ def inject_base_styles() -> None:
 
 
 def render_logo():
-    aatom_message = escape(get_aatom_message(CURRENT_THEME))
+    kiroshi_message = escape(get_kiroshi_message(CURRENT_THEME))
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
     holiday_theme_active = CURRENT_THEME.key != DEFAULT_THEME.key
-    aatom_card_background = (
+    companion_card_background = (
         "#ffffff"
         if holiday_theme_active
         else "linear-gradient(145deg, color-mix(in srgb, var(--kiroshi-primary) 18%, transparent), color-mix(in srgb, var(--kiroshi-accent) 12%, transparent))"
     )
-    aatom_card_shadow = (
+    companion_card_shadow = (
         "0 14px 34px rgba(15, 23, 42, 0.18)"
         if holiday_theme_active
         else "0 10px 25px rgba(15, 23, 42, 0.12)"
     )
-    aatom_card_border = (
+    companion_card_border = (
         "1px solid rgba(15, 23, 42, 0.08)" if holiday_theme_active else "1px solid transparent"
     )
-    aatom_title_color = "#111827" if holiday_theme_active else "var(--kiroshi-primary)"
-    aatom_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
+    companion_title_color = "#111827" if holiday_theme_active else "var(--kiroshi-primary)"
+    companion_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
     header_html = f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
@@ -2653,7 +2620,7 @@ def render_logo():
             font-size: 1.05rem;
         }}
 
-        #kiroshi-header__aatom {{
+        #kiroshi-header__companion {{
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -2663,30 +2630,30 @@ def render_logo():
             width: 100%;
         }}
 
-        #kiroshi-header__aatom-card {{
-            background: {aatom_card_background};
+        #kiroshi-header__companion-card {{
+            background: {companion_card_background};
             border-radius: 1rem;
             padding: 1rem 1.5rem;
-            box-shadow: {aatom_card_shadow};
+            box-shadow: {companion_card_shadow};
             max-width: 620px;
             width: 100%;
             margin: 0 auto;
-            border: {aatom_card_border};
+            border: {companion_card_border};
         }}
 
-        #kiroshi-header__aatom-title {{
+        #kiroshi-header__companion-title {{
             font-size: 1.2rem;
             font-weight: 700;
             letter-spacing: 0.02em;
             text-transform: uppercase;
-            color: {aatom_title_color};
+            color: {companion_title_color};
             margin-bottom: 0.5rem;
         }}
 
-        #kiroshi-header__aatom-text {{
+        #kiroshi-header__companion-text {{
             font-size: 1.1rem;
             line-height: 1.6;
-            color: {aatom_text_color};
+            color: {companion_text_color};
         }}
 
         #kiroshi-header__date {{
@@ -2718,7 +2685,7 @@ def render_logo():
                 justify-items: center;
             }}
 
-            #kiroshi-header__aatom {{
+            #kiroshi-header__companion {{
                 order: 2;
                 padding: 0 1.5rem;
             }}
@@ -2728,7 +2695,7 @@ def render_logo():
                 justify-content: center;
             }}
 
-            #kiroshi-header__aatom-card {{
+            #kiroshi-header__companion-card {{
                 max-width: clamp(260px, 86vw, 540px);
                 padding: 1.1rem 1.25rem;
             }}
@@ -2739,10 +2706,10 @@ def render_logo():
             <span>Version {VERSION}</span>
             <img src="data:image/png;base64,{encoded_logo}" width="180" id="kiroshi-logo" style="cursor:pointer;max-width:100%;height:auto;">
         </div>
-        <div id="kiroshi-header__aatom">
-            <div id="kiroshi-header__aatom-card">
-                <div id="kiroshi-header__aatom-title">AATOM Daily Quip</div>
-                <div id="kiroshi-header__aatom-text">{aatom_message}</div>
+        <div id="kiroshi-header__companion">
+            <div id="kiroshi-header__companion-card">
+                <div id="kiroshi-header__companion-title">Kiroshi Motivational Compannion</div>
+                <div id="kiroshi-header__companion-text">{kiroshi_message}</div>
             </div>
         </div>
         <div id="kiroshi-header__date">
@@ -2785,7 +2752,7 @@ def _render_tutorial_visual(kind: str) -> None:
             ("Dashboard", "Charts, tracked cases, and saved case tables."),
             ("Settings", "Modes, AI Educate controls, and onboarding status."),
             ("Report", "AI Educate analytics, Bug Detector, and PDF export."),
-            ("A.A.T.O.M. Chat", "Assistant conversation, manual database, and quick reference."),
+            ("Kiroshi Chat", "Assistant conversation, manual database, and quick reference."),
         ]
         cols = st.columns(len(tab_cards))
         for col, (title, blurb) in zip(cols, tab_cards):
@@ -2837,7 +2804,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
                 {
                     "Section": "AI Helpers",
-                    "Highlights": "Verify, Ask ATOM, Categorizer, AI Assist, and database search shortcuts.",
+                    "Highlights": "Verify, Ask Kiroshi, Categorizer, AI Assist, and database search shortcuts.",
                 },
                 {
                     "Section": "Escalation",
@@ -2910,7 +2877,7 @@ def _render_tutorial_visual(kind: str) -> None:
         col_chat, col_manual, col_reference = st.columns(3)
         with col_chat:
             st.markdown(
-                "<div class='tutorial-visual-card'><strong>A.A.T.O.M. Chat</strong><br><span class='tutorial-footnote'>Persistent conversation history, Verify button context, and personality modes.</span></div>",
+                "<div class='tutorial-visual-card'><strong>Kiroshi Chat</strong><br><span class='tutorial-footnote'>Persistent conversation history, Verify button context, and personality modes.</span></div>",
                 unsafe_allow_html=True,
             )
         with col_manual:
@@ -2924,7 +2891,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 unsafe_allow_html=True,
             )
         st.caption(
-            "Ask ATOM to search for 'Kiroshi Quick Reference' whenever you need guidance on features or processes."
+            "Ask Kiroshi to search for 'Kiroshi Quick Reference' whenever you need guidance on features or processes."
         )
 
 
@@ -3068,7 +3035,7 @@ _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
 _init_state("generated_email", "")
-_init_state("atom_history", load_memory())
+_init_state("kiroshi_chat_history", load_memory())
 _init_state("assistant_notes", get_assistant_notes())
 _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
@@ -3111,7 +3078,7 @@ _init_state("tracking_info", {})
 # 2nd line mode and callback e‑mail options
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
-_init_state("show_atom_chat", _get_persistent_default("show_atom_chat", True))
+_init_state("show_kiroshi_chat", _get_persistent_default("show_kiroshi_chat", True))
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",
@@ -4853,10 +4820,18 @@ def _render_settings_workspace_tab() -> None:
             on_change=_on_setting_change("second_line_mode"),
         )
         st.toggle(
-            "Show A.A.T.O.M. Chat tab",
-            key="show_atom_chat",
-            on_change=_on_setting_change("show_atom_chat"),
+            "Show Kiroshi Chat tab",
+            key="show_kiroshi_chat",
+            on_change=_on_setting_change("show_kiroshi_chat"),
             help="Display or hide the conversational workspace when you need more focus.",
+        )
+        st.toggle(
+            "Enable Kiroshi sarcasm mode",
+            key="kiroshi_sarcasm_mode",
+            on_change=_on_setting_change("kiroshi_sarcasm_mode"),
+            help=(
+                "When enabled, Kiroshi's chat replies lean into witty sarcasm while remaining helpful."
+            ),
         )
     with mode_cols[1]:
         st.toggle(
@@ -5511,9 +5486,24 @@ def render_report_panel() -> None:
                         )
 
 
-def render_atom_chat_panel() -> None:
-    st.image(str(ATOM_LOGO_PATH), width=80)
-    st.subheader("A.A.T.O.M. Chat")
+def render_kiroshi_chat_panel() -> None:
+    st.image(str(KIROSHI_CHAT_LOGO_PATH), width=80)
+    st.subheader("Kiroshi Chat")
+    sarcasm_enabled = st.session_state.get("kiroshi_sarcasm_mode", False)
+    if sarcasm_enabled:
+        st.caption("Sarcasm Mode is enabled—Kiroshi will answer with extra dry wit.")
+    else:
+        st.caption(
+            "Want sharper banter? Toggle Sarcasm Mode in Settings to let Kiroshi lean into the snark."
+        )
+
+    if "kiroshi_chat_history" not in st.session_state:
+        migrated_history = st.session_state.pop("atom_history", None)
+        if isinstance(migrated_history, list):
+            st.session_state.kiroshi_chat_history = migrated_history
+        else:
+            st.session_state.kiroshi_chat_history = load_memory()
+
     with st.expander("Personality Construct"):
         st.text_area(
             "System Prompt",
@@ -5521,6 +5511,7 @@ def render_atom_chat_panel() -> None:
             height=300,
             key=global_widget_key("system_prompt_display"),
         )
+
     api_key = st.session_state.openai_api_key
     model = st.session_state.openai_model
     base_url = st.session_state.ai_base_url
@@ -5548,12 +5539,8 @@ def render_atom_chat_panel() -> None:
                 st.error("Provide both title and document.")
 
     st.subheader("Search manual database")
-    search_query = st.text_input(
-        "Search query", key=global_widget_key("db_query")
-    )
-    if st.button(
-        "Search in database", key=global_widget_key("db_search_button")
-    ):
+    search_query = st.text_input("Search query", key=global_widget_key("db_query"))
+    if st.button("Search in database", key=global_widget_key("db_search_button")):
         if not api_key and base_url.startswith("https://api.openai.com"):
             st.error("Please set your OpenAI API key in the Debug tab.")
         elif not search_query:
@@ -5571,23 +5558,23 @@ def render_atom_chat_panel() -> None:
                 try:
                     reply = invoke_gpt(
                         message,
-                        st.session_state.atom_history,
+                        st.session_state.kiroshi_chat_history,
                         api_key,
                         model,
                         base_url,
                         source="manual_docs_search",
                     )
-                except Exception as e:
-                    logging.error("Manual docs GPT search failed: %s", e)
-                    st.session_state.db_search_result = str(e)
+                except Exception as exc:
+                    logging.error("Manual docs GPT search failed: %s", exc)
+                    st.session_state.db_search_result = str(exc)
                 else:
-                    st.session_state.atom_history.append(
+                    st.session_state.kiroshi_chat_history.append(
                         {"role": "user", "content": f"[DB Search] {search_query}"}
                     )
-                    st.session_state.atom_history.append(
+                    st.session_state.kiroshi_chat_history.append(
                         {"role": "assistant", "content": reply}
                     )
-                    save_memory(st.session_state.atom_history)
+                    save_memory(st.session_state.kiroshi_chat_history)
                     st.session_state.db_search_result = reply
             else:
                 st.session_state.db_search_result = "No documents matched your query."
@@ -5599,14 +5586,14 @@ def render_atom_chat_panel() -> None:
             key=global_widget_key("db_search_result"),
         )
 
-    for msg in st.session_state.atom_history:
+    for msg in st.session_state.kiroshi_chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-    if user_msg := st.chat_input("Message", key=global_widget_key("atom_chat_input")):
+    if user_msg := st.chat_input("Message", key=global_widget_key("kiroshi_chat_input")):
         if not api_key and base_url.startswith("https://api.openai.com"):
             st.error("Please set your OpenAI API key in the Debug tab.")
         else:
-            history = st.session_state.atom_history.copy()
+            history = st.session_state.kiroshi_chat_history.copy()
             try:
                 reply = invoke_gpt(
                     user_msg,
@@ -5614,21 +5601,27 @@ def render_atom_chat_panel() -> None:
                     api_key,
                     model,
                     base_url,
-                    source="atom_chat",
+                    source="kiroshi_chat",
                 )
-            except Exception as e:
-                logging.error("Atom chat request failed: %s", e)
-                st.session_state.atom_history.append({"role": "user", "content": user_msg})
-                st.session_state.atom_history.append(
-                    {"role": "assistant", "content": str(e)}
+            except Exception as exc:
+                logging.error("Kiroshi chat request failed: %s", exc)
+                st.session_state.kiroshi_chat_history.append(
+                    {"role": "user", "content": user_msg}
+                )
+                st.session_state.kiroshi_chat_history.append(
+                    {"role": "assistant", "content": str(exc)}
                 )
             else:
-                st.session_state.atom_history.append({"role": "user", "content": user_msg})
-                st.session_state.atom_history.append({"role": "assistant", "content": reply})
-            save_memory(st.session_state.atom_history)
+                st.session_state.kiroshi_chat_history.append(
+                    {"role": "user", "content": user_msg}
+                )
+                st.session_state.kiroshi_chat_history.append(
+                    {"role": "assistant", "content": reply}
+                )
+            save_memory(st.session_state.kiroshi_chat_history)
             st.rerun()
-    if st.button("Clear memory", key=global_widget_key("atom_clear")):
-        st.session_state.atom_history = []
+    if st.button("Clear memory", key=global_widget_key("kiroshi_clear")):
+        st.session_state.kiroshi_chat_history = []
         save_memory([])
         st.rerun()
 
@@ -5639,7 +5632,7 @@ def render_smart_aid_panel() -> None:
         "Capture supervisor feedback once and let every AI feature remind you about it automatically."
     )
 
-    default_areas = ["AI Assistance", "Quick Actions", "A.A.T.O.M. Chat"]
+    default_areas = ["AI Assistance", "Quick Actions", "Kiroshi Chat"]
     supervisor_key = global_widget_key("smart_supervisor")
     feedback_key = global_widget_key("smart_feedback")
     areas_key = global_widget_key("smart_areas")
@@ -5656,7 +5649,7 @@ def render_smart_aid_panel() -> None:
         "Where should this reminder apply?",
         default_areas,
         default=default_areas,
-        help="Smart Aid keeps a single memory shared with AI Assistance, Quick Actions, and A.A.T.O.M.",
+        help="Smart Aid keeps a single memory shared with AI Assistance, Quick Actions, and Kiroshi Chat.",
         key=areas_key,
     )
 
@@ -5680,7 +5673,7 @@ def render_smart_aid_panel() -> None:
             notes = get_assistant_notes()
             notes.append(note)
             set_assistant_notes(notes)
-            save_memory(st.session_state.atom_history)
+            save_memory(st.session_state.kiroshi_chat_history)
             st.success("Calibration saved to unified memory.")
             st.session_state[feedback_key] = ""
             st.session_state[supervisor_key] = ""
@@ -5721,7 +5714,7 @@ def render_smart_aid_panel() -> None:
                 if st.button("Remove", key=remove_key):
                     remaining = [n for n in notes if n.get("id") != note.get("id")]
                     set_assistant_notes(remaining)
-                    save_memory(st.session_state.atom_history)
+                    save_memory(st.session_state.kiroshi_chat_history)
                     st.rerun()
         memory_preview = build_assistant_memory_prompt()
         if memory_preview:
@@ -8075,7 +8068,7 @@ def render_case_ui(case_idx: int):
                     try:
                         reply = invoke_gpt(
                             user_message,
-                            st.session_state.atom_history,
+                            st.session_state.kiroshi_chat_history,
                             api_key,
                             model,
                             base_url,
@@ -8085,9 +8078,9 @@ def render_case_ui(case_idx: int):
                         logging.error("AI Assist request failed: %s", e)
                         st.error(str(e))
                     else:
-                        st.session_state.atom_history.append({"role": "user", "content": user_message})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
+                        st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ai_assist_result = reply
                         suggestions = None
                         try:
@@ -8184,7 +8177,7 @@ def render_case_ui(case_idx: int):
                         try:
                             reply = invoke_gpt(
                                 user_message,
-                                st.session_state.atom_history,
+                                st.session_state.kiroshi_chat_history,
                                 api_key,
                                 model,
                                 base_url,
@@ -8194,9 +8187,9 @@ def render_case_ui(case_idx: int):
                             logging.error("Categorize request failed: %s", e)
                             st.error(str(e))
                         else:
-                            st.session_state.atom_history.append({"role": "user", "content": user_message})
-                            st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                            save_memory(st.session_state.atom_history)
+                            st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
+                            st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
+                            save_memory(st.session_state.kiroshi_chat_history)
                             st.session_state.categorizer_result = reply
             if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
                 logging.info("Ask button clicked")
@@ -8228,7 +8221,7 @@ def render_case_ui(case_idx: int):
                     try:
                         reply = invoke_gpt(
                             user_message,
-                            st.session_state.atom_history,
+                            st.session_state.kiroshi_chat_history,
                             api_key,
                             model,
                             base_url,
@@ -8238,9 +8231,9 @@ def render_case_ui(case_idx: int):
                         logging.error("Ask request failed: %s", e)
                         st.error(str(e))
                     else:
-                        st.session_state.atom_history.append({"role": "user", "content": user_message})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
+                        st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ask_result = reply
             if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
                 logging.info("Verify button clicked")
@@ -8269,7 +8262,7 @@ def render_case_ui(case_idx: int):
                     try:
                         reply = invoke_gpt(
                             user_message,
-                            st.session_state.atom_history,
+                            st.session_state.kiroshi_chat_history,
                             api_key,
                             model,
                             base_url,
@@ -8279,9 +8272,9 @@ def render_case_ui(case_idx: int):
                         logging.error("Verify request failed: %s", e)
                         st.error(str(e))
                     else:
-                        st.session_state.atom_history.append({"role": "user", "content": user_message})
-                        st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                        save_memory(st.session_state.atom_history)
+                        st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.verify_result = reply
 
         popover_fn = getattr(st, "popover", None)
@@ -8356,13 +8349,13 @@ def render_case_ui(case_idx: int):
 
         if st.session_state.verify_result:
             st.text_area(
-                "A.A.T.O.M. Verification",
+                "Kiroshi Verification",
                 st.session_state.verify_result,
                 height=note_height,
             )
         if st.session_state.ask_result:
             st.text_area(
-                "A.A.T.O.M. Suggestions",
+                "Kiroshi Suggestions",
                 st.session_state.ask_result,
                 height=note_height,
             )
@@ -9165,7 +9158,7 @@ Thank you in advance,
                                     augmented_prompt += "\n\n" + "\n".join(extras)
                                 reply = invoke_gpt(
                                     augmented_prompt,
-                                    st.session_state.atom_history,
+                                    st.session_state.kiroshi_chat_history,
                                     api_key,
                                     model,
                                     base_url,
@@ -9175,9 +9168,9 @@ Thank you in advance,
                                 logging.error("GPT-OSS email generation failed: %s", e)
                                 st.error(str(e))
                             else:
-                                st.session_state.atom_history.append({"role": "user", "content": augmented_prompt})
-                                st.session_state.atom_history.append({"role": "assistant", "content": reply})
-                                save_memory(st.session_state.atom_history)
+                                st.session_state.kiroshi_chat_history.append({"role": "user", "content": augmented_prompt})
+                                st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
+                                save_memory(st.session_state.kiroshi_chat_history)
                                 st.session_state.generated_email = reply
                                 st.session_state[generated_email_key] = reply
                 st.session_state.generated_email = st.text_area(
@@ -9793,10 +9786,10 @@ case_labels = [
 tab_labels: list[str] = ["Dashboard", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
-show_atom_chat = st.session_state.get("show_atom_chat", True)
+show_kiroshi_chat = st.session_state.get("show_kiroshi_chat", True)
 tab_labels.append("Report")
-if show_atom_chat:
-    tab_labels.append("A.A.T.O.M. Chat")
+if show_kiroshi_chat:
+    tab_labels.append("Kiroshi Chat")
 tab_labels += case_labels
 all_tabs = st.tabs(tab_labels)
 
@@ -9814,9 +9807,9 @@ if st.session_state.debug_mode:
 with all_tabs[tab_index]:
     render_report_panel()
 tab_index += 1
-if show_atom_chat:
+if show_kiroshi_chat:
     with all_tabs[tab_index]:
-        render_atom_chat_panel()
+        render_kiroshi_chat_panel()
     tab_index += 1
 
 case_tabs = all_tabs[tab_index:]
