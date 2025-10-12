@@ -109,6 +109,14 @@ comma-separated list of relative paths (for example, `tools/streamlit` or
 `src/app`). The update checker will prefer these overrides before falling back
 to the auto-discovery heuristics.
 
+When the update repository is private, configure a personal access token via
+`KIROSHI_UPDATE_GITHUB_TOKEN`. The token is only used for the GitHub API calls
+that discover the application path, fetch the latest commit metadata, and
+download the remote `case_documentation_app.py` source so the version marker
+can be inspected. Without this credential GitHub responds with HTTP 404 for
+private repositories, which prevents the update panel from determining the
+latest available release.
+
 ## Building the desktop executable
 
 The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it

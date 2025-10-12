@@ -21,6 +21,7 @@ from pathlib import Path
 import hashlib
 import re
 import base64
+import binascii
 import random
 import subprocess
 import sys
@@ -209,6 +210,8 @@ APP_ROOT = Path(__file__).resolve().parent
 # "Unable to retrieve remote version" warning on startup.
 DEFAULT_UPDATE_REPO = "Anoth3rHellsing/KiroshiDocumentationSystem"
 DEFAULT_UPDATE_BRANCH = "main"
+GITHUB_TOKEN_ENV_VAR = "KIROSHI_UPDATE_GITHUB_TOKEN"
+GITHUB_API_VERSION = "2022-11-28"
 try:
     UPDATE_CHECK_TIMEOUT = float(os.environ.get("KIROSHI_UPDATE_TIMEOUT", "15"))
 except (TypeError, ValueError):
@@ -447,6 +450,22 @@ def _resolve_update_target() -> tuple[str, str]:
     return repo, branch
 
 
+def _get_update_token() -> str:
+    """Return the GitHub token configured for update checks, if any."""
+
+    return os.environ.get(GITHUB_TOKEN_ENV_VAR, "").strip()
+
+
+def _build_github_headers(*, accept: str = "application/vnd.github+json") -> dict[str, str]:
+    """Return standard headers for GitHub API requests."""
+
+    headers = {"Accept": accept, "X-GitHub-Api-Version": GITHUB_API_VERSION}
+    token = _get_update_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def _discover_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     """Inspect the Git tree and yield locations of the Streamlit entry point.
 
@@ -461,7 +480,7 @@ def _discover_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     """
 
     api_url = f"https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
-    headers = {"Accept": "application/vnd.github+json"}
+    headers = _build_github_headers()
     try:
         response = requests.get(
             api_url,
@@ -526,15 +545,60 @@ def _iter_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     )
 
 
+def _download_remote_app_source(repo: str, branch: str, path: str) -> str:
+    """Return the text contents of ``case_documentation_app.py`` from GitHub."""
+
+    token = _get_update_token()
+    if token:
+        api_url = f"https://api.github.com/repos/{repo}/contents/{path}"
+        response = requests.get(
+            api_url,
+            headers=_build_github_headers(),
+            params={"ref": branch},
+            timeout=UPDATE_CHECK_TIMEOUT,
+            verify=False,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            encoding = payload.get("encoding")
+            content = payload.get("content")
+            if encoding == "base64" and isinstance(content, str):
+                try:
+                    decoded = base64.b64decode(content, validate=True)
+                except (binascii.Error, ValueError):  # pragma: no cover - defensive
+                    decoded = base64.b64decode(content)
+                return decoded.decode("utf-8", "replace")
+            download_url = payload.get("download_url")
+            if isinstance(download_url, str):
+                download_headers = _build_github_headers(
+                    accept="application/vnd.github.raw"
+                )
+                response = requests.get(
+                    download_url,
+                    headers=download_headers,
+                    timeout=UPDATE_CHECK_TIMEOUT,
+                    verify=False,
+                )
+                response.raise_for_status()
+                return response.text
+        raise RuntimeError(
+            "Unexpected payload returned when downloading application source."
+        )
+
+    raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
+    response.raise_for_status()
+    return response.text
+
+
 def _fetch_remote_version(repo: str, branch: str) -> str:
     candidate_paths = list(dict.fromkeys(_iter_remote_app_paths(repo, branch)))
 
     last_error: Exception | None = None
     for path in candidate_paths:
-        raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
         try:
-            response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
-            response.raise_for_status()
+            source = _download_remote_app_source(repo, branch, path)
         except requests.HTTPError as exc:
             # If the file is not present at this location, try the next candidate.
             if exc.response is not None and exc.response.status_code == 404:
@@ -544,8 +608,11 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
         except requests.RequestException as exc:  # pragma: no cover - network errors
             last_error = exc
             continue
+        except RuntimeError as exc:
+            last_error = exc
+            continue
 
-        match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
+        match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", source, re.MULTILINE)
         if not match:
             raise RuntimeError("VERSION marker not found in remote application source.")
         return match.group(1).strip()
@@ -560,7 +627,7 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
 
 def _fetch_latest_commit_info(repo: str, branch: str) -> dict[str, str | None]:
     api_url = f"https://api.github.com/repos/{repo}/commits/{branch}"
-    headers = {"Accept": "application/vnd.github+json"}
+    headers = _build_github_headers()
     response = requests.get(
         api_url,
         headers=headers,
