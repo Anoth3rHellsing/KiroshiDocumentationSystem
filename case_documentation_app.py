@@ -8056,14 +8056,28 @@ def render_case_ui(case_idx: int):
                             )
                     else:
                         st.session_state.ai_learning_matches = []
+                    tone_directive = (
+                        "Reply with a dry, witty, and sarcastic tone while staying professional and helpful."
+                        if st.session_state.get("kiroshi_sarcasm_mode", False)
+                        else "Use clear, professional language that is easy to follow."
+                    )
                     user_message = (
                         learning_context
-                        + "Use the available case data to infer values for missing fields."
-                        " Return a JSON object mapping field names to inferred values."
-                        " Omit fields that cannot be inferred.\n\n"
-                        + json.dumps(case_dict, indent=2)
-                        + "\nMissing fields:\n"
-                        + json.dumps(missing)
+                        + "You are Kiroshi, an experienced support case assistant."
+                        " Review the case details below and provide a concise, human-readable guidance summary."
+                        f" {tone_directive}"
+                        " Focus on the most relevant insights from the case data.\n\n"
+                        "Your response must be plain language (no JSON) and include:\n"
+                        "- A brief summary of the case context.\n"
+                        "- Likely root cause or contributing factors, even if tentative.\n"
+                        "- Recommended solution steps and follow-up actions.\n"
+                        "- Remote or on-site verification steps when appropriate.\n"
+                        "- Any helpful extra context, cautions, or reminders.\n"
+                        "Keep the guidance under 220 words.\n\n"
+                        "CASE DATA:\n"
+                        + json.dumps(case_dict, indent=2, ensure_ascii=False)
+                        + "\nMISSING OR UNCERTAIN FIELDS:\n"
+                        + json.dumps(missing, ensure_ascii=False)
                     )
                     try:
                         reply = invoke_gpt(
@@ -8082,29 +8096,6 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ai_assist_result = reply
-                        suggestions = None
-                        try:
-                            suggestions = json.loads(reply)
-                        except json.JSONDecodeError:
-                            match = re.search(
-                                r"```(?:json)?\s*(\{.*?\})\s*```",
-                                reply,
-                                re.DOTALL,
-                            )
-                            if not match:
-                                match = re.search(r"\{.*\}", reply, re.DOTALL)
-                            if match:
-                                try:
-                                    suggestions = json.loads(match.group(1) if match.lastindex else match.group())
-                                except json.JSONDecodeError:
-                                    pass
-                        if suggestions is None:
-                            st.error("AI Assistance did not return valid JSON.")
-                        else:
-                            for fld, val in suggestions.items():
-                                if hasattr(D, fld) and not getattr(D, fld):
-                                    setattr(D, fld, val)
-                            autosave()
             if educate_enabled and advanced_enabled:
                 matches = st.session_state.get("ai_learning_matches", [])
                 if matches:
@@ -8360,12 +8351,8 @@ def render_case_ui(case_idx: int):
                 height=note_height,
             )
         if st.session_state.ai_assist_result:
-            st.text_area(
-                "AI Assistance",
-                st.session_state.ai_assist_result,
-                height=note_height,
-                key=widget_key("ai_assist_output", case_idx),
-            )
+            st.markdown("#### AI Assistance")
+            st.markdown(st.session_state.ai_assist_result)
         prog, miss = compute_progress(D, cat_map)
         if compact_mode:
             right = st.container()
