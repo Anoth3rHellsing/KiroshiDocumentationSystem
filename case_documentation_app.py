@@ -8352,12 +8352,14 @@ def render_case_ui(case_idx: int):
                 "Kiroshi Verification",
                 st.session_state.verify_result,
                 height=note_height,
+                key=widget_key("kiroshi_verification", case_idx),
             )
         if st.session_state.ask_result:
             st.text_area(
                 "Kiroshi Suggestions",
                 st.session_state.ask_result,
                 height=note_height,
+                key=widget_key("kiroshi_suggestions", case_idx),
             )
         if st.session_state.ai_assist_result:
             st.text_area(
