@@ -129,19 +129,19 @@ set "PS1_FILE=%TEMP%\mk_kiroshi_cmd_launchers.ps1"
 >>"%PS1_FILE%" echo ^  }
 >>"%PS1_FILE%" echo }
 >>"%PS1_FILE%" echo 
->>"%PS1_FILE%" echo # Also generate A.A.T.O.M. Chat launchers if aatom_chat.py exists
->>"%PS1_FILE%" echo if(Test-Path (Join-Path $Dest 'aatom_chat.py')){
+>>"%PS1_FILE%" echo # Also generate Kiroshi Chat launchers if kiroshi_chat.py exists
+>>"%PS1_FILE%" echo if(Test-Path (Join-Path $Dest 'kiroshi_chat.py')){
 >>"%PS1_FILE%" echo ^  $content2 = @"
 >>"%PS1_FILE%" echo @echo off
 >>"%PS1_FILE%" echo cd /d ""$Dest""
 >>"%PS1_FILE%" echo if exist ".venv\Scripts\streamlit.exe" ^(
->>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\streamlit.exe" run aatom_chat.py
+>>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\streamlit.exe" run kiroshi_chat.py
 >>"%PS1_FILE%" echo ^) else ^(
->>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\python.exe" -m streamlit run aatom_chat.py
+>>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\python.exe" -m streamlit run kiroshi_chat.py
 >>"%PS1_FILE%" echo ^)
 >>"%PS1_FILE%" echo "@
 >>"%PS1_FILE%" echo ^  foreach($p in $Paths){
->>"%PS1_FILE%" echo ^    $p2 = [IO.Path]::Combine([IO.Path]::GetDirectoryName($p), 'Kiroshi AATOM Chat.cmd')
+>>"%PS1_FILE%" echo ^    $p2 = [IO.Path]::Combine([IO.Path]::GetDirectoryName($p), 'Kiroshi Chat.cmd')
 >>"%PS1_FILE%" echo ^    Set-Content -Path $p2 -Value $content2 -Encoding ASCII
 >>"%PS1_FILE%" echo ^    Write-Output "Created CMD: $p2"
 >>"%PS1_FILE%" echo ^  }
