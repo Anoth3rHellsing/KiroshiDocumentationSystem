@@ -3041,6 +3041,7 @@ _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
 _init_state("ask_result", "")
 _init_state("categorizer_result", "")
+_init_state("categorizer_summary", {})
 _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
@@ -3688,9 +3689,21 @@ def clear_case_state(idx: int) -> None:
         st.session_state.screenshots = []
         st.session_state.scratch = ""
         st.session_state[widget_key("scratch", idx)] = ""
-        for key in ("ai_assist_result", "verify_result", "ask_result", "categorizer_result"):
+        for key in (
+            "ai_assist_result",
+            "verify_result",
+            "ask_result",
+            "categorizer_result",
+            "categorizer_summary",
+        ):
             if key in st.session_state:
-                st.session_state[key] = "" if isinstance(st.session_state.get(key), str) else []
+                value = st.session_state.get(key)
+                if isinstance(value, str):
+                    st.session_state[key] = ""
+                elif isinstance(value, dict):
+                    st.session_state[key] = {}
+                else:
+                    st.session_state[key] = []
         st.session_state.ai_learning_matches = []
 
     ensure_tracking_session_defaults(idx, new_case.tracking, force=True)
@@ -7794,6 +7807,86 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
     )
 
 
+def build_kiroshi_tone_directive() -> str:
+    """Return the active voice directive for Kiroshi's responses."""
+
+    if st.session_state.get("kiroshi_sarcasm_mode", False):
+        return "Reply with a dry, witty, and sarcastic tone while staying professional and helpful."
+    return "Use clear, professional language that is easy to follow."
+
+
+def parse_categorizer_summary(text: str) -> dict[str, str]:
+    """Extract categorization fields from the quick action output."""
+
+    summary: dict[str, str] = {}
+    if not text:
+        return summary
+    try:
+        data = json.loads(text)
+    except Exception:
+        data = None
+    if isinstance(data, Mapping):
+        product = str(data.get("product", ""))
+        topic = str(data.get("topic", ""))
+        subtopic = data.get("subtopic")
+        if subtopic in (None, "None"):
+            subtopic_str = ""
+        else:
+            subtopic_str = str(subtopic)
+        summary.update(
+            {
+                "product": product,
+                "topic": topic,
+                "subtopic": subtopic_str,
+            }
+        )
+        if "confidence" in data:
+            summary["confidence"] = str(data.get("confidence"))
+        signals = data.get("signals_used") or data.get("signals")
+        if isinstance(signals, (list, tuple)):
+            summary["signals"] = ", ".join(str(item) for item in signals if item)
+        elif isinstance(signals, str):
+            summary["signals"] = signals
+        return summary
+
+    in_block = False
+    pattern = re.compile(
+        r"^(?:[-*]\s*)?(product|topic|subtopic|confidence|signals?|key signals?)\s*[:：]\s*(.+)$",
+        re.IGNORECASE,
+    )
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if not in_block and line.lower().startswith("classification summary"):
+            in_block = True
+            continue
+        match = pattern.match(line)
+        if match:
+            in_block = True
+            key = match.group(1).lower()
+            value = match.group(2).strip()
+            if key.startswith("signal"):
+                summary["signals"] = value
+            else:
+                summary[key] = value
+            continue
+        if in_block and not raw_line.startswith((" ", "\t", "-", "*")):
+            # Exit once the summary section ends.
+            break
+
+    subtopic_value = summary.get("subtopic")
+    if isinstance(subtopic_value, str) and subtopic_value.lower() in {
+        "none",
+        "n/a",
+        "null",
+        "not applicable",
+        "no subtopic",
+    }:
+        summary["subtopic"] = ""
+    return summary
+
+
 def make_pdf(d: CaseData, cat_map) -> bytes:
     """Generate a PDF summary of the case details."""
     buf = io.BytesIO()
@@ -7830,13 +7923,13 @@ def make_pdf(d: CaseData, cat_map) -> bytes:
 
 def make_tables_pdf(d: CaseData) -> bytes:
     """Generate a PDF with key case information for the Tables tab."""
-    try:
-        cat = json.loads(st.session_state.categorizer_result or "{}")
-    except Exception:
-        cat = {}
-    product = cat.get("product", "")
-    topic = cat.get("topic", "")
-    subtopic = cat.get("subtopic", "") or ""
+    summary = st.session_state.get("categorizer_summary")
+    if not summary:
+        summary = parse_categorizer_summary(st.session_state.get("categorizer_result", ""))
+        st.session_state.categorizer_summary = summary
+    product = summary.get("product", "")
+    topic = summary.get("topic", "")
+    subtopic = summary.get("subtopic", "") or ""
     fields = [
         ("Reportable", "No"),
         ("Product Family", product),
@@ -8056,14 +8149,24 @@ def render_case_ui(case_idx: int):
                             )
                     else:
                         st.session_state.ai_learning_matches = []
+                    tone_directive = build_kiroshi_tone_directive()
                     user_message = (
                         learning_context
-                        + "Use the available case data to infer values for missing fields."
-                        " Return a JSON object mapping field names to inferred values."
-                        " Omit fields that cannot be inferred.\n\n"
-                        + json.dumps(case_dict, indent=2)
-                        + "\nMissing fields:\n"
-                        + json.dumps(missing)
+                        + "You are Kiroshi, an experienced support case assistant."
+                        " Review the case details below and provide a concise, human-readable guidance summary."
+                        f" {tone_directive}"
+                        " Focus on the most relevant insights from the case data.\n\n"
+                        "Your response must be plain language (no JSON) and include:\n"
+                        "- A brief summary of the case context.\n"
+                        "- Likely root cause or contributing factors, even if tentative.\n"
+                        "- Recommended solution steps and follow-up actions.\n"
+                        "- Remote or on-site verification steps when appropriate.\n"
+                        "- Any helpful extra context, cautions, or reminders.\n"
+                        "Keep the guidance under 220 words.\n\n"
+                        "CASE DATA:\n"
+                        + json.dumps(case_dict, indent=2, ensure_ascii=False)
+                        + "\nMISSING OR UNCERTAIN FIELDS:\n"
+                        + json.dumps(missing, ensure_ascii=False)
                     )
                     try:
                         reply = invoke_gpt(
@@ -8082,29 +8185,6 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ai_assist_result = reply
-                        suggestions = None
-                        try:
-                            suggestions = json.loads(reply)
-                        except json.JSONDecodeError:
-                            match = re.search(
-                                r"```(?:json)?\s*(\{.*?\})\s*```",
-                                reply,
-                                re.DOTALL,
-                            )
-                            if not match:
-                                match = re.search(r"\{.*\}", reply, re.DOTALL)
-                            if match:
-                                try:
-                                    suggestions = json.loads(match.group(1) if match.lastindex else match.group())
-                                except json.JSONDecodeError:
-                                    pass
-                        if suggestions is None:
-                            st.error("AI Assistance did not return valid JSON.")
-                        else:
-                            for fld, val in suggestions.items():
-                                if hasattr(D, fld) and not getattr(D, fld):
-                                    setattr(D, fld, val)
-                            autosave()
             if educate_enabled and advanced_enabled:
                 matches = st.session_state.get("ai_learning_matches", [])
                 if matches:
@@ -8144,35 +8224,30 @@ def render_case_ui(case_idx: int):
                             },
                             "full_case": case_dict,
                         }
-                        output_schema = """{
-    "product": "string",
-    "topic": "string",
-    "subtopic": "string|null",
-    "confidence": 0.0,
-    "reason": "string",
-    "signals_used": ["string", ...],
-    "top_3_alternatives": [
-    {"product":"", "topic":"", "subtopic":null, "why":""},
-    {"product":"", "topic":"", "subtopic":null, "why":""},
-    {"product":"", "topic":"", "subtopic":null, "why":""}
-    ]
-    }"""
+                        tone_directive = build_kiroshi_tone_directive()
                         user_message = (
-                            "Kiroshi Categorizer, an assistant that classifies 3Shape support cases into exactly one path Product → Topic → (Subtopic) from an allowed taxonomy.\n"
-                            "Your job: read the case, extract signals (keywords, logs, artefacts), and output STRICT JSON following the schema.\n\n"
-                            "Taxonomy (authoritative)\n\n"
-                            "Use ONLY these categories and definitions. If something does not fit perfectly, choose the closest one and lower confidence.\n\n"
-                            f"ALLOWED_CATEGORIES_WITH_DEFINITIONS:\n{taxonomy_block}\n\n"
-                            "Signals dictionary (hints)\n\n"
-                            "Use these signals to boost the right category, but DO NOT hardcode; still decide using the whole context.\n\n"
-                            f"SIGNALS_CONFIG:\n{signals_config}\n\n"
-                            "Output format (STRICT JSON only)\n\n"
-                            "Return ONLY this JSON (no markdown, no prose outside JSON):\n"
-                            f"{output_schema}\n\n"
-                            "Case to classify (runtime payload)\n\n"
-                            f"CASE_INPUT:\n{json.dumps(case_input, indent=2, ensure_ascii=False)}\n\n"
-                            "Return\n\n"
-                            "Return ONLY the STRICT JSON described above. No extra text, no markdown."
+                            "You are Kiroshi, the categorization specialist for 3Shape support. "
+                            f"{tone_directive} Review the case information below and choose the best Product → Topic → (Subtopic) path from the provided taxonomy.\n\n"
+                            "Guidelines:\n"
+                            "- Consider the signals list as hints, but rely on the full context when selecting a category.\n"
+                            "- Mention why the recommended category fits and note any uncertainties.\n"
+                            "- Suggest up to two alternative categories if the match is imperfect, explaining why.\n"
+                            "- Recommend evidence or follow-up checks that would confirm the choice.\n"
+                            "Respond in natural language (no JSON).\n\n"
+                            "Structure the answer with short sections:\n"
+                            "1. Case Snapshot – summarize the situation.\n"
+                            "2. Recommended Path – clearly state Product → Topic → Subtopic.\n"
+                            "3. Supporting Signals – bullet the key clues that led to the decision.\n"
+                            "4. Alternatives – list optional backups if relevant, otherwise state None.\n"
+                            "Finish with a 'Classification Summary' block on separate lines using exactly this format:\n"
+                            "Product: <product>\nTopic: <topic>\nSubtopic: <subtopic or None>\nConfidence: <confidence level>\nSignals: <comma-separated highlights>\n"
+                            "Keep the entire response under 220 words. If a subtopic is not applicable, write None.\n\n"
+                            "Authoritative taxonomy:\n"
+                            f"{taxonomy_block}\n\n"
+                            "Signals reference:\n"
+                            f"{signals_config}\n\n"
+                            "Case input:\n"
+                            f"{json.dumps(case_input, indent=2, ensure_ascii=False)}"
                         )
                         try:
                             reply = invoke_gpt(
@@ -8191,6 +8266,7 @@ def render_case_ui(case_idx: int):
                             st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                             save_memory(st.session_state.kiroshi_chat_history)
                             st.session_state.categorizer_result = reply
+                            st.session_state.categorizer_summary = parse_categorizer_summary(reply)
             if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
@@ -8212,11 +8288,28 @@ def render_case_ui(case_idx: int):
                         ]:
                             case_dict.pop(fld, None)
                     findings = st.session_state.verify_result
+                    tone_directive = build_kiroshi_tone_directive()
+                    findings_context = (
+                        "Incorporate these verification notes when suggesting actions:\n"
+                        f"{findings}\n\n"
+                        if findings
+                        else ""
+                    )
                     user_message = (
-                        "Based on the following case data"
-                        + (f" and previous findings: {findings}" if findings else "")
-                        + ", suggest possible steps to fix the issue along with recommendations, tips, and tricks.\n\n"
-                        + json.dumps(case_dict, indent=2)
+                        f"You are Kiroshi, an experienced support engineer. {tone_directive} "
+                        "Review the support case details below and craft actionable help for the frontline agent.\n"
+                    )
+                    user_message += findings_context
+                    user_message += (
+                        "Respond with clear, plain-language guidance (no JSON) that includes:\n"
+                        "- A quick recap of the customer's situation.\n"
+                        "- The most plausible causes or contributing factors.\n"
+                        "- Concrete troubleshooting or remediation steps in logical order.\n"
+                        "- Remote or on-site checks the agent should perform or request.\n"
+                        "- Helpful reminders, cautions, or follow-up actions.\n"
+                        "Keep the reply under 220 words.\n\n"
+                        "CASE DATA:\n"
+                        f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
                     try:
                         reply = invoke_gpt(
@@ -8255,9 +8348,18 @@ def render_case_ui(case_idx: int):
                             "esc_email",
                         ]:
                             case_dict.pop(fld, None)
+                    tone_directive = build_kiroshi_tone_directive()
                     user_message = (
-                        "Review the following case data and list any missing or incomplete information needed to complete the case documentation. Also suggest clearer vocabulary if any terms are confusing.\n\n"
-                        + json.dumps(case_dict, indent=2)
+                        f"You are Kiroshi, an experienced support case reviewer. {tone_directive} "
+                        "Examine the case information below and help the agent finish the documentation.\n"
+                        "Provide a plain-language response (no JSON) that includes:\n"
+                        "- Specific fields that are missing, incomplete, or contradictory.\n"
+                        "- Questions to ask the customer or reseller to gather the gaps.\n"
+                        "- Clearer terminology or phrasing to replace confusing wording.\n"
+                        "- Any reminders about mandatory fields, evidence, or follow-up actions.\n"
+                        "Keep everything concise and under 200 words.\n\n"
+                        "CASE DATA:\n"
+                        f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
                     try:
                         reply = invoke_gpt(
@@ -8345,27 +8447,15 @@ def render_case_ui(case_idx: int):
         st.markdown("</div>", unsafe_allow_html=True)
 
         compact_mode = st.session_state.get("case_compact_mode", False)
-        note_height = 96 if compact_mode else 150
-
         if st.session_state.verify_result:
-            st.text_area(
-                "Kiroshi Verification",
-                st.session_state.verify_result,
-                height=note_height,
-            )
+            st.markdown("#### Kiroshi Verification")
+            st.markdown(st.session_state.verify_result)
         if st.session_state.ask_result:
-            st.text_area(
-                "Kiroshi Suggestions",
-                st.session_state.ask_result,
-                height=note_height,
-            )
+            st.markdown("#### Kiroshi Suggestions")
+            st.markdown(st.session_state.ask_result)
         if st.session_state.ai_assist_result:
-            st.text_area(
-                "AI Assistance",
-                st.session_state.ai_assist_result,
-                height=note_height,
-                key=widget_key("ai_assist_output", case_idx),
-            )
+            st.markdown("#### AI Assistance")
+            st.markdown(st.session_state.ai_assist_result)
         prog, miss = compute_progress(D, cat_map)
         if compact_mode:
             right = st.container()
@@ -8646,12 +8736,11 @@ def render_case_ui(case_idx: int):
                     st.code(hotkey_script, language="autohotkey")
                 if st.session_state.categorizer_result:
                     st.subheader("Kiroshi Categorizer")
-                    st.text_area(
-                        "Categorization Output",
-                        st.session_state.categorizer_result,
-                        height=150,
-                        key=widget_key("categorizer_output", case_idx),
-                    )
+                    st.markdown(st.session_state.categorizer_result)
+                    if not st.session_state.get("categorizer_summary"):
+                        st.session_state.categorizer_summary = parse_categorizer_summary(
+                            st.session_state.categorizer_result
+                        )
 
             if email_type == "Broken Tip":
                 st.markdown("#### Damaged tip questionnaire")
