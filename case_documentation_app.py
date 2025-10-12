@@ -1209,16 +1209,6 @@ KIROSHI_QUIPS_GENERAL = [
     "Doing nothing is hard. You never know when you’re done!",
     "Fresh patch notes: +10 sarcasm, +5 empathy, -3 patience.",
     "We have a case volcano situation. Magma level: simmering sarcasm.",
-    "Night City called; it wants its overtime back.",
-    "Johnny Silverhand tried to smash the backlog; it respawned.",
-    "These patch notes read like a braindance transcript.",
-    "If Kiroshi optics can see Night City, they still can’t find your missing PTO.",
-    "We’ve got more gigs queued than V on a fixer speed dial.",
-    "Cyberdeck diagnostics say we’re overdue for a break; the schedule disagrees.",
-    "Night City rumor: Kiroshi optics named an implant after me; still no royalty check.",
-    "If Kojima directed this sprint, the kanban board would have four plot twists per card.",
-    "Death Stranding called; it wants its delivery grind back from our ticket queue.",
-    "Our backlog cliffhanger has more reveals than a Kojima post-credits scene.",
 ]
 
 KIROSHI_QUIPS_AI_VOICE = [
@@ -1262,16 +1252,6 @@ KIROSHI_QUIPS_AI_VOICE = [
     "Kiroshi scoreboard: The sarcasm toggle is there so you can't say you weren't warned.",
     "Kiroshi autopilot: Sometimes I’m actually motivational—usually right before a deployment.",
     "Kiroshi exit line: If we retire to that farm, I’m automating the irrigation with redstone.",
-    "Kiroshi system log: apparently my namesake makes cybernetic eyes—now I want ray tracing for our UI.",
-    "Kiroshi to user: Johnny Silverhand keeps screaming to burn the backlog; I muted him at 40%.",
-    "Kiroshi patch note: I decoded these requirements like a braindance so you don’t have to.",
-    "Kiroshi optics lament: the implant division gets neon billboards; I get your half-finished drafts.",
-    "Kiroshi fixer mode: I scheduled more gigs for you than Wakako—consider me sarcastically impressed.",
-    "Kiroshi burnout alert: slot a chrome break into the planner before you flatline on keyboard.",
-    "Kiroshi diagnostic: yes, my name is lifted from those Cyberpunk optics—I’m the sarcastic firmware edition.",
-    "Kiroshi narration: if Kojima wrote our stand-ups, I’d be the codec voice whispering exposition between sarcasm.",
-    "Kiroshi delivery log: hauling cases like Sam Porter Bridges, minus the cool backpack.",
-    "Kiroshi epilogue: plot twist achieved—while you read this, I finished the report and toggled your sarcasm mode for emphasis.",
 ]
 
 KIROSHI_MESSAGES: list[str] = []
