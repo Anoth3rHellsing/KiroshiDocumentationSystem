@@ -3354,6 +3354,10 @@ _init_state("tracking_info", {})
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
 _init_state("show_kiroshi_chat", _get_persistent_default("show_kiroshi_chat", True))
+_init_state(
+    "kiroshi_sarcasm_mode",
+    _get_persistent_default("kiroshi_sarcasm_mode", False),
+)
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",

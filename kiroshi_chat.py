@@ -379,12 +379,14 @@ def load_memory():
                 data = json.load(f)
                 st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
                 st.session_state["personality_mode"] = data.get("personality_mode", "utility")
+                st.session_state["kiroshi_sarcasm_mode"] = data.get("kiroshi_sarcasm_mode", False)
                 st.session_state["assistant_notes"] = _sanitize_notes(data.get("assistant_notes"))
                 return data.get("history", [])
         except Exception:
             pass
     st.session_state["system_prompt"] = SYSTEM_PROMPT
     st.session_state["personality_mode"] = "utility"
+    st.session_state["kiroshi_sarcasm_mode"] = False
     st.session_state["assistant_notes"] = []
     return []
 
@@ -398,6 +400,7 @@ def save_memory(history):
                     "history": history,
                     "system_prompt": st.session_state.get("system_prompt", SYSTEM_PROMPT),
                     "personality_mode": st.session_state.get("personality_mode", "utility"),
+                    "kiroshi_sarcasm_mode": st.session_state.get("kiroshi_sarcasm_mode", False),
                     "assistant_notes": get_assistant_notes(),
                 },
                 f,
