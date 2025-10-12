@@ -34,8 +34,9 @@ Coverage is actively tracked and the project receives daily updates.
 - **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
 - **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
 - **GPT-OSS integration (coming soon)** – send prompts directly to GPT-OSS and display the generated response.
-- **A.A.T.O.M. tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
-  gentle reassurance when you're overwhelmed, and humorous escalation quips.
+- **Kiroshi chat tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
+  gentle reassurance when you're overwhelmed, and humorous escalation quips. Toggle Sarcasm Mode in Settings when you want the
+  assistant to lean into extra wit.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
 - **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
   sessions.
@@ -218,8 +219,8 @@ this before and walk through the entire process from a clean machine.
    `http://localhost:8502/`, so adjust any bookmarks or firewall rules that
    referenced the default Streamlit port (`8501`).
 
-The PyInstaller spec bundles the companion `aatom_chat.py` module along with
-its saved-memory files and logos. This keeps the integrated A.A.T.O.M. chat
+The PyInstaller spec bundles the companion `kiroshi_chat.py` module along with
+its saved-memory files and logos. This keeps the integrated Kiroshi chat
 panel working in the compiled build and prevents `ModuleNotFoundError`
 crashes when the executable launches.
 
@@ -254,16 +255,16 @@ username and password `admin`.
 Multiple cases can be opened at once via the case tabs displayed at the bottom of the page. Use the **Add Case** tab to spawn a new
 blank case and switch between them for multitasking.
 
-Within the *Case* tab, the integrated A.A.T.O.M. assistant offers a **Verify** button to highlight missing documentation.
+Within the *Case* tab, the integrated Kiroshi assistant offers a **Verify** button to highlight missing documentation.
 
-To experiment with the A.A.T.O.M. chatbox, run the dedicated script:
+To experiment with the Kiroshi chatbox, run the dedicated script:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
-streamlit run aatom_chat.py
+streamlit run kiroshi_chat.py
 ```
 
-The chat history is saved to `atom_memory.json` so conversations persist across sessions.
+The chat history is saved to `kiroshi_memory.json` so conversations persist across sessions.
 
 For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for demonstration, and GPT-4o is selected by default
 for fast, high-quality responses. Replace the key or model with your own settings before generating an email.
@@ -400,7 +401,7 @@ Aunque cada equipo adapta Kiroshi a sus necesidades, la siguiente estructura fac
 | Carpeta | Contenido sugerido |
 |---------|--------------------|
 | `C:\Kiroshi\AHK\` | Scripts `.ahk` oficiales del equipo. |
-| `C:\Kiroshi\Shortcuts\` | Accesos directos para lanzar Kiroshi, el chat de A.A.T.O.M. y herramientas de soporte. |
+| `C:\Kiroshi\Shortcuts\` | Accesos directos para lanzar Kiroshi, el chat de Kiroshi y herramientas de soporte. |
 | `%AppData%\AutoHotkey\Lib\` | Funciones reutilizables (por ejemplo, manejo de ventanas Streamlit o plantillas de texto). |
 
 Guarda tus scripts firmados en `C:\Kiroshi\AHK\` y crea accesos directos a los que quieras iniciar con Windows en la carpeta *Startup*. Así todos los agentes tendrán la misma convención de rutas y podrás compartir actualizaciones fácilmente.

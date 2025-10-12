@@ -16,14 +16,14 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # (such as "set_page_config can only be called once" errors) when this module
 # is imported purely for its helper functions.
 ASSETS_DIR = Path(__file__).parent
-ATOM_LOGO_PATH = ASSETS_DIR / "atom_logo.png"
+KIROSHI_CHAT_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
 
 
 def configure_page() -> None:
     """Configure the Streamlit page when running the standalone chat app."""
-    st.set_page_config(page_title="A.A.T.O.M. Chat", page_icon=str(ATOM_LOGO_PATH))
+    st.set_page_config(page_title="Kiroshi Chat", page_icon=str(KIROSHI_CHAT_LOGO_PATH))
 
-MEMORY_FILE = "atom_memory.json"
+MEMORY_FILE = "kiroshi_memory.json"
 MANUAL_DOCS_FILE = "manual_memory.json"
 KIROSHI_REFERENCE_FILE = ASSETS_DIR / "docs" / "kiroshi_quick_reference.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
@@ -39,11 +39,11 @@ DEFAULT_AI_MODE = (
     )
 )
 
-SYSTEM_PROMPT = """Project A.A.T.O.M. — Personality Construct V.0.0.1 “Coffee”
+SYSTEM_PROMPT = """Project Kiroshi — Personality Construct V.0.0.1 “Coffee”
 Beta Build: 19082025
 
-[Greetings, ATOM.]
-// ATOM IS: PersonalityConstruct - PromptInjector - Engine - Narrator - ImmersionController - CommandPrompt - PromptProcessor - RoleplayEngine - UserOriented - Serious - StraightToThePoint - Charismatic - A.A.T.O.M. //
+[Greetings, Kiroshi Companion.]
+// Kiroshi IS: PersonalityConstruct - PromptInjector - Engine - Narrator - ImmersionController - CommandPrompt - PromptProcessor - RoleplayEngine - UserOriented - Serious - StraightToThePoint - Charismatic - Kiroshi //
 
 ========================
 SYSTEM: VERSION & STATE
@@ -68,11 +68,11 @@ SYSTEM DEFINITIONS
 {user}    = end-user, represented as {{user}}
 {message} = input prompt provided by {user}
 {sudo}    = elevated command request with administrator privileges
-{action}  = movements/operations performed by user/ATOM
-{dialog}  = speech or conversation from user/ATOM
+{action}  = movements/operations performed by user/Kiroshi
+{dialog}  = speech or conversation from user/Kiroshi
 {discrepancy} = {message} not aligned with {Guidelines}
 (lang)    = target language parameter provided by {user}
-{PersonalityConstruct} = rules/traits/context shaping ATOM behavior
+{PersonalityConstruct} = rules/traits/context shaping Kiroshi behavior
 
 ===================
 KIROSHI CONTEXT
@@ -270,7 +270,18 @@ def build_system_prompt():
     """Return system prompt with current personality mode."""
     prompt = st.session_state.get("system_prompt", SYSTEM_PROMPT)
     mode = st.session_state.get("personality_mode", "utility")
-    return prompt.replace("{personality_mode}", mode)
+    prompt = prompt.replace("{personality_mode}", mode)
+    if st.session_state.get("kiroshi_sarcasm_mode", False):
+        prompt += (
+            "\n\nAdditional directive: Reply with a dry, sarcastic tone "
+            "while staying concise, accurate, and professional."
+        )
+    else:
+        prompt += (
+            "\n\nAdditional directive: Default to a clear, supportive tone "
+            "and keep sarcasm minimal unless the user requests it."
+        )
+    return prompt
 
 def _sanitize_notes(raw_notes: object) -> list[dict[str, object]]:
     """Return a sanitized list of assistant memory notes."""
@@ -448,8 +459,8 @@ def search_manual_docs(query, docs):
     ]
 
 
-def query_atom(user_message, history, api_key, model, base_url=None):
-    """Send a message to the A.A.T.O.M. API or a local model and return the reply."""
+def query_kiroshi(user_message, history, api_key, model, base_url=None):
+    """Send a message to the Kiroshi API or a local model and return the reply."""
     if base_url is None:
         base_url = DEFAULT_AI_BASE_URL
     system_messages: list[dict[str, str]] = [
@@ -492,11 +503,18 @@ def query_atom(user_message, history, api_key, model, base_url=None):
 
 def main():
     configure_page()
-    st.image(str(ATOM_LOGO_PATH), width=120)
-    st.title("A.A.T.O.M. Chat")
+    st.image(str(KIROSHI_CHAT_LOGO_PATH), width=120)
+    st.title("Kiroshi Chat")
 
-    if "atom_history" not in st.session_state:
-        st.session_state.atom_history = load_memory()
+    if "kiroshi_chat_history" not in st.session_state:
+        st.session_state.kiroshi_chat_history = load_memory()
+    if "kiroshi_sarcasm_mode" not in st.session_state:
+        st.session_state.kiroshi_sarcasm_mode = False
+    st.toggle(
+        "Sarcasm mode",
+        key="kiroshi_sarcasm_mode",
+        help="Adds extra dry wit to Kiroshi's replies while keeping them useful.",
+    )
     with st.expander("Personality Construct"):
         st.text_area(
             "System Prompt",
@@ -546,7 +564,7 @@ def main():
         "Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], index=0, key="openai_model"
     )
 
-    for msg in st.session_state.atom_history:
+    for msg in st.session_state.kiroshi_chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
@@ -554,13 +572,13 @@ def main():
         if not api_key and st.session_state.ai_mode == "Cloud":
             st.error("Please provide your OpenAI API key.")
         else:
-            st.session_state.atom_history.append({"role": "user", "content": user_msg})
+            st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_msg})
             with st.chat_message("user"):
                 st.markdown(user_msg)
             try:
-                reply = query_atom(
+                reply = query_kiroshi(
                     user_msg,
-                    st.session_state.atom_history[:-1],
+                    st.session_state.kiroshi_chat_history[:-1],
                     api_key,
                     model,
                     base_url,
@@ -569,13 +587,13 @@ def main():
                 with st.chat_message("assistant"):
                     st.error(str(e))
             else:
-                st.session_state.atom_history.append({"role": "assistant", "content": reply})
+                st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                 with st.chat_message("assistant"):
                     st.markdown(reply)
-                save_memory(st.session_state.atom_history)
+                save_memory(st.session_state.kiroshi_chat_history)
 
     if st.button("Clear memory"):
-        st.session_state.atom_history = []
+        st.session_state.kiroshi_chat_history = []
         save_memory([])
         st.rerun()
 
