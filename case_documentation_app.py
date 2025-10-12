@@ -88,6 +88,7 @@ from kiroshi_chat import (
     get_assistant_notes,
     set_assistant_notes,
     build_assistant_memory_prompt,
+    build_system_prompt,
 )
 
 # Some corporate networks perform SSL interception with a self-signed
@@ -3576,20 +3577,33 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
 def _sync_case_memory_from_sessions() -> None:
     if "case_sessions" not in st.session_state:
         return
+    default_case_payload = asdict(CaseData())
     entries: list[dict[str, object]] = []
     for session in st.session_state.case_sessions:
         try:
             case_payload = asdict(session.case)
         except Exception:
             case_payload = {}
+        attachments_index = _normalise_attachments_index(
+            getattr(session, "attachments_index", {})
+        )
+        scratch_value = getattr(session, "scratch", "")
+        source_path = getattr(session, "source_path", "")
+        has_scratch = isinstance(scratch_value, str) and scratch_value.strip()
+        has_attachments = any(attachments_index.values())
+        if (
+            case_payload == default_case_payload
+            and not source_path
+            and not has_scratch
+            and not has_attachments
+        ):
+            continue
         entries.append(
             {
                 "case": case_payload,
-                "source_path": getattr(session, "source_path", ""),
-                "scratch": getattr(session, "scratch", ""),
-                "attachments_index": _normalise_attachments_index(
-                    getattr(session, "attachments_index", {})
-                ),
+                "source_path": source_path,
+                "scratch": scratch_value,
+                "attachments_index": attachments_index,
             }
         )
     _write_case_tab_memory(entries)
@@ -5505,11 +5519,40 @@ def render_kiroshi_chat_panel() -> None:
             st.session_state.kiroshi_chat_history = load_memory()
 
     with st.expander("Personality Construct"):
+        personality_mode = st.session_state.get("personality_mode", "utility")
+        personality_label = personality_mode.replace("_", " ").title()
+        sarcasm_state = "On" if sarcasm_enabled else "Off"
+        st.caption(
+            f"Active personality: {personality_label} · Sarcasm mode: {sarcasm_state}"
+        )
+
+        base_prompt_key = global_widget_key("system_prompt_base")
+        if base_prompt_key not in st.session_state:
+            st.session_state[base_prompt_key] = st.session_state.get(
+                "system_prompt", SYSTEM_PROMPT
+            )
+        edited_prompt = st.text_area(
+            "Base system prompt",
+            height=220,
+            key=base_prompt_key,
+            help=(
+                "Adjust the underlying construct template. Personality and sarcasm settings "
+                "are layered on top of this base."
+            ),
+        )
+        if edited_prompt != st.session_state.get("system_prompt"):
+            st.session_state["system_prompt"] = edited_prompt
+
+        preview_value = build_system_prompt()
+        preview_key = global_widget_key("system_prompt_preview")
+        st.session_state[preview_key] = preview_value
         st.text_area(
-            "System Prompt",
-            st.session_state.get("system_prompt", SYSTEM_PROMPT),
-            height=300,
-            key=global_widget_key("system_prompt_display"),
+            "Active construct preview",
+            value=preview_value,
+            height=220,
+            key=preview_key,
+            help="Exact system prompt currently sent with each chat request.",
+            disabled=True,
         )
 
     api_key = st.session_state.openai_api_key
