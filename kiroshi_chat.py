@@ -515,17 +515,37 @@ def main():
         key="kiroshi_sarcasm_mode",
         help="Adds extra dry wit to Kiroshi's replies while keeping them useful.",
     )
+    sarcasm_enabled = st.session_state.kiroshi_sarcasm_mode
     with st.expander("Personality Construct"):
+        st.caption(
+            "Active personality: "
+            f"{st.session_state.get('personality_mode', 'utility').replace('_', ' ').title()}"
+            f" · Sarcasm mode: {'On' if sarcasm_enabled else 'Off'}"
+        )
         st.text_area(
-            "System Prompt",
+            "Base system prompt",
             st.session_state.get("system_prompt", SYSTEM_PROMPT),
-            height=300,
+            height=220,
             key="system_prompt",
+            help=(
+                "Adjust the underlying construct template. Personality and sarcasm settings "
+                "are layered on top of this base."
+            ),
         )
         st.selectbox(
             "Personality mode",
             ["utility", "coffee"],
             key="personality_mode",
+        )
+        preview_value = build_system_prompt()
+        st.session_state["system_prompt_preview"] = preview_value
+        st.text_area(
+            "Active construct preview",
+            value=preview_value,
+            height=220,
+            key="system_prompt_preview",
+            help="Exact system prompt currently sent with each chat request.",
+            disabled=True,
         )
 
     if "ai_mode" not in st.session_state:
