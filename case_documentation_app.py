@@ -207,7 +207,8 @@ APP_ROOT = Path(__file__).resolve().parent
 # organisation to ``Anoth3rHellsing``.  The update checker still defaulted to
 # the previous location which meant fresh installations always hit a 404 when
 # trying to retrieve ``case_documentation_app.py`` for the version check.
-# Point the default to the new canonical repository so users no longer see the
+# Point the default to the new canonical repository and dynamically fall back to
+# the repository's configured default branch so users no longer see the
 # "Unable to retrieve remote version" warning on startup.
 DEFAULT_UPDATE_REPO = "Anoth3rHellsing/KiroshiDocumentationSystem"
 DEFAULT_UPDATE_BRANCH = "main"
@@ -664,17 +665,53 @@ class UpdateCheckResult:
     error: str | None = None
 
 
+def _discover_default_branch(repo: str) -> str | None:
+    """Return the default branch configured for the remote repository."""
+
+    api_url = f"https://api.github.com/repos/{repo}"
+    headers = _build_github_headers()
+    try:
+        response = requests.get(
+            api_url,
+            headers=headers,
+            timeout=UPDATE_CHECK_TIMEOUT,
+            verify=False,
+        )
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        logging.debug("Unable to query repository metadata for %s: %s", repo, exc)
+        return None
+    except requests.RequestException as exc:  # pragma: no cover - network errors
+        logging.debug("Unable to query repository metadata for %s: %s", repo, exc)
+        return None
+
+    payload = response.json()
+    default_branch = payload.get("default_branch") if isinstance(payload, dict) else None
+    if isinstance(default_branch, str):
+        default_branch = default_branch.strip()
+    if default_branch:
+        return default_branch
+    logging.debug(
+        "Repository metadata for %s did not include a default_branch: %s",
+        repo,
+        payload,
+    )
+    return None
+
+
 def _resolve_update_target() -> tuple[str, str]:
     repo = os.environ.get("KIROSHI_UPDATE_REPO", DEFAULT_UPDATE_REPO).strip()
-    branch = os.environ.get("KIROSHI_UPDATE_BRANCH", DEFAULT_UPDATE_BRANCH).strip()
     if not repo:
         repo = DEFAULT_UPDATE_REPO
     if "/" not in repo:
         raise ValueError(
             "Invalid GitHub repository configured for updates. Use the form 'owner/repository'."
         )
+
+    env_branch = os.environ.get("KIROSHI_UPDATE_BRANCH")
+    branch = env_branch.strip() if isinstance(env_branch, str) else ""
     if not branch:
-        branch = DEFAULT_UPDATE_BRANCH
+        branch = _discover_default_branch(repo) or DEFAULT_UPDATE_BRANCH
     return repo, branch
 
 
