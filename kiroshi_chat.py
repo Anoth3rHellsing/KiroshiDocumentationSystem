@@ -379,14 +379,18 @@ def load_memory():
                 data = json.load(f)
                 st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
                 st.session_state["personality_mode"] = data.get("personality_mode", "utility")
-                st.session_state["kiroshi_sarcasm_mode"] = data.get("kiroshi_sarcasm_mode", False)
+                if "kiroshi_sarcasm_mode" not in st.session_state:
+                    st.session_state["kiroshi_sarcasm_mode"] = data.get(
+                        "kiroshi_sarcasm_mode", False
+                    )
                 st.session_state["assistant_notes"] = _sanitize_notes(data.get("assistant_notes"))
                 return data.get("history", [])
         except Exception:
             pass
     st.session_state["system_prompt"] = SYSTEM_PROMPT
     st.session_state["personality_mode"] = "utility"
-    st.session_state["kiroshi_sarcasm_mode"] = False
+    if "kiroshi_sarcasm_mode" not in st.session_state:
+        st.session_state["kiroshi_sarcasm_mode"] = False
     st.session_state["assistant_notes"] = []
     return []
 
