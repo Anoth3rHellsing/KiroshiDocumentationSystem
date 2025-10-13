@@ -4688,8 +4688,8 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
-def list_saved_cases(limit: int = 25) -> list:
-    entries = []
+def list_saved_cases() -> list:
+    entries: list[dict[str, object]] = []
     files = sorted(
         DATABASE_DIR.glob("*.json"),
         key=lambda p: p.stat().st_mtime,
@@ -4697,38 +4697,74 @@ def list_saved_cases(limit: int = 25) -> list:
     )
     for path in files:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            raw_payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
-        if isinstance(data, list):
-            dict_items = [item for item in data if isinstance(item, dict)]
-            if len(dict_items) == 1:
-                data = dict_items[0]
-            else:
-                continue
-        if not isinstance(data, dict):
-            continue
-        raw_last_modified = data.get("last_modified")
+
+        is_legacy_payload = isinstance(raw_payload, list)
+        data = _coerce_case_mapping(raw_payload)
+        if data is None:
+            data = {}
+            is_legacy_payload = True
+
+        case_id = path.stem
+        company = ""
+        end_user = ""
+        if isinstance(data, Mapping):
+            case_id = data.get("case_id") or case_id
+            company = (
+                data.get("company_name")
+                or data.get("company")
+                or ""
+            )
+            end_user = (
+                data.get("customer_name")
+                or data.get("contact_name")
+                or data.get("caller_name")
+                or data.get("end_user")
+                or ""
+            )
+
+        raw_last_modified = data.get("last_modified") if isinstance(data, Mapping) else None
         parsed_last_modified = parse_iso_datetime(raw_last_modified)
         if parsed_last_modified is None:
             parsed_last_modified = datetime.fromtimestamp(path.stat().st_mtime)
             raw_last_modified = parsed_last_modified.isoformat()
+
+        has_tracking = isinstance(data, Mapping) and isinstance(data.get("tracking"), Mapping)
+        kiroshi_version = ""
+        if isinstance(data, Mapping):
+            kiroshi_version = str(data.get("kiroshi_version") or "").strip()
+
+        tags: list[str] = []
+        if is_legacy_payload:
+            tags.append("Legacy JSON")
+        if not has_tracking:
+            tags.append("Pre-dashboard merge")
+
+        if not kiroshi_version:
+            if not has_tracking:
+                kiroshi_version = "1.5.2"
+            elif is_legacy_payload:
+                kiroshi_version = "Legacy"
+            else:
+                kiroshi_version = "Unknown"
+
         entries.append(
             {
-                "case_id": data.get("case_id") or path.stem,
-                "company": data.get("company_name")
-                or data.get("company")
-                or "",
-                "end_user": data.get("customer_name")
-                or data.get("end_user")
-                or "",
+                "case_id": case_id,
+                "company": company,
+                "end_user": end_user,
                 "updated": parsed_last_modified,
                 "last_modified": raw_last_modified,
                 "path": str(path),
+                "file_name": path.name,
+                "is_legacy": is_legacy_payload,
+                "kiroshi_version": kiroshi_version,
+                "tags": tags,
+                "has_tracking": has_tracking,
             }
         )
-        if len(entries) >= limit:
-            break
     return entries
 
 
@@ -5042,22 +5078,229 @@ def render_saved_cases_dashboard() -> None:
     if not saved_cases:
         st.info("No saved cases found in your database.")
         return
-    weights = [1.2, 1.5, 1.5, 0.8]
+    st.caption("Preview of your most recent saved cases. Use the Saved Cases tab for the full index.")
+    preview = saved_cases[:5]
+    weights = [1.2, 1.4, 1.1, 1.0, 0.8]
     header_cols = st.columns(weights)
     header_cols[0].markdown("**Case ID**")
     header_cols[1].markdown("**Company**")
-    header_cols[2].markdown("**Last Modified**")
-    header_cols[3].markdown("**Load**")
-    for case in saved_cases:
+    header_cols[2].markdown("**Version**")
+    header_cols[3].markdown("**Last Modified**")
+    header_cols[4].markdown("**Load**")
+    for case in preview:
         row_cols = st.columns(weights)
         row_cols[0].write(case["case_id"])
-        row_cols[1].write(case["company"])
-        row_cols[2].write(case["updated"].strftime("%Y-%m-%d %H:%M"))
-        if row_cols[3].button(
+        company_display = case["company"] or "—"
+        badges: list[str] = []
+        if case.get("is_legacy"):
+            badges.append("Legacy")
+        if case.get("tags"):
+            badges.extend(case["tags"])
+        if badges:
+            company_display = f"{company_display}\n{' · '.join(dict.fromkeys(badges))}"
+        row_cols[1].write(company_display)
+        row_cols[2].write(case.get("kiroshi_version") or "Unknown")
+        row_cols[3].write(case["updated"].strftime("%Y-%m-%d %H:%M"))
+        if row_cols[4].button(
             "Load", key=f"saved_load_{Path(case['path']).stem}"
         ):
             request_load_from_path(case["path"], prefer_new_tab=True)
 
+
+def render_saved_cases_page() -> None:
+    st.markdown(
+        "<div class='dashboard-title'>Saved Cases</div>",
+        unsafe_allow_html=True,
+    )
+    saved_cases = list_saved_cases()
+    if not saved_cases:
+        st.info("No saved cases found in your database.")
+        return
+
+    saved_df = pd.DataFrame(saved_cases)
+    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
+    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
+    saved_df["tags_text"] = saved_df["tags"].apply(
+        lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
+    )
+    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
+
+    version_options = sorted(
+        {str(v) for v in saved_df["kiroshi_version"].dropna().unique() if str(v).strip()}
+    )
+    total_cases = len(saved_df)
+    legacy_total = int(saved_df["is_legacy"].sum())
+
+    metrics = st.columns(3)
+    metrics[0].metric("Saved cases", total_cases)
+    metrics[1].metric("Legacy records", legacy_total)
+    metrics[2].metric("Known versions", len(version_options))
+
+    search_term = st.text_input(
+        "Search saved cases",
+        key=global_widget_key("saved_cases_search"),
+        placeholder="Search by case ID, company, end user, path, or notes",
+    )
+
+    filter_cols = st.columns((1.4, 1.2, 1.0))
+    tracking_scope = filter_cols[0].selectbox(
+        "Layout",
+        (
+            "All records",
+            "Merged dashboards only",
+            "Missing merged dashboards",
+        ),
+        key=global_widget_key("saved_cases_tracking_filter"),
+    )
+    selected_versions = filter_cols[1].multiselect(
+        "Version",
+        options=version_options,
+        default=version_options,
+        key=global_widget_key("saved_cases_version_filter"),
+    )
+    legacy_scope = filter_cols[2].selectbox(
+        "Legacy",
+        ("All", "Modern only", "Legacy only"),
+        key=global_widget_key("saved_cases_legacy_filter"),
+    )
+
+    filtered_df = saved_df.copy()
+    if selected_versions:
+        filtered_df = filtered_df[filtered_df["kiroshi_version"].isin(selected_versions)]
+    else:
+        filtered_df = filtered_df.iloc[0:0]
+
+    if legacy_scope == "Modern only":
+        filtered_df = filtered_df[~filtered_df["is_legacy"]]
+    elif legacy_scope == "Legacy only":
+        filtered_df = filtered_df[filtered_df["is_legacy"]]
+
+    if tracking_scope == "Merged dashboards only":
+        filtered_df = filtered_df[filtered_df["has_tracking"]]
+    elif tracking_scope == "Missing merged dashboards":
+        filtered_df = filtered_df[~filtered_df["has_tracking"]]
+
+    search_value = search_term.strip().lower()
+    if search_value:
+        search_columns = [
+            "case_id",
+            "company",
+            "end_user",
+            "file_name",
+            "path",
+            "kiroshi_version",
+            "tags_text",
+        ]
+        filtered_df = filtered_df[
+            filtered_df.apply(
+                lambda row: any(
+                    search_value in str(row.get(col, "")).lower()
+                    for col in search_columns
+                ),
+                axis=1,
+            )
+        ]
+
+    filtered_df = filtered_df.sort_values("updated", ascending=False)
+    display_df = filtered_df[
+        [
+            "case_id",
+            "company",
+            "end_user",
+            "kiroshi_version",
+            "legacy_label",
+            "display_last_modified",
+            "tags_text",
+            "path",
+        ]
+    ].rename(
+        columns={
+            "case_id": "Case ID",
+            "company": "Company",
+            "end_user": "End user",
+            "kiroshi_version": "Version",
+            "legacy_label": "Legacy",
+            "display_last_modified": "Last modified",
+            "tags_text": "Notes",
+            "path": "File path",
+        }
+    )
+
+    st.caption(
+        f"Showing {len(display_df)} of {total_cases} saved cases after filters."
+    )
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if not filtered_df.empty:
+        filtered_records = filtered_df.to_dict("records")
+        option_labels = [
+            f"{record.get('case_id') or record.get('file_name')} · {record.get('company') or '—'} · {record.get('kiroshi_version')}"
+            for record in filtered_records
+        ]
+        selection = st.selectbox(
+            "Select a case to load or export",
+            options=list(range(len(filtered_records))),
+            format_func=lambda idx: option_labels[idx],
+            key=global_widget_key("saved_cases_select"),
+        )
+        selected_case = filtered_records[selection]
+        case_path = Path(selected_case["path"])
+
+        action_cols = st.columns(3)
+        if action_cols[0].button(
+            "Load in current tab",
+            key=global_widget_key("saved_cases_load_current"),
+        ):
+            if case_path.exists():
+                request_load_from_path(str(case_path), prefer_new_tab=False)
+            else:
+                st.error("Case file could not be found on disk.")
+        if action_cols[1].button(
+            "Load in new case tab",
+            key=global_widget_key("saved_cases_load_new"),
+        ):
+            if case_path.exists():
+                request_load_from_path(str(case_path), prefer_new_tab=True)
+            else:
+                st.error("Case file could not be found on disk.")
+
+        export_bytes: bytes | None = None
+        export_error: str | None = None
+        if case_path.exists():
+            try:
+                export_bytes = case_path.read_bytes()
+            except Exception as exc:
+                export_error = str(exc)
+        else:
+            export_error = "Missing file"
+
+        if export_bytes is not None:
+            action_cols[2].download_button(
+                "Export JSON",
+                export_bytes,
+                file_name=case_path.name,
+                mime="application/json",
+                key=global_widget_key("saved_cases_export_json"),
+            )
+        else:
+            action_cols[2].warning(
+                f"Unable to export this case ({export_error or 'unknown error'})."
+            )
+    else:
+        st.info("No cases match the current filters.")
+
+    export_table = display_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Export filtered table (CSV)",
+        export_table,
+        file_name=f"saved_cases_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        key=global_widget_key("saved_cases_export_table"),
+    )
 
 def render_dashboard() -> None:
     """Render the high-level dashboard overview tab."""
@@ -10544,7 +10787,7 @@ Thank you in advance,
 case_labels = [
     cs.case.case_id or f"Case {i+1}" for i, cs in enumerate(st.session_state.case_sessions)
 ] + ["+ New Case"]
-tab_labels: list[str] = ["Dashboard", "Settings"]
+tab_labels: list[str] = ["Dashboard", "Saved Cases", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
 show_kiroshi_chat = st.session_state.get("show_kiroshi_chat", True)
@@ -10557,6 +10800,9 @@ all_tabs = st.tabs(tab_labels)
 tab_index = 0
 with all_tabs[tab_index]:
     render_dashboard()
+tab_index += 1
+with all_tabs[tab_index]:
+    render_saved_cases_page()
 tab_index += 1
 with all_tabs[tab_index]:
     render_settings_panel()
