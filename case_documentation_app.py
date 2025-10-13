@@ -10338,6 +10338,7 @@ End with: We look forward to your reply."""
                 if copy_suffix[0].isdigit():
                     copy_suffix = f"d{copy_suffix}"
                 table_payload = json.dumps(dell_escalation_plain_text(D))
+                table_payload = table_payload.replace("</", "<\\/")
                 components.html(
                     f"""
                     <div style=\"display:flex;gap:0.5rem;align-items:center;\">
