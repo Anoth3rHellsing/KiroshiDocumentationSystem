@@ -111,6 +111,20 @@ from kiroshi_chat import (
 # ChatGPT API and GitHub update checks can still be reached.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+
+@contextmanager
+def safe_modal(title: str, key: str | None = None):
+    """Provide a backwards-compatible context manager for Streamlit modals."""
+
+    if hasattr(st, "modal"):
+        with st.modal(title, key=key):
+            yield
+    else:  # pragma: no cover - executed only on older Streamlit versions
+        container = st.container()
+        with container:
+            st.markdown(f"### {title}")
+            yield
+
 VERSION = "RC 1.7.2111025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
@@ -8297,7 +8311,7 @@ def show_failure_modal() -> None:
     context = st.session_state.get("incident_context") or {}
     section_label = context.get("section")
 
-    with st.modal("Something went wrong", key=global_widget_key("render_failure_modal")):
+    with safe_modal("Something went wrong", key=global_widget_key("render_failure_modal")):
         st.write(message)
         if section_label:
             st.caption(f"Detected while rendering: {section_label}")
@@ -8322,7 +8336,7 @@ def show_incident_report_modal() -> None:
     context = st.session_state.get("incident_context") or {}
     allow_screenshot = bool(st.session_state.get("reporter_allow_screenshot"))
 
-    with st.modal("Incident reporter", key=global_widget_key("incident_report_modal")):
+    with safe_modal("Incident reporter", key=global_widget_key("incident_report_modal")):
         st.markdown("### Incident reporter")
         st.caption(
             "We'll bundle recent logs, context, and optional screenshots into a PDF you can download."
