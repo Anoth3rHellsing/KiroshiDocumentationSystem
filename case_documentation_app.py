@@ -2698,6 +2698,14 @@ st.set_page_config(
 
 _check_installation_status()
 
+# Ensure the persisted appearance preference is restored before we compute the
+# active theme. Otherwise a fresh session would briefly fall back to the default
+# (enabled) value and immediately re-enable holiday styling.
+if "enable_holiday_theme" not in st.session_state:
+    st.session_state["enable_holiday_theme"] = _get_persistent_default(
+        "enable_holiday_theme", True
+    )
+
 CURRENT_THEME = determine_active_theme()
 apply_theme_palette(CURRENT_THEME)
 
@@ -4777,7 +4785,11 @@ def render_crm_link_button(url: str) -> None:
 
 
 def render_tracked_cases_dashboard(
-    cases: list, search_query: str = "", *, show_notifications: bool = True
+    cases: list,
+    search_query: str = "",
+    *,
+    show_notifications: bool = True,
+    key_namespace: str = "tracked",
 ) -> None:
     if not cases:
         st.info("No cases are currently being tracked.")
@@ -4811,7 +4823,7 @@ def render_tracked_cases_dashboard(
     )
     for idx, case in enumerate(sorted_cases):
         path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
-        unique_suffix = f"{Path(case['path']).stem}_{idx}_{path_digest}"
+        unique_suffix = f"{key_namespace}_{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
         last_modified_display = format_last_modified(case.get("last_modified"))
         last_modified_dt = parse_iso_datetime(case.get("last_modified"))
@@ -4969,13 +4981,21 @@ def render_dell_fedex_dashboard(cases: list) -> None:
     fedex_cases = [c for c in cases if c.get("type") == "FedEx"]
     st.markdown("**Dell Escalations**")
     if dell_cases:
-        render_tracked_cases_dashboard(dell_cases, show_notifications=False)
+        render_tracked_cases_dashboard(
+            dell_cases,
+            show_notifications=False,
+            key_namespace="dell_dashboard",
+        )
     else:
         st.caption("No Dell escalations in the queue.")
 
     st.markdown("**FedEx Replacements**")
     if fedex_cases:
-        render_tracked_cases_dashboard(fedex_cases, show_notifications=False)
+        render_tracked_cases_dashboard(
+            fedex_cases,
+            show_notifications=False,
+            key_namespace="fedex_dashboard",
+        )
     else:
         st.caption("No FedEx replacements awaiting action.")
 

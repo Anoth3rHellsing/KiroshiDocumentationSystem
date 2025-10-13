@@ -380,8 +380,9 @@ def load_memory():
                 st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
                 st.session_state["personality_mode"] = data.get("personality_mode", "utility")
                 if "kiroshi_sarcasm_mode" not in st.session_state:
-                    st.session_state["kiroshi_sarcasm_mode"] = data.get(
-                        "kiroshi_sarcasm_mode", False
+                    saved_sarcasm = data.get("kiroshi_sarcasm_mode")
+                    st.session_state["kiroshi_sarcasm_mode"] = (
+                        saved_sarcasm if isinstance(saved_sarcasm, bool) else False
                     )
                 st.session_state["assistant_notes"] = _sanitize_notes(data.get("assistant_notes"))
                 return data.get("history", [])
