@@ -8121,6 +8121,12 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
     return "\n".join(lines)
 
 
+def script_safe_json(value: str) -> str:
+    """Return a JSON string literal safe for embedding inside <script> tags."""
+
+    return json.dumps(value).replace("</", "<\\/")
+
+
 def _slugify_hotkey(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", text.lower())
 
@@ -9357,8 +9363,8 @@ def render_case_ui(case_idx: int):
                         if copy_suffix[0].isdigit():
                             copy_suffix = f"a{copy_suffix}"
 
-                        title_payload = json.dumps(title_text)
-                        table_payload = json.dumps(table_plain_text(cat, D, cat_map))
+                        title_payload = script_safe_json(title_text)
+                        table_payload = script_safe_json(table_plain_text(cat, D, cat_map))
                         components.html(
                             f"""
                             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
@@ -10166,8 +10172,62 @@ Thank you in advance,
             key=widget_key("download_info_pdf", case_idx),
         )
         for cat in cat_map:
-            st.markdown(f"**{table_title(cat)}**")
-            st.dataframe(category_dataframe(cat, D, cat_map), width="stretch")
+            title_text = table_title(cat)
+            st.markdown(f"**{title_text}**")
+
+            copy_suffix_raw = f"tables_{case_idx}_{cat}".lower()
+            copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_suffix_raw)
+            if not copy_suffix:
+                copy_suffix = "copy"
+            if copy_suffix[0].isdigit():
+                copy_suffix = f"a{copy_suffix}"
+
+            title_payload = script_safe_json(title_text)
+            table_payload = script_safe_json(table_plain_text(cat, D, cat_map))
+            components.html(
+                f"""
+                <div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;\">
+                    <button onclick=\"copyTitle{copy_suffix}()\"
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                        Copy title
+                    </button>
+                    <button onclick=\"copyTable{copy_suffix}()\"
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                        Copy table
+                    </button>
+                    <span id=\"feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                </div>
+                <script>
+                    const feedbackElem{copy_suffix} = document.getElementById('feedback-{copy_suffix}');
+                    function showFeedback{copy_suffix}(message) {{
+                        if (!feedbackElem{copy_suffix}) return;
+                        feedbackElem{copy_suffix}.textContent = message;
+                        setTimeout(() => {{
+                            if (feedbackElem{copy_suffix}.textContent === message) {{
+                                feedbackElem{copy_suffix}.textContent = '';
+                            }}
+                        }}, 2000);
+                    }}
+                    function copyTitle{copy_suffix}() {{
+                        navigator.clipboard.writeText({title_payload}).then(() => {{
+                            showFeedback{copy_suffix}('Title copied');
+                        }});
+                    }}
+                    function copyTable{copy_suffix}() {{
+                        navigator.clipboard.writeText({table_payload}).then(() => {{
+                            showFeedback{copy_suffix}('Table copied');
+                        }});
+                    }}
+                </script>
+                """,
+                height=80,
+                key=widget_key(f"tables_copy_controls_{copy_suffix}", case_idx),
+            )
+            st.dataframe(
+                category_dataframe(cat, D, cat_map),
+                width="stretch",
+                key=widget_key(f"tables_df_{copy_suffix}", case_idx),
+            )
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
