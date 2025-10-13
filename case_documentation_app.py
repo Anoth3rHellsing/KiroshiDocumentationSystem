@@ -29,7 +29,7 @@ import math
 import calendar
 import uuid
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Dict, List
 from html import escape
 import textwrap
