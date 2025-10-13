@@ -30,6 +30,7 @@ import calendar
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
+from typing import Dict, List
 from html import escape
 import textwrap
 import inspect
@@ -9234,40 +9235,280 @@ def render_case_ui(case_idx: int):
             if st.session_state.email_type == "Custom Request":
                 st.session_state.email_type = "Advanced Request"
 
-            email_choices = [
-                "Recap (Customer)",
-                "Broken Scanner",
-                "Broken Tip",
-                "AX Coordinator Email",
-                "Customer Reply",
-            ]
-            if st.session_state.second_line_mode:
-                email_choices.extend(
-                    [
-                        "FedEx Tracking Email",
-                        "Replacement Wired Scanner Setup",
-                        "Replacement Move+ Closure",
-                        "Callback Email",
-                        "Dell Escalation Email",
-                    ]
-                )
-            email_choices.extend(["Advanced Request", "Custom"])
             email_widget_key = widget_key("email_template", case_idx)
+            group_widget_key = widget_key("email_template_group", case_idx)
+            template_definitions = [
+                {
+                    "value": "Recap (Customer)",
+                    "label": "Recap (Customer)",
+                    "icon": "💌",
+                    "description": "Warm recap with survey invitation and key actions.",
+                    "group": "Customer follow-up",
+                },
+                {
+                    "value": "Customer Reply",
+                    "label": "Customer Reply",
+                    "icon": "✉️",
+                    "description": "Craft a confident response to an incoming customer email.",
+                    "group": "Customer follow-up",
+                },
+                {
+                    "value": "Broken Scanner",
+                    "label": "Broken Scanner",
+                    "icon": "🛠️",
+                    "description": "Guide customers through scanner recovery and documentation steps.",
+                    "group": "Hardware fixes",
+                },
+                {
+                    "value": "Broken Tip",
+                    "label": "Broken Tip",
+                    "icon": "🧰",
+                    "description": "Troubleshoot damaged or worn scanner tips with next actions.",
+                    "group": "Hardware fixes",
+                },
+                {
+                    "value": "AX Coordinator Email",
+                    "label": "AX Coordinator Email",
+                    "icon": "📅",
+                    "description": "Align with coordinators using a ready-to-send internal brief.",
+                    "group": "Internal sync",
+                },
+                {
+                    "value": "FedEx Tracking Email",
+                    "label": "FedEx Tracking Email",
+                    "icon": "📦",
+                    "description": "Share parcel tracking updates and expectations with customers.",
+                    "group": "Internal sync",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Replacement Wired Scanner Setup",
+                    "label": "Replacement Wired Scanner Setup",
+                    "icon": "🔄",
+                    "description": "Send replacement install instructions for wired scanners.",
+                    "group": "Hardware fixes",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Replacement Move+ Closure",
+                    "label": "Replacement Move+ Closure",
+                    "icon": "✅",
+                    "description": "Close the loop on Move+ replacements with shipping details.",
+                    "group": "Customer follow-up",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Callback Email",
+                    "label": "Callback Email",
+                    "icon": "📞",
+                    "description": "Confirm scheduled callbacks and set expectations clearly.",
+                    "group": "Internal sync",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Dell Escalation Email",
+                    "label": "Dell Escalation Email",
+                    "icon": "🚀",
+                    "description": "Escalate urgent cases with crisp context and next steps.",
+                    "group": "Internal sync",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Advanced Request",
+                    "label": "Advanced Request",
+                    "icon": "🧠",
+                    "description": "Provide detailed guidance for complex, multi-step scenarios.",
+                    "group": "Power tools",
+                },
+                {
+                    "value": "Custom",
+                    "label": "Custom",
+                    "icon": "🎨",
+                    "description": "Start from a blank canvas with your own tailored prompt.",
+                    "group": "Power tools",
+                },
+            ]
+            available_templates = [
+                t
+                for t in template_definitions
+                if not t.get("second_line_only") or st.session_state.second_line_mode
+            ]
+            template_lookup = {t["value"]: t for t in available_templates}
+            template_groups: Dict[str, List[Dict[str, str]]] = {}
+            for t in available_templates:
+                template_groups.setdefault(t["group"], []).append(t)
+            ordered_groups = list(template_groups.keys())
+
+            # maintain previously selected template if still available
             current_email_type = st.session_state.email_type
-            if current_email_type not in email_choices:
-                current_email_type = email_choices[0]
+            if current_email_type not in template_lookup and ordered_groups:
+                current_email_type = template_groups[ordered_groups[0]][0]["value"]
                 st.session_state.email_type = current_email_type
             if (
                 email_widget_key not in st.session_state
-                or st.session_state[email_widget_key] not in email_choices
+                or st.session_state[email_widget_key] not in template_lookup
             ):
                 st.session_state[email_widget_key] = current_email_type
-            email_type = st.selectbox(
-                "Select email template",
-                email_choices,
-                key=email_widget_key,
+
+            st.markdown(
+                """
+                <style>
+                    /* Email template group chips */
+                    div[aria-label="Email template family"] > div {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 0.5rem;
+                        margin-bottom: 0.35rem;
+                    }
+                    div[aria-label="Email template family"] label {
+                        border-radius: 999px;
+                        padding: 0.35rem 0.95rem;
+                        background: rgba(99, 102, 241, 0.12);
+                        border: 1px solid rgba(99, 102, 241, 0.35);
+                        color: #312e81;
+                        font-weight: 600;
+                        transition: all 0.2s ease;
+                    }
+                    div[aria-label="Email template family"] label:hover {
+                        background: rgba(99, 102, 241, 0.18);
+                        border-color: rgba(79, 70, 229, 0.45);
+                        color: #1e1b4b;
+                    }
+                    div[aria-label="Email template family"] label input {
+                        display: none;
+                    }
+                    div[aria-label="Email template family"] label input:checked + div {
+                        background: linear-gradient(135deg, rgba(79, 70, 229, 0.18), rgba(129, 140, 248, 0.32));
+                        border: 1px solid rgba(79, 70, 229, 0.55);
+                        color: #1e1b4b;
+                        box-shadow: 0 10px 25px rgba(67, 56, 202, 0.18);
+                    }
+
+                    /* Email template card styling */
+                    div[aria-label="Email template cards"] > div {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                        gap: 1rem;
+                        margin: 0.75rem 0 0.25rem;
+                    }
+                    div[aria-label="Email template cards"] label {
+                        margin: 0;
+                    }
+                    div[aria-label="Email template cards"] label > div {
+                        border-radius: 18px;
+                        border: 1px solid rgba(148, 163, 255, 0.28);
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(243, 244, 255, 0.92));
+                        box-shadow: 0 18px 45px rgba(79, 70, 229, 0.12);
+                        padding: 1.15rem 1.15rem 1rem;
+                        transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+                        height: 100%;
+                        position: relative;
+                        overflow: hidden;
+                    }
+                    div[aria-label="Email template cards"] label:hover > div {
+                        transform: translateY(-3px);
+                        box-shadow: 0 24px 55px rgba(67, 56, 202, 0.22);
+                        border-color: rgba(79, 70, 229, 0.45);
+                    }
+                    div[aria-label="Email template cards"] label input {
+                        display: none;
+                    }
+                    div[aria-label="Email template cards"] label > div > div:first-child {
+                        display: none;
+                    }
+                    div[aria-label="Email template cards"] label > div > div:last-child {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 0.45rem;
+                        color: #1f2937;
+                        font-weight: 600;
+                        white-space: pre-line;
+                        line-height: 1.35;
+                        font-size: 0.99rem;
+                    }
+                    div[aria-label="Email template cards"] label > div::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        border-radius: 18px;
+                        background: radial-gradient(circle at top left, rgba(129, 140, 248, 0.22), transparent 55%);
+                        opacity: 0;
+                        transition: opacity 0.25s ease;
+                        pointer-events: none;
+                    }
+                    div[aria-label="Email template cards"] label input:checked + div {
+                        border-color: rgba(79, 70, 229, 0.8);
+                        box-shadow: 0 28px 65px rgba(55, 48, 163, 0.28);
+                        background: linear-gradient(140deg, rgba(99, 102, 241, 0.22), rgba(129, 140, 248, 0.15));
+                    }
+                    div[aria-label="Email template cards"] label input:checked + div::after {
+                        opacity: 1;
+                    }
+                    div[aria-label="Email template cards"] label input:checked + div > div:last-child {
+                        color: #111827;
+                    }
+                    div[aria-label="Email template cards"] label small {
+                        display: block;
+                        font-weight: 400;
+                        font-size: 0.86rem;
+                        color: rgba(17, 24, 39, 0.78);
+                    }
+                </style>
+                """,
+                unsafe_allow_html=True,
             )
-            st.session_state.email_type = email_type
+
+            if not ordered_groups:
+                st.warning("No email templates are available. Contact an administrator to restore them.")
+                email_type = st.session_state[email_widget_key]
+                st.session_state.email_type = email_type
+            else:
+                st.markdown("#### Choose an email starting point")
+                st.caption(
+                    "Pick a template family first, then dive into the specific prompt that best matches your outreach."
+                )
+
+                group_for_selection = next(
+                    (
+                        t["group"]
+                        for t in available_templates
+                        if t["value"] == st.session_state[email_widget_key]
+                    ),
+                    ordered_groups[0],
+                )
+                if group_for_selection not in ordered_groups:
+                    group_for_selection = ordered_groups[0]
+
+                selected_group = st.radio(
+                    "Email template family",
+                    ordered_groups,
+                    index=ordered_groups.index(group_for_selection),
+                    key=group_widget_key,
+                    horizontal=True,
+                )
+
+                group_templates = template_groups.get(selected_group, [])
+                template_values = [t["value"] for t in group_templates]
+                if not template_values:
+                    st.info("No email templates available in this category.")
+                    email_type = st.session_state[email_widget_key]
+                    st.session_state.email_type = email_type
+                else:
+                    if st.session_state[email_widget_key] not in template_values:
+                        st.session_state[email_widget_key] = template_values[0]
+                    option_text = {
+                        value: f"{template_lookup[value]['icon']}  {template_lookup[value]['label']}\n• {template_lookup[value]['description']}"
+                        for value in template_values
+                    }
+                    email_type = st.radio(
+                        "Email template cards",
+                        template_values,
+                        key=email_widget_key,
+                        label_visibility="collapsed",
+                        format_func=lambda value: option_text.get(value, value),
+                    )
+                    st.session_state.email_type = email_type
+            email_type = st.session_state.email_type
             ext = st.session_state.email_extra
     
             prompt = ""
