@@ -13323,8 +13323,7 @@ End with: We look forward to your reply."""
                     f"""
                     <script>
                     function copyThirdLineEscalation{case_idx}() {{
-                        const source = document.getElementById('third-line-esc-message-{case_idx}');
-                        const text = source ? source.textContent : '';
+                        const text = {json.dumps(msg)};
                         navigator.clipboard.writeText(text).then(() => {{
                             const host = document.getElementById('third-line-copy-feedback-{case_idx}');
                             if (host) {{
@@ -13338,7 +13337,6 @@ End with: We look forward to your reply."""
                         }});
                     }}
                     </script>
-                    <pre id="third-line-esc-message-{case_idx}" style="display:none;">{escaped_msg}</pre>
                     <button onclick="copyThirdLineEscalation{case_idx}()"
                             style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;">
                         Copy escalation message
