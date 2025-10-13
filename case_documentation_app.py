@@ -82,6 +82,14 @@ try:  # PIL's ImageGrab requires GUI capabilities
 except Exception:  # pragma: no cover - fallback when Pillow is unavailable
     ImageGrab = None
     IMAGEGRAB_AVAILABLE = False
+
+try:  # mss offers a headless-friendly screen capture fallback
+    import mss  # type: ignore
+
+    MSS_AVAILABLE = True
+except Exception:  # pragma: no cover - optional dependency
+    mss = None
+    MSS_AVAILABLE = False
 from kiroshi_chat import (
     load_memory,
     save_memory,
@@ -5288,7 +5296,12 @@ def capture_region_screenshot(
 ) -> tuple[InMemoryUploadedFile | None, str | None]:
     """Capture a cropped screenshot using the interactive region selector."""
 
-    if not (PYAUTOGUI_AVAILABLE or IMAGEGRAB_AVAILABLE):
+    if tk is None or not TK_AVAILABLE:
+        return None, (
+            "Advanced screenshot selection requires a local display with Tkinter support in this environment."
+        )
+
+    if not (PYAUTOGUI_AVAILABLE or IMAGEGRAB_AVAILABLE or MSS_AVAILABLE):
         return None, "Screenshot capture is unavailable in this environment."
 
     coords, error = select_screen_region()
@@ -5315,8 +5328,68 @@ def capture_region_screenshot(
             logging.error("ImageGrab region capture failed: %s", exc)
             return None, "Unable to capture the selected region."
 
+    if img is None and MSS_AVAILABLE and mss is not None:
+        try:
+            with mss.mss() as sct:
+                monitor = sct.monitors[0]
+                raw = sct.grab(monitor)
+            from PIL import Image as PILImage  # type: ignore
+
+            img = PILImage.frombytes("RGB", raw.size, raw.rgb)
+            crop_box = (
+                left - monitor.get("left", 0),
+                top - monitor.get("top", 0),
+                left - monitor.get("left", 0) + width,
+                top - monitor.get("top", 0) + height,
+            )
+            img = img.crop(crop_box)
+        except Exception as exc:  # pragma: no cover - depends on GUI stack
+            logging.error("mss region capture failed: %s", exc)
+            return None, "Unable to capture the selected region."
+
     if img is None:
         return None, "Unable to capture the selected region."
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()), None
+
+
+def capture_full_screenshot(
+    safe_name: str,
+) -> tuple[InMemoryUploadedFile | None, str | None]:
+    """Capture a full screen screenshot with multiple fallbacks."""
+
+    img = None
+    if PYAUTOGUI_AVAILABLE and pyautogui is not None:
+        try:
+            img = pyautogui.screenshot()  # type: ignore[union-attr]
+        except Exception as exc:  # pragma: no cover - depends on GUI stack
+            logging.warning("pyautogui full capture failed: %s", exc)
+
+    if img is None and IMAGEGRAB_AVAILABLE and ImageGrab is not None:
+        try:
+            img = ImageGrab.grab()  # type: ignore[union-attr]
+        except Exception as exc:  # pragma: no cover - depends on GUI stack
+            logging.warning("ImageGrab full capture failed: %s", exc)
+
+    if img is None and MSS_AVAILABLE and mss is not None:
+        try:
+            with mss.mss() as sct:
+                monitor = sct.monitors[0]
+                raw = sct.grab(monitor)
+            from PIL import Image as PILImage  # type: ignore
+
+            img = PILImage.frombytes("RGB", raw.size, raw.rgb)
+        except Exception as exc:  # pragma: no cover - depends on GUI stack
+            logging.error("mss full capture failed: %s", exc)
+
+    if img is None:
+        return None, (
+            "Screenshot capture is unavailable in this environment. "
+            "For Windows deployments, ensure the exe includes Pillow, pyautogui, or mss."
+        )
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -13718,18 +13791,14 @@ End with: We look forward to your reply."""
     full_btn_col, region_btn_col = st.columns(2)
 
     if full_btn_col.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
-        if not PYAUTOGUI_AVAILABLE:
-            st.error("Screenshot capture is unavailable in this environment.")
-        elif screenshot_name:
+        if screenshot_name:
             safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
-            img = pyautogui.screenshot()  # type: ignore[union-attr]
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            buf.seek(0)
-            st.session_state.screenshots.append(
-                InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue())
-            )
-            st.success(f"Captured screenshot: {safe_name}")
+            shot, error = capture_full_screenshot(safe_name)
+            if shot:
+                st.session_state.screenshots.append(shot)
+                st.success(f"Captured screenshot: {safe_name}")
+            else:
+                st.error(error or "Screenshot capture is unavailable in this environment.")
         else:
             st.error("Please provide a screenshot name before capturing.")
 
@@ -13739,10 +13808,6 @@ End with: We look forward to your reply."""
     ):
         if not screenshot_name:
             st.error("Please provide a screenshot name before capturing.")
-        elif not TK_AVAILABLE or tk is None:
-            st.warning(
-                "Advanced screenshot selection requires a local display and Tkinter support."
-            )
         else:
             safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
             shot, error = capture_region_screenshot(safe_name)

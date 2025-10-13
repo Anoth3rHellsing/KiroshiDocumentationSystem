@@ -75,6 +75,17 @@ default installer from python.org) or recreate your virtual environment with a
 detects a compatible interpreter it will download the official wheel instead of
 attempting a source build, and the installation completes successfully.
 
+#### Troubleshooting: `Screenshot capture is unavailable in this environment`
+
+Compiled deployments need at least one screenshot backend bundled with the
+executable. The app will attempt `pyautogui`, fall back to Pillow's
+`ImageGrab`, and finally use the optional `mss` module for headless-friendly
+captures. When building with PyInstaller, include the relevant packages (for
+example `--hidden-import pyautogui`, `PIL.ImageGrab`, and `mss`) or install them
+in the runtime environment. If advanced region selection reports that Tkinter
+is required, add the standard `tkinter` runtime to the build or use the full
+screen capture button instead.
+
 ### Updating
 
 The `QuickUpdate.bat` script is intended for small incremental patches.
