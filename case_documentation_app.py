@@ -5336,19 +5336,19 @@ def update_tracked_case_file(
         return None
 
 
-def update_tracked_priority(
+def _apply_tracked_priority_update(
     path: str,
-    key: str,
+    new_priority: str,
     *,
     case_id: str | None = None,
     is_legacy: bool = False,
-) -> None:
-    new_priority = normalize_priority(st.session_state.get(key))
+) -> tuple[str, str | None]:
+    normalized_priority = normalize_priority(new_priority)
     if is_legacy:
-        timestamp = update_tracked_case_file(path, priority=new_priority)
+        timestamp = update_tracked_case_file(path, priority=normalized_priority)
     else:
         timestamp = update_tracked_case_file(
-            path, tracking_updates={"priority": new_priority}
+            path, tracking_updates={"priority": normalized_priority}
         )
     target_case_id = case_id
     if target_case_id is None:
@@ -5358,12 +5358,31 @@ def update_tracked_priority(
         except Exception:
             target_case_id = None
     if target_case_id and D.case_id == target_case_id:
-        D.tracking.priority = new_priority
-        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = new_priority
+        D.tracking.priority = normalized_priority
+        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = (
+            normalized_priority
+        )
         if timestamp:
             D.last_modified = timestamp
             if "case" in st.session_state:
                 st.session_state.case.last_modified = timestamp
+    return normalized_priority, timestamp
+
+
+def update_tracked_priority(
+    path: str,
+    key: str,
+    *,
+    case_id: str | None = None,
+    is_legacy: bool = False,
+) -> None:
+    new_priority = normalize_priority(st.session_state.get(key))
+    _apply_tracked_priority_update(
+        path,
+        new_priority,
+        case_id=case_id,
+        is_legacy=is_legacy,
+    )
     st.toast("Priority updated") if hasattr(st, "toast") else None
 
 
@@ -5676,19 +5695,86 @@ def render_tracked_cases_dashboard(
         path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
         unique_suffix = f"{key_namespace}_{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
-        last_modified_display = format_last_modified(case.get("last_modified"))
-        last_modified_dt = parse_iso_datetime(case.get("last_modified"))
-        is_stale = False
+        priority_key = f"priority_{unique_suffix}"
+        status_key = f"status_{unique_suffix}"
+        case_id_display = case.get("case_id") or "Unknown Case"
+        last_modified_str = case.get("last_modified")
+        last_modified_dt = parse_iso_datetime(last_modified_str)
+        idle_delta: timedelta | None = None
         if last_modified_dt:
             try:
-                is_stale = (now - last_modified_dt) > timedelta(hours=24)
+                idle_delta = now - last_modified_dt
             except Exception:
-                is_stale = False
-        if is_stale and show_notifications:
-            st.warning(
-                "Hey, this case is still pending updates, no updates after 24 hours. "
-                f"Case ID: {case.get('case_id') or 'Unknown Case'}"
+                idle_delta = None
+
+        reminder_due = False
+        warning_text: str | None = None
+        auto_escalated = False
+        auto_escalation_delta: timedelta | None = None
+
+        if idle_delta and idle_delta.total_seconds() >= 0:
+            hours_since_update = idle_delta.total_seconds() / 3600
+            duration_display = _format_timedelta_compact(idle_delta)
+            if priority_value in {"Low", "Normal"}:
+                if hours_since_update >= 24:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. Low and Normal priorities should get an update "
+                        "at least every 24 hours."
+                    )
+            elif priority_value in {"High", "Escalation"}:
+                if hours_since_update >= 6:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. High and Escalation priorities alert after 6 "
+                        "hours without activity."
+                    )
+            elif priority_value == "On Time":
+                if hours_since_update >= 4:
+                    auto_escalated = True
+                    auto_escalation_delta = idle_delta
+                    updated_priority, timestamp = _apply_tracked_priority_update(
+                        case["path"],
+                        "High",
+                        case_id=case.get("case_id"),
+                        is_legacy=case.get("is_legacy", False),
+                    )
+                    priority_value = updated_priority
+                    case["priority"] = updated_priority
+                    if timestamp:
+                        case["last_modified"] = timestamp
+                        last_modified_dt = parse_iso_datetime(timestamp)
+                        idle_delta = (
+                            datetime.utcnow() - last_modified_dt
+                            if last_modified_dt
+                            else None
+                        )
+                    st.session_state[priority_key] = updated_priority
+                elif hours_since_update >= 1:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. On Time cases ping every hour and are "
+                        "automatically escalated to High after 4 hours without updates."
+                    )
+
+        if auto_escalated:
+            reminder_due = True
+            escalation_duration = (
+                _format_timedelta_compact(auto_escalation_delta)
+                if auto_escalation_delta
+                else "4h"
             )
+            warning_text = (
+                f"Priority automatically escalated to High after {escalation_duration} "
+                f"without updates. Case ID: {case_id_display}."
+            )
+
+        last_modified_display = format_last_modified(case.get("last_modified"))
+        if reminder_due and warning_text and show_notifications:
+            st.warning(warning_text)
         summary = " ".join(
             part
             for part in [
@@ -5735,8 +5821,6 @@ def render_tracked_cases_dashboard(
                 render_crm_link_button(case.get("case_link", ""))
 
             controls = st.columns(2)
-            priority_key = f"priority_{unique_suffix}"
-            status_key = f"status_{unique_suffix}"
             if (
                 priority_key not in st.session_state
                 or st.session_state.get(priority_key) != priority_value
