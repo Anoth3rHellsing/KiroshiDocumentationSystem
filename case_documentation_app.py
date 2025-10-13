@@ -2899,6 +2899,335 @@ def _format_timedelta_compact(delta: timedelta) -> str:
     return " ".join(parts)
 
 
+def _refresh_wellness_reminder_state(*, now: datetime | None = None) -> dict[str, object] | None:
+    """Ensure the next wellness reminder state is cached in session state."""
+
+    wellness_settings = _normalize_wellness_settings(
+        st.session_state.get("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
+    )
+    st.session_state.wellness_reminders = wellness_settings
+    enabled = bool(wellness_settings.get("enabled"))
+    lead_minutes = max(
+        0,
+        int(
+            wellness_settings.get(
+                "notification_lead", DEFAULT_WELLNESS_SETTINGS["notification_lead"]
+            )
+        ),
+    )
+    upcoming_event = _calculate_next_wellness_event(wellness_settings, now=now)
+    if not enabled or not upcoming_event:
+        state = {
+            "event_dt": None,
+            "event_key": None,
+            "enabled": enabled,
+            "lead_minutes": lead_minutes,
+            "dismissed": True,
+            "audio_played": False,
+            "jump_to_actions": False,
+        }
+        st.session_state["_wellness_reminder_state"] = state
+        st.session_state["_next_wellness_event"] = None
+        return None
+
+    event_dt, event_key, meta = upcoming_event
+    state = dict(st.session_state.get("_wellness_reminder_state") or {})
+    stored_dt = state.get("event_dt") if isinstance(state.get("event_dt"), datetime) else None
+    if stored_dt != event_dt or state.get("event_key") != event_key:
+        state = {
+            "event_dt": event_dt,
+            "event_key": event_key,
+            "meta": dict(meta),
+            "enabled": enabled,
+            "lead_minutes": lead_minutes,
+            "dismissed": False,
+            "audio_played": False,
+            "jump_to_actions": False,
+        }
+        state["tip"] = random.choice(WELLNESS_TIPS)
+    else:
+        state["meta"] = dict(meta)
+        state.setdefault("tip", random.choice(WELLNESS_TIPS))
+        state.setdefault("dismissed", False)
+        state.setdefault("audio_played", False)
+        state.setdefault("jump_to_actions", False)
+
+    alert_threshold = 30 if lead_minutes == 0 else min(30, lead_minutes)
+    audio_threshold = 15
+    audio_trigger = audio_threshold if lead_minutes == 0 or lead_minutes >= audio_threshold else lead_minutes
+    state.update(
+        {
+            "enabled": enabled,
+            "lead_minutes": lead_minutes,
+            "alert_threshold": alert_threshold,
+            "audio_threshold": audio_threshold,
+            "audio_trigger_minutes": audio_trigger,
+        }
+    )
+
+    st.session_state["_wellness_reminder_state"] = state
+    st.session_state["_next_wellness_event"] = upcoming_event
+    return state
+
+
+def _ensure_wellness_alert_styles() -> None:
+    if st.session_state.get("_wellness_alert_styles_injected"):
+        return
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) {
+            position: relative;
+            border-radius: 18px;
+            padding: 1.25rem 1.5rem 1.1rem;
+            margin-bottom: 1.2rem;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 64, 175, 0.75));
+            box-shadow: 0 18px 34px rgba(15, 23, 42, 0.35);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            color: #f8fafc;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__eyebrow {
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            opacity: 0.75;
+            margin-bottom: 0.2rem;
+            display: inline-block;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__meta {
+            font-size: 0.95rem;
+            margin-bottom: 0.6rem;
+            opacity: 0.9;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__tip {
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+            background: rgba(15, 118, 110, 0.18);
+            border-radius: 12px;
+            padding: 0.55rem 0.75rem;
+            border: 1px solid rgba(45, 212, 191, 0.35);
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content--actions) {
+            background: linear-gradient(135deg, rgba(30, 64, 175, 0.95), rgba(21, 128, 61, 0.78));
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__list {
+            margin: 0 0 0.8rem 0;
+            padding-left: 1.1rem;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__list li {
+            margin-bottom: 0.35rem;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__actions button {
+            width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.session_state["_wellness_alert_styles_injected"] = True
+
+
+def _get_wellness_audio_clip() -> bytes:
+    cached = st.session_state.get("_wellness_audio_clip")
+    if isinstance(cached, (bytes, bytearray)):
+        return bytes(cached)
+    sample_rate = 22050
+    duration_seconds = 0.65
+    frequency = 880
+    total_samples = int(sample_rate * duration_seconds)
+    amplitude = 0.35
+    data = bytearray()
+    for n in range(total_samples):
+        sample = amplitude * math.sin(2 * math.pi * frequency * n / sample_rate)
+        value = int(max(-1.0, min(1.0, sample)) * 32767)
+        data.extend(value.to_bytes(2, byteorder="little", signed=True))
+    data_size = len(data)
+    byte_rate = sample_rate * 2
+    header = b"".join(
+        [
+            b"RIFF",
+            (36 + data_size).to_bytes(4, "little"),
+            b"WAVE",
+            b"fmt ",
+            (16).to_bytes(4, "little"),
+            (1).to_bytes(2, "little"),
+            (1).to_bytes(2, "little"),
+            sample_rate.to_bytes(4, "little"),
+            byte_rate.to_bytes(4, "little"),
+            (2).to_bytes(2, "little"),
+            (16).to_bytes(2, "little"),
+            b"data",
+            data_size.to_bytes(4, "little"),
+        ]
+    )
+    clip = bytes(header + data)
+    st.session_state["_wellness_audio_clip"] = clip
+    return clip
+
+
+def _update_wellness_alert_state(**changes: object) -> None:
+    state = dict(st.session_state.get("_wellness_reminder_state") or {})
+    if not state:
+        return
+    state.update(changes)
+    st.session_state["_wellness_reminder_state"] = state
+
+
+def _dismiss_wellness_alert() -> None:
+    _update_wellness_alert_state(dismissed=True, jump_to_actions=False)
+
+
+def _start_wellness_pause() -> None:
+    _update_wellness_alert_state(
+        jump_to_actions=True,
+        dismissed=False,
+        pause_started_at=datetime.now(),
+    )
+
+
+def _complete_wellness_pause() -> None:
+    _update_wellness_alert_state(
+        jump_to_actions=False,
+        dismissed=True,
+        pause_completed_at=datetime.now(),
+    )
+
+
+def _return_to_wellness_alert() -> None:
+    _update_wellness_alert_state(jump_to_actions=False, dismissed=False)
+
+
+def render_wellness_alert(reminder_state: dict[str, object] | None = None) -> None:
+    """Display the global wellness reminder banner or actions modal."""
+
+    reminder_state = reminder_state or st.session_state.get("_wellness_reminder_state")
+    if not isinstance(reminder_state, Mapping):
+        return
+    if not reminder_state.get("enabled"):
+        return
+    event_dt = reminder_state.get("event_dt")
+    if not isinstance(event_dt, datetime):
+        return
+    if reminder_state.get("dismissed") and not reminder_state.get("jump_to_actions"):
+        return
+
+    now = datetime.now()
+    delta = event_dt - now
+    delta_minutes = delta.total_seconds() / 60
+    if delta_minutes < 0:
+        return
+
+    alert_threshold = reminder_state.get("alert_threshold", 30)
+    if not reminder_state.get("jump_to_actions") and delta_minutes > alert_threshold:
+        return
+
+    _ensure_wellness_alert_styles()
+
+    audio_trigger = reminder_state.get("audio_trigger_minutes", 15)
+    if (
+        delta_minutes <= audio_trigger
+        and not reminder_state.get("audio_played")
+        and delta_minutes > 0
+    ):
+        st.audio(_get_wellness_audio_clip(), format="audio/wav")
+        _update_wellness_alert_state(audio_played=True)
+
+    label = str(
+        reminder_state.get("meta", {}).get(
+            "label", str(reminder_state.get("event_key", ""))
+        )
+    )
+    duration = reminder_state.get("meta", {}).get("duration_minutes")
+    duration_text = (
+        f"Set aside {int(duration)} minutes to fully disconnect."
+        if isinstance(duration, (int, float)) and duration
+        else "Give yourself a complete reset."
+    )
+    countdown_text = _format_timedelta_compact(delta)
+    tip = str(reminder_state.get("tip") or random.choice(WELLNESS_TIPS))
+    lead_minutes = reminder_state.get("lead_minutes", 0)
+
+    content_classes = "wellness-alert__content"
+    if reminder_state.get("jump_to_actions"):
+        content_classes += " wellness-alert__content--actions"
+
+    with st.container():
+        st.markdown(
+            f"""
+            <div class="{content_classes}">
+                <div class="wellness-alert__eyebrow">Wellness reminder</div>
+                <div class="wellness-alert__title">{label} begins in {countdown_text}</div>
+                <div class="wellness-alert__meta">Starts at {event_dt.strftime('%H:%M')} · Lead time {lead_minutes} min</div>
+                <div class="wellness-alert__tip">💡 {escape(tip)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if reminder_state.get("jump_to_actions"):
+            actions: list[str] = [
+                "Silence notifications and let teammates know you're away.",
+                duration_text,
+                "Stretch, hydrate, or take a short walk before coming back.",
+            ]
+            actions_html = "".join(
+                f"<li>{escape(item)}</li>" for item in actions if item
+            )
+            st.markdown(
+                f"""
+                <ul class="wellness-alert__list">
+                    {actions_html}
+                </ul>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown('<div class="wellness-alert__actions">', unsafe_allow_html=True)
+            action_cols = st.columns(3)
+            if action_cols[0].button(
+                "Back to reminder",
+                key=global_widget_key(
+                    f"wellness_back_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _return_to_wellness_alert()
+            if action_cols[1].button(
+                "Pause complete",
+                key=global_widget_key(
+                    f"wellness_complete_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _complete_wellness_pause()
+            if action_cols[2].button(
+                "Dismiss",
+                key=global_widget_key(
+                    f"wellness_dismiss_actions_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _dismiss_wellness_alert()
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="wellness-alert__actions">', unsafe_allow_html=True)
+            action_cols = st.columns(2)
+            if action_cols[0].button(
+                "Dismiss reminder",
+                key=global_widget_key(
+                    f"wellness_dismiss_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _dismiss_wellness_alert()
+            if action_cols[1].button(
+                "Start pause now",
+                key=global_widget_key(
+                    f"wellness_start_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _start_wellness_pause()
+            st.markdown('</div>', unsafe_allow_html=True)
+
 def ensure_settings_styles() -> None:
     if st.session_state.get("_settings_styles_injected"):
         return
@@ -6442,15 +6771,18 @@ def render_dashboard() -> None:
         "<div class='dashboard-title'>Dashboard</div>",
         unsafe_allow_html=True,
     )
-    wellness_settings = _normalize_wellness_settings(
-        st.session_state.get("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
-    )
-    st.session_state.wellness_reminders = wellness_settings
-    upcoming_event = _calculate_next_wellness_event(wellness_settings)
-    if upcoming_event:
-        event_dt, event_key, meta = upcoming_event
-        lead_minutes = wellness_settings.get(
-            "notification_lead", DEFAULT_WELLNESS_SETTINGS["notification_lead"]
+    reminder_state = _refresh_wellness_reminder_state()
+    if reminder_state and isinstance(reminder_state.get("event_dt"), datetime):
+        event_dt: datetime = reminder_state["event_dt"]
+        event_key = str(reminder_state.get("event_key", ""))
+        meta = reminder_state.get("meta") or {}
+        lead_minutes = max(
+            0,
+            int(
+                reminder_state.get(
+                    "lead_minutes", DEFAULT_WELLNESS_SETTINGS["notification_lead"]
+                )
+            ),
         )
         now = datetime.now()
         delta = event_dt - now
@@ -6463,7 +6795,7 @@ def render_dashboard() -> None:
             if isinstance(duration, (int, float)) and duration
             else ""
         )
-        tip = random.choice(WELLNESS_TIPS)
+        tip = str(reminder_state.get("tip") or random.choice(WELLNESS_TIPS))
         banner_class = "wellness-banner is-soon" if is_soon else "wellness-banner"
         st.markdown(
             f"""
@@ -13029,6 +13361,9 @@ End with: We look forward to your reply."""
                 subprocess.Popen([sys.executable, str(game_path)])
 
     autosave()
+
+reminder_state = _refresh_wellness_reminder_state()
+render_wellness_alert(reminder_state)
 
 case_labels = [
     cs.case.case_id or f"Case {i+1}" for i, cs in enumerate(st.session_state.case_sessions)
