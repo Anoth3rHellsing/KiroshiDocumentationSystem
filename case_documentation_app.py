@@ -29,7 +29,7 @@ import math
 import calendar
 import uuid
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from html import escape
 import textwrap
 import inspect
@@ -259,6 +259,16 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed": False,
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
+    "tutorial_metadata": {
+        "version": "",
+        "visited": [],
+        "last_step": 0,
+        "total_steps": 0,
+        "completed": False,
+        "completion_type": "",
+        "completed_at": "",
+        "furthest_step": 0,
+    },
     "enable_holiday_theme": True,
     "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
     "kiroshi_sarcasm_mode": False,
@@ -1013,6 +1023,8 @@ ALTAIR_CHART_KWARGS = (
 
 AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
 
+TUTORIAL_VERSION = "2025.05"
+
 TUTORIAL_STEPS: list[dict[str, object]] = [
     {
         "id": "welcome",
@@ -1085,6 +1097,54 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         },
     },
     {
+        "id": "issue_reporter",
+        "title": "Instant Issue Reporter",
+        "visual": "issue_reporter_flow",
+        "description": textwrap.dedent(
+            """
+            Launch the Issue Reporter from any case to bundle call notes, logs, and screenshots into a
+            single vendor-ready packet. Kiroshi maps your troubleshooting narrative into the structured
+            summary that partners expect, attaches the latest evidence, and stores a timestamped copy in
+            your database for follow-up.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "What does the Issue Reporter automatically include before you submit?",
+            "options": [
+                "Only the text from your root cause field",
+                "Screenshots, selected logs, and the troubleshooting summary",
+                "A blank template you must fill in manually",
+            ],
+            "answer": "Screenshots, selected logs, and the troubleshooting summary",
+            "success": "Yes — it packages artifacts and notes so vendors see the full story.",
+            "failure": "Remember, the Issue Reporter assembles evidence for you before sending.",
+        },
+    },
+    {
+        "id": "escalations",
+        "title": "Escalation Control Tower",
+        "visual": "escalation_matrix",
+        "description": textwrap.dedent(
+            """
+            Use the escalations drawer to track every hand-off. Capture vendor queue IDs, urgency, and
+            response targets, then pin critical follow-ups to the dashboard badge strip. Shared escalation
+            history keeps teams synchronized while automated reminders flag anything approaching its SLA.
+            """
+        ),
+        "interaction": {
+            "type": "checkbox_group",
+            "prompt": "Mark each checklist item once you have seen where to manage escalations.",
+            "items": [
+                "I can open the escalation drawer from a case tab.",
+                "I know where SLA timers appear on the dashboard.",
+                "I saw how vendor queue IDs are stored with the case.",
+            ],
+            "success": "Great — you can now coordinate escalations without losing context.",
+            "instruction": "Check every box after reviewing the escalation features above.",
+        },
+    },
+    {
         "id": "reporting",
         "title": "Reporting & Exports",
         "visual": "report_overview",
@@ -1105,14 +1165,39 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         },
     },
     {
+        "id": "analytics",
+        "title": "Operations Analytics",
+        "visual": "analytics_suite",
+        "description": textwrap.dedent(
+            """
+            The analytics suite blends saved case metrics, Issue Reporter outcomes, and escalation load
+            into a unified view. Trendlines spotlight recurring failure types, while the resolution heat
+            map highlights where teams are beating or missing their targets.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "Which visual helps you spot workload bottlenecks over the week?",
+            "options": [
+                "Resolution heat map",
+                "Issue Reporter draft list",
+                "Kiroshi Chat history",
+            ],
+            "answer": "Resolution heat map",
+            "success": "Exactly — the heat map shows when cases cluster above SLA thresholds.",
+            "failure": "Hint: look for the analytic that compares days to SLA performance.",
+        },
+    },
+    {
         "id": "settings",
         "title": "Settings & Personalisation",
         "visual": "settings_overview",
         "description": textwrap.dedent(
             """
-            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding history.
-            Use this panel to toggle advanced assistance, import or export Educate datasets, and relaunch this tutorial whenever you like.
-            Your completion status is saved in the persistent configuration so first-time use is recorded automatically.
+            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding
+            history. Use this panel to toggle advanced assistance, import or export Educate datasets, and
+            relaunch this tutorial whenever you like. Completion metadata records when you finished the
+            tour and the version you saw.
             """
         ),
         "interaction": {
@@ -1122,6 +1207,29 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
             "answer": "Settings",
             "success": "That's right — the Settings tab now includes a Repeat Tutorial button.",
             "failure": "Look in Settings for the onboarding controls and status badge.",
+        },
+    },
+    {
+        "id": "ui_refresh",
+        "title": "Polished Interface & Shortcuts",
+        "visual": "ui_refresh",
+        "description": textwrap.dedent(
+            """
+            Subtle gradients, animated progress badges, and keyboard-aware navigation make the refreshed
+            UI easier to scan. Tutorial step selectors, card highlights, and quick access buttons guide new
+            users without getting in your way.
+            """
+        ),
+        "interaction": {
+            "type": "checkbox_group",
+            "prompt": "Tick the enhancements you noticed in the new interface.",
+            "items": [
+                "Animated progress badges in the tutorial",
+                "Improved contrast on cards and tables",
+                "Step selector for jumping around the tour",
+            ],
+            "success": "Nicely spotted — those touches keep the workflow feeling fast.",
+            "instruction": "Mark each enhancement after you've seen it in action.",
         },
     },
     {
@@ -2783,6 +2891,19 @@ def inject_base_styles() -> None:
             background: linear-gradient(145deg, rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.85));
             box-shadow: 0 18px 32px rgba(15, 23, 42, 0.16);
             color: var(--kiroshi-text-on-white);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tutorial-wrapper::before {
+            content: "";
+            position: absolute;
+            inset: -40% -40% auto auto;
+            width: 320px;
+            height: 320px;
+            background: radial-gradient(circle at center, rgba(93, 93, 255, 0.16), transparent 65%);
+            pointer-events: none;
+            animation: tutorialGlow 8s ease-in-out infinite;
         }
 
         .tutorial-step-title {
@@ -2790,6 +2911,75 @@ def inject_base_styles() -> None:
             font-weight: 700;
             color: var(--kiroshi-primary);
             margin-bottom: 0.35rem;
+        }
+
+        .tutorial-step-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .tutorial-step-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.45rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            background: rgba(255, 255, 255, 0.7);
+            box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .tutorial-step-badge__index {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-weight: 700;
+            font-size: 0.95rem;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+            color: white;
+        }
+
+        .tutorial-step-badge__label {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1;
+            font-size: 0.82rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-step-badge__label span {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--kiroshi-muted);
+        }
+
+        .tutorial-step-badge__label strong {
+            font-size: 0.86rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-step-badge.completed .tutorial-step-badge__index {
+            background: linear-gradient(135deg, #22c55e 0%, #4ade80 100%);
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+        }
+
+        .tutorial-step-badge.active {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 22px rgba(37, 99, 235, 0.25);
+        }
+
+        .tutorial-step-badge.active .tutorial-step-badge__index {
+            animation: tutorialBadgePulse 2.6s ease-in-out infinite;
+        }
+
+        .tutorial-step-badge.upcoming {
+            opacity: 0.8;
         }
 
         .tutorial-intro {
@@ -2806,11 +2996,143 @@ def inject_base_styles() -> None:
             border: 1px solid rgba(209, 213, 219, 0.7);
             height: 100%;
             color: var(--kiroshi-text-on-white);
+            position: relative;
+            overflow: hidden;
         }
 
         .tutorial-footnote {
             font-size: 0.85rem;
             color: var(--kiroshi-muted);
+        }
+
+        .tutorial-wrapper [data-testid="stProgressBar"] {
+            border-radius: 999px;
+            background: rgba(226, 232, 240, 0.65);
+            padding: 0.15rem;
+            margin-bottom: 1rem;
+        }
+
+        .tutorial-wrapper [data-testid="stProgressBar"] div[role="progressbar"] {
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+            box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+        }
+
+        .tutorial-flow {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.1rem;
+            margin-top: 0.75rem;
+        }
+
+        .tutorial-flow__step {
+            position: relative;
+            padding: 1.1rem 1rem 1.25rem;
+            border-radius: 0.95rem;
+            background: rgba(248, 250, 252, 0.88);
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+        }
+
+        .tutorial-flow__icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 0.75rem;
+            display: grid;
+            place-items: center;
+            margin-bottom: 0.65rem;
+            font-weight: 700;
+            color: white;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+        }
+
+        .tutorial-flow__title {
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+            color: var(--kiroshi-text-on-surface);
+        }
+
+        .tutorial-highlight-list {
+            margin: 0.8rem 0 0;
+            padding-left: 1rem;
+            display: grid;
+            gap: 0.35rem;
+        }
+
+        .tutorial-highlight-list li {
+            font-size: 0.92rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-color-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .tutorial-color-chip {
+            flex: 1;
+            height: 36px;
+            border-radius: 0.75rem;
+            position: relative;
+            box-shadow: 0 8px 16px rgba(15, 23, 42, 0.18);
+            overflow: hidden;
+        }
+
+        .tutorial-color-chip::after {
+            content: attr(data-label);
+            position: absolute;
+            inset: auto 0 0;
+            padding: 0.2rem 0.55rem;
+            font-size: 0.65rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: rgba(15, 23, 42, 0.75);
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .tutorial-insight-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .tutorial-insight-card {
+            padding: 1rem;
+            border-radius: 1rem;
+            background: rgba(15, 23, 42, 0.65);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.2);
+        }
+
+        .tutorial-insight-card strong {
+            font-size: 1.1rem;
+        }
+
+        @keyframes tutorialBadgePulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+            }
+            50% {
+                transform: scale(1.08);
+                box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.08);
+            }
+        }
+
+        @keyframes tutorialGlow {
+            0%, 100% {
+                transform: translate3d(0, 0, 0) scale(1);
+                opacity: 0.9;
+            }
+            50% {
+                transform: translate3d(-12%, 6%, 0) scale(1.1);
+                opacity: 0.6;
+            }
         }
 
         .case-card {
@@ -3193,6 +3515,144 @@ def _render_tutorial_visual(kind: str) -> None:
             ]
         )
         st.table(settings_summary)
+    elif kind == "issue_reporter_flow":
+        flow_steps = [
+            (
+                "Capture",
+                "Pulls in customer summary, reproduction steps, and impact statements automatically.",
+            ),
+            (
+                "Evidence",
+                "Attaches the latest screenshots and any logs you selected from the case workspace.",
+            ),
+            (
+                "Package",
+                "Formats the narrative into a vendor-ready template with tags and queue routing.",
+            ),
+            (
+                "Archive",
+                "Saves a timestamped copy to your database for auditing and future follow-up.",
+            ),
+        ]
+        flow_markup = "".join(
+            "<div class='tutorial-flow__step'>"
+            f"<div class='tutorial-flow__icon'>{idx}</div>"
+            f"<div class='tutorial-flow__title'>{escape(title)}</div>"
+            f"<div class='tutorial-footnote'>{escape(detail)}</div>"
+            "</div>"
+            for idx, (title, detail) in enumerate(flow_steps, start=1)
+        )
+        st.markdown(f"<div class='tutorial-flow'>{flow_markup}</div>", unsafe_allow_html=True)
+        st.caption(
+            "Start the Issue Reporter from any case tab — Kiroshi keeps the vendor package aligned with"
+            " your troubleshooting notes."
+        )
+    elif kind == "escalation_matrix":
+        escalation_summary = pd.DataFrame(
+            [
+                {
+                    "Escalation": "Vendor follow-up",
+                    "Tracked in": "Escalation drawer",
+                    "What you see": "Queue ID, assigned engineer, promised callback, SLA timer",
+                },
+                {
+                    "Escalation": "Internal hand-off",
+                    "Tracked in": "Dashboard badge",
+                    "What you see": "Owner, severity, days outstanding, linked case",
+                },
+                {
+                    "Escalation": "Customer update",
+                    "Tracked in": "Reminder banner",
+                    "What you see": "Next contact window, notes, completion checklist",
+                },
+            ]
+        )
+        st.dataframe(escalation_summary, width="stretch")
+        st.caption(
+            "Escalations sync between the case drawer and dashboard, so the entire team sees timers and"
+            " commitments in one view."
+        )
+    elif kind == "analytics_suite":
+        heatmap_rows = [
+            ("Mon", "On target", 14),
+            ("Mon", "Warning", 3),
+            ("Mon", "Escalated", 1),
+            ("Tue", "On target", 11),
+            ("Tue", "Warning", 4),
+            ("Tue", "Escalated", 2),
+            ("Wed", "On target", 16),
+            ("Wed", "Warning", 2),
+            ("Wed", "Escalated", 1),
+            ("Thu", "On target", 13),
+            ("Thu", "Warning", 5),
+            ("Thu", "Escalated", 2),
+            ("Fri", "On target", 10),
+            ("Fri", "Warning", 6),
+            ("Fri", "Escalated", 3),
+        ]
+        heatmap_data = pd.DataFrame(heatmap_rows, columns=["Day", "Status", "Cases"])
+        day_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        status_order = ["On target", "Warning", "Escalated"]
+        chart = (
+            alt.Chart(heatmap_data)
+            .mark_rect()
+            .encode(
+                x=alt.X("Day:N", sort=day_order, title="Weekday"),
+                y=alt.Y("Status:N", sort=status_order, title="Status"),
+                color=alt.Color(
+                    "Cases:Q",
+                    scale=alt.Scale(scheme="blues", domain=[0, heatmap_data["Cases"].max()]),
+                    legend=None,
+                ),
+                tooltip=["Day", "Status", alt.Tooltip("Cases", title="Cases")],
+            )
+            .properties(height=220)
+        )
+        st.altair_chart(chart, use_container_width=True, **ALTAIR_CHART_KWARGS)
+        insights = [
+            ("82%", "cases resolved within SLA", "+6% vs last week"),
+            ("18", "active escalations", "Most due Thursday"),
+            ("4.6h", "median resolution time", "Down 40 minutes"),
+        ]
+        insight_markup = "".join(
+            "<div class='tutorial-insight-card'>"
+            f"<strong>{escape(value)}</strong>"
+            f"<div>{escape(caption)}</div>"
+            f"<small>{escape(delta)}</small>"
+            "</div>"
+            for value, caption, delta in insights
+        )
+        st.markdown(
+            f"<div class='tutorial-insight-grid'>{insight_markup}</div>", unsafe_allow_html=True
+        )
+    elif kind == "ui_refresh":
+        col_left, col_right = st.columns([1.4, 1])
+        highlights = [
+            "Animated badges highlight your current tutorial step.",
+            "Navigation slider jumps directly to any topic in the tour.",
+            "Cards and tables ship with increased contrast for readability.",
+        ]
+        with col_left:
+            highlight_markup = "".join(
+                f"<li>{escape(item)}</li>" for item in highlights
+            )
+            st.markdown(
+                f"<ul class='tutorial-highlight-list'>{highlight_markup}</ul>",
+                unsafe_allow_html=True,
+            )
+        with col_right:
+            st.markdown(
+                "<div class='tutorial-visual-card' style='height:100%'>"
+                "<strong>Palette preview</strong>"
+                "<div class='tutorial-color-row'>"
+                "<div class='tutorial-color-chip' data-label='Primary' style='background:linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);'></div>"
+                "<div class='tutorial-color-chip' data-label='Accent' style='background:linear-gradient(135deg, #f97316 0%, #fb923c 100%);'></div>"
+                "<div class='tutorial-color-chip' data-label='Surface' style='background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);'></div>"
+                "</div>"
+                "<p class='tutorial-footnote' style='margin-top:0.75rem;'>New gradients keep focus on key actions while maintaining accessibility targets.</p>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
     elif kind == "chat_resources":
         col_chat, col_manual, col_reference = st.columns(3)
         with col_chat:
@@ -3220,9 +3680,38 @@ def _mark_tutorial_completion(status: str) -> None:
     st.session_state.tutorial_completed = True
     st.session_state.tutorial_completion_type = status
     st.session_state.tutorial_completed_at = timestamp
+    metadata = st.session_state.get("tutorial_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    visited = metadata.get("visited")
+    if not isinstance(visited, list):
+        visited = []
+    all_step_ids = [str(step.get("id", idx)) for idx, step in enumerate(TUTORIAL_STEPS)]
+    for step_id in all_step_ids:
+        if step_id not in visited:
+            visited.append(step_id)
+    metadata.update(
+        {
+            "version": TUTORIAL_VERSION,
+            "visited": visited,
+            "last_step": max(len(TUTORIAL_STEPS) - 1, 0),
+            "total_steps": len(TUTORIAL_STEPS),
+            "completed": status == "completed",
+            "completion_type": status,
+            "completed_at": timestamp,
+            "furthest_step": max(
+                len(TUTORIAL_STEPS) - 1,
+                int(metadata.get("furthest_step", 0))
+                if isinstance(metadata.get("furthest_step"), int)
+                else 0,
+            ),
+        }
+    )
+    st.session_state.tutorial_metadata = metadata
     _persist_setting("tutorial_completed")
     _persist_setting("tutorial_completion_type")
     _persist_setting("tutorial_completed_at")
+    _persist_setting("tutorial_metadata")
     st.session_state.show_tutorial = False
     st.session_state.tutorial_step = 0
     st.rerun()
@@ -3241,9 +3730,61 @@ def render_onboarding_tutorial() -> None:
         step_idx = total_steps - 1
     st.session_state.tutorial_step = step_idx
     step = TUTORIAL_STEPS[step_idx]
+    step_id = str(step.get("id", step_idx))
+
+    metadata = st.session_state.get("tutorial_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    visited = metadata.get("visited")
+    if not isinstance(visited, list):
+        visited = []
+    metadata_changed = False
+    if step_id not in visited:
+        visited.append(step_id)
+        metadata_changed = True
+    if metadata.get("last_step") != step_idx:
+        metadata["last_step"] = step_idx
+        metadata_changed = True
+    if metadata.get("total_steps") != total_steps:
+        metadata["total_steps"] = total_steps
+        metadata_changed = True
+    if metadata.get("version") != TUTORIAL_VERSION:
+        metadata["version"] = TUTORIAL_VERSION
+        metadata_changed = True
+    furthest_step = metadata.get("furthest_step")
+    if not isinstance(furthest_step, int):
+        furthest_step = step_idx
+        metadata_changed = True
+    if step_idx > furthest_step:
+        furthest_step = step_idx
+        metadata_changed = True
+    metadata["furthest_step"] = furthest_step
+    metadata["visited"] = visited
+    st.session_state.tutorial_metadata = metadata
+    if metadata_changed:
+        _persist_setting("tutorial_metadata")
 
     with st.container():
         st.markdown("<div class='tutorial-wrapper'>", unsafe_allow_html=True)
+        badge_markup = "".join(
+            "<div class='{}'>"
+            "<div class='tutorial-step-badge__index'>{}</div>"
+            "<div class='tutorial-step-badge__label'><span>Step {}</span><strong>{}</strong></div>"
+            "</div>".format(
+                "tutorial-step-badge completed"
+                if idx < step_idx
+                else "tutorial-step-badge active"
+                if idx == step_idx
+                else "tutorial-step-badge upcoming",
+                idx + 1,
+                idx + 1,
+                escape(str(item.get("title", ""))),
+            )
+            for idx, item in enumerate(TUTORIAL_STEPS)
+        )
+        st.markdown(
+            f"<div class='tutorial-step-badges'>{badge_markup}</div>", unsafe_allow_html=True
+        )
         st.markdown(
             "<div class='tutorial-step-title'>Step {} of {}: {}</div>".format(
                 step_idx + 1, total_steps, escape(str(step.get("title", "")))
@@ -3251,6 +3792,32 @@ def render_onboarding_tutorial() -> None:
             unsafe_allow_html=True,
         )
         st.progress((step_idx + 1) / total_steps)
+        if total_steps > 1:
+            def _format_step_label(idx: int) -> str:
+                title = str(TUTORIAL_STEPS[idx].get("title", "Step"))
+                return f"{idx + 1}. {title}"
+
+            raw_furthest = st.session_state.tutorial_metadata.get("furthest_step", step_idx)
+            try:
+                furthest_idx = int(raw_furthest)
+            except (TypeError, ValueError):
+                furthest_idx = step_idx
+            max_allowed = max(step_idx, furthest_idx)
+            slider_options = list(range(max_allowed + 1))
+            jump_selection = st.select_slider(
+                "Navigate to a step",
+                options=slider_options,
+                value=step_idx,
+                format_func=_format_step_label,
+                key="tutorial_step_selector",
+            )
+            if len(slider_options) < total_steps:
+                st.caption(
+                    "Complete the current content to unlock the remaining tutorial steps."
+                )
+            if jump_selection != step_idx:
+                st.session_state.tutorial_step = int(jump_selection)
+                st.rerun()
         description = step.get("description")
         if isinstance(description, str):
             st.markdown(description)
@@ -3393,6 +3960,14 @@ _init_state(
         _get_persistent_default("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
     ),
 )
+_tutorial_meta_default = _get_persistent_default(
+    "tutorial_metadata", PERSISTENT_SETTINGS_DEFAULTS["tutorial_metadata"]
+)
+if isinstance(_tutorial_meta_default, dict):
+    _tutorial_meta_default = deepcopy(_tutorial_meta_default)
+else:
+    _tutorial_meta_default = deepcopy(PERSISTENT_SETTINGS_DEFAULTS["tutorial_metadata"])
+_init_state("tutorial_metadata", _tutorial_meta_default)
 # Tracking related state
 _init_state("track_case", False)
 _init_state("tracking_info", {})
@@ -3494,6 +4069,136 @@ def tail_log(path: str | Path, lines: int = 100) -> str:
 # ───────────────── DATA MODEL ──────────────────
 
 
+def _utc_now_z() -> str:
+    """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
+
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+@dataclass
+class RemoteSessionEntry:
+    """Structured representation of a remote troubleshooting session."""
+
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    title: str = ""
+    notes: str = ""
+    created_at: str = field(default_factory=_utc_now_z)
+    updated_at: str = field(default_factory=_utc_now_z)
+
+    def display_title(self, index: int) -> str:
+        """Return a human-friendly title, falling back to an indexed label."""
+
+        title = (self.title or "").strip()
+        return title or f"Session {index}"
+
+    def touch(self) -> None:
+        """Refresh the ``updated_at`` timestamp to the current moment."""
+
+        self.updated_at = _utc_now_z()
+
+
+def _coerce_remote_session_entry(
+    payload: object, *, default_title: str
+) -> RemoteSessionEntry:
+    """Return a ``RemoteSessionEntry`` built from loose mapping data."""
+
+    if isinstance(payload, RemoteSessionEntry):
+        entry = RemoteSessionEntry(
+            session_id=(payload.session_id or uuid.uuid4().hex),
+            title=str(payload.title or default_title),
+            notes=str(payload.notes or ""),
+            created_at=str(payload.created_at or _utc_now_z()),
+            updated_at=str(payload.updated_at or payload.created_at or _utc_now_z()),
+        )
+    elif isinstance(payload, Mapping):
+        created = payload.get("created_at")
+        created_str = str(created or "")
+        if not created_str:
+            created_str = _utc_now_z()
+        updated = payload.get("updated_at")
+        updated_str = str(updated or "")
+        if not updated_str:
+            updated_str = created_str
+        entry = RemoteSessionEntry(
+            session_id=str(payload.get("session_id") or uuid.uuid4().hex),
+            title=str(payload.get("title") or default_title),
+            notes=str(payload.get("notes") or ""),
+            created_at=created_str,
+            updated_at=updated_str,
+        )
+    elif isinstance(payload, str):
+        entry = RemoteSessionEntry(title=default_title, notes=payload)
+    else:
+        entry = RemoteSessionEntry(title=default_title)
+
+    if not entry.title.strip():
+        entry.title = default_title
+
+    if not entry.created_at:
+        entry.created_at = _utc_now_z()
+    if not entry.updated_at:
+        entry.updated_at = entry.created_at
+
+    return entry
+
+
+def _normalize_remote_session_list(
+    raw_sessions: Iterable[object] | None,
+) -> list[RemoteSessionEntry]:
+    """Convert raw session payloads into dataclass entries."""
+
+    if not raw_sessions:
+        return []
+    if isinstance(raw_sessions, (str, bytes)):
+        return []
+
+    normalized: list[RemoteSessionEntry] = []
+    for payload in raw_sessions:
+        default_title = f"Session {len(normalized) + 1}"
+        normalized.append(
+            _coerce_remote_session_entry(payload, default_title=default_title)
+        )
+    return normalized
+
+
+def format_remote_sessions_summary(
+    sessions: Sequence[RemoteSessionEntry], *, include_timestamps: bool = True
+) -> str:
+    """Combine remote session notes into a readable multi-session summary."""
+
+    if not sessions:
+        return ""
+
+    show_titles = len(sessions) > 1 or any(
+        session.title.strip()
+        and session.title.strip().lower() != f"session {index}"
+        for index, session in enumerate(sessions, start=1)
+    )
+
+    blocks: list[str] = []
+    for idx, session in enumerate(sessions, start=1):
+        title = session.display_title(idx)
+        notes = (session.notes or "").strip()
+        if show_titles:
+            header = title
+            if include_timestamps:
+                created = (session.created_at or "").strip()
+                updated = (session.updated_at or "").strip()
+                timestamp_bits: list[str] = []
+                if created:
+                    timestamp_bits.append(f"started {created}")
+                if updated and updated != created:
+                    timestamp_bits.append(f"updated {updated}")
+                if timestamp_bits:
+                    header = f"{header} ({', '.join(timestamp_bits)})"
+            block = header if not notes else f"{header}\n{notes}"
+        else:
+            block = notes
+        blocks.append(block.strip())
+
+    return "\n\n".join(part for part in blocks if part).strip()
+
+
 @dataclass
 class TrackingData:
     """Metadata stored for active tracking in a case JSON file."""
@@ -3548,9 +4253,23 @@ class CaseData:
     email: str = ""
     internal_helpjuice: str = ""
     internal_logs: str = ""
+    remote_sessions: list[RemoteSessionEntry] = field(default_factory=list)
     remote_steps: str = ""
     root_cause: str = ""
     repro_steps: str = ""
+    third_line_hj_article: str = ""
+    third_line_troubleshoot_summary: str = ""
+    third_line_comments: str = ""
+    third_line_reseller_name: str = ""
+    third_line_reseller_phone: str = ""
+    third_line_reseller_phone_alt: str = ""
+    third_line_reseller_email: str = ""
+    third_line_clinic_rep_name: str = ""
+    third_line_clinic_rep_phone: str = ""
+    third_line_clinic_rep_phone_alt: str = ""
+    third_line_tv_id: str = ""
+    third_line_tv_password: str = ""
+    third_line_unite_pin: str = ""
 
     solution: str = ""
     survey_link: str = ""
@@ -3585,11 +4304,63 @@ class CaseData:
     dongle_deployment_date: str = ""
     scanner_previous_replacements: int = 0
     scanner_accidental_damage: bool = False
+    # Dell escalation specifics
+    dell_issue_start_date: str = ""
+    dell_command_updates_status: str = ""
+    dell_power_options_setup: str = ""
+    dell_optimizer_setup: str = ""
+    dell_intel_ppm_installed: str = ""
+    dell_cpu_speed_or_throttling: str = ""
+    dell_gpu_usage_integrated: str = ""
+    dell_gpu_usage_dedicated: str = ""
+    dell_cpu_utilization: str = ""
+    dell_benchmark_results: str = ""
+    dell_ultra_resolution_support: str = ""
+    dell_gpu_driver_versions: str = ""
+    dell_reliability_monitor_results: str = ""
+    dell_diagnostics_results: str = ""
+    dell_windows_reimaged: str = ""
+    clinic_name: str = ""
+    clinic_contact_name: str = ""
+    clinic_contact_phone: str = ""
+    clinic_contact_email: str = ""
+    clinic_address_line_1: str = ""
+    clinic_address_line_2: str = ""
+    clinic_city: str = ""
+    clinic_state: str = ""
+    clinic_postal_code: str = ""
     tracking: TrackingData = field(default_factory=TrackingData)
     kiroshi_version: str = VERSION
     last_modified: str = ""
 
     def __post_init__(self) -> None:
+        if self.remote_steps is None:
+            self.remote_steps = ""
+        else:
+            self.remote_steps = str(self.remote_steps)
+
+        sessions_source: Iterable[object] | None
+        if isinstance(self.remote_sessions, Iterable) and not isinstance(
+            self.remote_sessions, (str, bytes)
+        ):
+            sessions_source = self.remote_sessions
+        else:
+            sessions_source = []
+        normalized_sessions = _normalize_remote_session_list(sessions_source)
+        if not normalized_sessions and self.remote_steps.strip():
+            now = _utc_now_z()
+            normalized_sessions = [
+                RemoteSessionEntry(
+                    title="Session 1",
+                    notes=self.remote_steps,
+                    created_at=now,
+                    updated_at=now,
+                )
+            ]
+        self.remote_sessions = normalized_sessions
+        self.remote_steps = format_remote_sessions_summary(
+            self.remote_sessions, include_timestamps=True
+        )
         if not isinstance(self.tracking, TrackingData):
             if isinstance(self.tracking, Mapping):
                 self.tracking = TrackingData(**self.tracking)  # type: ignore[arg-type]
@@ -3603,6 +4374,62 @@ class CaseData:
             self.last_modified = ""
         elif not isinstance(self.last_modified, str):
             self.last_modified = str(self.last_modified)
+
+
+def extract_remote_steps_from_mapping(record: object | None) -> str:
+    """Return a normalized troubleshooting summary from legacy payloads."""
+
+    if record is None:
+        return ""
+
+    getter = getattr(record, "get", None)
+    if getter is None:
+        return ""
+
+    raw_steps = getter("remote_steps")
+    if isinstance(raw_steps, str) and raw_steps.strip():
+        return raw_steps.strip()
+
+    raw_sessions = getter("remote_sessions")
+    if isinstance(raw_sessions, Iterable) and not isinstance(
+        raw_sessions, (str, bytes)
+    ):
+        sessions = _normalize_remote_session_list(raw_sessions)
+        return format_remote_sessions_summary(sessions, include_timestamps=True)
+
+    return ""
+
+
+def ensure_remote_session_entries(case: CaseData) -> None:
+    """Guarantee that a case has at least one remote session entry."""
+
+    if case.remote_sessions:
+        return
+    now = _utc_now_z()
+    case.remote_sessions = [
+        RemoteSessionEntry(
+            title="Session 1",
+            notes="",
+            created_at=now,
+            updated_at=now,
+        )
+    ]
+    case.remote_steps = format_remote_sessions_summary(case.remote_sessions)
+
+
+def update_case_remote_sessions(
+    case: CaseData, sessions: Sequence[RemoteSessionEntry]
+) -> None:
+    """Persist a new set of remote session entries to the active case."""
+
+    normalized = _normalize_remote_session_list(sessions)
+    case.remote_sessions = normalized
+    case.remote_steps = format_remote_sessions_summary(
+        normalized, include_timestamps=True
+    )
+    st.session_state["remote_sessions"] = [asdict(entry) for entry in normalized]
+    st.session_state["remote_steps"] = case.remote_steps
+    autosave()
 
 
 @dataclass
@@ -4522,19 +5349,19 @@ def update_tracked_case_file(
         return None
 
 
-def update_tracked_priority(
+def _apply_tracked_priority_update(
     path: str,
-    key: str,
+    new_priority: str,
     *,
     case_id: str | None = None,
     is_legacy: bool = False,
-) -> None:
-    new_priority = normalize_priority(st.session_state.get(key))
+) -> tuple[str, str | None]:
+    normalized_priority = normalize_priority(new_priority)
     if is_legacy:
-        timestamp = update_tracked_case_file(path, priority=new_priority)
+        timestamp = update_tracked_case_file(path, priority=normalized_priority)
     else:
         timestamp = update_tracked_case_file(
-            path, tracking_updates={"priority": new_priority}
+            path, tracking_updates={"priority": normalized_priority}
         )
     target_case_id = case_id
     if target_case_id is None:
@@ -4544,12 +5371,31 @@ def update_tracked_priority(
         except Exception:
             target_case_id = None
     if target_case_id and D.case_id == target_case_id:
-        D.tracking.priority = new_priority
-        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = new_priority
+        D.tracking.priority = normalized_priority
+        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = (
+            normalized_priority
+        )
         if timestamp:
             D.last_modified = timestamp
             if "case" in st.session_state:
                 st.session_state.case.last_modified = timestamp
+    return normalized_priority, timestamp
+
+
+def update_tracked_priority(
+    path: str,
+    key: str,
+    *,
+    case_id: str | None = None,
+    is_legacy: bool = False,
+) -> None:
+    new_priority = normalize_priority(st.session_state.get(key))
+    _apply_tracked_priority_update(
+        path,
+        new_priority,
+        case_id=case_id,
+        is_legacy=is_legacy,
+    )
     st.toast("Priority updated") if hasattr(st, "toast") else None
 
 
@@ -4862,19 +5708,86 @@ def render_tracked_cases_dashboard(
         path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
         unique_suffix = f"{key_namespace}_{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
-        last_modified_display = format_last_modified(case.get("last_modified"))
-        last_modified_dt = parse_iso_datetime(case.get("last_modified"))
-        is_stale = False
+        priority_key = f"priority_{unique_suffix}"
+        status_key = f"status_{unique_suffix}"
+        case_id_display = case.get("case_id") or "Unknown Case"
+        last_modified_str = case.get("last_modified")
+        last_modified_dt = parse_iso_datetime(last_modified_str)
+        idle_delta: timedelta | None = None
         if last_modified_dt:
             try:
-                is_stale = (now - last_modified_dt) > timedelta(hours=24)
+                idle_delta = now - last_modified_dt
             except Exception:
-                is_stale = False
-        if is_stale and show_notifications:
-            st.warning(
-                "Hey, this case is still pending updates, no updates after 24 hours. "
-                f"Case ID: {case.get('case_id') or 'Unknown Case'}"
+                idle_delta = None
+
+        reminder_due = False
+        warning_text: str | None = None
+        auto_escalated = False
+        auto_escalation_delta: timedelta | None = None
+
+        if idle_delta and idle_delta.total_seconds() >= 0:
+            hours_since_update = idle_delta.total_seconds() / 3600
+            duration_display = _format_timedelta_compact(idle_delta)
+            if priority_value in {"Low", "Normal"}:
+                if hours_since_update >= 24:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. Low and Normal priorities should get an update "
+                        "at least every 24 hours."
+                    )
+            elif priority_value in {"High", "Escalation"}:
+                if hours_since_update >= 6:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. High and Escalation priorities alert after 6 "
+                        "hours without activity."
+                    )
+            elif priority_value == "On Time":
+                if hours_since_update >= 4:
+                    auto_escalated = True
+                    auto_escalation_delta = idle_delta
+                    updated_priority, timestamp = _apply_tracked_priority_update(
+                        case["path"],
+                        "High",
+                        case_id=case.get("case_id"),
+                        is_legacy=case.get("is_legacy", False),
+                    )
+                    priority_value = updated_priority
+                    case["priority"] = updated_priority
+                    if timestamp:
+                        case["last_modified"] = timestamp
+                        last_modified_dt = parse_iso_datetime(timestamp)
+                        idle_delta = (
+                            datetime.utcnow() - last_modified_dt
+                            if last_modified_dt
+                            else None
+                        )
+                    st.session_state[priority_key] = updated_priority
+                elif hours_since_update >= 1:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. On Time cases ping every hour and are "
+                        "automatically escalated to High after 4 hours without updates."
+                    )
+
+        if auto_escalated:
+            reminder_due = True
+            escalation_duration = (
+                _format_timedelta_compact(auto_escalation_delta)
+                if auto_escalation_delta
+                else "4h"
             )
+            warning_text = (
+                f"Priority automatically escalated to High after {escalation_duration} "
+                f"without updates. Case ID: {case_id_display}."
+            )
+
+        last_modified_display = format_last_modified(case.get("last_modified"))
+        if reminder_due and warning_text and show_notifications:
+            st.warning(warning_text)
         summary = " ".join(
             part
             for part in [
@@ -4921,8 +5834,6 @@ def render_tracked_cases_dashboard(
                 render_crm_link_button(case.get("case_link", ""))
 
             controls = st.columns(2)
-            priority_key = f"priority_{unique_suffix}"
-            status_key = f"status_{unique_suffix}"
             if (
                 priority_key not in st.session_state
                 or st.session_state.get(priority_key) != priority_value
@@ -6483,11 +7394,9 @@ def build_ai_learning_dataset(
         root_cause = str(record.get("root_cause") or "").strip()
         solution = str(record.get("solution") or "").strip()
         application_version = str(record.get("application_version") or "").strip()
-        troubleshooting = str(
-            record.get("remote_steps")
-            or record.get("troubleshooting")
-            or ""
-        ).strip()
+        troubleshooting = extract_remote_steps_from_mapping(record)
+        if not troubleshooting:
+            troubleshooting = str(record.get("troubleshooting") or "").strip()
         repro_steps = str(record.get("repro_steps") or "").strip()
         additional_info = str(record.get("additional_info") or "").strip()
 
@@ -7109,10 +8018,9 @@ def _collect_pattern_cases(
                 "title": str(entry.get("title") or ""),
                 "root_cause": str(entry.get("root_cause") or ""),
                 "solution": str(entry.get("solution") or ""),
-                "troubleshooting": str(
-                    entry.get("troubleshooting")
-                    or entry.get("remote_steps")
-                    or ""
+                "troubleshooting": (
+                    extract_remote_steps_from_mapping(entry)
+                    or str(entry.get("troubleshooting") or "").strip()
                 ),
                 "repro_steps": str(entry.get("repro_steps") or ""),
                 "additional_info": str(
@@ -7146,10 +8054,9 @@ def generate_recurring_issue_pdf(
                         "title": str(item.get("title") or ""),
                         "root_cause": str(item.get("root_cause") or ""),
                         "solution": str(item.get("solution") or ""),
-                        "troubleshooting": str(
-                            item.get("troubleshooting")
-                            or item.get("remote_steps")
-                            or ""
+                        "troubleshooting": (
+                            extract_remote_steps_from_mapping(item)
+                            or str(item.get("troubleshooting") or "").strip()
                         ),
                         "repro_steps": str(item.get("repro_steps") or ""),
                         "additional_info": str(
@@ -7338,10 +8245,9 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
                     "title": str(case_row.get("title") or ""),
                     "root_cause": str(case_row.get("root_cause") or ""),
                     "solution": str(case_row.get("solution") or ""),
-                    "troubleshooting": str(
-                        case_row.get("troubleshooting")
-                        or case_row.get("remote_steps")
-                        or ""
+                    "troubleshooting": (
+                        extract_remote_steps_from_mapping(case_row)
+                        or str(case_row.get("troubleshooting") or "").strip()
                     ),
                     "repro_steps": str(case_row.get("repro_steps") or ""),
                     "additional_info": str(
@@ -7730,6 +8636,66 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         st.session_state[key] = value
         autosave()
 
+DELL_ESCALATION_OVERVIEW_FIELDS = [
+    ("dell_issue_start_date", "Issue start date"),
+    ("service_tag", "PC service tag"),
+    ("case_id", "Case ID"),
+]
+
+DELL_ESCALATION_PC_FIELDS = [
+    ("pc_model", "Type of PC"),
+    ("bios_version", "BIOS Version"),
+    ("windows_version", "Windows Version"),
+    ("graphics_card", "Graphics card"),
+    ("processor", "Processor"),
+    ("dell_command_updates_status", "Dell Command Updates"),
+    ("dell_power_options_setup", "Power Options setup"),
+    ("dell_optimizer_setup", "Dell Optimizer setup"),
+    (
+        "dell_intel_ppm_installed",
+        "Intel Processor Power Management Utility installed?",
+    ),
+    ("dell_cpu_speed_or_throttling", "CPU Speed / Is CPU throttling?"),
+    ("dell_gpu_usage_integrated", "GPU Usage % (Integrated)"),
+    ("dell_gpu_usage_dedicated", "GPU Usage % (Dedicated)"),
+    ("dell_cpu_utilization", "CPU Utilization %"),
+    ("dell_benchmark_results", "Benchmark used and results"),
+    (
+        "dell_ultra_resolution_support",
+        "Can it launch simulation on Ultra Resolution? (If needed)",
+    ),
+    ("dell_gpu_driver_versions", "Which GPU driver versions were tested?"),
+    (
+        "dell_reliability_monitor_results",
+        "Reliability Monitor and Event Viewer results",
+    ),
+    ("dell_diagnostics_results", "Dell Diagnosis test results (ePSA tests included)"),
+    ("dell_windows_reimaged", "Has Windows been reimaged?"),
+]
+
+DELL_ESCALATION_CONTACT_FIELDS = [
+    ("clinic_name", "Clinic name"),
+    (
+        "clinic_contact_name",
+        "Full name of person responsible for receiving the equipment",
+    ),
+    ("clinic_contact_phone", "Phone number"),
+    ("clinic_contact_email", "Email address"),
+    ("clinic_address_line_1", "Address 1"),
+    ("clinic_address_line_2", "Address 2 (Suite, etc.)"),
+    ("clinic_city", "City"),
+    ("clinic_state", "State"),
+    ("clinic_postal_code", "Zip Code"),
+]
+
+DELL_ESCALATION_FIELD_LABELS = (
+    DELL_ESCALATION_OVERVIEW_FIELDS
+    + DELL_ESCALATION_PC_FIELDS
+    + DELL_ESCALATION_CONTACT_FIELDS
+)
+
+DELL_ESCALATION_FIELDS = [field for field, _ in DELL_ESCALATION_FIELD_LABELS]
+
 BASE_CATEGORY_MAP = {
     "HEADER": [
         "company_name",
@@ -7761,6 +8727,7 @@ BASE_CATEGORY_MAP = {
         "straumann",
     ],
     "ESCALATION 2ND LINE": ["esc_name", "esc_ph", "esc_email"],
+    "DELL ESCALATION": DELL_ESCALATION_FIELDS,
     "ADDITIONAL INFORMATION": ["additional_info"],
 }
 
@@ -7786,6 +8753,9 @@ HW_CATEGORY_MAP = {
 }
 
 
+OPTIONAL_PROGRESS_CATEGORIES = {"DELL ESCALATION"}
+
+
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
     if st.session_state.get("second_line_mode"):
@@ -7793,6 +8763,7 @@ def active_category_map():
     if not st.session_state.get("include_escalations", True):
         cm.pop("AX COORDINATORS", None)
         cm.pop("ESCALATION 2ND LINE", None)
+        cm.pop("DELL ESCALATION", None)
     if st.session_state.get("include_hardware"):
         cm.update(HW_CATEGORY_MAP)
     return cm
@@ -7978,6 +8949,8 @@ def compute_progress(d: CaseData, cat_map):
     """Compute completion progress for each category."""
     prog, miss = {}, {}
     for cat, flds in cat_map.items():
+        if cat in OPTIONAL_PROGRESS_CATEGORIES:
+            continue
         vals = [getattr(d, f) for f in flds]
         done = sum(bool(v) for v in vals)
         prog[cat] = int(done / len(flds) * 100)
@@ -8035,43 +9008,62 @@ def build_case_data_block(d: CaseData) -> str:
 def build_third_line_escalation(d: CaseData) -> str:
     """Generate a third line escalation template using case data."""
     date_str = datetime.now().strftime("%Y %m %d")
+    
+    def first_non_empty(*values: str) -> str:
+        for value in values:
+            if isinstance(value, str):
+                cleaned = value.strip()
+                if cleaned:
+                    return cleaned
+        return ""
+
+    def section_value(placeholder: str, *values: str) -> str:
+        chosen = first_non_empty(*values)
+        return chosen if chosen else placeholder
+
+    def contact_line(label: str, placeholder_detail: str, *values: str) -> str:
+        chosen = first_non_empty(*values)
+        if chosen:
+            return f"{label}: {chosen}"
+        return f"{label}: {placeholder_detail}"
+
     return f"""3Q({date_str})
 
 Hello, Advanced support team,
 
 We need your assistance in this case:
 
-{d.brief_description}
+{section_value("Add a brief description of the issue.", d.brief_description)}
 
 HJ article or possible root cause found
 
-{d.root_cause}
+{section_value("Add Helpjuice article link or suspected root cause.", d.third_line_hj_article, d.root_cause)}
 
 How to reproduce it:
 
-{d.repro_steps}
+{section_value("Provide detailed reproduction steps.", d.repro_steps)}
 
 Troubleshoot summary:
 
-{d.remote_steps}
+{section_value("Summarize all troubleshooting performed.", d.third_line_troubleshoot_summary, d.remote_steps)}
 
 For more specific information, check the TV session.
 
 Comments:
 
-{d.additional_info}
+{section_value("Add any additional comments for the advanced team.", d.third_line_comments, d.additional_info)}
 
 Contact information:
-Reseller Name:
-Reseller Phone Number:
-Reseller Phone Number 2:
-Reseller email:
-Clinic rep name:
-Clinic rep phone number:
-Clinic rep phone number 2:
-TV ID: {d.teamviewer_id}
-TV Customer Pass: {d.teamviewer_password}
-Unite pin: {d.subscription_id}
+{contact_line("Reseller Name", "[Add reseller name]", d.third_line_reseller_name)}
+{contact_line("Reseller Phone Number", "[Add primary reseller phone]", d.third_line_reseller_phone)}
+{contact_line("Reseller Phone Number 2", "[Add alternate reseller phone]", d.third_line_reseller_phone_alt)}
+{contact_line("Reseller email", "[Add reseller email address]", d.third_line_reseller_email)}
+{contact_line("Clinic rep name", "[Add clinic representative name]", d.third_line_clinic_rep_name)}
+{contact_line("Clinic rep phone number", "[Add clinic representative phone]", d.third_line_clinic_rep_phone)}
+{contact_line("Clinic rep phone number 2", "[Add alternate clinic representative phone]", d.third_line_clinic_rep_phone_alt)}
+{contact_line("TV ID", "[Add TeamViewer ID]", d.third_line_tv_id, d.teamviewer_id)}
+{contact_line("TV Customer Pass", "[Add TeamViewer password]", d.third_line_tv_password, d.teamviewer_password)}
+{contact_line("Unite pin", "[Add Unite PIN]", d.third_line_unite_pin, d.subscription_id)}
 
 Find all screenshots and logs on the internal note.
 
@@ -8084,9 +9076,12 @@ def category_dataframe(
 ) -> pd.DataFrame:
     """Return a DataFrame with human readable field names for a category."""
     rows = []
+    label_overrides = dict(DELL_ESCALATION_FIELD_LABELS)
     for fld in (cat_map or {}).get(cat, []):
         value = getattr(d, fld, "N/A")
         label = fld.replace("_", " ").title()
+        if cat == "DELL ESCALATION":
+            label = label_overrides.get(fld, label)
         if fld == "scanner_accidental_damage":
             label = "Damage Classification"
             value = "Accidental Damage" if getattr(d, fld) else "Internal Damage"
@@ -8106,6 +9101,7 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
     """Return a newline formatted view of a category table."""
 
     lines = [table_title(cat)]
+    label_overrides = dict(DELL_ESCALATION_FIELD_LABELS)
     for fld in (cat_map or {}).get(cat, []):
         raw_value = getattr(d, fld, "")
         if isinstance(raw_value, bool):
@@ -8117,6 +9113,46 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
         if "\n" in display:
             display = "\n    ".join(display.splitlines())
         label = fld.replace("_", " ").title()
+        if cat == "DELL ESCALATION":
+            label = label_overrides.get(fld, label)
+        lines.append(f"{label}: {display}")
+    return "\n".join(lines)
+
+
+def _format_display_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if value is None:
+        return "N/A"
+    text = str(value).strip()
+    return text if text else "N/A"
+
+
+def _format_multiline(value: str) -> str:
+    cleaned = value.replace("\r\n", "\n").replace("\r", "\n")
+    if "\n" in cleaned:
+        return "\n  ".join(cleaned.splitlines())
+    return cleaned
+
+
+def dell_escalation_rows(d: CaseData) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for field, label in DELL_ESCALATION_FIELD_LABELS:
+        raw_value = getattr(d, field, "")
+        display = _format_display_value(raw_value)
+        rows.append({"Field": label, "Value": display})
+    return rows
+
+
+def dell_escalation_dataframe(d: CaseData) -> pd.DataFrame:
+    return pd.DataFrame(dell_escalation_rows(d))
+
+
+def dell_escalation_plain_text(d: CaseData) -> str:
+    lines = ["Dell Escalation"]
+    for field, label in DELL_ESCALATION_FIELD_LABELS:
+        raw_value = getattr(d, field, "")
+        display = _format_multiline(_format_display_value(raw_value))
         lines.append(f"{label}: {display}")
     return "\n".join(lines)
 
@@ -9721,59 +10757,14 @@ End with: We look forward to your reply."""
                     if extras:
                         prompt += "\n\n" + "\n".join(extras)
             elif email_type == "Dell Escalation Email":
-                st.markdown("#### Dell escalation options")
-                ext["issue_start_date"] = st.text_input(
-                    "Issue start date", ext.get("issue_start_date", "")
+                st.markdown("#### Dell escalation data preview")
+                st.info(
+                    "Update the Dell escalation section in the Escalations tab to refresh this template."
                 )
-                company = D.company_name or "(Company Name)"
-                issue_desc = D.brief_description or "(Issue Description)"
-                issue_start = ext["issue_start_date"] or "(Issue Start Date)"
-                case_no = D.case_id or "(Case ID)"
-                service_tag = D.service_tag or "(Service Tag)"
-                pc_model = D.pc_model or ""
-                bios = D.bios_version or ""
-                windows = D.windows_version or ""
-                email_text = f"""Hello Dell Support team,
-
-The end-user from {company} has been reporting {issue_desc}, which has been happening since {issue_start}. Could you please assist this customer with a Dell Technician on site?
-Case ID {case_no}
-PC service tag {service_tag}
-Evidence attached to this email.
-
-Computer information:
-
-- Type of PC: {pc_model}
-- BIOS Version: {bios}
-- Windows Version: {windows}
-- Dell Command Updates:
-- Power Options setup:
-- Dell Optimizer setup:
-- Intel Processor Power Management Utility installed?:
-- CPU Speed / Is CPU throttling?:
-- GPU Usage % (Integrated):
-- GPU Usage % (Dedicated):
-- CPU Utilization %:
-- Benchmark used and results:
-- Can it launch simulation on Ultra Resolution? (If needed):
-- Which GPU driver versions were tested?:
-- Reliability Monitor and Event Viewer results:
-- Dell Diagnosis test results (ePSA tests included):
-- Has Windows been reimaged?:
-
-Clinic's contact information:
-
-- Address 1
-- Address 2 (Suite, etc.)
-- City
-- State
-- Zip Code
-- Full name of person responsible for receiving the equipment
-- Phone number
-- Email address
-- Clinic name
-
-Thank you in advance,
-"""
+                st.dataframe(
+                    dell_escalation_dataframe(D), use_container_width=True
+                )
+                email_text = build_dell_escalation_email(D)
                 st.text_area(
                     "Email",
                     email_text,
@@ -10093,16 +11084,310 @@ Thank you in advance,
                     width="stretch",
                 )
 
+            st.markdown("---")
+            st.subheader("Dell escalation data")
+            st.caption(
+                "Capture the Dell-specific diagnostics and clinic contact details required for vendor escalations."
+            )
+            auto_text_input("Issue start date", "dell_issue_start_date")
+
+            st.markdown("##### PC diagnostics & setup")
+            diag_col1, diag_col2 = st.columns(2)
+            auto_text_input(
+                "Dell Command Updates status",
+                "dell_command_updates_status",
+                container=diag_col1,
+            )
+            auto_text_input(
+                "Power Options setup",
+                "dell_power_options_setup",
+                container=diag_col2,
+            )
+            auto_text_input(
+                "Dell Optimizer setup",
+                "dell_optimizer_setup",
+                container=diag_col1,
+            )
+            auto_text_input(
+                "Intel Processor Power Management Utility installed?",
+                "dell_intel_ppm_installed",
+                container=diag_col2,
+            )
+
+            st.markdown("##### Performance & drivers")
+            perf_col1, perf_col2 = st.columns(2)
+            auto_text_input(
+                "CPU Speed / Is CPU throttling?",
+                "dell_cpu_speed_or_throttling",
+                container=perf_col1,
+            )
+            auto_text_input(
+                "GPU Usage % (Integrated)",
+                "dell_gpu_usage_integrated",
+                container=perf_col2,
+            )
+            auto_text_input(
+                "GPU Usage % (Dedicated)",
+                "dell_gpu_usage_dedicated",
+                container=perf_col1,
+            )
+            auto_text_input(
+                "CPU Utilization %",
+                "dell_cpu_utilization",
+                container=perf_col2,
+            )
+            auto_text_area(
+                "Benchmark used and results",
+                "dell_benchmark_results",
+                container=perf_col1,
+                height=100,
+            )
+            auto_text_area(
+                "Which GPU driver versions were tested?",
+                "dell_gpu_driver_versions",
+                container=perf_col2,
+                height=100,
+            )
+            auto_text_input(
+                "Can it launch simulation on Ultra Resolution? (If needed)",
+                "dell_ultra_resolution_support",
+            )
+
+            st.markdown("##### Diagnostics")
+            diag_notes_col1, diag_notes_col2 = st.columns(2)
+            auto_text_area(
+                "Reliability Monitor and Event Viewer results",
+                "dell_reliability_monitor_results",
+                container=diag_notes_col1,
+                height=120,
+            )
+            auto_text_area(
+                "Dell Diagnosis test results (ePSA tests included)",
+                "dell_diagnostics_results",
+                container=diag_notes_col2,
+                height=120,
+            )
+            auto_text_input(
+                "Has Windows been reimaged?",
+                "dell_windows_reimaged",
+            )
+
+            st.markdown("##### Clinic contact information")
+            clinic_col1, clinic_col2 = st.columns(2)
+            auto_text_input("Clinic name", "clinic_name", container=clinic_col1)
+            auto_text_input(
+                "Full name of person responsible for receiving the equipment",
+                "clinic_contact_name",
+                container=clinic_col2,
+            )
+            auto_text_input(
+                "Phone number",
+                "clinic_contact_phone",
+                container=clinic_col1,
+            )
+            auto_text_input(
+                "Email address",
+                "clinic_contact_email",
+                container=clinic_col2,
+            )
+            auto_text_input("Address 1", "clinic_address_line_1", container=clinic_col1)
+            auto_text_input("Address 2 (Suite, etc.)", "clinic_address_line_2", container=clinic_col2)
+            auto_text_input("City", "clinic_city", container=clinic_col1)
+            auto_text_input("State", "clinic_state", container=clinic_col2)
+            auto_text_input("Zip Code", "clinic_postal_code", container=clinic_col1)
+
+            st.markdown("##### Dell escalation table preview")
+            dell_table = dell_escalation_dataframe(D)
+            st.dataframe(dell_table, use_container_width=True)
+            copy_col, download_col = st.columns([2, 3])
+            with copy_col:
+                copy_key = widget_key("dell_escalation_copy", case_idx)
+                copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_key.lower())
+                if not copy_suffix:
+                    copy_suffix = "dellcopy"
+                if copy_suffix[0].isdigit():
+                    copy_suffix = f"d{copy_suffix}"
+                table_payload = json.dumps(dell_escalation_plain_text(D))
+                table_payload = table_payload.replace("</", "<\\/")
+                components.html(
+                    f"""
+                    <div style=\"display:flex;gap:0.5rem;align-items:center;\">
+                        <button onclick=\"copyDellTable{copy_suffix}()\"
+                                style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                            Copy Dell table
+                        </button>
+                        <span id=\"dell-feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                    </div>
+                    <script>
+                        const dellFeedback{copy_suffix} = document.getElementById('dell-feedback-{copy_suffix}');
+                        function showDellFeedback{copy_suffix}(message) {{
+                            if (!dellFeedback{copy_suffix}) return;
+                            dellFeedback{copy_suffix}.textContent = message;
+                            setTimeout(() => {{
+                                if (dellFeedback{copy_suffix}.textContent === message) {{
+                                    dellFeedback{copy_suffix}.textContent = '';
+                                }}
+                            }}, 2000);
+                        }}
+                        function copyDellTable{copy_suffix}() {{
+                            navigator.clipboard.writeText({table_payload}).then(() => {{
+                                showDellFeedback{copy_suffix}('Dell escalation copied');
+                            }});
+                        }}
+                    </script>
+                    """,
+                    height=60,
+                )
+            with download_col:
+                csv_bytes = dell_table.to_csv(index=False).encode("utf-8")
+                json_bytes = json.dumps(dell_escalation_rows(D), indent=2).encode("utf-8")
+                st.download_button(
+                    "Download CSV",
+                    csv_bytes,
+                    file_name=f"{D.case_id or 'case'}_dell_escalation.csv",
+                    mime="text/csv",
+                    key=widget_key("download_dell_escalation_csv", case_idx),
+                )
+                st.download_button(
+                    "Download JSON",
+                    json_bytes,
+                    file_name=f"{D.case_id or 'case'}_dell_escalation.json",
+                    mime="application/json",
+                    key=widget_key("download_dell_escalation_json", case_idx),
+                )
+
             if st.session_state.second_line_mode:
                 st.markdown("---")
                 st.subheader("Escalation 3rd line")
-                auto_text_area("How to reproduce it", "repro_steps", height=100)
+                auto_text_area(
+                    "HJ article or possible root cause found",
+                    "third_line_hj_article",
+                    height=100,
+                    placeholder=(D.internal_helpjuice or D.root_cause or ""),
+                )
+                auto_text_area(
+                    "How to reproduce it",
+                    "repro_steps",
+                    height=100,
+                    placeholder="Provide detailed reproduction steps.",
+                )
+                auto_text_area(
+                    "Troubleshoot summary",
+                    "third_line_troubleshoot_summary",
+                    height=120,
+                    placeholder=(D.remote_steps or ""),
+                )
+                auto_text_area(
+                    "Comments",
+                    "third_line_comments",
+                    height=100,
+                    placeholder=(D.additional_info or ""),
+                )
+                st.markdown("**Reseller contact information**")
+                reseller_col1, reseller_col2 = st.columns(2)
+                with reseller_col1:
+                    auto_text_input(
+                        "Reseller name",
+                        "third_line_reseller_name",
+                        placeholder="Enter reseller contact name",
+                    )
+                    auto_text_input(
+                        "Reseller phone",
+                        "third_line_reseller_phone",
+                        placeholder="Primary phone number",
+                    )
+                with reseller_col2:
+                    auto_text_input(
+                        "Reseller alternate phone",
+                        "third_line_reseller_phone_alt",
+                        placeholder="Secondary phone number",
+                    )
+                    auto_text_input(
+                        "Reseller email",
+                        "third_line_reseller_email",
+                        placeholder="Email address",
+                    )
+                st.markdown("**Clinic representative**")
+                clinic_col1, clinic_col2 = st.columns(2)
+                with clinic_col1:
+                    auto_text_input(
+                        "Clinic representative name",
+                        "third_line_clinic_rep_name",
+                        placeholder="Clinic contact name",
+                    )
+                    auto_text_input(
+                        "Clinic representative phone",
+                        "third_line_clinic_rep_phone",
+                        placeholder="Primary phone number",
+                    )
+                with clinic_col2:
+                    auto_text_input(
+                        "Clinic representative alternate phone",
+                        "third_line_clinic_rep_phone_alt",
+                        placeholder="Secondary phone number",
+                    )
+                st.markdown("**Remote session details**")
+                tv_col1, tv_col2, tv_col3 = st.columns(3)
+                with tv_col1:
+                    auto_text_input(
+                        "TeamViewer ID",
+                        "third_line_tv_id",
+                        placeholder=D.teamviewer_id or "",
+                    )
+                with tv_col2:
+                    auto_text_input(
+                        "TeamViewer password",
+                        "third_line_tv_password",
+                        placeholder=D.teamviewer_password or "",
+                    )
+                with tv_col3:
+                    auto_text_input(
+                        "Unite PIN",
+                        "third_line_unite_pin",
+                        placeholder=D.subscription_id or "",
+                    )
                 msg = build_third_line_escalation(D)
+                escaped_msg = escape(msg)
                 st.text_area(
                     "Escalation message",
                     msg,
                     height=400,
                     key=widget_key("esc_message", case_idx),
+                )
+                components.html(
+                    f"""
+                    <script>
+                    function copyThirdLineEscalation{case_idx}() {{
+                        const source = document.getElementById('third-line-esc-message-{case_idx}');
+                        const text = source ? source.textContent : '';
+                        navigator.clipboard.writeText(text).then(() => {{
+                            const host = document.getElementById('third-line-copy-feedback-{case_idx}');
+                            if (host) {{
+                                host.innerText = 'Escalation message copied to clipboard.';
+                            }}
+                        }}).catch(() => {{
+                            const host = document.getElementById('third-line-copy-feedback-{case_idx}');
+                            if (host) {{
+                                host.innerText = 'Unable to copy escalation message.';
+                            }}
+                        }});
+                    }}
+                    </script>
+                    <pre id="third-line-esc-message-{case_idx}" style="display:none;">{escaped_msg}</pre>
+                    <button onclick="copyThirdLineEscalation{case_idx}()"
+                            style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;">
+                        Copy escalation message
+                    </button>
+                    <div id="third-line-copy-feedback-{case_idx}" style="font-size:0.8rem;margin-top:0.35rem;"></div>
+                    """,
+                    height=90,
+                )
+                st.download_button(
+                    "Download escalation message",
+                    msg,
+                    file_name=f"third_line_escalation_{TODAY_STR}.txt",
+                    mime="text/plain",
+                    key=widget_key("download_third_line_escalation", case_idx),
                 )
                 st.markdown("---")
 
@@ -10158,8 +11443,139 @@ Thank you in advance,
 
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
-        st.subheader("Remote session – steps")
-        auto_text_area("One step per line", "remote_steps", height=400)
+        st.subheader("Remote sessions")
+        ensure_remote_session_entries(D)
+        sessions = D.remote_sessions
+
+        action_cols = st.columns([1, 5])
+        with action_cols[0]:
+            if st.button(
+                "Add session",
+                key=widget_key("remote_session_add", case_idx),
+            ):
+                new_session = RemoteSessionEntry(
+                    title=f"Session {len(sessions) + 1}",
+                    notes="",
+                )
+                sessions.append(new_session)
+                update_case_remote_sessions(D, sessions)
+                st.session_state[
+                    widget_key(
+                        f"remote_session_title_{new_session.session_id}", case_idx
+                    )
+                ] = new_session.title
+                st.session_state[
+                    widget_key(
+                        f"remote_session_notes_{new_session.session_id}", case_idx
+                    )
+                ] = new_session.notes
+                st.rerun()
+        with action_cols[1]:
+            st.caption(
+                "Document each remote control session separately. Rename, reorder, or "
+                "remove panels as needed."
+            )
+
+        for idx in range(len(sessions)):
+            session = sessions[idx]
+            if idx:
+                st.markdown("---")
+            container = st.container()
+            with container:
+                header_cols = st.columns([6, 1, 1, 1])
+                title_key = widget_key(
+                    f"remote_session_title_{session.session_id}", case_idx
+                )
+                if title_key not in st.session_state:
+                    st.session_state[title_key] = session.title
+                new_title = header_cols[0].text_input(
+                    "Title",
+                    value=session.title,
+                    key=title_key,
+                )
+                move_up_key = widget_key(
+                    f"remote_session_up_{session.session_id}", case_idx
+                )
+                move_down_key = widget_key(
+                    f"remote_session_down_{session.session_id}", case_idx
+                )
+                remove_key = widget_key(
+                    f"remote_session_remove_{session.session_id}", case_idx
+                )
+                with header_cols[1]:
+                    if st.button(
+                        "↑",
+                        disabled=idx == 0,
+                        key=move_up_key,
+                        help="Move session up",
+                    ):
+                        sessions.insert(idx - 1, sessions.pop(idx))
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+                with header_cols[2]:
+                    if st.button(
+                        "↓",
+                        disabled=idx == len(sessions) - 1,
+                        key=move_down_key,
+                        help="Move session down",
+                    ):
+                        sessions.insert(idx + 1, sessions.pop(idx))
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+                with header_cols[3]:
+                    if st.button(
+                        "Remove",
+                        disabled=len(sessions) == 1,
+                        key=remove_key,
+                        help="Delete this session panel",
+                    ):
+                        sessions.pop(idx)
+                        if not sessions:
+                            default_session = RemoteSessionEntry(
+                                title="Session 1",
+                                notes="",
+                            )
+                            sessions.append(default_session)
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+
+                if new_title != session.title:
+                    session.title = new_title
+                    session.touch()
+                    update_case_remote_sessions(D, sessions)
+                    sessions = D.remote_sessions
+                    session = sessions[idx]
+                    st.session_state[title_key] = session.title
+
+                timestamp_parts: list[str] = []
+                created_value = (session.created_at or "").strip()
+                updated_value = (session.updated_at or "").strip()
+                if created_value:
+                    timestamp_parts.append(f"Created: {created_value}")
+                if updated_value and updated_value != created_value:
+                    timestamp_parts.append(f"Updated: {updated_value}")
+                if timestamp_parts:
+                    st.caption(" · ".join(timestamp_parts))
+
+                notes_key = widget_key(
+                    f"remote_session_notes_{session.session_id}", case_idx
+                )
+                if notes_key not in st.session_state:
+                    st.session_state[notes_key] = session.notes
+                new_notes = st.text_area(
+                    "Session notes",
+                    session.notes,
+                    height=800,
+                    key=notes_key,
+                )
+                if new_notes != session.notes:
+                    session.notes = new_notes
+                    session.touch()
+                    update_case_remote_sessions(D, sessions)
+                    sessions = D.remote_sessions
+                    session = sessions[idx]
+                    st.session_state[notes_key] = session.notes
+
 
     # ================== TABLES TAB =================
     with tab_tables:
