@@ -30,6 +30,7 @@ import calendar
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from functools import partial
 from typing import Dict, List
 from html import escape
 import textwrap
@@ -5926,6 +5927,11 @@ def clear_case_state(idx: int) -> None:
 def widget_key(base: str, idx: int) -> str:
     """Return a Streamlit widget key namespaced to a case index."""
     return f"{base}_{idx}"
+
+
+def case_widget_key(tab_slug: str, control: str, case_idx: int) -> str:
+    """Return a widget key scoped to a tab slug and case index."""
+    return widget_key(f"{tab_slug}_{control}", case_idx)
 
 
 def global_widget_key(base: str) -> str:
@@ -11835,6 +11841,22 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         st.code(hotkey_script, language="autohotkey")
 
 
+CASE_TAB_SLUGS = {
+    # Keep this mapping in sync with the tab layout inside ``render_case_ui``.
+    # Each human-friendly tab label resolves to a slug used for widget keys.
+    "Case": "case",
+    "Tracking": "tracking",
+    "Escalations": "escalations",
+    "Email": "email",
+    "Hardware Issues": "hardware",
+    "Remote Session": "remote",
+    "Tables": "tables",
+    "Save/Load": "save_load",
+    "I'm bored": "bored",
+    "Debug": "debug",
+}
+
+
 def render_case_ui(case_idx: int):
     global CURRENT_CASE_IDX
     CURRENT_CASE_IDX = case_idx
@@ -11886,10 +11908,11 @@ def render_case_ui(case_idx: int):
     # ================== 2ND LINE MODE TAB =================
     # ================== CASE TAB =================
     with tab_case:
+        case_tab_key = partial(case_widget_key, CASE_TAB_SLUGS["Case"], case_idx=case_idx)
         api_key = st.session_state.openai_api_key
         model = st.session_state.openai_model
         base_url = st.session_state.ai_base_url
-        toggle_key = widget_key("quick_actions_open", case_idx)
+        toggle_key = case_tab_key("quick_actions_open")
         if toggle_key not in st.session_state:
             st.session_state[toggle_key] = False
 
@@ -11901,15 +11924,11 @@ def render_case_ui(case_idx: int):
             if educate_enabled and advanced_enabled:
                 ai_learning_dataset = ensure_ai_learning_dataset()
 
-            if st.button(
-                "Save case",
-                key=widget_key("quick_save", case_idx),
-                width="stretch",
-            ):
+            if st.button("Save case", key=case_tab_key("quick_save"), width="stretch"):
                 save_case_to_database(D)
             if st.button(
                 "Clear all",
-                key=widget_key("clear_all_button", case_idx),
+                key=case_tab_key("clear_all_button"),
                 width="stretch",
             ):
                 logging.info("Clear all button clicked")
@@ -11933,19 +11952,19 @@ def render_case_ui(case_idx: int):
                 st.button(
                     "Tracking enabled",
                     disabled=True,
-                    key=widget_key("tracking_enabled", case_idx),
+                    key=case_tab_key("tracking_enabled"),
                     width="stretch",
                 )
             elif st.button(
                 "Track case",
-                key=widget_key("track_case_button", case_idx),
+                key=case_tab_key("track_case_button"),
                 width="stretch",
             ):
                 st.session_state.track_case = True
                 st.rerun()
             if st.button(
                 "AI Assistance",
-                key=widget_key("assist_button", case_idx),
+                key=case_tab_key("assist_button"),
                 width="stretch",
             ):
                 logging.info("AI Assistance button clicked")
@@ -12063,7 +12082,7 @@ def render_case_ui(case_idx: int):
                     st.caption(
                         "AI Educate did not find a close historical match; general patterns were provided instead."
                     )
-            if st.button("Categorize", key=widget_key("categorize_button", case_idx), width="stretch"):
+            if st.button("Categorize", key=case_tab_key("categorize_button"), width="stretch"):
                 logging.info("Categorize button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -12127,7 +12146,7 @@ def render_case_ui(case_idx: int):
                             save_memory(st.session_state.kiroshi_chat_history)
                             st.session_state.categorizer_result = reply
                             st.session_state.categorizer_summary = parse_categorizer_summary(reply)
-            if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
+            if st.button("Ask", key=case_tab_key("ask_button"), use_container_width=True):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -12188,7 +12207,7 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ask_result = reply
-            if st.button("Verify", key=widget_key("verify_button", case_idx), width="stretch"):
+            if st.button("Verify", key=case_tab_key("verify_button"), width="stretch"):
                 logging.info("Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -12291,7 +12310,7 @@ def render_case_ui(case_idx: int):
             bubble_label = "✕" if st.session_state[toggle_key] else "⚡"
             if st.button(
                 bubble_label,
-                key=widget_key("quick_actions_toggle_button", case_idx),
+                key=case_tab_key("quick_actions_toggle_button"),
                 width="stretch",
             ):
                 st.session_state[toggle_key] = not st.session_state[toggle_key]
@@ -12368,12 +12387,13 @@ def render_case_ui(case_idx: int):
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
+            email_tab_key = partial(case_widget_key, CASE_TAB_SLUGS["Email"], case_idx=case_idx)
             st.subheader("Email Prompt Generator")
             if st.session_state.email_type == "Custom Request":
                 st.session_state.email_type = "Advanced Request"
 
-            email_widget_key = widget_key("email_template", case_idx)
-            group_widget_key = widget_key("email_template_group", case_idx)
+            email_widget_key = email_tab_key("email_template")
+            group_widget_key = email_tab_key("email_template_group")
             template_definitions = [
                 {
                     "value": "Recap (Customer)",
@@ -12677,13 +12697,13 @@ def render_case_ui(case_idx: int):
                     "Original customer email",
                     ext.get("reply_original", ""),
                     height=240,
-                    key=widget_key("reply_original", case_idx),
+                    key=email_tab_key("reply_original"),
                 )
                 ext["reply_focus"] = st.text_area(
                     "What should we address in the reply?",
                     ext.get("reply_focus", ""),
                     height=140,
-                    key=widget_key("reply_focus", case_idx),
+                    key=email_tab_key("reply_focus"),
                 )
                 case_snapshot = {
                     "case_id": D.case_id,
@@ -12719,7 +12739,7 @@ def render_case_ui(case_idx: int):
                     make_pdf(D, cat_map),
                     file_name=f"{D.case_id or 'case'}.pdf",
                     mime="application/pdf",
-                    key=widget_key("download_pdf", case_idx),
+                    key=email_tab_key("download_pdf"),
                 )
             if not compact_mode and left is not None:
                 with left:
@@ -12828,7 +12848,7 @@ List each question and provide any known answer beneath it, ready for the custom
                     "Request / Issue",
                     D.description,
                     disabled=True,
-                    key=widget_key("request_issue", case_idx),
+                    key=email_tab_key("request_issue"),
                 )
                 D.request_issue = D.description
                 D.contact_name = D.caller_name
@@ -12840,9 +12860,9 @@ List each question and provide any known answer beneath it, ready for the custom
                 best_cb = st.toggle(
                     "Specify best call-back time",
                     D.best_time not in ("", "ASAP"),
-                    key=widget_key("best_cb", case_idx),
+                    key=email_tab_key("best_cb"),
                 )
-                best_time_key = widget_key("best_time", case_idx)
+                best_time_key = email_tab_key("best_time")
                 if best_cb:
                     default_best_time = (
                         D.best_time if D.best_time not in ("", "ASAP") else ""
@@ -12910,7 +12930,7 @@ Wishing you the best again!"""
                     "Email",
                     email_text,
                     height=300,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_tab_key("generated_email"),
                 )
 
             elif email_type == "Replacement Wired Scanner Setup":
@@ -12962,7 +12982,7 @@ Wishing you the best again!"""
                     "Email",
                     email_text,
                     height=400,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_tab_key("generated_email"),
                 )
 
             elif email_type == "Replacement Move+ Closure":
@@ -12996,50 +13016,50 @@ Wishing you the best again!"""
                     "Email",
                     email_text,
                     height=400,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_tab_key("generated_email"),
                 )
 
             elif email_type == "Callback Email":
                 st.markdown("#### Callback email options")
-                cb_remote_key = widget_key("callback_remote", case_idx)
+                cb_remote_key = email_tab_key("callback_remote")
                 cb_remote = st.toggle(
                     "Need remote session?",
                     st.session_state.get(cb_remote_key, False),
                     key=cb_remote_key,
                 )
-                cb_remote_text_key = widget_key("callback_remote_text", case_idx)
+                cb_remote_text_key = email_tab_key("callback_remote_text")
                 if cb_remote:
                     st.text_area(
                         "Remote session details",
                         st.session_state.get(cb_remote_text_key, ""),
                         key=cb_remote_text_key,
                     )
-                cb_contact_key = widget_key("callback_contact", case_idx)
+                cb_contact_key = email_tab_key("callback_contact")
                 st.toggle(
                     "Need contact information?",
                     st.session_state.get(cb_contact_key, False),
                     key=cb_contact_key,
                 )
-                cb_clarify_key = widget_key("callback_clarify", case_idx)
+                cb_clarify_key = email_tab_key("callback_clarify")
                 st.toggle(
                     "Need to clarify what happened?",
                     st.session_state.get(cb_clarify_key, False),
                     key=cb_clarify_key,
                 )
-                cb_needed_key = widget_key("callback_needed", case_idx)
+                cb_needed_key = email_tab_key("callback_needed")
                 st.toggle(
                     "Callback needed?",
                     st.session_state.get(cb_needed_key, True),
                     key=cb_needed_key,
                 )
-                cb_address_key = widget_key("callback_address", case_idx)
+                cb_address_key = email_tab_key("callback_address")
                 cb_address = st.toggle(
                     "Request address?",
                     st.session_state.get(cb_address_key, False),
                     key=cb_address_key,
                 )
                 if cb_address:
-                    cb_equipment_key = widget_key("callback_equipment", case_idx)
+                    cb_equipment_key = email_tab_key("callback_equipment")
                     st.text_input(
                         "Equipment to replace",
                         st.session_state.get(cb_equipment_key, ""),
@@ -13105,7 +13125,7 @@ End with: We look forward to your reply."""
                     "Email",
                     email_text,
                     height=600,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_tab_key("generated_email"),
                 )
 
             elif email_type == "Advanced Request":
@@ -13139,8 +13159,8 @@ End with: We look forward to your reply."""
                 )
                 pat_cb = st.toggle(
                     "Include Patterson legacy #",
-                    value=st.session_state.get(widget_key("pat_cb", case_idx), False),
-                    key=widget_key("pat_cb", case_idx),
+                    value=st.session_state.get(email_tab_key("pat_cb"), False),
+                    key=email_tab_key("pat_cb"),
                 )
                 if pat_cb:
                     auto_text_input(
@@ -13155,7 +13175,7 @@ End with: We look forward to your reply."""
                         "Straumann ticket #",
                         D.straumann,
                         disabled=True,
-                        key=widget_key("straumann_tab", case_idx),
+                        key=email_tab_key("straumann_tab"),
                     )
                 else:
                     D.straumann = "N/A"
@@ -13166,14 +13186,14 @@ End with: We look forward to your reply."""
                     "User instructions",
                     ext.get("custom_user_prompt", ""),
                     height=140,
-                    key=widget_key("custom_user_prompt", case_idx),
+                    key=email_tab_key("custom_user_prompt"),
                 )
                 case_context = build_case_data_block(D)
                 st.text_area(
                     "Case data provided by Kiroshi",
                     case_context,
                     height=220,
-                    key=widget_key("custom_case_context", case_idx),
+                    key=email_tab_key("custom_case_context"),
                     disabled=True,
                 )
                 user_prompt = ext.get("custom_user_prompt", "").strip()
@@ -13196,31 +13216,31 @@ End with: We look forward to your reply."""
                     prompt_label,
                     prompt,
                     height=300,
-                    key=widget_key("api_prompt_area", case_idx),
+                    key=email_tab_key("api_prompt_area"),
                 )
                 st.session_state["last_prompt"] = prompt
 
                 include_helpjuice = st.toggle(
                     "Helpjuice tutorial",
-                    value=st.session_state.get(widget_key("api_helpjuice", case_idx), False),
-                    key=widget_key("api_helpjuice", case_idx),
+                    value=st.session_state.get(email_tab_key("api_helpjuice"), False),
+                    key=email_tab_key("api_helpjuice"),
                 )
                 include_restart = st.toggle(
                     "Restart the computer",
-                    value=st.session_state.get(widget_key("api_restart", case_idx), False),
-                    key=widget_key("api_restart", case_idx),
+                    value=st.session_state.get(email_tab_key("api_restart"), False),
+                    key=email_tab_key("api_restart"),
                 )
                 include_scan_time = st.toggle(
                     "Scan time warning",
-                    value=st.session_state.get(widget_key("api_scan_time", case_idx), False),
-                    key=widget_key("api_scan_time", case_idx),
+                    value=st.session_state.get(email_tab_key("api_scan_time"), False),
+                    key=email_tab_key("api_scan_time"),
                 )
-                generated_email_key = widget_key("generated_email_output", case_idx)
+                generated_email_key = email_tab_key("generated_email_output")
                 if generated_email_key not in st.session_state:
                     st.session_state[generated_email_key] = st.session_state.get(
                         "generated_email", ""
                     )
-                if st.button("Use GPT-OSS", key=widget_key("use_gpt", case_idx)):
+                if st.button("Use GPT-OSS", key=email_tab_key("use_gpt")):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
                     base_url = st.session_state.ai_base_url
@@ -13273,9 +13293,12 @@ End with: We look forward to your reply."""
     # ================== TRACKING TAB =================
     if tab_tracking:
         with tab_tracking:
+            tracking_tab_key = partial(
+                case_widget_key, CASE_TAB_SLUGS["Tracking"], case_idx=case_idx
+            )
             st.subheader("Tracking")
             ensure_tracking_session_defaults(case_idx, D.tracking)
-            tracking_type_key = widget_key("tracking_type", case_idx)
+            tracking_type_key = tracking_tab_key("tracking_type")
             tracking_type = st.selectbox(
                 "Tracking type",
                 ["Dell", "FedEx", "Custom"],
@@ -13295,19 +13318,19 @@ End with: We look forward to your reply."""
                 created_display = datetime.now().strftime("%Y-%m-%d")
             st.text_input("Created", value=created_display, disabled=True)
 
-            ticket_key = widget_key("track_ticket_number", case_idx)
+            ticket_key = tracking_tab_key("track_ticket_number")
             ticket_number = st.text_input("Ticket Number", key=ticket_key)
 
-            priority_key = widget_key("track_priority", case_idx)
+            priority_key = tracking_tab_key("track_priority")
             st.session_state[priority_key] = normalize_priority(
                 st.session_state.get(priority_key)
             )
             st.selectbox("Priority", PRIORITY_OPTIONS, key=priority_key)
 
-            category_key = widget_key("track_category", case_idx)
+            category_key = tracking_tab_key("track_category")
             st.text_input("Category", key=category_key)
 
-            status_key = widget_key("track_status", case_idx)
+            status_key = tracking_tab_key("track_status")
             status_options = TRACKING_STATUS_OPTIONS.get(tracking_type)
             if status_options:
                 status_choices = list(status_options)
@@ -13320,8 +13343,8 @@ End with: We look forward to your reply."""
             else:
                 st.text_input("Status", key=status_key)
 
-            service_tag_key = widget_key("track_service_tag", case_idx)
-            expected_key = widget_key("track_expected_arrival", case_idx)
+            service_tag_key = tracking_tab_key("track_service_tag")
+            expected_key = tracking_tab_key("track_expected_arrival")
             if tracking_type == "Dell":
                 if (
                     not D.tracking.active
@@ -13333,10 +13356,10 @@ End with: We look forward to your reply."""
             elif tracking_type == "FedEx":
                 st.date_input("Expected arrival date", key=expected_key)
 
-            case_link_key = widget_key("track_case_link", case_idx)
+            case_link_key = tracking_tab_key("track_case_link")
             st.text_input("Case link (CRM)", key=case_link_key)
 
-            if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
+            if st.button("Save and track", key=tracking_tab_key("save_and_track")):
                 if not D.case_id:
                     st.error("Case ID is required before tracking can be enabled.")
                 else:
@@ -13376,7 +13399,7 @@ End with: We look forward to your reply."""
                     st.success("Tracking information saved.")
             if st.button(
                 "Close case & stop tracking",
-                key=widget_key("close_tracking", case_idx),
+                key=tracking_tab_key("close_tracking"),
             ):
                 D.tracking.active = False
                 save_case_to_database(D, notify=False)
@@ -13386,6 +13409,9 @@ End with: We look forward to your reply."""
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
         with tab_escalations:
+            escalations_tab_key = partial(
+                case_widget_key, CASE_TAB_SLUGS["Escalations"], case_idx=case_idx
+            )
             if "AX COORDINATORS" in cat_map:
                 st.markdown("#### AX Coordinators Table")
                 st.dataframe(
@@ -13400,21 +13426,21 @@ End with: We look forward to your reply."""
                 "Name",
                 D.esc_name,
                 disabled=True,
-                key=widget_key("esc_name_tab", case_idx),
+                key=escalations_tab_key("esc_name_tab"),
             )
             D.esc_ph = D.phone_number
             st.text_input(
                 "Phone",
                 D.esc_ph,
                 disabled=True,
-                key=widget_key("esc_ph_tab", case_idx),
+                key=escalations_tab_key("esc_ph_tab"),
             )
             D.esc_email = D.email
             st.text_input(
                 "Email",
                 D.esc_email,
                 disabled=True,
-                key=widget_key("esc_email_tab", case_idx),
+                key=escalations_tab_key("esc_email_tab"),
             )
             if "ESCALATION 2ND LINE" in cat_map:
                 st.markdown("#### Escalation 2nd line Table")
@@ -13540,7 +13566,7 @@ End with: We look forward to your reply."""
             st.dataframe(dell_table, use_container_width=True)
             copy_col, download_col = st.columns([2, 3])
             with copy_col:
-                copy_key = widget_key("dell_escalation_copy", case_idx)
+                copy_key = escalations_tab_key("dell_escalation_copy")
                 copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_key.lower())
                 if not copy_suffix:
                     copy_suffix = "dellcopy"
@@ -13585,14 +13611,14 @@ End with: We look forward to your reply."""
                     csv_bytes,
                     file_name=f"{D.case_id or 'case'}_dell_escalation.csv",
                     mime="text/csv",
-                    key=widget_key("download_dell_escalation_csv", case_idx),
+                    key=escalations_tab_key("download_dell_escalation_csv"),
                 )
                 st.download_button(
                     "Download JSON",
                     json_bytes,
                     file_name=f"{D.case_id or 'case'}_dell_escalation.json",
                     mime="application/json",
-                    key=widget_key("download_dell_escalation_json", case_idx),
+                    key=escalations_tab_key("download_dell_escalation_json"),
                 )
 
             if st.session_state.second_line_mode:
@@ -13691,7 +13717,7 @@ End with: We look forward to your reply."""
                     "Escalation message",
                     msg,
                     height=400,
-                    key=widget_key("esc_message", case_idx),
+                    key=escalations_tab_key("esc_message"),
                 )
                 components.html(
                     f"""
@@ -13724,7 +13750,7 @@ End with: We look forward to your reply."""
                     msg,
                     file_name=f"third_line_escalation_{TODAY_STR}.txt",
                     mime="text/plain",
-                    key=widget_key("download_third_line_escalation", case_idx),
+                    key=escalations_tab_key("download_third_line_escalation"),
                 )
                 st.markdown("---")
 
@@ -13780,6 +13806,9 @@ End with: We look forward to your reply."""
 
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
+        remote_tab_key = partial(
+            case_widget_key, CASE_TAB_SLUGS["Remote Session"], case_idx=case_idx
+        )
         st.subheader("Remote sessions")
         ensure_remote_session_entries(D)
         sessions = D.remote_sessions
@@ -13788,7 +13817,7 @@ End with: We look forward to your reply."""
         with action_cols[0]:
             if st.button(
                 "Add session",
-                key=widget_key("remote_session_add", case_idx),
+                key=remote_tab_key("remote_session_add"),
             ):
                 new_session = RemoteSessionEntry(
                     title=f"Session {len(sessions) + 1}",
@@ -13797,13 +13826,13 @@ End with: We look forward to your reply."""
                 sessions.append(new_session)
                 update_case_remote_sessions(D, sessions)
                 st.session_state[
-                    widget_key(
-                        f"remote_session_title_{new_session.session_id}", case_idx
+                    remote_tab_key(
+                        f"remote_session_title_{new_session.session_id}"
                     )
                 ] = new_session.title
                 st.session_state[
-                    widget_key(
-                        f"remote_session_notes_{new_session.session_id}", case_idx
+                    remote_tab_key(
+                        f"remote_session_notes_{new_session.session_id}"
                     )
                 ] = new_session.notes
                 st.rerun()
@@ -13820,8 +13849,8 @@ End with: We look forward to your reply."""
             container = st.container()
             with container:
                 header_cols = st.columns([6, 1, 1, 1])
-                title_key = widget_key(
-                    f"remote_session_title_{session.session_id}", case_idx
+                title_key = remote_tab_key(
+                    f"remote_session_title_{session.session_id}"
                 )
                 if title_key not in st.session_state:
                     st.session_state[title_key] = session.title
@@ -13830,14 +13859,14 @@ End with: We look forward to your reply."""
                     value=session.title,
                     key=title_key,
                 )
-                move_up_key = widget_key(
-                    f"remote_session_up_{session.session_id}", case_idx
+                move_up_key = remote_tab_key(
+                    f"remote_session_up_{session.session_id}"
                 )
-                move_down_key = widget_key(
-                    f"remote_session_down_{session.session_id}", case_idx
+                move_down_key = remote_tab_key(
+                    f"remote_session_down_{session.session_id}"
                 )
-                remove_key = widget_key(
-                    f"remote_session_remove_{session.session_id}", case_idx
+                remove_key = remote_tab_key(
+                    f"remote_session_remove_{session.session_id}"
                 )
                 with header_cols[1]:
                     if st.button(
@@ -13894,8 +13923,8 @@ End with: We look forward to your reply."""
                 if timestamp_parts:
                     st.caption(" · ".join(timestamp_parts))
 
-                notes_key = widget_key(
-                    f"remote_session_notes_{session.session_id}", case_idx
+                notes_key = remote_tab_key(
+                    f"remote_session_notes_{session.session_id}"
                 )
                 if notes_key not in st.session_state:
                     st.session_state[notes_key] = session.notes
@@ -13916,13 +13945,16 @@ End with: We look forward to your reply."""
 
     # ================== TABLES TAB =================
     with tab_tables:
+        tables_tab_key = partial(
+            case_widget_key, CASE_TAB_SLUGS["Tables"], case_idx=case_idx
+        )
         st.subheader("Copy all tables")
         st.download_button(
             "Download Case Info PDF",
             make_tables_pdf(D),
             file_name=f"{D.case_id or 'case'}_info.pdf",
             mime="application/pdf",
-            key=widget_key("download_info_pdf", case_idx),
+            key=tables_tab_key("download_info_pdf"),
         )
         for cat in cat_map:
             title_text = table_title(cat)
@@ -13974,37 +14006,40 @@ End with: We look forward to your reply."""
                 </script>
                 """,
                 height=80,
-                key=widget_key(f"tables_copy_controls_{copy_suffix}", case_idx),
+                key=tables_tab_key(f"copy_controls_{copy_suffix}"),
             )
             st.dataframe(
                 category_dataframe(cat, D, cat_map),
                 width="stretch",
-                key=widget_key(f"tables_df_{copy_suffix}", case_idx),
+                key=tables_tab_key(f"df_{copy_suffix}"),
             )
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
+        save_tab_key = partial(
+            case_widget_key, CASE_TAB_SLUGS["Save/Load"], case_idx=case_idx
+        )
         st.subheader("Save / Load")
         col_save, col_load = st.columns(2)
         with col_save:
-            if st.button("Save", key=widget_key("save_case_button", case_idx)):
+            if st.button("Save", key=save_tab_key("save_case_button")):
                 save_case_to_database(D)
         with col_load:
             uploaded_case = st.file_uploader(
                 "Select case JSON",
                 type="json",
-                key=widget_key("load_case_uploader", case_idx),
+                key=save_tab_key("load_case_uploader"),
             )
             if uploaded_case and st.button(
-                "Load", key=widget_key("load_case_button", case_idx)
+                "Load", key=save_tab_key("load_case_button")
             ):
                 request_load_from_bytes(uploaded_case.getvalue())
 
         st.subheader("Case Dex")
         dex_case_id = st.text_input(
-            "Case ID", key=widget_key("case_dex_id", case_idx)
+            "Case ID", key=save_tab_key("case_dex_id")
         )
-        if st.button("Fetch Case Dex", key=widget_key("fetch_case_dex", case_idx)):
+        if st.button("Fetch Case Dex", key=save_tab_key("fetch_case_dex")):
             if dex_case_id:
                 try:
                     dex_bytes = request_case_dex(dex_case_id)
@@ -14012,21 +14047,21 @@ End with: We look forward to your reply."""
                     st.error(f"Failed to download Case Dex: {e}")
                 else:
                     st.session_state[
-                        widget_key("case_dex_bytes", case_idx)
+                        save_tab_key("case_dex_bytes")
                     ] = dex_bytes
                     st.session_state[
-                        widget_key("case_dex_id_store", case_idx)
+                        save_tab_key("case_dex_id_store")
                     ] = dex_case_id
             else:
                 st.error("Please enter a Case ID")
-        dex_bytes = st.session_state.get(widget_key("case_dex_bytes", case_idx))
+        dex_bytes = st.session_state.get(save_tab_key("case_dex_bytes"))
         if dex_bytes:
             st.download_button(
                 "Download Case Dex",
                 dex_bytes,
-                file_name=f"{st.session_state.get(widget_key('case_dex_id_store', case_idx), 'case')}_case_dex.zip",
+                file_name=f"{st.session_state.get(save_tab_key('case_dex_id_store'), 'case')}_case_dex.zip",
                 mime="application/zip",
-                key=widget_key("download_case_dex", case_idx),
+                key=save_tab_key("download_case_dex"),
             )
 
         st.subheader("Recent cases")
@@ -14039,9 +14074,7 @@ End with: We look forward to your reply."""
                 )
             else:
                 info_col.write(f"{case['case_id']}\n{case['path']}")
-            if btn_col.button(
-                "Load", key=widget_key(f"recent_load_{idx}", case_idx)
-            ):
+            if btn_col.button("Load", key=save_tab_key(f"recent_load_{idx}")):
                 request_load_from_path(case["path"])
 
         pending = st.session_state.get("pending_load")
@@ -14049,141 +14082,144 @@ End with: We look forward to your reply."""
             st.error("Remember to save your information before loading a new case")
             col_i, col_s = st.columns(2)
             target_idx = pending.get("target_idx", CURRENT_CASE_IDX)
-            if col_i.button("Ignore and load", key=widget_key("ignore_and_load", case_idx)):
+            if col_i.button("Ignore and load", key=save_tab_key("ignore_and_load")):
                 _activate_case_index(target_idx)
                 if "path" in pending:
                     load_case_from_path(pending["path"])
                 else:
                     load_case_from_bytes(pending["data"])
                 st.session_state.pending_load = None
-            if col_s.button("Save", key=widget_key("save_before_loading", case_idx)):
+            if col_s.button("Save", key=save_tab_key("save_before_loading")):
                 save_case_to_database(D)
 
-    # ================== FILE UPLOADS & EXPORTS =================
-    st.markdown("---")
-    st.subheader("Exports & attachments")
-    new_files = st.file_uploader(
-        "Upload screenshots / videos",
-        accept_multiple_files=True,
-        key=widget_key("new_files", case_idx),
-    )
-    if new_files:
-        existing_names = {f.name for f in st.session_state.uploads}
-        for nf in new_files:
-            if nf.name not in existing_names:
-                st.session_state.uploads.append(nf)
-                existing_names.add(nf.name)
+        # ================== FILE UPLOADS & EXPORTS =================
+        st.markdown("---")
+        st.subheader("Exports & attachments")
+        new_files = st.file_uploader(
+            "Upload screenshots / videos",
+            accept_multiple_files=True,
+            key=save_tab_key("new_files"),
+        )
+        if new_files:
+            existing_names = {f.name for f in st.session_state.uploads}
+            for nf in new_files:
+                if nf.name not in existing_names:
+                    st.session_state.uploads.append(nf)
+                    existing_names.add(nf.name)
 
-    log_files = st.file_uploader(
-        "Upload case logs",
-        accept_multiple_files=True,
-        key=widget_key("log_files", case_idx),
-    )
-    if log_files:
-        existing_log_names = {f.name for f in st.session_state.log_uploads}
-        for lf in log_files:
-            if lf.name not in existing_log_names:
-                st.session_state.log_uploads.append(lf)
-                existing_log_names.add(lf.name)
+        log_files = st.file_uploader(
+            "Upload case logs",
+            accept_multiple_files=True,
+            key=save_tab_key("log_files"),
+        )
+        if log_files:
+            existing_log_names = {f.name for f in st.session_state.log_uploads}
+            for lf in log_files:
+                if lf.name not in existing_log_names:
+                    st.session_state.log_uploads.append(lf)
+                    existing_log_names.add(lf.name)
 
-    screenshot_name = st.text_input(
-        "Screenshot name", key=widget_key("screenshot_name", case_idx)
-    )
-    full_btn_col, region_btn_col = st.columns(2)
+        screenshot_name = st.text_input(
+            "Screenshot name", key=save_tab_key("screenshot_name")
+        )
+        full_btn_col, region_btn_col = st.columns(2)
 
-    if full_btn_col.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
-        if screenshot_name:
-            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
-            shot, error = capture_full_screenshot(safe_name)
-            if shot:
-                st.session_state.screenshots.append(shot)
-                st.success(f"Captured screenshot: {safe_name}")
-            else:
-                st.error(error or "Screenshot capture is unavailable in this environment.")
-        else:
-            st.error("Please provide a screenshot name before capturing.")
-
-    if region_btn_col.button(
-        "Advanced Screenshot (select area)",
-        key=widget_key("take_region_screenshot", case_idx),
-    ):
-        if not screenshot_name:
-            st.error("Please provide a screenshot name before capturing.")
-        else:
-            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
-            shot, error = capture_region_screenshot(safe_name)
-            if shot:
-                st.session_state.screenshots.append(shot)
-                st.success(
-                    "Captured targeted screenshot. Confirm it excludes unnecessary PHI before sharing."
-                )
-            else:
-                message = error or "Unable to capture the selected region."
-                if "cancel" in message.lower():
-                    st.warning("Region capture cancelled—no image was saved.")
-                elif "environment" in message.lower() or "available" in message.lower():
-                    st.warning(message)
+        if full_btn_col.button("Take Screenshot", key=save_tab_key("take_screenshot")):
+            if screenshot_name:
+                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
+                shot, error = capture_full_screenshot(safe_name)
+                if shot:
+                    st.session_state.screenshots.append(shot)
+                    st.success(f"Captured screenshot: {safe_name}")
                 else:
-                    st.error(message)
+                    st.error(error or "Screenshot capture is unavailable in this environment.")
+            else:
+                st.error("Please provide a screenshot name before capturing.")
 
-    if (
-        st.session_state.uploads
-        or st.session_state.log_uploads
-        or st.session_state.screenshots
-    ):
-        if st.session_state.uploads:
-            st.markdown("Files queued:")
-            for i, f in enumerate(st.session_state.uploads):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button(
-                    "Remove", key=widget_key(f"rem_upload_{i}", case_idx)
-                ):
-                    st.session_state.uploads.pop(i)
-                    st.rerun()
-        if st.session_state.log_uploads:
-            st.markdown("Logs queued:")
-            for i, f in enumerate(st.session_state.log_uploads):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button(
-                    "Remove", key=widget_key(f"rem_log_{i}", case_idx)
-                ):
-                    st.session_state.log_uploads.pop(i)
-                    st.rerun()
-        if st.session_state.screenshots:
-            st.markdown("Screenshots captured:")
-            for i, s in enumerate(st.session_state.screenshots):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
-                if cols[1].button(
-                    "Remove", key=widget_key(f"rem_shot_{i}", case_idx)
-                ):
-                    st.session_state.screenshots.pop(i)
-                    st.rerun()
-        if st.button("Create ZIP", key=widget_key("create_zip", case_idx)):
-            zbuf = io.BytesIO()
-            with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-                for f in st.session_state.uploads:
-                    z.writestr(f"Screenshots/{f.name}", f.getvalue())
-                for f in st.session_state.log_uploads:
-                    z.writestr(f"logs/{f.name}", f.getvalue())
-                for s in st.session_state.screenshots:
-                    z.writestr(f"Screenshots/{s.name}", s.getvalue())
-                if st.session_state.get("attachments_include_case_json", True):
-                    z.writestr("case.json", json.dumps(asdict(D), indent=2))
-            zbuf.seek(0)
-            st.download_button(
-                "Download attachments.zip",
-                zbuf,
-                file_name=f"{D.case_id or 'case'}_attachments.zip",
-                mime="application/zip",
-                key=widget_key("download_zip", case_idx),
-            )
+        if region_btn_col.button(
+            "Advanced Screenshot (select area)",
+            key=save_tab_key("take_region_screenshot"),
+        ):
+            if not screenshot_name:
+                st.error("Please provide a screenshot name before capturing.")
+            else:
+                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
+                shot, error = capture_region_screenshot(safe_name)
+                if shot:
+                    st.session_state.screenshots.append(shot)
+                    st.success(
+                        "Captured targeted screenshot. Confirm it excludes unnecessary PHI before sharing."
+                    )
+                else:
+                    message = error or "Unable to capture the selected region."
+                    if "cancel" in message.lower():
+                        st.warning("Region capture cancelled—no image was saved.")
+                    elif "environment" in message.lower() or "available" in message.lower():
+                        st.warning(message)
+                    else:
+                        st.error(message)
+
+        if (
+            st.session_state.uploads
+            or st.session_state.log_uploads
+            or st.session_state.screenshots
+        ):
+            if st.session_state.uploads:
+                st.markdown("Files queued:")
+                for i, f in enumerate(st.session_state.uploads):
+                    cols = st.columns([8, 1])
+                    cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+                    if cols[1].button(
+                        "Remove", key=save_tab_key(f"rem_upload_{i}")
+                    ):
+                        st.session_state.uploads.pop(i)
+                        st.rerun()
+            if st.session_state.log_uploads:
+                st.markdown("Logs queued:")
+                for i, f in enumerate(st.session_state.log_uploads):
+                    cols = st.columns([8, 1])
+                    cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+                    if cols[1].button(
+                        "Remove", key=save_tab_key(f"rem_log_{i}")
+                    ):
+                        st.session_state.log_uploads.pop(i)
+                        st.rerun()
+            if st.session_state.screenshots:
+                st.markdown("Screenshots captured:")
+                for i, s in enumerate(st.session_state.screenshots):
+                    cols = st.columns([8, 1])
+                    cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
+                    if cols[1].button(
+                        "Remove", key=save_tab_key(f"rem_shot_{i}")
+                    ):
+                        st.session_state.screenshots.pop(i)
+                        st.rerun()
+            if st.button("Create ZIP", key=save_tab_key("create_zip")):
+                zbuf = io.BytesIO()
+                with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+                    for f in st.session_state.uploads:
+                        z.writestr(f"Screenshots/{f.name}", f.getvalue())
+                    for f in st.session_state.log_uploads:
+                        z.writestr(f"logs/{f.name}", f.getvalue())
+                    for s in st.session_state.screenshots:
+                        z.writestr(f"Screenshots/{s.name}", s.getvalue())
+                    if st.session_state.get("attachments_include_case_json", True):
+                        z.writestr("case.json", json.dumps(asdict(D), indent=2))
+                zbuf.seek(0)
+                st.download_button(
+                    "Download attachments.zip",
+                    zbuf,
+                    file_name=f"{D.case_id or 'case'}_attachments.zip",
+                    mime="application/zip",
+                    key=save_tab_key("download_zip"),
+                )
 
     # ================== BORED TAB =================
     if tab_bored:
         with tab_bored:
+            bored_tab_key = partial(
+                case_widget_key, CASE_TAB_SLUGS["I'm bored"], case_idx=case_idx
+            )
             st.subheader("One Click RPG")
             game = st.session_state.bored_game
             area = [
@@ -14274,7 +14310,7 @@ End with: We look forward to your reply."""
                 "zealous",
                 "hot-headed",
             ]
-            if st.button("Explore", key=widget_key("bored_explore", case_idx)):
+            if st.button("Explore", key=bored_tab_key("bored_explore")):
                 adventure = random.choice(area)
                 encounter = random.choice(monster)
                 descript = random.choice(description)
