@@ -29,7 +29,7 @@ import math
 import calendar
 import uuid
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from html import escape
 import textwrap
 import inspect
@@ -3494,6 +3494,136 @@ def tail_log(path: str | Path, lines: int = 100) -> str:
 # ───────────────── DATA MODEL ──────────────────
 
 
+def _utc_now_z() -> str:
+    """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
+
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+@dataclass
+class RemoteSessionEntry:
+    """Structured representation of a remote troubleshooting session."""
+
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    title: str = ""
+    notes: str = ""
+    created_at: str = field(default_factory=_utc_now_z)
+    updated_at: str = field(default_factory=_utc_now_z)
+
+    def display_title(self, index: int) -> str:
+        """Return a human-friendly title, falling back to an indexed label."""
+
+        title = (self.title or "").strip()
+        return title or f"Session {index}"
+
+    def touch(self) -> None:
+        """Refresh the ``updated_at`` timestamp to the current moment."""
+
+        self.updated_at = _utc_now_z()
+
+
+def _coerce_remote_session_entry(
+    payload: object, *, default_title: str
+) -> RemoteSessionEntry:
+    """Return a ``RemoteSessionEntry`` built from loose mapping data."""
+
+    if isinstance(payload, RemoteSessionEntry):
+        entry = RemoteSessionEntry(
+            session_id=(payload.session_id or uuid.uuid4().hex),
+            title=str(payload.title or default_title),
+            notes=str(payload.notes or ""),
+            created_at=str(payload.created_at or _utc_now_z()),
+            updated_at=str(payload.updated_at or payload.created_at or _utc_now_z()),
+        )
+    elif isinstance(payload, Mapping):
+        created = payload.get("created_at")
+        created_str = str(created or "")
+        if not created_str:
+            created_str = _utc_now_z()
+        updated = payload.get("updated_at")
+        updated_str = str(updated or "")
+        if not updated_str:
+            updated_str = created_str
+        entry = RemoteSessionEntry(
+            session_id=str(payload.get("session_id") or uuid.uuid4().hex),
+            title=str(payload.get("title") or default_title),
+            notes=str(payload.get("notes") or ""),
+            created_at=created_str,
+            updated_at=updated_str,
+        )
+    elif isinstance(payload, str):
+        entry = RemoteSessionEntry(title=default_title, notes=payload)
+    else:
+        entry = RemoteSessionEntry(title=default_title)
+
+    if not entry.title.strip():
+        entry.title = default_title
+
+    if not entry.created_at:
+        entry.created_at = _utc_now_z()
+    if not entry.updated_at:
+        entry.updated_at = entry.created_at
+
+    return entry
+
+
+def _normalize_remote_session_list(
+    raw_sessions: Iterable[object] | None,
+) -> list[RemoteSessionEntry]:
+    """Convert raw session payloads into dataclass entries."""
+
+    if not raw_sessions:
+        return []
+    if isinstance(raw_sessions, (str, bytes)):
+        return []
+
+    normalized: list[RemoteSessionEntry] = []
+    for payload in raw_sessions:
+        default_title = f"Session {len(normalized) + 1}"
+        normalized.append(
+            _coerce_remote_session_entry(payload, default_title=default_title)
+        )
+    return normalized
+
+
+def format_remote_sessions_summary(
+    sessions: Sequence[RemoteSessionEntry], *, include_timestamps: bool = True
+) -> str:
+    """Combine remote session notes into a readable multi-session summary."""
+
+    if not sessions:
+        return ""
+
+    show_titles = len(sessions) > 1 or any(
+        session.title.strip()
+        and session.title.strip().lower() != f"session {index}"
+        for index, session in enumerate(sessions, start=1)
+    )
+
+    blocks: list[str] = []
+    for idx, session in enumerate(sessions, start=1):
+        title = session.display_title(idx)
+        notes = (session.notes or "").strip()
+        if show_titles:
+            header = title
+            if include_timestamps:
+                created = (session.created_at or "").strip()
+                updated = (session.updated_at or "").strip()
+                timestamp_bits: list[str] = []
+                if created:
+                    timestamp_bits.append(f"started {created}")
+                if updated and updated != created:
+                    timestamp_bits.append(f"updated {updated}")
+                if timestamp_bits:
+                    header = f"{header} ({', '.join(timestamp_bits)})"
+            block = header if not notes else f"{header}\n{notes}"
+        else:
+            block = notes
+        blocks.append(block.strip())
+
+    return "\n\n".join(part for part in blocks if part).strip()
+
+
 @dataclass
 class TrackingData:
     """Metadata stored for active tracking in a case JSON file."""
@@ -3548,6 +3678,7 @@ class CaseData:
     email: str = ""
     internal_helpjuice: str = ""
     internal_logs: str = ""
+    remote_sessions: list[RemoteSessionEntry] = field(default_factory=list)
     remote_steps: str = ""
     root_cause: str = ""
     repro_steps: str = ""
@@ -3590,6 +3721,33 @@ class CaseData:
     last_modified: str = ""
 
     def __post_init__(self) -> None:
+        if self.remote_steps is None:
+            self.remote_steps = ""
+        else:
+            self.remote_steps = str(self.remote_steps)
+
+        sessions_source: Iterable[object] | None
+        if isinstance(self.remote_sessions, Iterable) and not isinstance(
+            self.remote_sessions, (str, bytes)
+        ):
+            sessions_source = self.remote_sessions
+        else:
+            sessions_source = []
+        normalized_sessions = _normalize_remote_session_list(sessions_source)
+        if not normalized_sessions and self.remote_steps.strip():
+            now = _utc_now_z()
+            normalized_sessions = [
+                RemoteSessionEntry(
+                    title="Session 1",
+                    notes=self.remote_steps,
+                    created_at=now,
+                    updated_at=now,
+                )
+            ]
+        self.remote_sessions = normalized_sessions
+        self.remote_steps = format_remote_sessions_summary(
+            self.remote_sessions, include_timestamps=True
+        )
         if not isinstance(self.tracking, TrackingData):
             if isinstance(self.tracking, Mapping):
                 self.tracking = TrackingData(**self.tracking)  # type: ignore[arg-type]
@@ -3603,6 +3761,62 @@ class CaseData:
             self.last_modified = ""
         elif not isinstance(self.last_modified, str):
             self.last_modified = str(self.last_modified)
+
+
+def extract_remote_steps_from_mapping(record: object | None) -> str:
+    """Return a normalized troubleshooting summary from legacy payloads."""
+
+    if record is None:
+        return ""
+
+    getter = getattr(record, "get", None)
+    if getter is None:
+        return ""
+
+    raw_steps = getter("remote_steps")
+    if isinstance(raw_steps, str) and raw_steps.strip():
+        return raw_steps.strip()
+
+    raw_sessions = getter("remote_sessions")
+    if isinstance(raw_sessions, Iterable) and not isinstance(
+        raw_sessions, (str, bytes)
+    ):
+        sessions = _normalize_remote_session_list(raw_sessions)
+        return format_remote_sessions_summary(sessions, include_timestamps=True)
+
+    return ""
+
+
+def ensure_remote_session_entries(case: CaseData) -> None:
+    """Guarantee that a case has at least one remote session entry."""
+
+    if case.remote_sessions:
+        return
+    now = _utc_now_z()
+    case.remote_sessions = [
+        RemoteSessionEntry(
+            title="Session 1",
+            notes="",
+            created_at=now,
+            updated_at=now,
+        )
+    ]
+    case.remote_steps = format_remote_sessions_summary(case.remote_sessions)
+
+
+def update_case_remote_sessions(
+    case: CaseData, sessions: Sequence[RemoteSessionEntry]
+) -> None:
+    """Persist a new set of remote session entries to the active case."""
+
+    normalized = _normalize_remote_session_list(sessions)
+    case.remote_sessions = normalized
+    case.remote_steps = format_remote_sessions_summary(
+        normalized, include_timestamps=True
+    )
+    st.session_state["remote_sessions"] = [asdict(entry) for entry in normalized]
+    st.session_state["remote_steps"] = case.remote_steps
+    autosave()
 
 
 @dataclass
@@ -6483,11 +6697,9 @@ def build_ai_learning_dataset(
         root_cause = str(record.get("root_cause") or "").strip()
         solution = str(record.get("solution") or "").strip()
         application_version = str(record.get("application_version") or "").strip()
-        troubleshooting = str(
-            record.get("remote_steps")
-            or record.get("troubleshooting")
-            or ""
-        ).strip()
+        troubleshooting = extract_remote_steps_from_mapping(record)
+        if not troubleshooting:
+            troubleshooting = str(record.get("troubleshooting") or "").strip()
         repro_steps = str(record.get("repro_steps") or "").strip()
         additional_info = str(record.get("additional_info") or "").strip()
 
@@ -7109,10 +7321,9 @@ def _collect_pattern_cases(
                 "title": str(entry.get("title") or ""),
                 "root_cause": str(entry.get("root_cause") or ""),
                 "solution": str(entry.get("solution") or ""),
-                "troubleshooting": str(
-                    entry.get("troubleshooting")
-                    or entry.get("remote_steps")
-                    or ""
+                "troubleshooting": (
+                    extract_remote_steps_from_mapping(entry)
+                    or str(entry.get("troubleshooting") or "").strip()
                 ),
                 "repro_steps": str(entry.get("repro_steps") or ""),
                 "additional_info": str(
@@ -7146,10 +7357,9 @@ def generate_recurring_issue_pdf(
                         "title": str(item.get("title") or ""),
                         "root_cause": str(item.get("root_cause") or ""),
                         "solution": str(item.get("solution") or ""),
-                        "troubleshooting": str(
-                            item.get("troubleshooting")
-                            or item.get("remote_steps")
-                            or ""
+                        "troubleshooting": (
+                            extract_remote_steps_from_mapping(item)
+                            or str(item.get("troubleshooting") or "").strip()
                         ),
                         "repro_steps": str(item.get("repro_steps") or ""),
                         "additional_info": str(
@@ -7338,10 +7548,9 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
                     "title": str(case_row.get("title") or ""),
                     "root_cause": str(case_row.get("root_cause") or ""),
                     "solution": str(case_row.get("solution") or ""),
-                    "troubleshooting": str(
-                        case_row.get("troubleshooting")
-                        or case_row.get("remote_steps")
-                        or ""
+                    "troubleshooting": (
+                        extract_remote_steps_from_mapping(case_row)
+                        or str(case_row.get("troubleshooting") or "").strip()
                     ),
                     "repro_steps": str(case_row.get("repro_steps") or ""),
                     "additional_info": str(
@@ -10152,8 +10361,139 @@ Thank you in advance,
 
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
-        st.subheader("Remote session – steps")
-        auto_text_area("One step per line", "remote_steps", height=400)
+        st.subheader("Remote sessions")
+        ensure_remote_session_entries(D)
+        sessions = D.remote_sessions
+
+        action_cols = st.columns([1, 5])
+        with action_cols[0]:
+            if st.button(
+                "Add session",
+                key=widget_key("remote_session_add", case_idx),
+            ):
+                new_session = RemoteSessionEntry(
+                    title=f"Session {len(sessions) + 1}",
+                    notes="",
+                )
+                sessions.append(new_session)
+                update_case_remote_sessions(D, sessions)
+                st.session_state[
+                    widget_key(
+                        f"remote_session_title_{new_session.session_id}", case_idx
+                    )
+                ] = new_session.title
+                st.session_state[
+                    widget_key(
+                        f"remote_session_notes_{new_session.session_id}", case_idx
+                    )
+                ] = new_session.notes
+                st.rerun()
+        with action_cols[1]:
+            st.caption(
+                "Document each remote control session separately. Rename, reorder, or "
+                "remove panels as needed."
+            )
+
+        for idx in range(len(sessions)):
+            session = sessions[idx]
+            if idx:
+                st.markdown("---")
+            container = st.container()
+            with container:
+                header_cols = st.columns([6, 1, 1, 1])
+                title_key = widget_key(
+                    f"remote_session_title_{session.session_id}", case_idx
+                )
+                if title_key not in st.session_state:
+                    st.session_state[title_key] = session.title
+                new_title = header_cols[0].text_input(
+                    "Title",
+                    value=session.title,
+                    key=title_key,
+                )
+                move_up_key = widget_key(
+                    f"remote_session_up_{session.session_id}", case_idx
+                )
+                move_down_key = widget_key(
+                    f"remote_session_down_{session.session_id}", case_idx
+                )
+                remove_key = widget_key(
+                    f"remote_session_remove_{session.session_id}", case_idx
+                )
+                with header_cols[1]:
+                    if st.button(
+                        "↑",
+                        disabled=idx == 0,
+                        key=move_up_key,
+                        help="Move session up",
+                    ):
+                        sessions.insert(idx - 1, sessions.pop(idx))
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+                with header_cols[2]:
+                    if st.button(
+                        "↓",
+                        disabled=idx == len(sessions) - 1,
+                        key=move_down_key,
+                        help="Move session down",
+                    ):
+                        sessions.insert(idx + 1, sessions.pop(idx))
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+                with header_cols[3]:
+                    if st.button(
+                        "Remove",
+                        disabled=len(sessions) == 1,
+                        key=remove_key,
+                        help="Delete this session panel",
+                    ):
+                        sessions.pop(idx)
+                        if not sessions:
+                            default_session = RemoteSessionEntry(
+                                title="Session 1",
+                                notes="",
+                            )
+                            sessions.append(default_session)
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+
+                if new_title != session.title:
+                    session.title = new_title
+                    session.touch()
+                    update_case_remote_sessions(D, sessions)
+                    sessions = D.remote_sessions
+                    session = sessions[idx]
+                    st.session_state[title_key] = session.title
+
+                timestamp_parts: list[str] = []
+                created_value = (session.created_at or "").strip()
+                updated_value = (session.updated_at or "").strip()
+                if created_value:
+                    timestamp_parts.append(f"Created: {created_value}")
+                if updated_value and updated_value != created_value:
+                    timestamp_parts.append(f"Updated: {updated_value}")
+                if timestamp_parts:
+                    st.caption(" · ".join(timestamp_parts))
+
+                notes_key = widget_key(
+                    f"remote_session_notes_{session.session_id}", case_idx
+                )
+                if notes_key not in st.session_state:
+                    st.session_state[notes_key] = session.notes
+                new_notes = st.text_area(
+                    "Session notes",
+                    session.notes,
+                    height=800,
+                    key=notes_key,
+                )
+                if new_notes != session.notes:
+                    session.notes = new_notes
+                    session.touch()
+                    update_case_remote_sessions(D, sessions)
+                    sessions = D.remote_sessions
+                    session = sessions[idx]
+                    st.session_state[notes_key] = session.notes
+
 
     # ================== TABLES TAB =================
     with tab_tables:
