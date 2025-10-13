@@ -8487,6 +8487,66 @@ def make_tables_pdf(d: CaseData) -> bytes:
     buf.seek(0)
     return buf.read()
 
+def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> None:
+    st.markdown("#### AutoHotkey quick paste")
+    st.caption(
+        "Generate a Windows AutoHotkey script so typing `phonecall1`, `remotesession1`, "
+        "etc. instantly pastes the current case tables."
+    )
+    hotkey_script = build_autohotkey_script(
+        [cs.case for cs in st.session_state.case_sessions],
+        cat_map,
+    )
+    script_path = sync_autohotkey_script(hotkey_script)
+    if script_path:
+        script_path_str = str(script_path)
+        encoded_hotkeys = json.dumps(hotkey_script)
+        st.success(
+            "Hotkeys auto-synced locally. Add a single `#Include` to your AutoHotkey "
+            "launcher and the triggers will refresh whenever you update cases."
+        )
+        st.code(f"#Include {script_path_str}", language="autohotkey")
+        components.html(
+            f"""
+            <script>
+            function copyKiroshiHotkeys() {{
+                navigator.clipboard.writeText({encoded_hotkeys}).then(() => {{
+                    const note = document.createElement('div');
+                    note.innerText = 'Hotkeys copied to clipboard';
+                    note.style.fontSize = '0.8rem';
+                    note.style.marginTop = '0.35rem';
+                    const host = document.getElementById('kiroshi-hotkeys-feedback');
+                    host.innerHTML = '';
+                    host.appendChild(note);
+                }});
+            }}
+            </script>
+            <button onclick="copyKiroshiHotkeys();"
+                    style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
+                    title="Copy the live hotkeys to the clipboard">
+                Copy hotkeys to clipboard
+            </button>
+            <div id='kiroshi-hotkeys-feedback'></div>
+            <p style='font-size:0.8rem;margin-top:0.5rem;'>Script path: {script_path_str}</p>
+            """,
+            height=90,
+        )
+    else:
+        st.info(
+            "Download the script or copy it manually. Automatic syncing is only available "
+            "on Windows."
+        )
+    st.download_button(
+        "Download hotkey script",
+        hotkey_script.encode("utf-8"),
+        file_name=f"kiroshi_tables_hotkeys_{TODAY_STR}.ahk",
+        mime="text/plain",
+        key=widget_key("download_hotkeys", case_idx),
+    )
+    with st.expander("Preview generated hotkeys"):
+        st.code(hotkey_script, language="autohotkey")
+
+
 def render_case_ui(case_idx: int):
     global CURRENT_CASE_IDX
     CURRENT_CASE_IDX = case_idx
@@ -9183,62 +9243,6 @@ def render_case_ui(case_idx: int):
                             category_dataframe(cat, D, cat_map), width="stretch"
                         )
                     st.markdown("---")
-                    st.markdown("#### AutoHotkey quick paste")
-                    st.caption(
-                        "Generate a Windows AutoHotkey script so typing `phonecall1`, `remotesession1`, etc. "
-                        "instantly pastes the current case tables."
-                    )
-                    hotkey_script = build_autohotkey_script(
-                        [cs.case for cs in st.session_state.case_sessions],
-                        cat_map,
-                    )
-                    script_path = sync_autohotkey_script(hotkey_script)
-                if script_path:
-                    script_path_str = str(script_path)
-                    encoded_hotkeys = json.dumps(hotkey_script)
-                    st.success(
-                        "Hotkeys auto-synced locally. Add a single `#Include` to your AutoHotkey launcher "
-                        "and the triggers will refresh whenever you update cases."
-                    )
-                    st.code(f"#Include {script_path_str}", language="autohotkey")
-                    components.html(
-                        f"""
-                        <script>
-                        function copyKiroshiHotkeys() {{
-                            navigator.clipboard.writeText({encoded_hotkeys}).then(() => {{
-                                const note = document.createElement('div');
-                                note.innerText = 'Hotkeys copied to clipboard';
-                                note.style.fontSize = '0.8rem';
-                                note.style.marginTop = '0.35rem';
-                                const host = document.getElementById('kiroshi-hotkeys-feedback');
-                                host.innerHTML = '';
-                                host.appendChild(note);
-                            }});
-                        }}
-                        </script>
-                        <button onclick="copyKiroshiHotkeys();"
-                                style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
-                                title="Copy the live hotkeys to the clipboard">
-                            Copy hotkeys to clipboard
-                        </button>
-                        <div id='kiroshi-hotkeys-feedback'></div>
-                        <p style='font-size:0.8rem;margin-top:0.5rem;'>Script path: {script_path_str}</p>
-                        """,
-                        height=90,
-                    )
-                else:
-                    st.info(
-                        "Download the script or copy it manually. Automatic syncing is only available on Windows."
-                    )
-                st.download_button(
-                    "Download hotkey script",
-                    hotkey_script.encode("utf-8"),
-                    file_name=f"kiroshi_tables_hotkeys_{TODAY_STR}.ahk",
-                    mime="text/plain",
-                    key=widget_key("download_hotkeys", case_idx),
-                )
-                with st.expander("Preview generated hotkeys"):
-                    st.code(hotkey_script, language="autohotkey")
                 if st.session_state.categorizer_result:
                     st.subheader("Kiroshi Categorizer")
                     st.text_area(
@@ -9983,7 +9987,12 @@ Thank you in advance,
             st.dataframe(
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
-    
+
+    if tab_debug:
+        with tab_debug:
+            st.subheader("Case debug tools")
+            render_autohotkey_panel(cat_map, case_idx)
+
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
         st.subheader("Remote session – steps")
