@@ -30,9 +30,11 @@ import calendar
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
+from typing import Dict, List
 from html import escape
 import textwrap
 import inspect
+import traceback
 
 import pandas as pd
 import altair as alt
@@ -48,6 +50,8 @@ from reportlab.platypus import (
     TableStyle,
     Paragraph,
     Spacer,
+    Image,
+    Preformatted,
 )
 from reportlab.graphics.shapes import Drawing, String
 from reportlab.graphics.charts.barcharts import VerticalBarChart
@@ -114,6 +118,34 @@ DEFAULT_AI_MODE = (
     )
 )
 LOG_FILE = "app.log"
+
+ERROR_DIALOG_MESSAGES = [
+    "Even cybernetic scribes trip sometimes. Give me a second to regroup.",
+    "That panel face-planted. Let's grab the logs before it pretends nothing happened.",
+    "Something went sideways. Want to tag in Support with a quick report?",
+    "Kiroshi hit a weird edge case. Capture it now so the engineers can slay it later.",
+]
+
+
+def _collect_recent_logs(max_bytes: int = 65536) -> str:
+    """Return the tail of the application log file for diagnostics."""
+
+    log_path = Path(LOG_FILE)
+    if not log_path.exists():
+        return "Log file not found."
+
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            start = max(size - max_bytes, 0)
+            handle.seek(start)
+            if start > 0:
+                handle.readline()
+            return handle.read().strip()
+    except OSError as exc:
+        logging.error("Unable to read log file %s: %s", log_path, exc)
+        return f"Unable to read logs: {exc}"
 
 PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
 DEFAULT_TRACKING_PRIORITY = "Normal"
@@ -259,6 +291,16 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed": False,
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
+    "tutorial_metadata": {
+        "version": "",
+        "visited": [],
+        "last_step": 0,
+        "total_steps": 0,
+        "completed": False,
+        "completion_type": "",
+        "completed_at": "",
+        "furthest_step": 0,
+    },
     "enable_holiday_theme": True,
     "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
     "kiroshi_sarcasm_mode": False,
@@ -543,6 +585,78 @@ _REPORT_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 }
 
 
+_STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
+    "Scanner Hardware": {
+        "scanner_models": (
+            "trios 3",
+            "trios3",
+            "trios 4",
+            "trios4",
+            "trios 5",
+            "trios5",
+            "trios move",
+            "trios move+",
+            "move+",
+            "move plus",
+            "pod",
+            "pod 3",
+            "pod 4",
+            "go",
+        ),
+        "root_cause_codes": (
+            "hw",
+            "hardware",
+            "scanner",
+            "device",
+        ),
+        "recurrence_threshold": 2,
+    },
+    "Software / Installation": {
+        "root_cause_codes": (
+            "bug",
+            "sw",
+            "software",
+            "defect",
+        ),
+        "tokens": ("bug", "defect"),
+        "recurrence_threshold": 1,
+    },
+    "Hardware / Connectivity": {
+        "root_cause_codes": (
+            "net",
+            "network",
+            "connect",
+            "vpn",
+            "wifi",
+        ),
+    },
+    "Workflow Guidance": {
+        "root_cause_codes": (
+            "workflow",
+            "training",
+            "usage",
+            "user",
+        ),
+    },
+    "Account / Licensing": {
+        "root_cause_codes": (
+            "lic",
+            "license",
+            "licensing",
+        ),
+    },
+    "Data Management": {
+        "root_cause_codes": (
+            "db",
+            "database",
+            "backup",
+            "restore",
+            "sync",
+        ),
+    },
+}
+
+
 def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
@@ -550,6 +664,21 @@ def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = re.sub(r"[^0-9A-Za-z]+", " ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
     return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+
+
+def _normalize_text_field(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _infer_report_category(
@@ -599,15 +728,90 @@ def _infer_report_category(
     return None
 
 
-def _derive_analysis_label(row: Mapping[str, object]) -> str:
+def _infer_structured_category(
+    row: Mapping[str, object], tokens: list[str], context: Mapping[str, object] | None = None
+) -> tuple[str, int] | None:
+    context = context or {}
+    scanner_candidates = [
+        row.get("scanner_model"),
+        row.get("scanner"),
+        row.get("scanner_type"),
+        row.get("scanner_sn"),
+    ]
+    scanner_model = ""
+    for candidate in scanner_candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            scanner_model = candidate.strip()
+            break
+
+    scanner_norm = _normalize_text_field(scanner_model)
+    root_cause_code = row.get("root_cause_code") or row.get("root_cause_id")
+    if isinstance(root_cause_code, str):
+        root_cause_code_norm = _normalize_text_field(root_cause_code)
+    elif isinstance(root_cause_code, (int, float)):
+        root_cause_code_norm = str(root_cause_code)
+    else:
+        root_cause_code_norm = ""
+
+    root_cause_text = _normalize_text_field(row.get("root_cause"))
+    recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
+    structured_scores: dict[str, int] = {}
+
+    token_set = {token.lower() for token in tokens}
+
+    for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
+        score = 0
+        codes = hints.get("root_cause_codes")
+        if codes:
+            for candidate in codes:
+                candidate_norm = _normalize_text_field(candidate)
+                if not candidate_norm:
+                    continue
+                if root_cause_code_norm and (
+                    root_cause_code_norm == candidate_norm
+                    or root_cause_code_norm.startswith(candidate_norm)
+                ):
+                    score += 8
+                if candidate_norm and candidate_norm in root_cause_text:
+                    score += 3
+        scanner_models = hints.get("scanner_models")
+        if scanner_models and scanner_norm:
+            for candidate in scanner_models:
+                candidate_norm = _normalize_text_field(candidate)
+                if not candidate_norm:
+                    continue
+                if scanner_norm == candidate_norm or scanner_norm.startswith(candidate_norm):
+                    score += 6
+        token_prefixes = hints.get("tokens")
+        if token_prefixes:
+            for prefix in token_prefixes:
+                prefix_norm = _normalize_text_field(prefix)
+                if not prefix_norm:
+                    continue
+                for token in token_set:
+                    if token.startswith(prefix_norm):
+                        score += 1
+        threshold = _coerce_int(hints.get("recurrence_threshold"), 0)
+        if threshold and recurrence_count >= threshold:
+            score += 2
+        if score:
+            structured_scores[label] = score
+
+    if not structured_scores:
+        return None
+
+    return max(structured_scores.items(), key=lambda item: item[1])
+
+
+def _derive_analysis_label(
+    row: Mapping[str, object], context: Mapping[str, object] | None = None
+) -> str:
+    context = context or {}
     text_candidates: list[str] = []
     for key in ("category", "classification", "topic", "root_cause", "title", "description_excerpt", "solution"):
         value = row.get(key)
         if isinstance(value, str) and value.strip():
             text_candidates.append(value)
-
-    if not text_candidates:
-        return "General"
 
     tokens: list[str] = []
     for text in text_candidates:
@@ -619,24 +823,83 @@ def _derive_analysis_label(row: Mapping[str, object]) -> str:
             if isinstance(keyword, str) and keyword.strip():
                 tokens.extend(_tokenize_issue_description(keyword))
 
-    if not tokens:
-        return "General"
+    structured_match = _infer_structured_category(row, tokens, context)
+    scanner_label_map: Mapping[str, str] = context.get("scanner_labels", {}) if context else {}
+    root_cause_label_map: Mapping[str, str] = context.get("root_cause_labels", {}) if context else {}
+
+    recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
+    scanner_model = ""
+    for candidate in (
+        row.get("scanner_model"),
+        row.get("scanner"),
+        row.get("scanner_type"),
+        row.get("scanner_sn"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            scanner_model = candidate.strip()
+            break
+
+    root_cause_code = row.get("root_cause_code") or row.get("root_cause_id")
+    if isinstance(root_cause_code, str):
+        root_cause_code_display = root_cause_code.strip().upper()
+    elif root_cause_code is not None:
+        root_cause_code_display = str(root_cause_code)
+    else:
+        root_cause_code_display = ""
+
+    root_cause_text_norm = _normalize_text_field(row.get("root_cause"))
+    root_cause_display = (
+        root_cause_label_map.get(root_cause_text_norm)
+        if root_cause_label_map
+        else row.get("root_cause")
+    )
+
+    if structured_match:
+        label, score = structured_match
+        if root_cause_code_display:
+            return f"{label} – {root_cause_code_display}"
+        if scanner_model:
+            return f"{label} – {scanner_model}"
+        if recurrence_count >= 3:
+            return f"{label} (Recurring)"
+        return label
 
     inferred_category = _infer_report_category(row, tokens)
     if inferred_category:
+        if recurrence_count >= 3:
+            return f"{inferred_category} (Recurring)"
         return inferred_category
 
-    top_tokens: list[str] = []
-    for token, _ in Counter(tokens).most_common():
-        if token not in top_tokens:
-            top_tokens.append(token)
-        if len(top_tokens) >= 2:
-            break
+    if root_cause_code_display:
+        return f"Root Cause – {root_cause_code_display}"
 
-    if not top_tokens:
-        return "General"
+    if scanner_model:
+        scanner_norm = _normalize_text_field(scanner_model)
+        display = scanner_label_map.get(scanner_norm, scanner_model)
+        return f"Scanner – {display}"
 
-    return " / ".join(token.title() for token in top_tokens)
+    if recurrence_count >= 3:
+        if isinstance(root_cause_display, str) and root_cause_display.strip():
+            return f"Recurring – {_summarize_text(root_cause_display, width=40)}"
+        return "Recurring Issue"
+
+    if tokens:
+        top_tokens: list[str] = []
+        for token, _ in Counter(tokens).most_common():
+            if token not in top_tokens:
+                top_tokens.append(token)
+            if len(top_tokens) >= 2:
+                break
+        if top_tokens:
+            return " / ".join(token.title() for token in top_tokens)
+
+    if isinstance(root_cause_display, str) and root_cause_display.strip():
+        return _summarize_text(root_cause_display, width=40)
+
+    if text_candidates:
+        return _summarize_text(text_candidates[0], width=40)
+
+    return "General"
 _persistent_settings_cache.update(_load_persistent_settings())
 
 
@@ -1013,6 +1276,8 @@ ALTAIR_CHART_KWARGS = (
 
 AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
 
+TUTORIAL_VERSION = "2025.05"
+
 TUTORIAL_STEPS: list[dict[str, object]] = [
     {
         "id": "welcome",
@@ -1085,6 +1350,54 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         },
     },
     {
+        "id": "issue_reporter",
+        "title": "Instant Issue Reporter",
+        "visual": "issue_reporter_flow",
+        "description": textwrap.dedent(
+            """
+            Launch the Issue Reporter from any case to bundle call notes, logs, and screenshots into a
+            single vendor-ready packet. Kiroshi maps your troubleshooting narrative into the structured
+            summary that partners expect, attaches the latest evidence, and stores a timestamped copy in
+            your database for follow-up.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "What does the Issue Reporter automatically include before you submit?",
+            "options": [
+                "Only the text from your root cause field",
+                "Screenshots, selected logs, and the troubleshooting summary",
+                "A blank template you must fill in manually",
+            ],
+            "answer": "Screenshots, selected logs, and the troubleshooting summary",
+            "success": "Yes — it packages artifacts and notes so vendors see the full story.",
+            "failure": "Remember, the Issue Reporter assembles evidence for you before sending.",
+        },
+    },
+    {
+        "id": "escalations",
+        "title": "Escalation Control Tower",
+        "visual": "escalation_matrix",
+        "description": textwrap.dedent(
+            """
+            Use the escalations drawer to track every hand-off. Capture vendor queue IDs, urgency, and
+            response targets, then pin critical follow-ups to the dashboard badge strip. Shared escalation
+            history keeps teams synchronized while automated reminders flag anything approaching its SLA.
+            """
+        ),
+        "interaction": {
+            "type": "checkbox_group",
+            "prompt": "Mark each checklist item once you have seen where to manage escalations.",
+            "items": [
+                "I can open the escalation drawer from a case tab.",
+                "I know where SLA timers appear on the dashboard.",
+                "I saw how vendor queue IDs are stored with the case.",
+            ],
+            "success": "Great — you can now coordinate escalations without losing context.",
+            "instruction": "Check every box after reviewing the escalation features above.",
+        },
+    },
+    {
         "id": "reporting",
         "title": "Reporting & Exports",
         "visual": "report_overview",
@@ -1105,14 +1418,39 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         },
     },
     {
+        "id": "analytics",
+        "title": "Operations Analytics",
+        "visual": "analytics_suite",
+        "description": textwrap.dedent(
+            """
+            The analytics suite blends saved case metrics, Issue Reporter outcomes, and escalation load
+            into a unified view. Trendlines spotlight recurring failure types, while the resolution heat
+            map highlights where teams are beating or missing their targets.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "Which visual helps you spot workload bottlenecks over the week?",
+            "options": [
+                "Resolution heat map",
+                "Issue Reporter draft list",
+                "Kiroshi Chat history",
+            ],
+            "answer": "Resolution heat map",
+            "success": "Exactly — the heat map shows when cases cluster above SLA thresholds.",
+            "failure": "Hint: look for the analytic that compares days to SLA performance.",
+        },
+    },
+    {
         "id": "settings",
         "title": "Settings & Personalisation",
         "visual": "settings_overview",
         "description": textwrap.dedent(
             """
-            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding history.
-            Use this panel to toggle advanced assistance, import or export Educate datasets, and relaunch this tutorial whenever you like.
-            Your completion status is saved in the persistent configuration so first-time use is recorded automatically.
+            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding
+            history. Use this panel to toggle advanced assistance, import or export Educate datasets, and
+            relaunch this tutorial whenever you like. Completion metadata records when you finished the
+            tour and the version you saw.
             """
         ),
         "interaction": {
@@ -1122,6 +1460,29 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
             "answer": "Settings",
             "success": "That's right — the Settings tab now includes a Repeat Tutorial button.",
             "failure": "Look in Settings for the onboarding controls and status badge.",
+        },
+    },
+    {
+        "id": "ui_refresh",
+        "title": "Polished Interface & Shortcuts",
+        "visual": "ui_refresh",
+        "description": textwrap.dedent(
+            """
+            Subtle gradients, animated progress badges, and keyboard-aware navigation make the refreshed
+            UI easier to scan. Tutorial step selectors, card highlights, and quick access buttons guide new
+            users without getting in your way.
+            """
+        ),
+        "interaction": {
+            "type": "checkbox_group",
+            "prompt": "Tick the enhancements you noticed in the new interface.",
+            "items": [
+                "Animated progress badges in the tutorial",
+                "Improved contrast on cards and tables",
+                "Step selector for jumping around the tour",
+            ],
+            "success": "Nicely spotted — those touches keep the workflow feeling fast.",
+            "instruction": "Mark each enhancement after you've seen it in action.",
         },
     },
     {
@@ -1585,6 +1946,143 @@ KIROSHI_QUIPS_AI_VOICE = [
     "Kiroshi autopilot: Sometimes I’m actually motivational—usually right before a deployment.",
     "Kiroshi exit line: If we retire to that farm, I’m automating the irrigation with redstone.",
 ]
+
+if len(KIROSHI_QUIPS_GENERAL) < 8640:
+    _total_slots_needed = 8640 - len(KIROSHI_QUIPS_GENERAL)
+    _references = [
+        "The Simpsons",
+        "Undertale",
+        "Breaking Bad",
+        "Stranger Things",
+        "The Legend of Zelda",
+        "Arcane",
+        "Overwatch 2",
+        "Final Fantasy XIV",
+        "The Witcher",
+        "Persona 5",
+        "Hades",
+        "Cyberpunk 2077",
+        "The Mandalorian",
+        "Loki",
+        "Spider-Verse",
+        "Genshin Impact",
+        "Ahsoka",
+        "Baldur's Gate 3",
+        "Animal Crossing",
+        "The Last of Us",
+        "Attack on Titan",
+        "Ted Lasso",
+        "She-Ra",
+        "Squid Game",
+        "Chainsaw Man",
+        "Super Mario Bros. Wonder",
+    ]
+    _general_trios_templates = [
+        "TRIOS 4 cameo #{slot}: {reference} crossover energy demands we calibrate before the couch gag finishes.",
+        "TRIOS 4 alarm #{slot}: channeling {reference} levels of determination—double-check the bitewings before the theme song hits.",
+        "TRIOS 4 whisper #{slot}: if {reference} can survive a reset, so can your scanner prep.",
+        "TRIOS 4 pep talk #{slot}: summon a {reference} style hero arc and align that wand like it’s destiny.",
+        "TRIOS 4 reminder #{slot}: imagine {reference} yelled ‘check the scan!’ and act accordingly.",
+        "TRIOS 4 side quest #{slot}: equip the {reference} soundtrack and run the preflight checklist.",
+        "TRIOS 4 plot twist #{slot}: a {reference} marathon still leaves time to reboot the cart.",
+        "TRIOS 4 pit stop #{slot}: if {reference} can juggle cliffhangers, you can juggle calibration logs.",
+        "TRIOS 4 daily #{slot}: harness {reference} levels of stubborn optimism before the 3D print queue riots.",
+        "TRIOS 4 forecast #{slot}: expect {reference}-grade drama unless we warm up the scanner first.",
+        "TRIOS 4 easter egg #{slot}: hide a {reference} quote in the notes after verifying exposure settings.",
+        "TRIOS 4 hero call #{slot}: the {reference} ensemble would re-run the cleaning cycle—so should we.",
+        "TRIOS 4 victory lap #{slot}: celebrate like {reference} only after uploading that STL.",
+        "TRIOS 4 status #{slot}: invoke {reference} plot armor for the sensor while you log the fix.",
+        "TRIOS 4 coffee break #{slot}: toast to {reference} cameos, then check the firmware.",
+        "TRIOS 4 queue #{slot}: imagine {reference} characters judging your note quality—write accordingly.",
+        "TRIOS 4 montage #{slot}: splice in {reference} energy and sync the workflow timer.",
+        "TRIOS 4 pep song #{slot}: hum the {reference} theme until the scanner LED stops blinking.",
+        "TRIOS 4 cameo #{slot}: {reference} just asked for a calibration screenshot, don’t leave them hanging.",
+        "TRIOS 4 finale #{slot}: wrap the ticket with {reference} finale-level closure and attach the logs.",
+    ]
+    _ai_trios_templates = [
+        "Kiroshi voice on TRIOS 4 #{slot}: channeling {reference} snark while I queue your calibration script.",
+        "Kiroshi AI ping #{slot}: TRIOS 4 needs attention—summon your inner {reference} protagonist.",
+        "TRIOS 4 dispatch #{slot}: I’ve staged the checklist; {reference} would absolutely approve.",
+        "TRIOS 4 sync #{slot}: uploading diagnostics with {reference} finale flair, so please keep up.",
+        "TRIOS 4 alert #{slot}: I mocked up a {reference} style montage—press start on the maintenance cycle.",
+        "TRIOS 4 byte #{slot}: if {reference} taught us anything, it’s to run backups; I’ve started one.",
+        "TRIOS 4 ping #{slot}: I’m quoting {reference} until you reset the wand like a champ.",
+        "TRIOS 4 queue #{slot}: calibrations lined up tighter than a {reference} boss fight; execute step one.",
+        "TRIOS 4 nag #{slot}: applying {reference} soundtrack energy while I fetch yesterday’s log.",
+        "TRIOS 4 memo #{slot}: your holographic assistant expects {reference} level drama-free scans today.",
+        "TRIOS 4 beam #{slot}: I prepped the exposure list; {reference} would call that a plot twist.",
+        "TRIOS 4 hype #{slot}: coaching you with {reference} pep until the calibration bar fills.",
+        "TRIOS 4 recap #{slot}: saved the settings, dropped a {reference} wink in the activity feed.",
+        "TRIOS 4 boost #{slot}: syncing the firmware while humming {reference}—don’t let me solo this quest.",
+        "TRIOS 4 toast #{slot}: handing you a virtual mug and a {reference} quote; go check the sensor.",
+        "TRIOS 4 anthem #{slot}: scheduling the rescan with {reference} percussion, try to stay on beat.",
+        "TRIOS 4 cameo #{slot}: {reference} called—they want proof you ran the cleaning cycle.",
+        "TRIOS 4 wrap #{slot}: I archived the logs and added a {reference} emoji for flair.",
+        "TRIOS 4 warp #{slot}: adjusting parameters faster than a {reference} teleport.",
+        "TRIOS 4 encore #{slot}: uploading the follow-up summary with {reference} finale energy.",
+    ]
+    _general_templates = [
+        "Slot {slot} nod to {reference}: document like it’s the season finale and attach the receipts.",
+        "Slot {slot} powered by {reference}: queue discipline beats plot armor—double-check the attachments.",
+        "Slot {slot}, {reference} marathon mindset: hydrate, annotate, and dodge cliffhangers.",
+        "Slot {slot} under {reference} lighting: narrate the case note like a dramatic voiceover.",
+        "Slot {slot} with {reference} hype: synchronize snacks, status updates, and sarcasm.",
+        "Slot {slot} and {reference} crossover: every checkbox is a side quest worth completing.",
+        "Slot {slot} featuring {reference}: speed-run the template, but leave room for plot twists.",
+        "Slot {slot} tuned to {reference}: treat that screenshot like a limited edition drop.",
+    ]
+    _ai_templates = [
+        "Kiroshi slot {slot}: streaming {reference} energy while I prefill the follow-up notes.",
+        "Kiroshi slot {slot}: {reference} marathon detected, so I auto-tagged the case with extra flair.",
+        "Kiroshi slot {slot}: balancing {reference} references and actionable steps—check the subtasks.",
+        "Kiroshi slot {slot}: piping in {reference} OST while I summarize the escalations.",
+        "Kiroshi slot {slot}: {reference} cameo secured; now validate the attachments I staged.",
+        "Kiroshi slot {slot}: remixing the SOP with {reference} vibes and a dash of automation.",
+        "Kiroshi slot {slot}: {reference} would binge this efficiency—approve the draft.",
+        "Kiroshi slot {slot}: keeping the queue tighter than a {reference} finale timeline.",
+    ]
+    _days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
+    general_extension: list[str] = []
+    ai_extension: list[str] = []
+    for slot_offset in range(_total_slots_needed):
+        month_index = slot_offset // 720
+        week_index = (slot_offset % 720) // 180
+        day_index = (slot_offset % 180) // 36
+        slot_in_day = slot_offset % 36
+        hour = 8 + (slot_in_day // 4)
+        minute = (slot_in_day % 4) * 15
+        time_label = (
+            f"{calendar.month_name[month_index + 1]} W{week_index + 1} "
+            f"{_days_of_week[day_index]} {hour:02d}:{minute:02d}"
+        )
+        reference = _references[slot_offset % len(_references)]
+        slot_number = slot_offset + 1
+        if slot_offset < len(_general_trios_templates):
+            general_extension.append(
+                f"{time_label}: {_general_trios_templates[slot_offset].format(reference=reference, slot=slot_number)}"
+            )
+            ai_extension.append(
+                f"{time_label}: {_ai_trios_templates[slot_offset].format(reference=reference, slot=slot_number)}"
+            )
+            continue
+        general_template = _general_templates[slot_offset % len(_general_templates)]
+        ai_template = _ai_templates[slot_offset % len(_ai_templates)]
+        general_extension.append(
+            f"{time_label}: {general_template.format(reference=reference, slot=slot_number)}"
+        )
+        ai_extension.append(
+            f"{time_label}: {ai_template.format(reference=reference, slot=slot_number)}"
+        )
+
+    KIROSHI_QUIPS_GENERAL.extend(general_extension)
+    KIROSHI_QUIPS_AI_VOICE.extend(ai_extension)
+
+if len(KIROSHI_QUIPS_GENERAL) != len(KIROSHI_QUIPS_AI_VOICE):
+    raise ValueError("Kiroshi quip lists must remain paired for message population.")
+
+if len(KIROSHI_QUIPS_GENERAL) < 8640:
+    raise ValueError("Kiroshi quip lists must cover at least 8,640 unique slots.")
 
 KIROSHI_MESSAGES: list[str] = []
 for neutral, ai_voice in zip(KIROSHI_QUIPS_GENERAL, KIROSHI_QUIPS_AI_VOICE):
@@ -2569,6 +3067,335 @@ def _format_timedelta_compact(delta: timedelta) -> str:
     return " ".join(parts)
 
 
+def _refresh_wellness_reminder_state(*, now: datetime | None = None) -> dict[str, object] | None:
+    """Ensure the next wellness reminder state is cached in session state."""
+
+    wellness_settings = _normalize_wellness_settings(
+        st.session_state.get("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
+    )
+    st.session_state.wellness_reminders = wellness_settings
+    enabled = bool(wellness_settings.get("enabled"))
+    lead_minutes = max(
+        0,
+        int(
+            wellness_settings.get(
+                "notification_lead", DEFAULT_WELLNESS_SETTINGS["notification_lead"]
+            )
+        ),
+    )
+    upcoming_event = _calculate_next_wellness_event(wellness_settings, now=now)
+    if not enabled or not upcoming_event:
+        state = {
+            "event_dt": None,
+            "event_key": None,
+            "enabled": enabled,
+            "lead_minutes": lead_minutes,
+            "dismissed": True,
+            "audio_played": False,
+            "jump_to_actions": False,
+        }
+        st.session_state["_wellness_reminder_state"] = state
+        st.session_state["_next_wellness_event"] = None
+        return None
+
+    event_dt, event_key, meta = upcoming_event
+    state = dict(st.session_state.get("_wellness_reminder_state") or {})
+    stored_dt = state.get("event_dt") if isinstance(state.get("event_dt"), datetime) else None
+    if stored_dt != event_dt or state.get("event_key") != event_key:
+        state = {
+            "event_dt": event_dt,
+            "event_key": event_key,
+            "meta": dict(meta),
+            "enabled": enabled,
+            "lead_minutes": lead_minutes,
+            "dismissed": False,
+            "audio_played": False,
+            "jump_to_actions": False,
+        }
+        state["tip"] = random.choice(WELLNESS_TIPS)
+    else:
+        state["meta"] = dict(meta)
+        state.setdefault("tip", random.choice(WELLNESS_TIPS))
+        state.setdefault("dismissed", False)
+        state.setdefault("audio_played", False)
+        state.setdefault("jump_to_actions", False)
+
+    alert_threshold = 30 if lead_minutes == 0 else min(30, lead_minutes)
+    audio_threshold = 15
+    audio_trigger = audio_threshold if lead_minutes == 0 or lead_minutes >= audio_threshold else lead_minutes
+    state.update(
+        {
+            "enabled": enabled,
+            "lead_minutes": lead_minutes,
+            "alert_threshold": alert_threshold,
+            "audio_threshold": audio_threshold,
+            "audio_trigger_minutes": audio_trigger,
+        }
+    )
+
+    st.session_state["_wellness_reminder_state"] = state
+    st.session_state["_next_wellness_event"] = upcoming_event
+    return state
+
+
+def _ensure_wellness_alert_styles() -> None:
+    if st.session_state.get("_wellness_alert_styles_injected"):
+        return
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) {
+            position: relative;
+            border-radius: 18px;
+            padding: 1.25rem 1.5rem 1.1rem;
+            margin-bottom: 1.2rem;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 64, 175, 0.75));
+            box-shadow: 0 18px 34px rgba(15, 23, 42, 0.35);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            color: #f8fafc;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__eyebrow {
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            opacity: 0.75;
+            margin-bottom: 0.2rem;
+            display: inline-block;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__meta {
+            font-size: 0.95rem;
+            margin-bottom: 0.6rem;
+            opacity: 0.9;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__tip {
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+            background: rgba(15, 118, 110, 0.18);
+            border-radius: 12px;
+            padding: 0.55rem 0.75rem;
+            border: 1px solid rgba(45, 212, 191, 0.35);
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content--actions) {
+            background: linear-gradient(135deg, rgba(30, 64, 175, 0.95), rgba(21, 128, 61, 0.78));
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__list {
+            margin: 0 0 0.8rem 0;
+            padding-left: 1.1rem;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__list li {
+            margin-bottom: 0.35rem;
+        }
+        div[data-testid="stVerticalBlock"]:has(.wellness-alert__content) .wellness-alert__actions button {
+            width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.session_state["_wellness_alert_styles_injected"] = True
+
+
+def _get_wellness_audio_clip() -> bytes:
+    cached = st.session_state.get("_wellness_audio_clip")
+    if isinstance(cached, (bytes, bytearray)):
+        return bytes(cached)
+    sample_rate = 22050
+    duration_seconds = 0.65
+    frequency = 880
+    total_samples = int(sample_rate * duration_seconds)
+    amplitude = 0.35
+    data = bytearray()
+    for n in range(total_samples):
+        sample = amplitude * math.sin(2 * math.pi * frequency * n / sample_rate)
+        value = int(max(-1.0, min(1.0, sample)) * 32767)
+        data.extend(value.to_bytes(2, byteorder="little", signed=True))
+    data_size = len(data)
+    byte_rate = sample_rate * 2
+    header = b"".join(
+        [
+            b"RIFF",
+            (36 + data_size).to_bytes(4, "little"),
+            b"WAVE",
+            b"fmt ",
+            (16).to_bytes(4, "little"),
+            (1).to_bytes(2, "little"),
+            (1).to_bytes(2, "little"),
+            sample_rate.to_bytes(4, "little"),
+            byte_rate.to_bytes(4, "little"),
+            (2).to_bytes(2, "little"),
+            (16).to_bytes(2, "little"),
+            b"data",
+            data_size.to_bytes(4, "little"),
+        ]
+    )
+    clip = bytes(header + data)
+    st.session_state["_wellness_audio_clip"] = clip
+    return clip
+
+
+def _update_wellness_alert_state(**changes: object) -> None:
+    state = dict(st.session_state.get("_wellness_reminder_state") or {})
+    if not state:
+        return
+    state.update(changes)
+    st.session_state["_wellness_reminder_state"] = state
+
+
+def _dismiss_wellness_alert() -> None:
+    _update_wellness_alert_state(dismissed=True, jump_to_actions=False)
+
+
+def _start_wellness_pause() -> None:
+    _update_wellness_alert_state(
+        jump_to_actions=True,
+        dismissed=False,
+        pause_started_at=datetime.now(),
+    )
+
+
+def _complete_wellness_pause() -> None:
+    _update_wellness_alert_state(
+        jump_to_actions=False,
+        dismissed=True,
+        pause_completed_at=datetime.now(),
+    )
+
+
+def _return_to_wellness_alert() -> None:
+    _update_wellness_alert_state(jump_to_actions=False, dismissed=False)
+
+
+def render_wellness_alert(reminder_state: dict[str, object] | None = None) -> None:
+    """Display the global wellness reminder banner or actions modal."""
+
+    reminder_state = reminder_state or st.session_state.get("_wellness_reminder_state")
+    if not isinstance(reminder_state, Mapping):
+        return
+    if not reminder_state.get("enabled"):
+        return
+    event_dt = reminder_state.get("event_dt")
+    if not isinstance(event_dt, datetime):
+        return
+    if reminder_state.get("dismissed") and not reminder_state.get("jump_to_actions"):
+        return
+
+    now = datetime.now()
+    delta = event_dt - now
+    delta_minutes = delta.total_seconds() / 60
+    if delta_minutes < 0:
+        return
+
+    alert_threshold = reminder_state.get("alert_threshold", 30)
+    if not reminder_state.get("jump_to_actions") and delta_minutes > alert_threshold:
+        return
+
+    _ensure_wellness_alert_styles()
+
+    audio_trigger = reminder_state.get("audio_trigger_minutes", 15)
+    if (
+        delta_minutes <= audio_trigger
+        and not reminder_state.get("audio_played")
+        and delta_minutes > 0
+    ):
+        st.audio(_get_wellness_audio_clip(), format="audio/wav")
+        _update_wellness_alert_state(audio_played=True)
+
+    label = str(
+        reminder_state.get("meta", {}).get(
+            "label", str(reminder_state.get("event_key", ""))
+        )
+    )
+    duration = reminder_state.get("meta", {}).get("duration_minutes")
+    duration_text = (
+        f"Set aside {int(duration)} minutes to fully disconnect."
+        if isinstance(duration, (int, float)) and duration
+        else "Give yourself a complete reset."
+    )
+    countdown_text = _format_timedelta_compact(delta)
+    tip = str(reminder_state.get("tip") or random.choice(WELLNESS_TIPS))
+    lead_minutes = reminder_state.get("lead_minutes", 0)
+
+    content_classes = "wellness-alert__content"
+    if reminder_state.get("jump_to_actions"):
+        content_classes += " wellness-alert__content--actions"
+
+    with st.container():
+        st.markdown(
+            f"""
+            <div class="{content_classes}">
+                <div class="wellness-alert__eyebrow">Wellness reminder</div>
+                <div class="wellness-alert__title">{label} begins in {countdown_text}</div>
+                <div class="wellness-alert__meta">Starts at {event_dt.strftime('%H:%M')} · Lead time {lead_minutes} min</div>
+                <div class="wellness-alert__tip">💡 {escape(tip)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if reminder_state.get("jump_to_actions"):
+            actions: list[str] = [
+                "Silence notifications and let teammates know you're away.",
+                duration_text,
+                "Stretch, hydrate, or take a short walk before coming back.",
+            ]
+            actions_html = "".join(
+                f"<li>{escape(item)}</li>" for item in actions if item
+            )
+            st.markdown(
+                f"""
+                <ul class="wellness-alert__list">
+                    {actions_html}
+                </ul>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown('<div class="wellness-alert__actions">', unsafe_allow_html=True)
+            action_cols = st.columns(3)
+            if action_cols[0].button(
+                "Back to reminder",
+                key=global_widget_key(
+                    f"wellness_back_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _return_to_wellness_alert()
+            if action_cols[1].button(
+                "Pause complete",
+                key=global_widget_key(
+                    f"wellness_complete_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _complete_wellness_pause()
+            if action_cols[2].button(
+                "Dismiss",
+                key=global_widget_key(
+                    f"wellness_dismiss_actions_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _dismiss_wellness_alert()
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="wellness-alert__actions">', unsafe_allow_html=True)
+            action_cols = st.columns(2)
+            if action_cols[0].button(
+                "Dismiss reminder",
+                key=global_widget_key(
+                    f"wellness_dismiss_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _dismiss_wellness_alert()
+            if action_cols[1].button(
+                "Start pause now",
+                key=global_widget_key(
+                    f"wellness_start_{reminder_state.get('event_key')}_{event_dt:%H%M}"
+                ),
+            ):
+                _start_wellness_pause()
+            st.markdown('</div>', unsafe_allow_html=True)
+
 def ensure_settings_styles() -> None:
     if st.session_state.get("_settings_styles_injected"):
         return
@@ -2783,6 +3610,19 @@ def inject_base_styles() -> None:
             background: linear-gradient(145deg, rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.85));
             box-shadow: 0 18px 32px rgba(15, 23, 42, 0.16);
             color: var(--kiroshi-text-on-white);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tutorial-wrapper::before {
+            content: "";
+            position: absolute;
+            inset: -40% -40% auto auto;
+            width: 320px;
+            height: 320px;
+            background: radial-gradient(circle at center, rgba(93, 93, 255, 0.16), transparent 65%);
+            pointer-events: none;
+            animation: tutorialGlow 8s ease-in-out infinite;
         }
 
         .tutorial-step-title {
@@ -2790,6 +3630,75 @@ def inject_base_styles() -> None:
             font-weight: 700;
             color: var(--kiroshi-primary);
             margin-bottom: 0.35rem;
+        }
+
+        .tutorial-step-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .tutorial-step-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.45rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            background: rgba(255, 255, 255, 0.7);
+            box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .tutorial-step-badge__index {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-weight: 700;
+            font-size: 0.95rem;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+            color: white;
+        }
+
+        .tutorial-step-badge__label {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1;
+            font-size: 0.82rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-step-badge__label span {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--kiroshi-muted);
+        }
+
+        .tutorial-step-badge__label strong {
+            font-size: 0.86rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-step-badge.completed .tutorial-step-badge__index {
+            background: linear-gradient(135deg, #22c55e 0%, #4ade80 100%);
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+        }
+
+        .tutorial-step-badge.active {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 22px rgba(37, 99, 235, 0.25);
+        }
+
+        .tutorial-step-badge.active .tutorial-step-badge__index {
+            animation: tutorialBadgePulse 2.6s ease-in-out infinite;
+        }
+
+        .tutorial-step-badge.upcoming {
+            opacity: 0.8;
         }
 
         .tutorial-intro {
@@ -2806,11 +3715,143 @@ def inject_base_styles() -> None:
             border: 1px solid rgba(209, 213, 219, 0.7);
             height: 100%;
             color: var(--kiroshi-text-on-white);
+            position: relative;
+            overflow: hidden;
         }
 
         .tutorial-footnote {
             font-size: 0.85rem;
             color: var(--kiroshi-muted);
+        }
+
+        .tutorial-wrapper [data-testid="stProgressBar"] {
+            border-radius: 999px;
+            background: rgba(226, 232, 240, 0.65);
+            padding: 0.15rem;
+            margin-bottom: 1rem;
+        }
+
+        .tutorial-wrapper [data-testid="stProgressBar"] div[role="progressbar"] {
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+            box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+        }
+
+        .tutorial-flow {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.1rem;
+            margin-top: 0.75rem;
+        }
+
+        .tutorial-flow__step {
+            position: relative;
+            padding: 1.1rem 1rem 1.25rem;
+            border-radius: 0.95rem;
+            background: rgba(248, 250, 252, 0.88);
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+        }
+
+        .tutorial-flow__icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 0.75rem;
+            display: grid;
+            place-items: center;
+            margin-bottom: 0.65rem;
+            font-weight: 700;
+            color: white;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+        }
+
+        .tutorial-flow__title {
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+            color: var(--kiroshi-text-on-surface);
+        }
+
+        .tutorial-highlight-list {
+            margin: 0.8rem 0 0;
+            padding-left: 1rem;
+            display: grid;
+            gap: 0.35rem;
+        }
+
+        .tutorial-highlight-list li {
+            font-size: 0.92rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-color-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .tutorial-color-chip {
+            flex: 1;
+            height: 36px;
+            border-radius: 0.75rem;
+            position: relative;
+            box-shadow: 0 8px 16px rgba(15, 23, 42, 0.18);
+            overflow: hidden;
+        }
+
+        .tutorial-color-chip::after {
+            content: attr(data-label);
+            position: absolute;
+            inset: auto 0 0;
+            padding: 0.2rem 0.55rem;
+            font-size: 0.65rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: rgba(15, 23, 42, 0.75);
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .tutorial-insight-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .tutorial-insight-card {
+            padding: 1rem;
+            border-radius: 1rem;
+            background: rgba(15, 23, 42, 0.65);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.2);
+        }
+
+        .tutorial-insight-card strong {
+            font-size: 1.1rem;
+        }
+
+        @keyframes tutorialBadgePulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+            }
+            50% {
+                transform: scale(1.08);
+                box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.08);
+            }
+        }
+
+        @keyframes tutorialGlow {
+            0%, 100% {
+                transform: translate3d(0, 0, 0) scale(1);
+                opacity: 0.9;
+            }
+            50% {
+                transform: translate3d(-12%, 6%, 0) scale(1.1);
+                opacity: 0.6;
+            }
         }
 
         .case-card {
@@ -3193,6 +4234,144 @@ def _render_tutorial_visual(kind: str) -> None:
             ]
         )
         st.table(settings_summary)
+    elif kind == "issue_reporter_flow":
+        flow_steps = [
+            (
+                "Capture",
+                "Pulls in customer summary, reproduction steps, and impact statements automatically.",
+            ),
+            (
+                "Evidence",
+                "Attaches the latest screenshots and any logs you selected from the case workspace.",
+            ),
+            (
+                "Package",
+                "Formats the narrative into a vendor-ready template with tags and queue routing.",
+            ),
+            (
+                "Archive",
+                "Saves a timestamped copy to your database for auditing and future follow-up.",
+            ),
+        ]
+        flow_markup = "".join(
+            "<div class='tutorial-flow__step'>"
+            f"<div class='tutorial-flow__icon'>{idx}</div>"
+            f"<div class='tutorial-flow__title'>{escape(title)}</div>"
+            f"<div class='tutorial-footnote'>{escape(detail)}</div>"
+            "</div>"
+            for idx, (title, detail) in enumerate(flow_steps, start=1)
+        )
+        st.markdown(f"<div class='tutorial-flow'>{flow_markup}</div>", unsafe_allow_html=True)
+        st.caption(
+            "Start the Issue Reporter from any case tab — Kiroshi keeps the vendor package aligned with"
+            " your troubleshooting notes."
+        )
+    elif kind == "escalation_matrix":
+        escalation_summary = pd.DataFrame(
+            [
+                {
+                    "Escalation": "Vendor follow-up",
+                    "Tracked in": "Escalation drawer",
+                    "What you see": "Queue ID, assigned engineer, promised callback, SLA timer",
+                },
+                {
+                    "Escalation": "Internal hand-off",
+                    "Tracked in": "Dashboard badge",
+                    "What you see": "Owner, severity, days outstanding, linked case",
+                },
+                {
+                    "Escalation": "Customer update",
+                    "Tracked in": "Reminder banner",
+                    "What you see": "Next contact window, notes, completion checklist",
+                },
+            ]
+        )
+        st.dataframe(escalation_summary, width="stretch")
+        st.caption(
+            "Escalations sync between the case drawer and dashboard, so the entire team sees timers and"
+            " commitments in one view."
+        )
+    elif kind == "analytics_suite":
+        heatmap_rows = [
+            ("Mon", "On target", 14),
+            ("Mon", "Warning", 3),
+            ("Mon", "Escalated", 1),
+            ("Tue", "On target", 11),
+            ("Tue", "Warning", 4),
+            ("Tue", "Escalated", 2),
+            ("Wed", "On target", 16),
+            ("Wed", "Warning", 2),
+            ("Wed", "Escalated", 1),
+            ("Thu", "On target", 13),
+            ("Thu", "Warning", 5),
+            ("Thu", "Escalated", 2),
+            ("Fri", "On target", 10),
+            ("Fri", "Warning", 6),
+            ("Fri", "Escalated", 3),
+        ]
+        heatmap_data = pd.DataFrame(heatmap_rows, columns=["Day", "Status", "Cases"])
+        day_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        status_order = ["On target", "Warning", "Escalated"]
+        chart = (
+            alt.Chart(heatmap_data)
+            .mark_rect()
+            .encode(
+                x=alt.X("Day:N", sort=day_order, title="Weekday"),
+                y=alt.Y("Status:N", sort=status_order, title="Status"),
+                color=alt.Color(
+                    "Cases:Q",
+                    scale=alt.Scale(scheme="blues", domain=[0, heatmap_data["Cases"].max()]),
+                    legend=None,
+                ),
+                tooltip=["Day", "Status", alt.Tooltip("Cases", title="Cases")],
+            )
+            .properties(height=220)
+        )
+        st.altair_chart(chart, use_container_width=True, **ALTAIR_CHART_KWARGS)
+        insights = [
+            ("82%", "cases resolved within SLA", "+6% vs last week"),
+            ("18", "active escalations", "Most due Thursday"),
+            ("4.6h", "median resolution time", "Down 40 minutes"),
+        ]
+        insight_markup = "".join(
+            "<div class='tutorial-insight-card'>"
+            f"<strong>{escape(value)}</strong>"
+            f"<div>{escape(caption)}</div>"
+            f"<small>{escape(delta)}</small>"
+            "</div>"
+            for value, caption, delta in insights
+        )
+        st.markdown(
+            f"<div class='tutorial-insight-grid'>{insight_markup}</div>", unsafe_allow_html=True
+        )
+    elif kind == "ui_refresh":
+        col_left, col_right = st.columns([1.4, 1])
+        highlights = [
+            "Animated badges highlight your current tutorial step.",
+            "Navigation slider jumps directly to any topic in the tour.",
+            "Cards and tables ship with increased contrast for readability.",
+        ]
+        with col_left:
+            highlight_markup = "".join(
+                f"<li>{escape(item)}</li>" for item in highlights
+            )
+            st.markdown(
+                f"<ul class='tutorial-highlight-list'>{highlight_markup}</ul>",
+                unsafe_allow_html=True,
+            )
+        with col_right:
+            st.markdown(
+                "<div class='tutorial-visual-card' style='height:100%'>"
+                "<strong>Palette preview</strong>"
+                "<div class='tutorial-color-row'>"
+                "<div class='tutorial-color-chip' data-label='Primary' style='background:linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);'></div>"
+                "<div class='tutorial-color-chip' data-label='Accent' style='background:linear-gradient(135deg, #f97316 0%, #fb923c 100%);'></div>"
+                "<div class='tutorial-color-chip' data-label='Surface' style='background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);'></div>"
+                "</div>"
+                "<p class='tutorial-footnote' style='margin-top:0.75rem;'>New gradients keep focus on key actions while maintaining accessibility targets.</p>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
     elif kind == "chat_resources":
         col_chat, col_manual, col_reference = st.columns(3)
         with col_chat:
@@ -3220,9 +4399,38 @@ def _mark_tutorial_completion(status: str) -> None:
     st.session_state.tutorial_completed = True
     st.session_state.tutorial_completion_type = status
     st.session_state.tutorial_completed_at = timestamp
+    metadata = st.session_state.get("tutorial_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    visited = metadata.get("visited")
+    if not isinstance(visited, list):
+        visited = []
+    all_step_ids = [str(step.get("id", idx)) for idx, step in enumerate(TUTORIAL_STEPS)]
+    for step_id in all_step_ids:
+        if step_id not in visited:
+            visited.append(step_id)
+    metadata.update(
+        {
+            "version": TUTORIAL_VERSION,
+            "visited": visited,
+            "last_step": max(len(TUTORIAL_STEPS) - 1, 0),
+            "total_steps": len(TUTORIAL_STEPS),
+            "completed": status == "completed",
+            "completion_type": status,
+            "completed_at": timestamp,
+            "furthest_step": max(
+                len(TUTORIAL_STEPS) - 1,
+                int(metadata.get("furthest_step", 0))
+                if isinstance(metadata.get("furthest_step"), int)
+                else 0,
+            ),
+        }
+    )
+    st.session_state.tutorial_metadata = metadata
     _persist_setting("tutorial_completed")
     _persist_setting("tutorial_completion_type")
     _persist_setting("tutorial_completed_at")
+    _persist_setting("tutorial_metadata")
     st.session_state.show_tutorial = False
     st.session_state.tutorial_step = 0
     st.rerun()
@@ -3241,9 +4449,61 @@ def render_onboarding_tutorial() -> None:
         step_idx = total_steps - 1
     st.session_state.tutorial_step = step_idx
     step = TUTORIAL_STEPS[step_idx]
+    step_id = str(step.get("id", step_idx))
+
+    metadata = st.session_state.get("tutorial_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    visited = metadata.get("visited")
+    if not isinstance(visited, list):
+        visited = []
+    metadata_changed = False
+    if step_id not in visited:
+        visited.append(step_id)
+        metadata_changed = True
+    if metadata.get("last_step") != step_idx:
+        metadata["last_step"] = step_idx
+        metadata_changed = True
+    if metadata.get("total_steps") != total_steps:
+        metadata["total_steps"] = total_steps
+        metadata_changed = True
+    if metadata.get("version") != TUTORIAL_VERSION:
+        metadata["version"] = TUTORIAL_VERSION
+        metadata_changed = True
+    furthest_step = metadata.get("furthest_step")
+    if not isinstance(furthest_step, int):
+        furthest_step = step_idx
+        metadata_changed = True
+    if step_idx > furthest_step:
+        furthest_step = step_idx
+        metadata_changed = True
+    metadata["furthest_step"] = furthest_step
+    metadata["visited"] = visited
+    st.session_state.tutorial_metadata = metadata
+    if metadata_changed:
+        _persist_setting("tutorial_metadata")
 
     with st.container():
         st.markdown("<div class='tutorial-wrapper'>", unsafe_allow_html=True)
+        badge_markup = "".join(
+            "<div class='{}'>"
+            "<div class='tutorial-step-badge__index'>{}</div>"
+            "<div class='tutorial-step-badge__label'><span>Step {}</span><strong>{}</strong></div>"
+            "</div>".format(
+                "tutorial-step-badge completed"
+                if idx < step_idx
+                else "tutorial-step-badge active"
+                if idx == step_idx
+                else "tutorial-step-badge upcoming",
+                idx + 1,
+                idx + 1,
+                escape(str(item.get("title", ""))),
+            )
+            for idx, item in enumerate(TUTORIAL_STEPS)
+        )
+        st.markdown(
+            f"<div class='tutorial-step-badges'>{badge_markup}</div>", unsafe_allow_html=True
+        )
         st.markdown(
             "<div class='tutorial-step-title'>Step {} of {}: {}</div>".format(
                 step_idx + 1, total_steps, escape(str(step.get("title", "")))
@@ -3251,6 +4511,32 @@ def render_onboarding_tutorial() -> None:
             unsafe_allow_html=True,
         )
         st.progress((step_idx + 1) / total_steps)
+        if total_steps > 1:
+            def _format_step_label(idx: int) -> str:
+                title = str(TUTORIAL_STEPS[idx].get("title", "Step"))
+                return f"{idx + 1}. {title}"
+
+            raw_furthest = st.session_state.tutorial_metadata.get("furthest_step", step_idx)
+            try:
+                furthest_idx = int(raw_furthest)
+            except (TypeError, ValueError):
+                furthest_idx = step_idx
+            max_allowed = max(step_idx, furthest_idx)
+            slider_options = list(range(max_allowed + 1))
+            jump_selection = st.select_slider(
+                "Navigate to a step",
+                options=slider_options,
+                value=step_idx,
+                format_func=_format_step_label,
+                key="tutorial_step_selector",
+            )
+            if len(slider_options) < total_steps:
+                st.caption(
+                    "Complete the current content to unlock the remaining tutorial steps."
+                )
+            if jump_selection != step_idx:
+                st.session_state.tutorial_step = int(jump_selection)
+                st.rerun()
         description = step.get("description")
         if isinstance(description, str):
             st.markdown(description)
@@ -3393,6 +4679,14 @@ _init_state(
         _get_persistent_default("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
     ),
 )
+_tutorial_meta_default = _get_persistent_default(
+    "tutorial_metadata", PERSISTENT_SETTINGS_DEFAULTS["tutorial_metadata"]
+)
+if isinstance(_tutorial_meta_default, dict):
+    _tutorial_meta_default = deepcopy(_tutorial_meta_default)
+else:
+    _tutorial_meta_default = deepcopy(PERSISTENT_SETTINGS_DEFAULTS["tutorial_metadata"])
+_init_state("tutorial_metadata", _tutorial_meta_default)
 # Tracking related state
 _init_state("track_case", False)
 _init_state("tracking_info", {})
@@ -3422,6 +4716,19 @@ _init_state("autosave_notice", None)
 _init_state("update_status", None)
 _init_state("update_status_checked_at", None)
 _init_state("update_apply_feedback", None)
+_init_state("render_failure_detected", False)
+_init_state("error_modal_open", False)
+_init_state("failure_modal_message", None)
+_init_state("incident_context", None)
+_init_state("reporter_open", False)
+_init_state("reporter_allow_screenshot", True)
+_init_state("incident_reporter_description", "")
+_init_state("incident_reporter_pdf", None)
+_init_state("incident_reporter_capture_error", None)
+_init_state("incident_reporter_screenshot", None)
+_init_state("reporter_source", "auto")
+_init_state("last_rendered_tab", "Dashboard")
+_init_state("last_rendered_case", None)
 _init_state(
     "bored_game",
     {
@@ -3494,6 +4801,136 @@ def tail_log(path: str | Path, lines: int = 100) -> str:
 # ───────────────── DATA MODEL ──────────────────
 
 
+def _utc_now_z() -> str:
+    """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
+
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+@dataclass
+class RemoteSessionEntry:
+    """Structured representation of a remote troubleshooting session."""
+
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    title: str = ""
+    notes: str = ""
+    created_at: str = field(default_factory=_utc_now_z)
+    updated_at: str = field(default_factory=_utc_now_z)
+
+    def display_title(self, index: int) -> str:
+        """Return a human-friendly title, falling back to an indexed label."""
+
+        title = (self.title or "").strip()
+        return title or f"Session {index}"
+
+    def touch(self) -> None:
+        """Refresh the ``updated_at`` timestamp to the current moment."""
+
+        self.updated_at = _utc_now_z()
+
+
+def _coerce_remote_session_entry(
+    payload: object, *, default_title: str
+) -> RemoteSessionEntry:
+    """Return a ``RemoteSessionEntry`` built from loose mapping data."""
+
+    if isinstance(payload, RemoteSessionEntry):
+        entry = RemoteSessionEntry(
+            session_id=(payload.session_id or uuid.uuid4().hex),
+            title=str(payload.title or default_title),
+            notes=str(payload.notes or ""),
+            created_at=str(payload.created_at or _utc_now_z()),
+            updated_at=str(payload.updated_at or payload.created_at or _utc_now_z()),
+        )
+    elif isinstance(payload, Mapping):
+        created = payload.get("created_at")
+        created_str = str(created or "")
+        if not created_str:
+            created_str = _utc_now_z()
+        updated = payload.get("updated_at")
+        updated_str = str(updated or "")
+        if not updated_str:
+            updated_str = created_str
+        entry = RemoteSessionEntry(
+            session_id=str(payload.get("session_id") or uuid.uuid4().hex),
+            title=str(payload.get("title") or default_title),
+            notes=str(payload.get("notes") or ""),
+            created_at=created_str,
+            updated_at=updated_str,
+        )
+    elif isinstance(payload, str):
+        entry = RemoteSessionEntry(title=default_title, notes=payload)
+    else:
+        entry = RemoteSessionEntry(title=default_title)
+
+    if not entry.title.strip():
+        entry.title = default_title
+
+    if not entry.created_at:
+        entry.created_at = _utc_now_z()
+    if not entry.updated_at:
+        entry.updated_at = entry.created_at
+
+    return entry
+
+
+def _normalize_remote_session_list(
+    raw_sessions: Iterable[object] | None,
+) -> list[RemoteSessionEntry]:
+    """Convert raw session payloads into dataclass entries."""
+
+    if not raw_sessions:
+        return []
+    if isinstance(raw_sessions, (str, bytes)):
+        return []
+
+    normalized: list[RemoteSessionEntry] = []
+    for payload in raw_sessions:
+        default_title = f"Session {len(normalized) + 1}"
+        normalized.append(
+            _coerce_remote_session_entry(payload, default_title=default_title)
+        )
+    return normalized
+
+
+def format_remote_sessions_summary(
+    sessions: Sequence[RemoteSessionEntry], *, include_timestamps: bool = True
+) -> str:
+    """Combine remote session notes into a readable multi-session summary."""
+
+    if not sessions:
+        return ""
+
+    show_titles = len(sessions) > 1 or any(
+        session.title.strip()
+        and session.title.strip().lower() != f"session {index}"
+        for index, session in enumerate(sessions, start=1)
+    )
+
+    blocks: list[str] = []
+    for idx, session in enumerate(sessions, start=1):
+        title = session.display_title(idx)
+        notes = (session.notes or "").strip()
+        if show_titles:
+            header = title
+            if include_timestamps:
+                created = (session.created_at or "").strip()
+                updated = (session.updated_at or "").strip()
+                timestamp_bits: list[str] = []
+                if created:
+                    timestamp_bits.append(f"started {created}")
+                if updated and updated != created:
+                    timestamp_bits.append(f"updated {updated}")
+                if timestamp_bits:
+                    header = f"{header} ({', '.join(timestamp_bits)})"
+            block = header if not notes else f"{header}\n{notes}"
+        else:
+            block = notes
+        blocks.append(block.strip())
+
+    return "\n\n".join(part for part in blocks if part).strip()
+
+
 @dataclass
 class TrackingData:
     """Metadata stored for active tracking in a case JSON file."""
@@ -3548,6 +4985,7 @@ class CaseData:
     email: str = ""
     internal_helpjuice: str = ""
     internal_logs: str = ""
+    remote_sessions: list[RemoteSessionEntry] = field(default_factory=list)
     remote_steps: str = ""
     root_cause: str = ""
     repro_steps: str = ""
@@ -3598,11 +5036,63 @@ class CaseData:
     dongle_deployment_date: str = ""
     scanner_previous_replacements: int = 0
     scanner_accidental_damage: bool = False
+    # Dell escalation specifics
+    dell_issue_start_date: str = ""
+    dell_command_updates_status: str = ""
+    dell_power_options_setup: str = ""
+    dell_optimizer_setup: str = ""
+    dell_intel_ppm_installed: str = ""
+    dell_cpu_speed_or_throttling: str = ""
+    dell_gpu_usage_integrated: str = ""
+    dell_gpu_usage_dedicated: str = ""
+    dell_cpu_utilization: str = ""
+    dell_benchmark_results: str = ""
+    dell_ultra_resolution_support: str = ""
+    dell_gpu_driver_versions: str = ""
+    dell_reliability_monitor_results: str = ""
+    dell_diagnostics_results: str = ""
+    dell_windows_reimaged: str = ""
+    clinic_name: str = ""
+    clinic_contact_name: str = ""
+    clinic_contact_phone: str = ""
+    clinic_contact_email: str = ""
+    clinic_address_line_1: str = ""
+    clinic_address_line_2: str = ""
+    clinic_city: str = ""
+    clinic_state: str = ""
+    clinic_postal_code: str = ""
     tracking: TrackingData = field(default_factory=TrackingData)
     kiroshi_version: str = VERSION
     last_modified: str = ""
 
     def __post_init__(self) -> None:
+        if self.remote_steps is None:
+            self.remote_steps = ""
+        else:
+            self.remote_steps = str(self.remote_steps)
+
+        sessions_source: Iterable[object] | None
+        if isinstance(self.remote_sessions, Iterable) and not isinstance(
+            self.remote_sessions, (str, bytes)
+        ):
+            sessions_source = self.remote_sessions
+        else:
+            sessions_source = []
+        normalized_sessions = _normalize_remote_session_list(sessions_source)
+        if not normalized_sessions and self.remote_steps.strip():
+            now = _utc_now_z()
+            normalized_sessions = [
+                RemoteSessionEntry(
+                    title="Session 1",
+                    notes=self.remote_steps,
+                    created_at=now,
+                    updated_at=now,
+                )
+            ]
+        self.remote_sessions = normalized_sessions
+        self.remote_steps = format_remote_sessions_summary(
+            self.remote_sessions, include_timestamps=True
+        )
         if not isinstance(self.tracking, TrackingData):
             if isinstance(self.tracking, Mapping):
                 self.tracking = TrackingData(**self.tracking)  # type: ignore[arg-type]
@@ -3616,6 +5106,62 @@ class CaseData:
             self.last_modified = ""
         elif not isinstance(self.last_modified, str):
             self.last_modified = str(self.last_modified)
+
+
+def extract_remote_steps_from_mapping(record: object | None) -> str:
+    """Return a normalized troubleshooting summary from legacy payloads."""
+
+    if record is None:
+        return ""
+
+    getter = getattr(record, "get", None)
+    if getter is None:
+        return ""
+
+    raw_steps = getter("remote_steps")
+    if isinstance(raw_steps, str) and raw_steps.strip():
+        return raw_steps.strip()
+
+    raw_sessions = getter("remote_sessions")
+    if isinstance(raw_sessions, Iterable) and not isinstance(
+        raw_sessions, (str, bytes)
+    ):
+        sessions = _normalize_remote_session_list(raw_sessions)
+        return format_remote_sessions_summary(sessions, include_timestamps=True)
+
+    return ""
+
+
+def ensure_remote_session_entries(case: CaseData) -> None:
+    """Guarantee that a case has at least one remote session entry."""
+
+    if case.remote_sessions:
+        return
+    now = _utc_now_z()
+    case.remote_sessions = [
+        RemoteSessionEntry(
+            title="Session 1",
+            notes="",
+            created_at=now,
+            updated_at=now,
+        )
+    ]
+    case.remote_steps = format_remote_sessions_summary(case.remote_sessions)
+
+
+def update_case_remote_sessions(
+    case: CaseData, sessions: Sequence[RemoteSessionEntry]
+) -> None:
+    """Persist a new set of remote session entries to the active case."""
+
+    normalized = _normalize_remote_session_list(sessions)
+    case.remote_sessions = normalized
+    case.remote_steps = format_remote_sessions_summary(
+        normalized, include_timestamps=True
+    )
+    st.session_state["remote_sessions"] = [asdict(entry) for entry in normalized]
+    st.session_state["remote_steps"] = case.remote_steps
+    autosave()
 
 
 @dataclass
@@ -3820,6 +5366,179 @@ class CaseSession:
     attachments_index: dict[str, list[dict[str, str]]] = field(
         default_factory=_default_attachments_index
     )
+
+
+def _case_metadata_snapshot(active_index: int | None = None) -> list[dict[str, str]]:
+    """Return a serialised view of known cases for diagnostic exports."""
+
+    sessions = st.session_state.get("case_sessions", [])
+    snapshot: list[dict[str, str]] = []
+    for idx, session in enumerate(sessions):
+        case = getattr(session, "case", None)
+        if not isinstance(case, CaseData):
+            continue
+        tracking = getattr(case, "tracking", None)
+        priority = ""
+        if isinstance(tracking, TrackingData):
+            priority = tracking.priority
+        snapshot.append(
+            {
+                "Case": case.case_id or f"Case {idx + 1}",
+                "Company": case.company_name or "",
+                "Summary": case.brief_description or "",
+                "Priority": priority,
+                "Active": "Yes" if active_index is not None and idx == active_index else "",
+            }
+        )
+    return snapshot
+
+
+def build_incident_report_pdf(
+    context: Mapping[str, object],
+    logs: str,
+    user_notes: str,
+    case_snapshot: list[Mapping[str, str]],
+    *,
+    screenshot: InMemoryUploadedFile | None = None,
+) -> bytes:
+    """Generate a PDF summarising a captured incident."""
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=48,
+        bottomMargin=36,
+    )
+    styles = getSampleStyleSheet()
+    title_style = styles["Title"]
+    body_style = styles["BodyText"]
+    heading_style = styles["Heading3"]
+    code_style = styles.get("Code", body_style)
+
+    elements = [
+        Paragraph("Kiroshi Incident Report", title_style),
+        Spacer(1, 12),
+        Paragraph(
+            f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            body_style,
+        ),
+        Spacer(1, 18),
+    ]
+
+    meta_fields = [
+        ("Section", context.get("section", "")),
+        ("Tab", context.get("tab", "")),
+        ("Trigger", context.get("trigger", "")),
+        ("Timestamp", context.get("timestamp", "")),
+    ]
+    case_index = context.get("case_index")
+    if case_index is not None:
+        try:
+            case_number = int(case_index) + 1
+        except (TypeError, ValueError):
+            case_number = case_index
+        meta_fields.append(("Case index", str(case_number)))
+    exception = context.get("exception")
+    if exception:
+        meta_fields.append(("Exception", str(exception)))
+
+    meta_table_data = [
+        [Paragraph("Field", body_style), Paragraph("Value", body_style)]
+    ]
+    for label, value in meta_fields:
+        meta_table_data.append(
+            [Paragraph(str(label), body_style), Paragraph(str(value or ""), body_style)]
+        )
+    meta_table = Table(meta_table_data, colWidths=[150, 360])
+    meta_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ]
+        )
+    )
+    elements.extend([meta_table, Spacer(1, 18)])
+
+    if case_snapshot:
+        elements.append(Paragraph("Case overview", heading_style))
+        case_table_data: list[list[Paragraph]] = [
+            [
+                Paragraph("Case", body_style),
+                Paragraph("Company", body_style),
+                Paragraph("Summary", body_style),
+                Paragraph("Priority", body_style),
+                Paragraph("Active", body_style),
+            ]
+        ]
+        for entry in case_snapshot:
+            case_table_data.append(
+                [
+                    Paragraph(str(entry.get("Case", "")), body_style),
+                    Paragraph(str(entry.get("Company", "")), body_style),
+                    Paragraph(str(entry.get("Summary", "")), body_style),
+                    Paragraph(str(entry.get("Priority", "")), body_style),
+                    Paragraph(str(entry.get("Active", "")), body_style),
+                ]
+            )
+        case_table = Table(case_table_data, colWidths=[80, 120, 200, 70, 40])
+        case_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ]
+            )
+        )
+        elements.extend([case_table, Spacer(1, 18)])
+
+    elements.append(Paragraph("User notes", heading_style))
+    elements.append(
+        Paragraph(user_notes.strip() or "No user notes provided.", body_style)
+    )
+    elements.append(Spacer(1, 18))
+
+    stacktrace = context.get("stacktrace")
+    if stacktrace:
+        elements.append(Paragraph("Stack trace", heading_style))
+        elements.append(Preformatted(str(stacktrace), code_style))
+        elements.append(Spacer(1, 18))
+
+    elements.append(Paragraph("Recent logs", heading_style))
+    elements.append(Preformatted(logs or "No log entries were captured.", code_style))
+    elements.append(Spacer(1, 18))
+
+    if screenshot:
+        elements.append(Paragraph("Screenshot", heading_style))
+        try:
+            img_stream = io.BytesIO(screenshot.data)
+            shot = Image(img_stream)
+            max_width = 420
+            if shot.drawWidth > max_width:
+                scale = max_width / shot.drawWidth
+                shot.drawWidth *= scale
+                shot.drawHeight *= scale
+            shot.hAlign = "LEFT"
+            elements.extend([shot, Spacer(1, 12)])
+        except Exception as exc:  # pragma: no cover - reportlab image edge cases
+            elements.append(
+                Paragraph(
+                    f"Unable to embed screenshot: {escape(str(exc))}",
+                    body_style,
+                )
+            )
+
+    doc.build(elements)
+    buf.seek(0)
+    return buf.read()
 
 
 # ──────────────── CASE TAB MEMORY ────────────────
@@ -4535,19 +6254,19 @@ def update_tracked_case_file(
         return None
 
 
-def update_tracked_priority(
+def _apply_tracked_priority_update(
     path: str,
-    key: str,
+    new_priority: str,
     *,
     case_id: str | None = None,
     is_legacy: bool = False,
-) -> None:
-    new_priority = normalize_priority(st.session_state.get(key))
+) -> tuple[str, str | None]:
+    normalized_priority = normalize_priority(new_priority)
     if is_legacy:
-        timestamp = update_tracked_case_file(path, priority=new_priority)
+        timestamp = update_tracked_case_file(path, priority=normalized_priority)
     else:
         timestamp = update_tracked_case_file(
-            path, tracking_updates={"priority": new_priority}
+            path, tracking_updates={"priority": normalized_priority}
         )
     target_case_id = case_id
     if target_case_id is None:
@@ -4557,12 +6276,31 @@ def update_tracked_priority(
         except Exception:
             target_case_id = None
     if target_case_id and D.case_id == target_case_id:
-        D.tracking.priority = new_priority
-        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = new_priority
+        D.tracking.priority = normalized_priority
+        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = (
+            normalized_priority
+        )
         if timestamp:
             D.last_modified = timestamp
             if "case" in st.session_state:
                 st.session_state.case.last_modified = timestamp
+    return normalized_priority, timestamp
+
+
+def update_tracked_priority(
+    path: str,
+    key: str,
+    *,
+    case_id: str | None = None,
+    is_legacy: bool = False,
+) -> None:
+    new_priority = normalize_priority(st.session_state.get(key))
+    _apply_tracked_priority_update(
+        path,
+        new_priority,
+        case_id=case_id,
+        is_legacy=is_legacy,
+    )
     st.toast("Priority updated") if hasattr(st, "toast") else None
 
 
@@ -4701,8 +6439,8 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
-def list_saved_cases(limit: int = 25) -> list:
-    entries = []
+def list_saved_cases() -> list:
+    entries: list[dict[str, object]] = []
     files = sorted(
         DATABASE_DIR.glob("*.json"),
         key=lambda p: p.stat().st_mtime,
@@ -4710,38 +6448,74 @@ def list_saved_cases(limit: int = 25) -> list:
     )
     for path in files:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            raw_payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
-        if isinstance(data, list):
-            dict_items = [item for item in data if isinstance(item, dict)]
-            if len(dict_items) == 1:
-                data = dict_items[0]
-            else:
-                continue
-        if not isinstance(data, dict):
-            continue
-        raw_last_modified = data.get("last_modified")
+
+        is_legacy_payload = isinstance(raw_payload, list)
+        data = _coerce_case_mapping(raw_payload)
+        if data is None:
+            data = {}
+            is_legacy_payload = True
+
+        case_id = path.stem
+        company = ""
+        end_user = ""
+        if isinstance(data, Mapping):
+            case_id = data.get("case_id") or case_id
+            company = (
+                data.get("company_name")
+                or data.get("company")
+                or ""
+            )
+            end_user = (
+                data.get("customer_name")
+                or data.get("contact_name")
+                or data.get("caller_name")
+                or data.get("end_user")
+                or ""
+            )
+
+        raw_last_modified = data.get("last_modified") if isinstance(data, Mapping) else None
         parsed_last_modified = parse_iso_datetime(raw_last_modified)
         if parsed_last_modified is None:
             parsed_last_modified = datetime.fromtimestamp(path.stat().st_mtime)
             raw_last_modified = parsed_last_modified.isoformat()
+
+        has_tracking = isinstance(data, Mapping) and isinstance(data.get("tracking"), Mapping)
+        kiroshi_version = ""
+        if isinstance(data, Mapping):
+            kiroshi_version = str(data.get("kiroshi_version") or "").strip()
+
+        tags: list[str] = []
+        if is_legacy_payload:
+            tags.append("Legacy JSON")
+        if not has_tracking:
+            tags.append("Pre-dashboard merge")
+
+        if not kiroshi_version:
+            if not has_tracking:
+                kiroshi_version = "1.5.2"
+            elif is_legacy_payload:
+                kiroshi_version = "Legacy"
+            else:
+                kiroshi_version = "Unknown"
+
         entries.append(
             {
-                "case_id": data.get("case_id") or path.stem,
-                "company": data.get("company_name")
-                or data.get("company")
-                or "",
-                "end_user": data.get("customer_name")
-                or data.get("end_user")
-                or "",
+                "case_id": case_id,
+                "company": company,
+                "end_user": end_user,
                 "updated": parsed_last_modified,
                 "last_modified": raw_last_modified,
                 "path": str(path),
+                "file_name": path.name,
+                "is_legacy": is_legacy_payload,
+                "kiroshi_version": kiroshi_version,
+                "tags": tags,
+                "has_tracking": has_tracking,
             }
         )
-        if len(entries) >= limit:
-            break
     return entries
 
 
@@ -4875,19 +6649,86 @@ def render_tracked_cases_dashboard(
         path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
         unique_suffix = f"{key_namespace}_{Path(case['path']).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
-        last_modified_display = format_last_modified(case.get("last_modified"))
-        last_modified_dt = parse_iso_datetime(case.get("last_modified"))
-        is_stale = False
+        priority_key = f"priority_{unique_suffix}"
+        status_key = f"status_{unique_suffix}"
+        case_id_display = case.get("case_id") or "Unknown Case"
+        last_modified_str = case.get("last_modified")
+        last_modified_dt = parse_iso_datetime(last_modified_str)
+        idle_delta: timedelta | None = None
         if last_modified_dt:
             try:
-                is_stale = (now - last_modified_dt) > timedelta(hours=24)
+                idle_delta = now - last_modified_dt
             except Exception:
-                is_stale = False
-        if is_stale and show_notifications:
-            st.warning(
-                "Hey, this case is still pending updates, no updates after 24 hours. "
-                f"Case ID: {case.get('case_id') or 'Unknown Case'}"
+                idle_delta = None
+
+        reminder_due = False
+        warning_text: str | None = None
+        auto_escalated = False
+        auto_escalation_delta: timedelta | None = None
+
+        if idle_delta and idle_delta.total_seconds() >= 0:
+            hours_since_update = idle_delta.total_seconds() / 3600
+            duration_display = _format_timedelta_compact(idle_delta)
+            if priority_value in {"Low", "Normal"}:
+                if hours_since_update >= 24:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. Low and Normal priorities should get an update "
+                        "at least every 24 hours."
+                    )
+            elif priority_value in {"High", "Escalation"}:
+                if hours_since_update >= 6:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. High and Escalation priorities alert after 6 "
+                        "hours without activity."
+                    )
+            elif priority_value == "On Time":
+                if hours_since_update >= 4:
+                    auto_escalated = True
+                    auto_escalation_delta = idle_delta
+                    updated_priority, timestamp = _apply_tracked_priority_update(
+                        case["path"],
+                        "High",
+                        case_id=case.get("case_id"),
+                        is_legacy=case.get("is_legacy", False),
+                    )
+                    priority_value = updated_priority
+                    case["priority"] = updated_priority
+                    if timestamp:
+                        case["last_modified"] = timestamp
+                        last_modified_dt = parse_iso_datetime(timestamp)
+                        idle_delta = (
+                            datetime.utcnow() - last_modified_dt
+                            if last_modified_dt
+                            else None
+                        )
+                    st.session_state[priority_key] = updated_priority
+                elif hours_since_update >= 1:
+                    reminder_due = True
+                    warning_text = (
+                        f"Reminder: Case ID {case_id_display} hasn't been updated for "
+                        f"{duration_display}. On Time cases ping every hour and are "
+                        "automatically escalated to High after 4 hours without updates."
+                    )
+
+        if auto_escalated:
+            reminder_due = True
+            escalation_duration = (
+                _format_timedelta_compact(auto_escalation_delta)
+                if auto_escalation_delta
+                else "4h"
             )
+            warning_text = (
+                f"Priority automatically escalated to High after {escalation_duration} "
+                f"without updates. Case ID: {case_id_display}."
+            )
+
+        last_modified_display = format_last_modified(case.get("last_modified"))
+        if reminder_due and warning_text and show_notifications:
+            st.warning(warning_text)
         summary = " ".join(
             part
             for part in [
@@ -4934,8 +6775,6 @@ def render_tracked_cases_dashboard(
                 render_crm_link_button(case.get("case_link", ""))
 
             controls = st.columns(2)
-            priority_key = f"priority_{unique_suffix}"
-            status_key = f"status_{unique_suffix}"
             if (
                 priority_key not in st.session_state
                 or st.session_state.get(priority_key) != priority_value
@@ -5055,22 +6894,229 @@ def render_saved_cases_dashboard() -> None:
     if not saved_cases:
         st.info("No saved cases found in your database.")
         return
-    weights = [1.2, 1.5, 1.5, 0.8]
+    st.caption("Preview of your most recent saved cases. Use the Saved Cases tab for the full index.")
+    preview = saved_cases[:5]
+    weights = [1.2, 1.4, 1.1, 1.0, 0.8]
     header_cols = st.columns(weights)
     header_cols[0].markdown("**Case ID**")
     header_cols[1].markdown("**Company**")
-    header_cols[2].markdown("**Last Modified**")
-    header_cols[3].markdown("**Load**")
-    for case in saved_cases:
+    header_cols[2].markdown("**Version**")
+    header_cols[3].markdown("**Last Modified**")
+    header_cols[4].markdown("**Load**")
+    for case in preview:
         row_cols = st.columns(weights)
         row_cols[0].write(case["case_id"])
-        row_cols[1].write(case["company"])
-        row_cols[2].write(case["updated"].strftime("%Y-%m-%d %H:%M"))
-        if row_cols[3].button(
+        company_display = case["company"] or "—"
+        badges: list[str] = []
+        if case.get("is_legacy"):
+            badges.append("Legacy")
+        if case.get("tags"):
+            badges.extend(case["tags"])
+        if badges:
+            company_display = f"{company_display}\n{' · '.join(dict.fromkeys(badges))}"
+        row_cols[1].write(company_display)
+        row_cols[2].write(case.get("kiroshi_version") or "Unknown")
+        row_cols[3].write(case["updated"].strftime("%Y-%m-%d %H:%M"))
+        if row_cols[4].button(
             "Load", key=f"saved_load_{Path(case['path']).stem}"
         ):
             request_load_from_path(case["path"], prefer_new_tab=True)
 
+
+def render_saved_cases_page() -> None:
+    st.markdown(
+        "<div class='dashboard-title'>Saved Cases</div>",
+        unsafe_allow_html=True,
+    )
+    saved_cases = list_saved_cases()
+    if not saved_cases:
+        st.info("No saved cases found in your database.")
+        return
+
+    saved_df = pd.DataFrame(saved_cases)
+    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
+    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
+    saved_df["tags_text"] = saved_df["tags"].apply(
+        lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
+    )
+    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
+
+    version_options = sorted(
+        {str(v) for v in saved_df["kiroshi_version"].dropna().unique() if str(v).strip()}
+    )
+    total_cases = len(saved_df)
+    legacy_total = int(saved_df["is_legacy"].sum())
+
+    metrics = st.columns(3)
+    metrics[0].metric("Saved cases", total_cases)
+    metrics[1].metric("Legacy records", legacy_total)
+    metrics[2].metric("Known versions", len(version_options))
+
+    search_term = st.text_input(
+        "Search saved cases",
+        key=global_widget_key("saved_cases_search"),
+        placeholder="Search by case ID, company, end user, path, or notes",
+    )
+
+    filter_cols = st.columns((1.4, 1.2, 1.0))
+    tracking_scope = filter_cols[0].selectbox(
+        "Layout",
+        (
+            "All records",
+            "Merged dashboards only",
+            "Missing merged dashboards",
+        ),
+        key=global_widget_key("saved_cases_tracking_filter"),
+    )
+    selected_versions = filter_cols[1].multiselect(
+        "Version",
+        options=version_options,
+        default=version_options,
+        key=global_widget_key("saved_cases_version_filter"),
+    )
+    legacy_scope = filter_cols[2].selectbox(
+        "Legacy",
+        ("All", "Modern only", "Legacy only"),
+        key=global_widget_key("saved_cases_legacy_filter"),
+    )
+
+    filtered_df = saved_df.copy()
+    if selected_versions:
+        filtered_df = filtered_df[filtered_df["kiroshi_version"].isin(selected_versions)]
+    else:
+        filtered_df = filtered_df.iloc[0:0]
+
+    if legacy_scope == "Modern only":
+        filtered_df = filtered_df[~filtered_df["is_legacy"]]
+    elif legacy_scope == "Legacy only":
+        filtered_df = filtered_df[filtered_df["is_legacy"]]
+
+    if tracking_scope == "Merged dashboards only":
+        filtered_df = filtered_df[filtered_df["has_tracking"]]
+    elif tracking_scope == "Missing merged dashboards":
+        filtered_df = filtered_df[~filtered_df["has_tracking"]]
+
+    search_value = search_term.strip().lower()
+    if search_value:
+        search_columns = [
+            "case_id",
+            "company",
+            "end_user",
+            "file_name",
+            "path",
+            "kiroshi_version",
+            "tags_text",
+        ]
+        filtered_df = filtered_df[
+            filtered_df.apply(
+                lambda row: any(
+                    search_value in str(row.get(col, "")).lower()
+                    for col in search_columns
+                ),
+                axis=1,
+            )
+        ]
+
+    filtered_df = filtered_df.sort_values("updated", ascending=False)
+    display_df = filtered_df[
+        [
+            "case_id",
+            "company",
+            "end_user",
+            "kiroshi_version",
+            "legacy_label",
+            "display_last_modified",
+            "tags_text",
+            "path",
+        ]
+    ].rename(
+        columns={
+            "case_id": "Case ID",
+            "company": "Company",
+            "end_user": "End user",
+            "kiroshi_version": "Version",
+            "legacy_label": "Legacy",
+            "display_last_modified": "Last modified",
+            "tags_text": "Notes",
+            "path": "File path",
+        }
+    )
+
+    st.caption(
+        f"Showing {len(display_df)} of {total_cases} saved cases after filters."
+    )
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if not filtered_df.empty:
+        filtered_records = filtered_df.to_dict("records")
+        option_labels = [
+            f"{record.get('case_id') or record.get('file_name')} · {record.get('company') or '—'} · {record.get('kiroshi_version')}"
+            for record in filtered_records
+        ]
+        selection = st.selectbox(
+            "Select a case to load or export",
+            options=list(range(len(filtered_records))),
+            format_func=lambda idx: option_labels[idx],
+            key=global_widget_key("saved_cases_select"),
+        )
+        selected_case = filtered_records[selection]
+        case_path = Path(selected_case["path"])
+
+        action_cols = st.columns(3)
+        if action_cols[0].button(
+            "Load in current tab",
+            key=global_widget_key("saved_cases_load_current"),
+        ):
+            if case_path.exists():
+                request_load_from_path(str(case_path), prefer_new_tab=False)
+            else:
+                st.error("Case file could not be found on disk.")
+        if action_cols[1].button(
+            "Load in new case tab",
+            key=global_widget_key("saved_cases_load_new"),
+        ):
+            if case_path.exists():
+                request_load_from_path(str(case_path), prefer_new_tab=True)
+            else:
+                st.error("Case file could not be found on disk.")
+
+        export_bytes: bytes | None = None
+        export_error: str | None = None
+        if case_path.exists():
+            try:
+                export_bytes = case_path.read_bytes()
+            except Exception as exc:
+                export_error = str(exc)
+        else:
+            export_error = "Missing file"
+
+        if export_bytes is not None:
+            action_cols[2].download_button(
+                "Export JSON",
+                export_bytes,
+                file_name=case_path.name,
+                mime="application/json",
+                key=global_widget_key("saved_cases_export_json"),
+            )
+        else:
+            action_cols[2].warning(
+                f"Unable to export this case ({export_error or 'unknown error'})."
+            )
+    else:
+        st.info("No cases match the current filters.")
+
+    export_table = display_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Export filtered table (CSV)",
+        export_table,
+        file_name=f"saved_cases_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        key=global_widget_key("saved_cases_export_table"),
+    )
 
 def render_dashboard() -> None:
     """Render the high-level dashboard overview tab."""
@@ -5079,15 +7125,18 @@ def render_dashboard() -> None:
         "<div class='dashboard-title'>Dashboard</div>",
         unsafe_allow_html=True,
     )
-    wellness_settings = _normalize_wellness_settings(
-        st.session_state.get("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
-    )
-    st.session_state.wellness_reminders = wellness_settings
-    upcoming_event = _calculate_next_wellness_event(wellness_settings)
-    if upcoming_event:
-        event_dt, event_key, meta = upcoming_event
-        lead_minutes = wellness_settings.get(
-            "notification_lead", DEFAULT_WELLNESS_SETTINGS["notification_lead"]
+    reminder_state = _refresh_wellness_reminder_state()
+    if reminder_state and isinstance(reminder_state.get("event_dt"), datetime):
+        event_dt: datetime = reminder_state["event_dt"]
+        event_key = str(reminder_state.get("event_key", ""))
+        meta = reminder_state.get("meta") or {}
+        lead_minutes = max(
+            0,
+            int(
+                reminder_state.get(
+                    "lead_minutes", DEFAULT_WELLNESS_SETTINGS["notification_lead"]
+                )
+            ),
         )
         now = datetime.now()
         delta = event_dt - now
@@ -5100,7 +7149,7 @@ def render_dashboard() -> None:
             if isinstance(duration, (int, float)) and duration
             else ""
         )
-        tip = random.choice(WELLNESS_TIPS)
+        tip = str(reminder_state.get("tip") or random.choice(WELLNESS_TIPS))
         banner_class = "wellness-banner is-soon" if is_soon else "wellness-banner"
         st.markdown(
             f"""
@@ -5313,6 +7362,27 @@ def _render_settings_workspace_tab() -> None:
         st.rerun()
 
     st.markdown(
+        "<div class='settings-section-title'><span>🛡️</span>Diagnostics & support</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Collect recent logs and craft a quick PDF for Support whenever something looks off."
+    )
+    if st.button(
+        "Open incident reporter",
+        key=global_widget_key("open_incident_reporter"),
+    ):
+        _open_incident_reporter(
+            {
+                "section": "Manual incident report",
+                "tab": "Settings",
+                "trigger": "manual",
+                "case_index": st.session_state.get("last_rendered_case"),
+            },
+            allow_screenshot=False,
+        )
+
+    st.markdown(
         "<div class='settings-section-title'><span>🌿</span>Wellness reminders</div>",
         unsafe_allow_html=True,
     )
@@ -5425,6 +7495,12 @@ def _render_settings_ai_tab() -> None:
             if ai_dataset:
                 st.success("AI Educate actualizó el conocimiento con los casos guardados.")
                 dataset_updated = True
+                try:
+                    st.session_state.ai_educate_report_cache = collect_ai_educate_report_data(
+                        ai_dataset
+                    )
+                except Exception as exc:
+                    logging.debug("Failed to build report cache after refresh: %s", exc)
             else:
                 st.warning(
                     "No se encontraron casos guardados para analizar. Guarda casos primero."
@@ -5698,16 +7774,67 @@ def render_report_panel() -> None:
         st.info("Activa AI Educate desde Settings para generar reportes.")
         return
     dataset = ensure_ai_learning_dataset()
-    insights = collect_ai_educate_report_data(dataset)
+    if not dataset:
+        st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
+        return
+    cached_insights = st.session_state.get("ai_educate_report_cache")
+    dataset_case_total = dataset.get("case_count") if isinstance(dataset, Mapping) else None
+    if (
+        isinstance(cached_insights, Mapping)
+        and dataset_case_total is not None
+        and cached_insights.get("case_total") == dataset_case_total
+    ):
+        insights = cached_insights
+    else:
+        insights = collect_ai_educate_report_data(dataset)
+        if insights:
+            st.session_state.ai_educate_report_cache = insights
     if not insights:
         st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
         return
 
+    view_order = ["30d", "all_time"]
+    view_labels = {"30d": "Últimos 30 días", "all_time": "Todo el historial"}
+    default_view = st.session_state.get("ai_report_view", "30d")
+    if default_view not in view_order:
+        default_view = "30d"
+    selected_view = st.radio(
+        "Rango de tiempo",
+        options=view_order,
+        index=view_order.index(default_view),
+        format_func=lambda key: view_labels.get(key, key),
+        horizontal=True,
+        key=global_widget_key("ai_report_view"),
+    )
+    st.session_state.ai_report_view = selected_view
+
+    view_totals = insights.get("view_totals", {})
+    current_totals = view_totals.get(selected_view, {})
+
     cols = st.columns(4)
-    cols[0].metric("Casos totales", insights.get("case_total", 0))
-    cols[1].metric("Casos últimos 30 días", insights.get("recent_total", 0))
-    cols[2].metric("Solucionados como bug", insights.get("bug_solution_count", 0))
-    cols[3].metric("Menciones de 'bug'", insights.get("bug_mentions_count", 0))
+    cols[0].metric(
+        f"Casos ({view_labels[selected_view]})",
+        current_totals.get("case_total", 0),
+    )
+    cols[1].metric(
+        "Tipos de caso únicos",
+        current_totals.get("unique_labels", 0),
+    )
+    cols[2].metric(
+        "Solucionados como bug",
+        current_totals.get("bug_solution_count", 0),
+    )
+    cols[3].metric(
+        "Menciones de 'bug'",
+        current_totals.get("bug_mentions_count", 0),
+    )
+
+    if selected_view != "all_time":
+        overall_totals = view_totals.get("all_time", {})
+        st.caption(
+            f"Historial completo: {overall_totals.get('case_total', 0)} casos · "
+            f"{overall_totals.get('unique_labels', 0)} tipos únicos"
+        )
 
     highlight_label = insights.get("highlight_label")
     if highlight_label:
@@ -5720,41 +7847,81 @@ def render_report_panel() -> None:
         if solution_excerpt:
             st.caption(f"Insight de solución: {solution_excerpt}")
 
-    recent_counts = insights.get("recent_counts")
-    if isinstance(recent_counts, pd.DataFrame) and not recent_counts.empty:
-        st.markdown("### Casos más frecuentes (30 días)")
+    counts_map = insights.get("counts", {})
+    selected_counts = counts_map.get(selected_view)
+    if isinstance(selected_counts, pd.DataFrame) and not selected_counts.empty:
+        st.markdown(
+            f"### Casos más frecuentes ({view_labels[selected_view]})"
+        )
         st.dataframe(
-            recent_counts.rename(
+            selected_counts.rename(
                 columns={"analysis_label": "Caso", "count": "Frecuencia"}
             ),
             width="stretch",
         )
         freq_chart = (
-            alt.Chart(recent_counts)
+            alt.Chart(selected_counts)
             .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
             .encode(
                 x=alt.X("count:Q", title="Casos"),
                 y=alt.Y("analysis_label:N", sort="-x", title="Caso"),
-                tooltip=["analysis_label", "count"],
+                tooltip=[
+                    alt.Tooltip("analysis_label:N", title="Caso"),
+                    alt.Tooltip("count:Q", title="Frecuencia"),
+                ],
+                color=alt.value("#2563eb"),
             )
-            .properties(height=260)
+            .properties(height=min(360, 40 * len(selected_counts)))
         )
         render_responsive_altair_chart(freq_chart)
 
-    timeline = insights.get("timeline")
-    if isinstance(timeline, pd.DataFrame) and not timeline.empty:
-        st.markdown("### Tendencia últimos 30 días")
+    timeline_map = {
+        "30d": insights.get("timeline"),
+        "all_time": insights.get("timeline_all"),
+    }
+    selected_timeline = timeline_map.get(selected_view)
+    if isinstance(selected_timeline, pd.DataFrame) and not selected_timeline.empty:
+        st.markdown(f"### Tendencia de casos ({view_labels[selected_view]})")
         timeline_chart = (
-            alt.Chart(timeline)
-            .mark_line(point=True)
+            alt.Chart(selected_timeline)
+            .mark_line(point=True, color="#16a34a")
             .encode(
                 x=alt.X("timestamp:T", title="Fecha"),
                 y=alt.Y("count:Q", title="Casos"),
-                tooltip=["timestamp:T", "count:Q"],
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Fecha"),
+                    alt.Tooltip("count:Q", title="Casos"),
+                ],
             )
-            .properties(height=220)
+            .properties(height=260)
         )
         render_responsive_altair_chart(timeline_chart)
+
+    recurring_df = insights.get("recurring_issue_types")
+    if isinstance(recurring_df, pd.DataFrame) and not recurring_df.empty:
+        st.markdown("### Patrones recurrentes")
+        st.dataframe(
+            recurring_df.rename(
+                columns={"analysis_label": "Caso", "count": "Recurrencias"}
+            ),
+            width="stretch",
+        )
+
+    root_cause_df = insights.get("common_root_causes")
+    if isinstance(root_cause_df, pd.DataFrame) and not root_cause_df.empty:
+        st.markdown("### Causas raíz más comunes")
+        st.dataframe(
+            root_cause_df.rename(columns={"root_cause": "Causa", "count": "Casos"}),
+            width="stretch",
+        )
+
+    scanner_df = insights.get("common_scanner_models")
+    if isinstance(scanner_df, pd.DataFrame) and not scanner_df.empty:
+        st.markdown("### Modelos de escáner reportados")
+        st.dataframe(
+            scanner_df.rename(columns={"scanner": "Modelo", "count": "Casos"}),
+            width="stretch",
+        )
 
     bug_report = st.session_state.get("ai_bug_report")
     bug_cases = insights.get("bug_cases")
@@ -5853,12 +8020,257 @@ def render_report_panel() -> None:
                         slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_name.lower()).strip("-")
                         file_name = f"recurring_{slug or 'patron'}.pdf"
                         st.download_button(
-                            "Descargar guía PDF", 
+                            "Descargar guía PDF",
                             pattern_pdf,
                             file_name=file_name,
                             mime="application/pdf",
                             key=global_widget_key("recurring_pattern_pdf"),
                         )
+
+
+def _open_incident_reporter(
+    context: Mapping[str, object] | None,
+    *,
+    allow_screenshot: bool,
+) -> None:
+    """Prepare the incident reporter modal with the provided context."""
+
+    base_context: dict[str, object] = {}
+    if isinstance(context, Mapping):
+        base_context.update(context)
+    if "timestamp" not in base_context:
+        base_context["timestamp"] = datetime.now(timezone.utc).isoformat()
+    if "tab" not in base_context:
+        base_context["tab"] = st.session_state.get("last_rendered_tab")
+    if "section" not in base_context:
+        base_context["section"] = base_context.get("tab", "Unknown section")
+    base_context.setdefault("trigger", "auto")
+    base_context.setdefault("case_index", st.session_state.get("last_rendered_case"))
+
+    st.session_state.incident_context = base_context
+    st.session_state.reporter_open = True
+    st.session_state.reporter_allow_screenshot = allow_screenshot
+    st.session_state.reporter_source = str(base_context.get("trigger") or "auto")
+    st.session_state.incident_reporter_description = ""
+    st.session_state.incident_reporter_pdf = None
+    st.session_state.incident_reporter_capture_error = None
+    st.session_state.incident_reporter_screenshot = None
+    st.session_state.error_modal_open = False
+
+
+def show_failure_modal() -> None:
+    """Display a modal when a render failure has been detected."""
+
+    if not st.session_state.get("render_failure_detected"):
+        return
+    if not st.session_state.get("error_modal_open"):
+        return
+
+    message = st.session_state.get("failure_modal_message")
+    if not message:
+        message = random.choice(ERROR_DIALOG_MESSAGES)
+        st.session_state.failure_modal_message = message
+    context = st.session_state.get("incident_context") or {}
+    section_label = context.get("section")
+
+    with st.modal("Something went wrong", key=global_widget_key("render_failure_modal")):
+        st.write(message)
+        if section_label:
+            st.caption(f"Detected while rendering: {section_label}")
+        col_report, col_ignore = st.columns(2)
+        if col_report.button("Report", key=global_widget_key("render_failure_report")):
+            _open_incident_reporter(context, allow_screenshot=True)
+        if col_ignore.button(
+            "I know what I'm doing",
+            key=global_widget_key("render_failure_ignore"),
+        ):
+            st.session_state.error_modal_open = False
+            st.session_state.render_failure_detected = False
+            st.session_state.failure_modal_message = None
+
+
+def show_incident_report_modal() -> None:
+    """Render the incident reporter modal when requested."""
+
+    if not st.session_state.get("reporter_open"):
+        return
+
+    context = st.session_state.get("incident_context") or {}
+    allow_screenshot = bool(st.session_state.get("reporter_allow_screenshot"))
+
+    with st.modal("Incident reporter", key=global_widget_key("incident_report_modal")):
+        st.markdown("### Incident reporter")
+        st.caption(
+            "We'll bundle recent logs, context, and optional screenshots into a PDF you can download."
+        )
+        section = context.get("section")
+        tab_label = context.get("tab")
+        if section or tab_label:
+            context_bits = [str(bit) for bit in (section, tab_label) if bit]
+            st.write("**Context:** " + " · ".join(context_bits))
+
+        st.text_area(
+            "What happened?",
+            key="incident_reporter_description",
+            placeholder="Share any extra detail you'd like Support to know.",
+        )
+
+        screenshot = None
+        if allow_screenshot:
+            st.markdown("#### Screenshot (optional)")
+            shot_name = st.text_input(
+                "Screenshot name",
+                key=global_widget_key("incident_screenshot_name"),
+                help="Used to label the image inside the PDF.",
+            )
+            capture_error = st.session_state.get("incident_reporter_capture_error")
+            if capture_error:
+                st.warning(capture_error)
+            capture_cols = st.columns([1, 1, 1])
+            if capture_cols[0].button(
+                "Capture region",
+                key=global_widget_key("incident_capture"),
+            ):
+                safe_name = shot_name.strip() or f"incident_{int(time.time())}"
+                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
+                shot, error = capture_region_screenshot(safe_name)
+                if shot:
+                    st.session_state.incident_reporter_screenshot = shot
+                    st.session_state.incident_reporter_capture_error = None
+                elif error:
+                    st.session_state.incident_reporter_capture_error = error
+            if capture_cols[1].button(
+                "Use full screenshot",
+                key=global_widget_key("incident_full_capture"),
+            ):
+                if not PYAUTOGUI_AVAILABLE or pyautogui is None:
+                    st.session_state.incident_reporter_capture_error = (
+                        "Full-screen capture is unavailable in this environment."
+                    )
+                else:
+                    safe_name = shot_name.strip() or f"incident_{int(time.time())}"
+                    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
+                    try:
+                        img = pyautogui.screenshot()  # type: ignore[union-attr]
+                    except Exception as exc:  # pragma: no cover - GUI dependent
+                        st.session_state.incident_reporter_capture_error = (
+                            f"Unable to capture screenshot: {exc}"
+                        )
+                    else:
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        buf.seek(0)
+                        st.session_state.incident_reporter_screenshot = InMemoryUploadedFile(
+                            f"{safe_name}.png", buf.getvalue()
+                        )
+                        st.session_state.incident_reporter_capture_error = None
+            if capture_cols[2].button(
+                "Clear screenshot",
+                key=global_widget_key("incident_clear_capture"),
+            ):
+                st.session_state.incident_reporter_screenshot = None
+                st.session_state.incident_reporter_capture_error = None
+
+            screenshot = st.session_state.get("incident_reporter_screenshot")
+            if screenshot:
+                st.image(screenshot.data, caption=screenshot.name, use_column_width=True)
+        else:
+            st.info(
+                "Manual reports skip screenshots. Logs and your notes will still be packaged into the PDF."
+            )
+
+        description = st.session_state.get("incident_reporter_description", "")
+        case_index = context.get("case_index")
+        try:
+            case_idx_int = int(case_index) if case_index is not None else None
+        except (TypeError, ValueError):
+            case_idx_int = None
+
+        if st.button("Generate PDF", key=global_widget_key("incident_generate_pdf")):
+            logs = _collect_recent_logs()
+            case_snapshot = _case_metadata_snapshot(case_idx_int)
+            try:
+                pdf_bytes = build_incident_report_pdf(
+                    context,
+                    logs,
+                    description,
+                    case_snapshot,
+                    screenshot=screenshot if allow_screenshot else None,
+                )
+            except Exception as exc:
+                st.error(f"Unable to build PDF: {exc}")
+            else:
+                st.session_state.incident_reporter_pdf = pdf_bytes
+                st.success("Incident PDF generated. Download below.")
+
+        pdf_bytes = st.session_state.get("incident_reporter_pdf")
+        if isinstance(pdf_bytes, (bytes, bytearray)):
+            st.download_button(
+                "Download incident PDF",
+                data=pdf_bytes,
+                file_name="kiroshi-incident-report.pdf",
+                mime="application/pdf",
+                key=global_widget_key("incident_pdf_download"),
+            )
+
+        if st.button("Close", key=global_widget_key("incident_close")):
+            st.session_state.reporter_open = False
+            st.session_state.incident_reporter_pdf = None
+            st.session_state.incident_reporter_capture_error = None
+            st.session_state.incident_reporter_screenshot = None
+            if st.session_state.get("reporter_source") != "manual":
+                st.session_state.render_failure_detected = False
+                st.session_state.failure_modal_message = None
+            st.session_state.error_modal_open = False
+            st.session_state.reporter_source = "auto"
+
+
+def render_with_monitor(
+    section_name: str,
+    render_fn: Callable[..., object],
+    *args,
+    tab_label: str | None = None,
+    case_index: int | None = None,
+    **kwargs,
+) -> None:
+    """Execute a rendering function and capture failures into session state."""
+
+    placeholder = st.container()
+    if tab_label:
+        st.session_state.last_rendered_tab = tab_label
+    st.session_state.last_rendered_case = case_index
+    try:
+        with placeholder:
+            render_fn(*args, **kwargs)
+    except Exception as exc:  # pragma: no cover - streamlit runtime guard
+        if getattr(exc, "is_rerun", False) or exc.__class__.__name__ == "RerunException":
+            raise
+        logging.exception("Error rendering %s: %s", section_name, exc)
+        if not st.session_state.get("failure_modal_message"):
+            st.session_state.failure_modal_message = random.choice(ERROR_DIALOG_MESSAGES)
+        st.session_state.render_failure_detected = True
+        st.session_state.error_modal_open = True
+        st.session_state.incident_context = {
+            "section": section_name,
+            "tab": tab_label or section_name,
+            "trigger": "auto",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "case_index": case_index,
+            "exception": repr(exc),
+            "stacktrace": traceback.format_exc(),
+        }
+        st.session_state.reporter_source = "auto"
+        placeholder.error(
+            f"Kiroshi couldn't render **{section_name}**. Use the incident reporter to capture details."
+        )
+
+
+def _render_case_tab(idx: int) -> None:
+    """Render a single case tab inside the failure monitor."""
+
+    load_case_state(idx)
+    render_case_ui(idx)
+    save_case_state(idx)
 
 
 def render_kiroshi_chat_panel() -> None:
@@ -6496,11 +8908,9 @@ def build_ai_learning_dataset(
         root_cause = str(record.get("root_cause") or "").strip()
         solution = str(record.get("solution") or "").strip()
         application_version = str(record.get("application_version") or "").strip()
-        troubleshooting = str(
-            record.get("remote_steps")
-            or record.get("troubleshooting")
-            or ""
-        ).strip()
+        troubleshooting = extract_remote_steps_from_mapping(record)
+        if not troubleshooting:
+            troubleshooting = str(record.get("troubleshooting") or "").strip()
         repro_steps = str(record.get("repro_steps") or "").strip()
         additional_info = str(record.get("additional_info") or "").strip()
 
@@ -6702,25 +9112,79 @@ def collect_ai_educate_report_data(
 
     df["timestamp"] = pd.to_datetime(df.get("timestamp"), unit="s", errors="coerce")
     df["saved_at_dt"] = pd.to_datetime(df.get("saved_at"), errors="coerce")
-    df["analysis_label"] = df.apply(_derive_analysis_label, axis=1)
+    df["event_time"] = df["timestamp"].where(df["timestamp"].notna(), df["saved_at_dt"])
+
+    root_cause_series = df.get("root_cause", pd.Series(dtype="object"))
+    root_cause_norm = root_cause_series.apply(_normalize_text_field)
+    root_cause_labels: dict[str, str] = {}
+    if isinstance(root_cause_series, pd.Series):
+        for original, normalized in zip(root_cause_series.tolist(), root_cause_norm.tolist()):
+            if normalized and normalized not in root_cause_labels and isinstance(original, str):
+                root_cause_labels[normalized] = original
+    root_cause_counts = root_cause_norm[root_cause_norm != ""].value_counts()
+
+    existing_recurrence = df.get("recurrence_count")
+    if isinstance(existing_recurrence, pd.Series):
+        df["recurrence_count"] = existing_recurrence.apply(_coerce_int)
+    else:
+        df["recurrence_count"] = 0
+    df["recurrence_count"] = df["recurrence_count"].fillna(0).astype(int)
+    df["root_cause_norm"] = root_cause_norm
+    df["root_cause_recurrence"] = df["root_cause_norm"].map(root_cause_counts).fillna(1).astype(int)
+    df["recurrence_count"] = (
+        df[["recurrence_count", "root_cause_recurrence"]].max(axis=1).astype(int)
+    )
+
+    scanner_series = df.get("scanner_model")
+    if scanner_series is None:
+        for alt_col in ("scanner", "scanner_type", "scanner_sn"):
+            if alt_col in df.columns:
+                scanner_series = df.get(alt_col)
+                if scanner_series is not None:
+                    break
+    if scanner_series is None:
+        scanner_series = pd.Series(["" for _ in range(len(df))])
+    scanner_norm = scanner_series.apply(_normalize_text_field)
+    df["scanner_norm"] = scanner_norm
+    scanner_labels: dict[str, str] = {}
+    for original, normalized in zip(scanner_series.tolist(), scanner_norm.tolist()):
+        if normalized and normalized not in scanner_labels and isinstance(original, str):
+            scanner_labels[normalized] = original
+
+    analysis_context = {
+        "root_cause_labels": root_cause_labels,
+        "scanner_labels": scanner_labels,
+    }
+    df["analysis_label"] = df.apply(
+        _derive_analysis_label, axis=1, args=(analysis_context,)
+    )
+
+    analysis_counts = df["analysis_label"].value_counts()
+    df["analysis_recurrence"] = (
+        df["analysis_label"].map(analysis_counts).fillna(1).astype(int)
+    )
+    df["recurrence_count"] = (
+        df[["recurrence_count", "analysis_recurrence"]].max(axis=1).astype(int)
+    )
 
     now = pd.Timestamp.utcnow().tz_localize(None)
     recent_cutoff = now - pd.Timedelta(days=30)
-    recent_cases = df[df["timestamp"] >= recent_cutoff]
+    df["event_time"] = pd.to_datetime(df["event_time"], errors="coerce")
+    recent_cases = df[df["event_time"] >= recent_cutoff]
 
-    recent_counts = (
-        recent_cases.groupby("analysis_label")
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
+    def _build_counts(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return pd.DataFrame(columns=["analysis_label", "count"])
+        counts = (
+            frame.groupby("analysis_label")
+            .size()
+            .reset_index(name="count")
+            .sort_values("count", ascending=False)
+        )
+        return counts
 
-    overall_counts = (
-        df.groupby("analysis_label")
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
+    overall_counts = _build_counts(df)
+    recent_counts = _build_counts(recent_cases)
 
     highlight_case: dict[str, object] | None = None
     highlight_label = None
@@ -6731,7 +9195,7 @@ def collect_ai_educate_report_data(
         highlight_count = int(row["count"])
         candidate = (
             df[df["analysis_label"] == highlight_label]
-            .sort_values("timestamp", ascending=False)
+            .sort_values("event_time", ascending=False)
             .head(1)
         )
         if not candidate.empty:
@@ -6752,32 +9216,99 @@ def collect_ai_educate_report_data(
         axis=1,
     )
 
-    timeline = pd.DataFrame(columns=["timestamp", "count"])
-    if not recent_cases.empty:
+    recent_mask = df["event_time"] >= recent_cutoff
+    bug_mentions_recent = int((bug_mask & recent_mask).sum())
+    bug_solution_recent = int((bug_solution_mask & recent_mask).sum())
+
+    def _build_timeline(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return pd.DataFrame(columns=["timestamp", "count"])
         timeline = (
-            recent_cases.set_index("timestamp")
+            frame.dropna(subset=["event_time"])
+            .set_index("event_time")
             .resample("D")
             .size()
             .rename("count")
             .reset_index()
         )
+        return timeline
 
-    return {
+    timeline_recent = _build_timeline(recent_cases)
+    timeline_all = _build_timeline(df)
+
+    recurring_issue_types = overall_counts[overall_counts["count"] >= 2]
+
+    root_cause_summary = (
+        df[df["root_cause_norm"] != ""]
+        .groupby("root_cause_norm")
+        .agg(count=("root_cause_norm", "size"))
+        .reset_index()
+        .sort_values("count", ascending=False)
+    )
+    if not root_cause_summary.empty:
+        root_cause_summary["root_cause"] = root_cause_summary["root_cause_norm"].map(
+            root_cause_labels
+        )
+        root_cause_summary = root_cause_summary[["root_cause", "count"]]
+
+    scanner_summary = (
+        df[df["scanner_norm"] != ""]
+        .assign(scanner_display=lambda frame: frame["scanner_norm"].map(scanner_labels))
+        .groupby(["scanner_norm", "scanner_display"], dropna=False)
+        .size()
+        .reset_index(name="count")
+        .sort_values("count", ascending=False)
+    )
+    if not scanner_summary.empty:
+        scanner_summary.rename(
+            columns={"scanner_display": "scanner"}, inplace=True
+        )
+        scanner_summary = scanner_summary[["scanner", "count"]]
+    else:
+        scanner_summary = pd.DataFrame(columns=["scanner", "count"])
+
+    view_totals = {
+        "all_time": {
+            "case_total": int(len(df)),
+            "bug_solution_count": int(bug_solution_mask.sum()),
+            "bug_mentions_count": int(bug_mask.sum()),
+            "unique_labels": int(overall_counts["analysis_label"].nunique()) if not overall_counts.empty else 0,
+        },
+        "30d": {
+            "case_total": int(len(recent_cases)),
+            "bug_solution_count": bug_solution_recent,
+            "bug_mentions_count": bug_mentions_recent,
+            "unique_labels": int(recent_counts["analysis_label"].nunique()) if not recent_counts.empty else 0,
+        },
+    }
+
+    insights = {
         "recent_counts": recent_counts,
-        "timeline": timeline,
+        "overall_counts": overall_counts,
+        "counts": {"30d": recent_counts, "all_time": overall_counts},
+        "timeline": timeline_recent,
+        "timeline_all": timeline_all,
         "bug_cases": bug_cases,
         "bug_mentions_count": int(bug_mask.sum()),
         "bug_solution_count": int(bug_solution_mask.sum()),
+        "bug_mentions_recent": bug_mentions_recent,
+        "bug_solution_recent": bug_solution_recent,
         "highlight_case": highlight_case,
         "highlight_label": highlight_label,
         "highlight_count": highlight_count,
         "recent_total": int(len(recent_cases)),
         "case_total": int(len(df)),
+        "view_totals": view_totals,
+        "recurring_issue_types": recurring_issue_types,
+        "common_root_causes": root_cause_summary,
+        "common_scanner_models": scanner_summary,
     }
 
+    return insights
 
-def _build_recent_counts_chart(recent_counts: pd.DataFrame) -> Drawing:
-    chart_data = recent_counts.head(8).copy()
+
+def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
+    chart_data = counts.head(8).copy()
     if chart_data.empty:
         raise ValueError("No hay datos para el gráfico de recurrencia.")
 
@@ -6813,7 +9344,7 @@ def _build_recent_counts_chart(recent_counts: pd.DataFrame) -> Drawing:
         String(
             drawing_width / 2,
             drawing_height - 20,
-            "Casos más frecuentes (30 días)",
+            title,
             fontName="Helvetica-Bold",
             fontSize=12,
             textAnchor="middle",
@@ -6847,7 +9378,7 @@ def _build_recent_counts_chart(recent_counts: pd.DataFrame) -> Drawing:
     return drawing
 
 
-def _build_timeline_chart(timeline: pd.DataFrame) -> Drawing:
+def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
     if timeline.empty:
         raise ValueError("No hay datos para la tendencia temporal.")
 
@@ -6907,7 +9438,7 @@ def _build_timeline_chart(timeline: pd.DataFrame) -> Drawing:
         String(
             drawing_width / 2,
             drawing_height - 20,
-            "Volumen de casos por día (30 días)",
+            title,
             fontName="Helvetica-Bold",
             fontSize=12,
             textAnchor="middle",
@@ -6954,20 +9485,35 @@ def generate_ai_educate_report_pdf(
     story.append(Paragraph("AI Educate – Informe de análisis", title_style))
     story.append(Spacer(1, 16))
 
+    view_totals = insights.get("view_totals") or {}
+    totals_recent = view_totals.get("30d", {}) if isinstance(view_totals, Mapping) else {}
+    totals_all = view_totals.get("all_time", {}) if isinstance(view_totals, Mapping) else {}
+
     summary_data = [
-        ["Total de casos", str(insights.get("case_total", 0))],
-        ["Casos analizados (30 días)", str(insights.get("recent_total", 0))],
+        ["Métrica", "30 días", "Historial"],
         [
-            "Casos con solución marcada como bug",
-            str(insights.get("bug_solution_count", 0)),
+            "Casos analizados",
+            str(totals_recent.get("case_total", insights.get("recent_total", 0))),
+            str(totals_all.get("case_total", insights.get("case_total", 0))),
+        ],
+        [
+            "Tipos de caso únicos",
+            str(totals_recent.get("unique_labels", 0)),
+            str(totals_all.get("unique_labels", 0)),
+        ],
+        [
+            "Soluciones marcadas como bug",
+            str(totals_recent.get("bug_solution_count", insights.get("bug_solution_recent", 0))),
+            str(totals_all.get("bug_solution_count", insights.get("bug_solution_count", 0))),
         ],
         [
             "Casos con mención de bug",
-            str(insights.get("bug_mentions_count", 0)),
+            str(totals_recent.get("bug_mentions_count", insights.get("bug_mentions_recent", 0))),
+            str(totals_all.get("bug_mentions_count", insights.get("bug_mentions_count", 0))),
         ],
     ]
 
-    summary_table = Table(summary_data, colWidths=[240, 120])
+    summary_table = Table(summary_data, colWidths=[220, 120, 120])
     summary_table.setStyle(
         TableStyle(
             [
@@ -6999,33 +9545,108 @@ def generate_ai_educate_report_pdf(
                 story.append(Paragraph("<br/>".join(detail_lines), body_style))
         story.append(Spacer(1, 12))
 
-    recent_counts = insights.get("recent_counts")
-    if isinstance(recent_counts, pd.DataFrame) and not recent_counts.empty:
-        try:
-            drawing = _build_recent_counts_chart(recent_counts)
-            story.append(drawing)
-            story.append(Spacer(1, 12))
-        except Exception:
-            story.append(
-                Paragraph(
-                    "No se pudieron renderizar los gráficos de recurrencia reciente.",
-                    body_style,
+    counts_map_raw = insights.get("counts")
+    counts_map = counts_map_raw if isinstance(counts_map_raw, Mapping) else {}
+    chart_specs = [
+        ("30d", "Casos más frecuentes (30 días)"),
+        ("all_time", "Casos más frecuentes (historial)")
+    ]
+    for key, title in chart_specs:
+        counts_df = counts_map.get(key) if isinstance(counts_map, Mapping) else None
+        if isinstance(counts_df, pd.DataFrame) and not counts_df.empty:
+            try:
+                drawing = _build_frequency_chart(counts_df, title)
+                story.append(drawing)
+                story.append(Spacer(1, 12))
+            except Exception:
+                story.append(
+                    Paragraph(
+                        f"No se pudo renderizar el gráfico de frecuencia ({title}).",
+                        body_style,
+                    )
                 )
-            )
 
-    timeline = insights.get("timeline")
-    if isinstance(timeline, pd.DataFrame) and not timeline.empty:
-        try:
-            drawing = _build_timeline_chart(timeline)
-            story.append(drawing)
-            story.append(Spacer(1, 12))
-        except Exception:
-            story.append(
-                Paragraph(
-                    "No se pudieron renderizar los gráficos de tendencia temporal.",
-                    body_style,
+    timeline_map = [
+        (insights.get("timeline"), "Volumen diario (30 días)"),
+        (insights.get("timeline_all"), "Volumen diario (historial)"),
+    ]
+    for timeline_df, title in timeline_map:
+        if isinstance(timeline_df, pd.DataFrame) and not timeline_df.empty:
+            try:
+                drawing = _build_timeline_chart(timeline_df, title)
+                story.append(drawing)
+                story.append(Spacer(1, 12))
+            except Exception:
+                story.append(
+                    Paragraph(
+                        f"No se pudieron renderizar los gráficos de tendencia ({title}).",
+                        body_style,
+                    )
                 )
+
+    recurring_df = insights.get("recurring_issue_types")
+    if isinstance(recurring_df, pd.DataFrame) and not recurring_df.empty:
+        story.append(Paragraph("Patrones recurrentes", heading_style))
+        rows = [["Caso", "Recurrencias"]]
+        for _, row in recurring_df.head(10).iterrows():
+            rows.append(
+                [str(row.get("analysis_label", "")), str(row.get("count", 0))]
             )
+        recurring_table = Table(rows, colWidths=[320, 120])
+        recurring_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                ]
+            )
+        )
+        story.append(recurring_table)
+        story.append(Spacer(1, 12))
+
+    root_cause_df = insights.get("common_root_causes")
+    if isinstance(root_cause_df, pd.DataFrame) and not root_cause_df.empty:
+        story.append(Paragraph("Causas raíz más comunes", heading_style))
+        rows = [["Causa", "Casos"]]
+        for _, row in root_cause_df.head(10).iterrows():
+            rows.append(
+                [str(row.get("root_cause", "")), str(row.get("count", 0))]
+            )
+        root_table = Table(rows, colWidths=[320, 120])
+        root_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                ]
+            )
+        )
+        story.append(root_table)
+        story.append(Spacer(1, 12))
+
+    scanner_df = insights.get("common_scanner_models")
+    if isinstance(scanner_df, pd.DataFrame) and not scanner_df.empty:
+        story.append(Paragraph("Modelos de escáner reportados", heading_style))
+        rows = [["Modelo", "Casos"]]
+        for _, row in scanner_df.head(10).iterrows():
+            rows.append([str(row.get("scanner", "")), str(row.get("count", 0))])
+        scanner_table = Table(rows, colWidths=[320, 120])
+        scanner_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                ]
+            )
+        )
+        story.append(scanner_table)
+        story.append(Spacer(1, 12))
 
     bug_cases = insights.get("bug_cases")
     if isinstance(bug_cases, pd.DataFrame) and not bug_cases.empty:
@@ -7122,10 +9743,9 @@ def _collect_pattern_cases(
                 "title": str(entry.get("title") or ""),
                 "root_cause": str(entry.get("root_cause") or ""),
                 "solution": str(entry.get("solution") or ""),
-                "troubleshooting": str(
-                    entry.get("troubleshooting")
-                    or entry.get("remote_steps")
-                    or ""
+                "troubleshooting": (
+                    extract_remote_steps_from_mapping(entry)
+                    or str(entry.get("troubleshooting") or "").strip()
                 ),
                 "repro_steps": str(entry.get("repro_steps") or ""),
                 "additional_info": str(
@@ -7159,10 +9779,9 @@ def generate_recurring_issue_pdf(
                         "title": str(item.get("title") or ""),
                         "root_cause": str(item.get("root_cause") or ""),
                         "solution": str(item.get("solution") or ""),
-                        "troubleshooting": str(
-                            item.get("troubleshooting")
-                            or item.get("remote_steps")
-                            or ""
+                        "troubleshooting": (
+                            extract_remote_steps_from_mapping(item)
+                            or str(item.get("troubleshooting") or "").strip()
                         ),
                         "repro_steps": str(item.get("repro_steps") or ""),
                         "additional_info": str(
@@ -7351,10 +9970,9 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
                     "title": str(case_row.get("title") or ""),
                     "root_cause": str(case_row.get("root_cause") or ""),
                     "solution": str(case_row.get("solution") or ""),
-                    "troubleshooting": str(
-                        case_row.get("troubleshooting")
-                        or case_row.get("remote_steps")
-                        or ""
+                    "troubleshooting": (
+                        extract_remote_steps_from_mapping(case_row)
+                        or str(case_row.get("troubleshooting") or "").strip()
                     ),
                     "repro_steps": str(case_row.get("repro_steps") or ""),
                     "additional_info": str(
@@ -7743,6 +10361,66 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         st.session_state[key] = value
         autosave()
 
+DELL_ESCALATION_OVERVIEW_FIELDS = [
+    ("dell_issue_start_date", "Issue start date"),
+    ("service_tag", "PC service tag"),
+    ("case_id", "Case ID"),
+]
+
+DELL_ESCALATION_PC_FIELDS = [
+    ("pc_model", "Type of PC"),
+    ("bios_version", "BIOS Version"),
+    ("windows_version", "Windows Version"),
+    ("graphics_card", "Graphics card"),
+    ("processor", "Processor"),
+    ("dell_command_updates_status", "Dell Command Updates"),
+    ("dell_power_options_setup", "Power Options setup"),
+    ("dell_optimizer_setup", "Dell Optimizer setup"),
+    (
+        "dell_intel_ppm_installed",
+        "Intel Processor Power Management Utility installed?",
+    ),
+    ("dell_cpu_speed_or_throttling", "CPU Speed / Is CPU throttling?"),
+    ("dell_gpu_usage_integrated", "GPU Usage % (Integrated)"),
+    ("dell_gpu_usage_dedicated", "GPU Usage % (Dedicated)"),
+    ("dell_cpu_utilization", "CPU Utilization %"),
+    ("dell_benchmark_results", "Benchmark used and results"),
+    (
+        "dell_ultra_resolution_support",
+        "Can it launch simulation on Ultra Resolution? (If needed)",
+    ),
+    ("dell_gpu_driver_versions", "Which GPU driver versions were tested?"),
+    (
+        "dell_reliability_monitor_results",
+        "Reliability Monitor and Event Viewer results",
+    ),
+    ("dell_diagnostics_results", "Dell Diagnosis test results (ePSA tests included)"),
+    ("dell_windows_reimaged", "Has Windows been reimaged?"),
+]
+
+DELL_ESCALATION_CONTACT_FIELDS = [
+    ("clinic_name", "Clinic name"),
+    (
+        "clinic_contact_name",
+        "Full name of person responsible for receiving the equipment",
+    ),
+    ("clinic_contact_phone", "Phone number"),
+    ("clinic_contact_email", "Email address"),
+    ("clinic_address_line_1", "Address 1"),
+    ("clinic_address_line_2", "Address 2 (Suite, etc.)"),
+    ("clinic_city", "City"),
+    ("clinic_state", "State"),
+    ("clinic_postal_code", "Zip Code"),
+]
+
+DELL_ESCALATION_FIELD_LABELS = (
+    DELL_ESCALATION_OVERVIEW_FIELDS
+    + DELL_ESCALATION_PC_FIELDS
+    + DELL_ESCALATION_CONTACT_FIELDS
+)
+
+DELL_ESCALATION_FIELDS = [field for field, _ in DELL_ESCALATION_FIELD_LABELS]
+
 BASE_CATEGORY_MAP = {
     "HEADER": [
         "company_name",
@@ -7774,6 +10452,7 @@ BASE_CATEGORY_MAP = {
         "straumann",
     ],
     "ESCALATION 2ND LINE": ["esc_name", "esc_ph", "esc_email"],
+    "DELL ESCALATION": DELL_ESCALATION_FIELDS,
     "ADDITIONAL INFORMATION": ["additional_info"],
 }
 
@@ -7799,6 +10478,9 @@ HW_CATEGORY_MAP = {
 }
 
 
+OPTIONAL_PROGRESS_CATEGORIES = {"DELL ESCALATION"}
+
+
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
     if st.session_state.get("second_line_mode"):
@@ -7806,6 +10488,7 @@ def active_category_map():
     if not st.session_state.get("include_escalations", True):
         cm.pop("AX COORDINATORS", None)
         cm.pop("ESCALATION 2ND LINE", None)
+        cm.pop("DELL ESCALATION", None)
     if st.session_state.get("include_hardware"):
         cm.update(HW_CATEGORY_MAP)
     return cm
@@ -7991,6 +10674,8 @@ def compute_progress(d: CaseData, cat_map):
     """Compute completion progress for each category."""
     prog, miss = {}, {}
     for cat, flds in cat_map.items():
+        if cat in OPTIONAL_PROGRESS_CATEGORIES:
+            continue
         vals = [getattr(d, f) for f in flds]
         done = sum(bool(v) for v in vals)
         prog[cat] = int(done / len(flds) * 100)
@@ -8116,9 +10801,12 @@ def category_dataframe(
 ) -> pd.DataFrame:
     """Return a DataFrame with human readable field names for a category."""
     rows = []
+    label_overrides = dict(DELL_ESCALATION_FIELD_LABELS)
     for fld in (cat_map or {}).get(cat, []):
         value = getattr(d, fld, "N/A")
         label = fld.replace("_", " ").title()
+        if cat == "DELL ESCALATION":
+            label = label_overrides.get(fld, label)
         if fld == "scanner_accidental_damage":
             label = "Damage Classification"
             value = "Accidental Damage" if getattr(d, fld) else "Internal Damage"
@@ -8138,6 +10826,7 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
     """Return a newline formatted view of a category table."""
 
     lines = [table_title(cat)]
+    label_overrides = dict(DELL_ESCALATION_FIELD_LABELS)
     for fld in (cat_map or {}).get(cat, []):
         raw_value = getattr(d, fld, "")
         if isinstance(raw_value, bool):
@@ -8149,8 +10838,54 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
         if "\n" in display:
             display = "\n    ".join(display.splitlines())
         label = fld.replace("_", " ").title()
+        if cat == "DELL ESCALATION":
+            label = label_overrides.get(fld, label)
         lines.append(f"{label}: {display}")
     return "\n".join(lines)
+
+
+def _format_display_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if value is None:
+        return "N/A"
+    text = str(value).strip()
+    return text if text else "N/A"
+
+
+def _format_multiline(value: str) -> str:
+    cleaned = value.replace("\r\n", "\n").replace("\r", "\n")
+    if "\n" in cleaned:
+        return "\n  ".join(cleaned.splitlines())
+    return cleaned
+
+
+def dell_escalation_rows(d: CaseData) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for field, label in DELL_ESCALATION_FIELD_LABELS:
+        raw_value = getattr(d, field, "")
+        display = _format_display_value(raw_value)
+        rows.append({"Field": label, "Value": display})
+    return rows
+
+
+def dell_escalation_dataframe(d: CaseData) -> pd.DataFrame:
+    return pd.DataFrame(dell_escalation_rows(d))
+
+
+def dell_escalation_plain_text(d: CaseData) -> str:
+    lines = ["Dell Escalation"]
+    for field, label in DELL_ESCALATION_FIELD_LABELS:
+        raw_value = getattr(d, field, "")
+        display = _format_multiline(_format_display_value(raw_value))
+        lines.append(f"{label}: {display}")
+    return "\n".join(lines)
+
+
+def script_safe_json(value: str) -> str:
+    """Return a JSON string literal safe for embedding inside <script> tags."""
+
+    return json.dumps(value).replace("</", "<\\/")
 
 
 def _slugify_hotkey(text: str) -> str:
@@ -9266,40 +12001,280 @@ def render_case_ui(case_idx: int):
             if st.session_state.email_type == "Custom Request":
                 st.session_state.email_type = "Advanced Request"
 
-            email_choices = [
-                "Recap (Customer)",
-                "Broken Scanner",
-                "Broken Tip",
-                "AX Coordinator Email",
-                "Customer Reply",
-            ]
-            if st.session_state.second_line_mode:
-                email_choices.extend(
-                    [
-                        "FedEx Tracking Email",
-                        "Replacement Wired Scanner Setup",
-                        "Replacement Move+ Closure",
-                        "Callback Email",
-                        "Dell Escalation Email",
-                    ]
-                )
-            email_choices.extend(["Advanced Request", "Custom"])
             email_widget_key = widget_key("email_template", case_idx)
+            group_widget_key = widget_key("email_template_group", case_idx)
+            template_definitions = [
+                {
+                    "value": "Recap (Customer)",
+                    "label": "Recap (Customer)",
+                    "icon": "💌",
+                    "description": "Warm recap with survey invitation and key actions.",
+                    "group": "Customer follow-up",
+                },
+                {
+                    "value": "Customer Reply",
+                    "label": "Customer Reply",
+                    "icon": "✉️",
+                    "description": "Craft a confident response to an incoming customer email.",
+                    "group": "Customer follow-up",
+                },
+                {
+                    "value": "Broken Scanner",
+                    "label": "Broken Scanner",
+                    "icon": "🛠️",
+                    "description": "Guide customers through scanner recovery and documentation steps.",
+                    "group": "Hardware fixes",
+                },
+                {
+                    "value": "Broken Tip",
+                    "label": "Broken Tip",
+                    "icon": "🧰",
+                    "description": "Troubleshoot damaged or worn scanner tips with next actions.",
+                    "group": "Hardware fixes",
+                },
+                {
+                    "value": "AX Coordinator Email",
+                    "label": "AX Coordinator Email",
+                    "icon": "📅",
+                    "description": "Align with coordinators using a ready-to-send internal brief.",
+                    "group": "Internal sync",
+                },
+                {
+                    "value": "FedEx Tracking Email",
+                    "label": "FedEx Tracking Email",
+                    "icon": "📦",
+                    "description": "Share parcel tracking updates and expectations with customers.",
+                    "group": "Internal sync",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Replacement Wired Scanner Setup",
+                    "label": "Replacement Wired Scanner Setup",
+                    "icon": "🔄",
+                    "description": "Send replacement install instructions for wired scanners.",
+                    "group": "Hardware fixes",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Replacement Move+ Closure",
+                    "label": "Replacement Move+ Closure",
+                    "icon": "✅",
+                    "description": "Close the loop on Move+ replacements with shipping details.",
+                    "group": "Customer follow-up",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Callback Email",
+                    "label": "Callback Email",
+                    "icon": "📞",
+                    "description": "Confirm scheduled callbacks and set expectations clearly.",
+                    "group": "Internal sync",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Dell Escalation Email",
+                    "label": "Dell Escalation Email",
+                    "icon": "🚀",
+                    "description": "Escalate urgent cases with crisp context and next steps.",
+                    "group": "Internal sync",
+                    "second_line_only": True,
+                },
+                {
+                    "value": "Advanced Request",
+                    "label": "Advanced Request",
+                    "icon": "🧠",
+                    "description": "Provide detailed guidance for complex, multi-step scenarios.",
+                    "group": "Power tools",
+                },
+                {
+                    "value": "Custom",
+                    "label": "Custom",
+                    "icon": "🎨",
+                    "description": "Start from a blank canvas with your own tailored prompt.",
+                    "group": "Power tools",
+                },
+            ]
+            available_templates = [
+                t
+                for t in template_definitions
+                if not t.get("second_line_only") or st.session_state.second_line_mode
+            ]
+            template_lookup = {t["value"]: t for t in available_templates}
+            template_groups: Dict[str, List[Dict[str, str]]] = {}
+            for t in available_templates:
+                template_groups.setdefault(t["group"], []).append(t)
+            ordered_groups = list(template_groups.keys())
+
+            # maintain previously selected template if still available
             current_email_type = st.session_state.email_type
-            if current_email_type not in email_choices:
-                current_email_type = email_choices[0]
+            if current_email_type not in template_lookup and ordered_groups:
+                current_email_type = template_groups[ordered_groups[0]][0]["value"]
                 st.session_state.email_type = current_email_type
             if (
                 email_widget_key not in st.session_state
-                or st.session_state[email_widget_key] not in email_choices
+                or st.session_state[email_widget_key] not in template_lookup
             ):
                 st.session_state[email_widget_key] = current_email_type
-            email_type = st.selectbox(
-                "Select email template",
-                email_choices,
-                key=email_widget_key,
+
+            st.markdown(
+                """
+                <style>
+                    /* Email template group chips */
+                    div[aria-label="Email template family"] > div {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 0.5rem;
+                        margin-bottom: 0.35rem;
+                    }
+                    div[aria-label="Email template family"] label {
+                        border-radius: 999px;
+                        padding: 0.35rem 0.95rem;
+                        background: rgba(99, 102, 241, 0.12);
+                        border: 1px solid rgba(99, 102, 241, 0.35);
+                        color: #312e81;
+                        font-weight: 600;
+                        transition: all 0.2s ease;
+                    }
+                    div[aria-label="Email template family"] label:hover {
+                        background: rgba(99, 102, 241, 0.18);
+                        border-color: rgba(79, 70, 229, 0.45);
+                        color: #1e1b4b;
+                    }
+                    div[aria-label="Email template family"] label input {
+                        display: none;
+                    }
+                    div[aria-label="Email template family"] label input:checked + div {
+                        background: linear-gradient(135deg, rgba(79, 70, 229, 0.18), rgba(129, 140, 248, 0.32));
+                        border: 1px solid rgba(79, 70, 229, 0.55);
+                        color: #1e1b4b;
+                        box-shadow: 0 10px 25px rgba(67, 56, 202, 0.18);
+                    }
+
+                    /* Email template card styling */
+                    div[aria-label="Email template cards"] > div {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                        gap: 1rem;
+                        margin: 0.75rem 0 0.25rem;
+                    }
+                    div[aria-label="Email template cards"] label {
+                        margin: 0;
+                    }
+                    div[aria-label="Email template cards"] label > div {
+                        border-radius: 18px;
+                        border: 1px solid rgba(148, 163, 255, 0.28);
+                        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(243, 244, 255, 0.92));
+                        box-shadow: 0 18px 45px rgba(79, 70, 229, 0.12);
+                        padding: 1.15rem 1.15rem 1rem;
+                        transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+                        height: 100%;
+                        position: relative;
+                        overflow: hidden;
+                    }
+                    div[aria-label="Email template cards"] label:hover > div {
+                        transform: translateY(-3px);
+                        box-shadow: 0 24px 55px rgba(67, 56, 202, 0.22);
+                        border-color: rgba(79, 70, 229, 0.45);
+                    }
+                    div[aria-label="Email template cards"] label input {
+                        display: none;
+                    }
+                    div[aria-label="Email template cards"] label > div > div:first-child {
+                        display: none;
+                    }
+                    div[aria-label="Email template cards"] label > div > div:last-child {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 0.45rem;
+                        color: #1f2937;
+                        font-weight: 600;
+                        white-space: pre-line;
+                        line-height: 1.35;
+                        font-size: 0.99rem;
+                    }
+                    div[aria-label="Email template cards"] label > div::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        border-radius: 18px;
+                        background: radial-gradient(circle at top left, rgba(129, 140, 248, 0.22), transparent 55%);
+                        opacity: 0;
+                        transition: opacity 0.25s ease;
+                        pointer-events: none;
+                    }
+                    div[aria-label="Email template cards"] label input:checked + div {
+                        border-color: rgba(79, 70, 229, 0.8);
+                        box-shadow: 0 28px 65px rgba(55, 48, 163, 0.28);
+                        background: linear-gradient(140deg, rgba(99, 102, 241, 0.22), rgba(129, 140, 248, 0.15));
+                    }
+                    div[aria-label="Email template cards"] label input:checked + div::after {
+                        opacity: 1;
+                    }
+                    div[aria-label="Email template cards"] label input:checked + div > div:last-child {
+                        color: #111827;
+                    }
+                    div[aria-label="Email template cards"] label small {
+                        display: block;
+                        font-weight: 400;
+                        font-size: 0.86rem;
+                        color: rgba(17, 24, 39, 0.78);
+                    }
+                </style>
+                """,
+                unsafe_allow_html=True,
             )
-            st.session_state.email_type = email_type
+
+            if not ordered_groups:
+                st.warning("No email templates are available. Contact an administrator to restore them.")
+                email_type = st.session_state[email_widget_key]
+                st.session_state.email_type = email_type
+            else:
+                st.markdown("#### Choose an email starting point")
+                st.caption(
+                    "Pick a template family first, then dive into the specific prompt that best matches your outreach."
+                )
+
+                group_for_selection = next(
+                    (
+                        t["group"]
+                        for t in available_templates
+                        if t["value"] == st.session_state[email_widget_key]
+                    ),
+                    ordered_groups[0],
+                )
+                if group_for_selection not in ordered_groups:
+                    group_for_selection = ordered_groups[0]
+
+                selected_group = st.radio(
+                    "Email template family",
+                    ordered_groups,
+                    index=ordered_groups.index(group_for_selection),
+                    key=group_widget_key,
+                    horizontal=True,
+                )
+
+                group_templates = template_groups.get(selected_group, [])
+                template_values = [t["value"] for t in group_templates]
+                if not template_values:
+                    st.info("No email templates available in this category.")
+                    email_type = st.session_state[email_widget_key]
+                    st.session_state.email_type = email_type
+                else:
+                    if st.session_state[email_widget_key] not in template_values:
+                        st.session_state[email_widget_key] = template_values[0]
+                    option_text = {
+                        value: f"{template_lookup[value]['icon']}  {template_lookup[value]['label']}\n• {template_lookup[value]['description']}"
+                        for value in template_values
+                    }
+                    email_type = st.radio(
+                        "Email template cards",
+                        template_values,
+                        key=email_widget_key,
+                        label_visibility="collapsed",
+                        format_func=lambda value: option_text.get(value, value),
+                    )
+                    st.session_state.email_type = email_type
+            email_type = st.session_state.email_type
             ext = st.session_state.email_extra
     
             prompt = ""
@@ -9389,8 +12364,8 @@ def render_case_ui(case_idx: int):
                         if copy_suffix[0].isdigit():
                             copy_suffix = f"a{copy_suffix}"
 
-                        title_payload = json.dumps(title_text)
-                        table_payload = json.dumps(table_plain_text(cat, D, cat_map))
+                        title_payload = script_safe_json(title_text)
+                        table_payload = script_safe_json(table_plain_text(cat, D, cat_map))
                         components.html(
                             f"""
                             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
@@ -9747,59 +12722,14 @@ End with: We look forward to your reply."""
                     if extras:
                         prompt += "\n\n" + "\n".join(extras)
             elif email_type == "Dell Escalation Email":
-                st.markdown("#### Dell escalation options")
-                ext["issue_start_date"] = st.text_input(
-                    "Issue start date", ext.get("issue_start_date", "")
+                st.markdown("#### Dell escalation data preview")
+                st.info(
+                    "Update the Dell escalation section in the Escalations tab to refresh this template."
                 )
-                company = D.company_name or "(Company Name)"
-                issue_desc = D.brief_description or "(Issue Description)"
-                issue_start = ext["issue_start_date"] or "(Issue Start Date)"
-                case_no = D.case_id or "(Case ID)"
-                service_tag = D.service_tag or "(Service Tag)"
-                pc_model = D.pc_model or ""
-                bios = D.bios_version or ""
-                windows = D.windows_version or ""
-                email_text = f"""Hello Dell Support team,
-
-The end-user from {company} has been reporting {issue_desc}, which has been happening since {issue_start}. Could you please assist this customer with a Dell Technician on site?
-Case ID {case_no}
-PC service tag {service_tag}
-Evidence attached to this email.
-
-Computer information:
-
-- Type of PC: {pc_model}
-- BIOS Version: {bios}
-- Windows Version: {windows}
-- Dell Command Updates:
-- Power Options setup:
-- Dell Optimizer setup:
-- Intel Processor Power Management Utility installed?:
-- CPU Speed / Is CPU throttling?:
-- GPU Usage % (Integrated):
-- GPU Usage % (Dedicated):
-- CPU Utilization %:
-- Benchmark used and results:
-- Can it launch simulation on Ultra Resolution? (If needed):
-- Which GPU driver versions were tested?:
-- Reliability Monitor and Event Viewer results:
-- Dell Diagnosis test results (ePSA tests included):
-- Has Windows been reimaged?:
-
-Clinic's contact information:
-
-- Address 1
-- Address 2 (Suite, etc.)
-- City
-- State
-- Zip Code
-- Full name of person responsible for receiving the equipment
-- Phone number
-- Email address
-- Clinic name
-
-Thank you in advance,
-"""
+                st.dataframe(
+                    dell_escalation_dataframe(D), use_container_width=True
+                )
+                email_text = build_dell_escalation_email(D)
                 st.text_area(
                     "Email",
                     email_text,
@@ -10119,6 +13049,178 @@ Thank you in advance,
                     width="stretch",
                 )
 
+            st.markdown("---")
+            st.subheader("Dell escalation data")
+            st.caption(
+                "Capture the Dell-specific diagnostics and clinic contact details required for vendor escalations."
+            )
+            auto_text_input("Issue start date", "dell_issue_start_date")
+
+            st.markdown("##### PC diagnostics & setup")
+            diag_col1, diag_col2 = st.columns(2)
+            auto_text_input(
+                "Dell Command Updates status",
+                "dell_command_updates_status",
+                container=diag_col1,
+            )
+            auto_text_input(
+                "Power Options setup",
+                "dell_power_options_setup",
+                container=diag_col2,
+            )
+            auto_text_input(
+                "Dell Optimizer setup",
+                "dell_optimizer_setup",
+                container=diag_col1,
+            )
+            auto_text_input(
+                "Intel Processor Power Management Utility installed?",
+                "dell_intel_ppm_installed",
+                container=diag_col2,
+            )
+
+            st.markdown("##### Performance & drivers")
+            perf_col1, perf_col2 = st.columns(2)
+            auto_text_input(
+                "CPU Speed / Is CPU throttling?",
+                "dell_cpu_speed_or_throttling",
+                container=perf_col1,
+            )
+            auto_text_input(
+                "GPU Usage % (Integrated)",
+                "dell_gpu_usage_integrated",
+                container=perf_col2,
+            )
+            auto_text_input(
+                "GPU Usage % (Dedicated)",
+                "dell_gpu_usage_dedicated",
+                container=perf_col1,
+            )
+            auto_text_input(
+                "CPU Utilization %",
+                "dell_cpu_utilization",
+                container=perf_col2,
+            )
+            auto_text_area(
+                "Benchmark used and results",
+                "dell_benchmark_results",
+                container=perf_col1,
+                height=100,
+            )
+            auto_text_area(
+                "Which GPU driver versions were tested?",
+                "dell_gpu_driver_versions",
+                container=perf_col2,
+                height=100,
+            )
+            auto_text_input(
+                "Can it launch simulation on Ultra Resolution? (If needed)",
+                "dell_ultra_resolution_support",
+            )
+
+            st.markdown("##### Diagnostics")
+            diag_notes_col1, diag_notes_col2 = st.columns(2)
+            auto_text_area(
+                "Reliability Monitor and Event Viewer results",
+                "dell_reliability_monitor_results",
+                container=diag_notes_col1,
+                height=120,
+            )
+            auto_text_area(
+                "Dell Diagnosis test results (ePSA tests included)",
+                "dell_diagnostics_results",
+                container=diag_notes_col2,
+                height=120,
+            )
+            auto_text_input(
+                "Has Windows been reimaged?",
+                "dell_windows_reimaged",
+            )
+
+            st.markdown("##### Clinic contact information")
+            clinic_col1, clinic_col2 = st.columns(2)
+            auto_text_input("Clinic name", "clinic_name", container=clinic_col1)
+            auto_text_input(
+                "Full name of person responsible for receiving the equipment",
+                "clinic_contact_name",
+                container=clinic_col2,
+            )
+            auto_text_input(
+                "Phone number",
+                "clinic_contact_phone",
+                container=clinic_col1,
+            )
+            auto_text_input(
+                "Email address",
+                "clinic_contact_email",
+                container=clinic_col2,
+            )
+            auto_text_input("Address 1", "clinic_address_line_1", container=clinic_col1)
+            auto_text_input("Address 2 (Suite, etc.)", "clinic_address_line_2", container=clinic_col2)
+            auto_text_input("City", "clinic_city", container=clinic_col1)
+            auto_text_input("State", "clinic_state", container=clinic_col2)
+            auto_text_input("Zip Code", "clinic_postal_code", container=clinic_col1)
+
+            st.markdown("##### Dell escalation table preview")
+            dell_table = dell_escalation_dataframe(D)
+            st.dataframe(dell_table, use_container_width=True)
+            copy_col, download_col = st.columns([2, 3])
+            with copy_col:
+                copy_key = widget_key("dell_escalation_copy", case_idx)
+                copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_key.lower())
+                if not copy_suffix:
+                    copy_suffix = "dellcopy"
+                if copy_suffix[0].isdigit():
+                    copy_suffix = f"d{copy_suffix}"
+                table_payload = json.dumps(dell_escalation_plain_text(D))
+                table_payload = table_payload.replace("</", "<\\/")
+                components.html(
+                    f"""
+                    <div style=\"display:flex;gap:0.5rem;align-items:center;\">
+                        <button onclick=\"copyDellTable{copy_suffix}()\"
+                                style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                            Copy Dell table
+                        </button>
+                        <span id=\"dell-feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                    </div>
+                    <script>
+                        const dellFeedback{copy_suffix} = document.getElementById('dell-feedback-{copy_suffix}');
+                        function showDellFeedback{copy_suffix}(message) {{
+                            if (!dellFeedback{copy_suffix}) return;
+                            dellFeedback{copy_suffix}.textContent = message;
+                            setTimeout(() => {{
+                                if (dellFeedback{copy_suffix}.textContent === message) {{
+                                    dellFeedback{copy_suffix}.textContent = '';
+                                }}
+                            }}, 2000);
+                        }}
+                        function copyDellTable{copy_suffix}() {{
+                            navigator.clipboard.writeText({table_payload}).then(() => {{
+                                showDellFeedback{copy_suffix}('Dell escalation copied');
+                            }});
+                        }}
+                    </script>
+                    """,
+                    height=60,
+                )
+            with download_col:
+                csv_bytes = dell_table.to_csv(index=False).encode("utf-8")
+                json_bytes = json.dumps(dell_escalation_rows(D), indent=2).encode("utf-8")
+                st.download_button(
+                    "Download CSV",
+                    csv_bytes,
+                    file_name=f"{D.case_id or 'case'}_dell_escalation.csv",
+                    mime="text/csv",
+                    key=widget_key("download_dell_escalation_csv", case_idx),
+                )
+                st.download_button(
+                    "Download JSON",
+                    json_bytes,
+                    file_name=f"{D.case_id or 'case'}_dell_escalation.json",
+                    mime="application/json",
+                    key=widget_key("download_dell_escalation_json", case_idx),
+                )
+
             if st.session_state.second_line_mode:
                 st.markdown("---")
                 st.subheader("Escalation 3rd line")
@@ -10210,6 +13312,7 @@ Thank you in advance,
                         placeholder=D.subscription_id or "",
                     )
                 msg = build_third_line_escalation(D)
+                escaped_msg = escape(msg)
                 st.text_area(
                     "Escalation message",
                     msg,
@@ -10303,8 +13406,139 @@ Thank you in advance,
 
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
-        st.subheader("Remote session – steps")
-        auto_text_area("One step per line", "remote_steps", height=400)
+        st.subheader("Remote sessions")
+        ensure_remote_session_entries(D)
+        sessions = D.remote_sessions
+
+        action_cols = st.columns([1, 5])
+        with action_cols[0]:
+            if st.button(
+                "Add session",
+                key=widget_key("remote_session_add", case_idx),
+            ):
+                new_session = RemoteSessionEntry(
+                    title=f"Session {len(sessions) + 1}",
+                    notes="",
+                )
+                sessions.append(new_session)
+                update_case_remote_sessions(D, sessions)
+                st.session_state[
+                    widget_key(
+                        f"remote_session_title_{new_session.session_id}", case_idx
+                    )
+                ] = new_session.title
+                st.session_state[
+                    widget_key(
+                        f"remote_session_notes_{new_session.session_id}", case_idx
+                    )
+                ] = new_session.notes
+                st.rerun()
+        with action_cols[1]:
+            st.caption(
+                "Document each remote control session separately. Rename, reorder, or "
+                "remove panels as needed."
+            )
+
+        for idx in range(len(sessions)):
+            session = sessions[idx]
+            if idx:
+                st.markdown("---")
+            container = st.container()
+            with container:
+                header_cols = st.columns([6, 1, 1, 1])
+                title_key = widget_key(
+                    f"remote_session_title_{session.session_id}", case_idx
+                )
+                if title_key not in st.session_state:
+                    st.session_state[title_key] = session.title
+                new_title = header_cols[0].text_input(
+                    "Title",
+                    value=session.title,
+                    key=title_key,
+                )
+                move_up_key = widget_key(
+                    f"remote_session_up_{session.session_id}", case_idx
+                )
+                move_down_key = widget_key(
+                    f"remote_session_down_{session.session_id}", case_idx
+                )
+                remove_key = widget_key(
+                    f"remote_session_remove_{session.session_id}", case_idx
+                )
+                with header_cols[1]:
+                    if st.button(
+                        "↑",
+                        disabled=idx == 0,
+                        key=move_up_key,
+                        help="Move session up",
+                    ):
+                        sessions.insert(idx - 1, sessions.pop(idx))
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+                with header_cols[2]:
+                    if st.button(
+                        "↓",
+                        disabled=idx == len(sessions) - 1,
+                        key=move_down_key,
+                        help="Move session down",
+                    ):
+                        sessions.insert(idx + 1, sessions.pop(idx))
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+                with header_cols[3]:
+                    if st.button(
+                        "Remove",
+                        disabled=len(sessions) == 1,
+                        key=remove_key,
+                        help="Delete this session panel",
+                    ):
+                        sessions.pop(idx)
+                        if not sessions:
+                            default_session = RemoteSessionEntry(
+                                title="Session 1",
+                                notes="",
+                            )
+                            sessions.append(default_session)
+                        update_case_remote_sessions(D, sessions)
+                        st.rerun()
+
+                if new_title != session.title:
+                    session.title = new_title
+                    session.touch()
+                    update_case_remote_sessions(D, sessions)
+                    sessions = D.remote_sessions
+                    session = sessions[idx]
+                    st.session_state[title_key] = session.title
+
+                timestamp_parts: list[str] = []
+                created_value = (session.created_at or "").strip()
+                updated_value = (session.updated_at or "").strip()
+                if created_value:
+                    timestamp_parts.append(f"Created: {created_value}")
+                if updated_value and updated_value != created_value:
+                    timestamp_parts.append(f"Updated: {updated_value}")
+                if timestamp_parts:
+                    st.caption(" · ".join(timestamp_parts))
+
+                notes_key = widget_key(
+                    f"remote_session_notes_{session.session_id}", case_idx
+                )
+                if notes_key not in st.session_state:
+                    st.session_state[notes_key] = session.notes
+                new_notes = st.text_area(
+                    "Session notes",
+                    session.notes,
+                    height=800,
+                    key=notes_key,
+                )
+                if new_notes != session.notes:
+                    session.notes = new_notes
+                    session.touch()
+                    update_case_remote_sessions(D, sessions)
+                    sessions = D.remote_sessions
+                    session = sessions[idx]
+                    st.session_state[notes_key] = session.notes
+
 
     # ================== TABLES TAB =================
     with tab_tables:
@@ -10317,8 +13551,62 @@ Thank you in advance,
             key=widget_key("download_info_pdf", case_idx),
         )
         for cat in cat_map:
-            st.markdown(f"**{table_title(cat)}**")
-            st.dataframe(category_dataframe(cat, D, cat_map), width="stretch")
+            title_text = table_title(cat)
+            st.markdown(f"**{title_text}**")
+
+            copy_suffix_raw = f"tables_{case_idx}_{cat}".lower()
+            copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_suffix_raw)
+            if not copy_suffix:
+                copy_suffix = "copy"
+            if copy_suffix[0].isdigit():
+                copy_suffix = f"a{copy_suffix}"
+
+            title_payload = script_safe_json(title_text)
+            table_payload = script_safe_json(table_plain_text(cat, D, cat_map))
+            components.html(
+                f"""
+                <div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;\">
+                    <button onclick=\"copyTitle{copy_suffix}()\"
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                        Copy title
+                    </button>
+                    <button onclick=\"copyTable{copy_suffix}()\"
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                        Copy table
+                    </button>
+                    <span id=\"feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                </div>
+                <script>
+                    const feedbackElem{copy_suffix} = document.getElementById('feedback-{copy_suffix}');
+                    function showFeedback{copy_suffix}(message) {{
+                        if (!feedbackElem{copy_suffix}) return;
+                        feedbackElem{copy_suffix}.textContent = message;
+                        setTimeout(() => {{
+                            if (feedbackElem{copy_suffix}.textContent === message) {{
+                                feedbackElem{copy_suffix}.textContent = '';
+                            }}
+                        }}, 2000);
+                    }}
+                    function copyTitle{copy_suffix}() {{
+                        navigator.clipboard.writeText({title_payload}).then(() => {{
+                            showFeedback{copy_suffix}('Title copied');
+                        }});
+                    }}
+                    function copyTable{copy_suffix}() {{
+                        navigator.clipboard.writeText({table_payload}).then(() => {{
+                            showFeedback{copy_suffix}('Table copied');
+                        }});
+                    }}
+                </script>
+                """,
+                height=80,
+                key=widget_key(f"tables_copy_controls_{copy_suffix}", case_idx),
+            )
+            st.dataframe(
+                category_dataframe(cat, D, cat_map),
+                width="stretch",
+                key=widget_key(f"tables_df_{copy_suffix}", case_idx),
+            )
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
@@ -10692,10 +13980,13 @@ Thank you in advance,
 
     autosave()
 
+reminder_state = _refresh_wellness_reminder_state()
+render_wellness_alert(reminder_state)
+
 case_labels = [
     cs.case.case_id or f"Case {i+1}" for i, cs in enumerate(st.session_state.case_sessions)
 ] + ["+ New Case"]
-tab_labels: list[str] = ["Dashboard", "Settings"]
+tab_labels: list[str] = ["Dashboard", "Saved Cases", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
 show_kiroshi_chat = st.session_state.get("show_kiroshi_chat", True)
@@ -10707,21 +13998,23 @@ all_tabs = st.tabs(tab_labels)
 
 tab_index = 0
 with all_tabs[tab_index]:
-    render_dashboard()
+    render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
 tab_index += 1
 with all_tabs[tab_index]:
-    render_settings_panel()
+    render_with_monitor("Settings", render_settings_panel, tab_label="Settings")
 tab_index += 1
 if st.session_state.debug_mode:
     with all_tabs[tab_index]:
-        render_debug_panel()
+        render_with_monitor("Debug", render_debug_panel, tab_label="Debug")
     tab_index += 1
 with all_tabs[tab_index]:
-    render_report_panel()
+    render_with_monitor("Report", render_report_panel, tab_label="Report")
 tab_index += 1
 if show_kiroshi_chat:
     with all_tabs[tab_index]:
-        render_kiroshi_chat_panel()
+        render_with_monitor(
+            "Kiroshi Chat", render_kiroshi_chat_panel, tab_label="Kiroshi Chat"
+        )
     tab_index += 1
 
 case_tabs = all_tabs[tab_index:]
@@ -10733,6 +14026,14 @@ for idx, tab in enumerate(case_tabs):
                 _sync_case_memory_from_sessions()
                 st.rerun()
         else:
-            load_case_state(idx)
-            render_case_ui(idx)
-            save_case_state(idx)
+            case_label = case_labels[idx]
+            render_with_monitor(
+                f"Case: {case_label}",
+                _render_case_tab,
+                idx,
+                tab_label=case_label,
+                case_index=idx,
+            )
+
+show_failure_modal()
+show_incident_report_modal()
