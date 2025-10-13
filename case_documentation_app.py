@@ -13163,7 +13163,10 @@ End with: We look forward to your reply."""
             elif email_type == "Custom":
                 st.markdown("#### Custom prompt builder")
                 ext["custom_user_prompt"] = st.text_area(
-                    "User instructions", ext.get("custom_user_prompt", ""), height=140
+                    "User instructions",
+                    ext.get("custom_user_prompt", ""),
+                    height=140,
+                    key=widget_key("custom_user_prompt", case_idx),
                 )
                 case_context = build_case_data_block(D)
                 st.text_area(
