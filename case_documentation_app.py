@@ -4291,6 +4291,31 @@ class CaseData:
     dongle_deployment_date: str = ""
     scanner_previous_replacements: int = 0
     scanner_accidental_damage: bool = False
+    # Dell escalation specifics
+    dell_issue_start_date: str = ""
+    dell_command_updates_status: str = ""
+    dell_power_options_setup: str = ""
+    dell_optimizer_setup: str = ""
+    dell_intel_ppm_installed: str = ""
+    dell_cpu_speed_or_throttling: str = ""
+    dell_gpu_usage_integrated: str = ""
+    dell_gpu_usage_dedicated: str = ""
+    dell_cpu_utilization: str = ""
+    dell_benchmark_results: str = ""
+    dell_ultra_resolution_support: str = ""
+    dell_gpu_driver_versions: str = ""
+    dell_reliability_monitor_results: str = ""
+    dell_diagnostics_results: str = ""
+    dell_windows_reimaged: str = ""
+    clinic_name: str = ""
+    clinic_contact_name: str = ""
+    clinic_contact_phone: str = ""
+    clinic_contact_email: str = ""
+    clinic_address_line_1: str = ""
+    clinic_address_line_2: str = ""
+    clinic_city: str = ""
+    clinic_state: str = ""
+    clinic_postal_code: str = ""
     tracking: TrackingData = field(default_factory=TrackingData)
     kiroshi_version: str = VERSION
     last_modified: str = ""
@@ -8514,6 +8539,66 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         st.session_state[key] = value
         autosave()
 
+DELL_ESCALATION_OVERVIEW_FIELDS = [
+    ("dell_issue_start_date", "Issue start date"),
+    ("service_tag", "PC service tag"),
+    ("case_id", "Case ID"),
+]
+
+DELL_ESCALATION_PC_FIELDS = [
+    ("pc_model", "Type of PC"),
+    ("bios_version", "BIOS Version"),
+    ("windows_version", "Windows Version"),
+    ("graphics_card", "Graphics card"),
+    ("processor", "Processor"),
+    ("dell_command_updates_status", "Dell Command Updates"),
+    ("dell_power_options_setup", "Power Options setup"),
+    ("dell_optimizer_setup", "Dell Optimizer setup"),
+    (
+        "dell_intel_ppm_installed",
+        "Intel Processor Power Management Utility installed?",
+    ),
+    ("dell_cpu_speed_or_throttling", "CPU Speed / Is CPU throttling?"),
+    ("dell_gpu_usage_integrated", "GPU Usage % (Integrated)"),
+    ("dell_gpu_usage_dedicated", "GPU Usage % (Dedicated)"),
+    ("dell_cpu_utilization", "CPU Utilization %"),
+    ("dell_benchmark_results", "Benchmark used and results"),
+    (
+        "dell_ultra_resolution_support",
+        "Can it launch simulation on Ultra Resolution? (If needed)",
+    ),
+    ("dell_gpu_driver_versions", "Which GPU driver versions were tested?"),
+    (
+        "dell_reliability_monitor_results",
+        "Reliability Monitor and Event Viewer results",
+    ),
+    ("dell_diagnostics_results", "Dell Diagnosis test results (ePSA tests included)"),
+    ("dell_windows_reimaged", "Has Windows been reimaged?"),
+]
+
+DELL_ESCALATION_CONTACT_FIELDS = [
+    ("clinic_name", "Clinic name"),
+    (
+        "clinic_contact_name",
+        "Full name of person responsible for receiving the equipment",
+    ),
+    ("clinic_contact_phone", "Phone number"),
+    ("clinic_contact_email", "Email address"),
+    ("clinic_address_line_1", "Address 1"),
+    ("clinic_address_line_2", "Address 2 (Suite, etc.)"),
+    ("clinic_city", "City"),
+    ("clinic_state", "State"),
+    ("clinic_postal_code", "Zip Code"),
+]
+
+DELL_ESCALATION_FIELD_LABELS = (
+    DELL_ESCALATION_OVERVIEW_FIELDS
+    + DELL_ESCALATION_PC_FIELDS
+    + DELL_ESCALATION_CONTACT_FIELDS
+)
+
+DELL_ESCALATION_FIELDS = [field for field, _ in DELL_ESCALATION_FIELD_LABELS]
+
 BASE_CATEGORY_MAP = {
     "HEADER": [
         "company_name",
@@ -8545,6 +8630,7 @@ BASE_CATEGORY_MAP = {
         "straumann",
     ],
     "ESCALATION 2ND LINE": ["esc_name", "esc_ph", "esc_email"],
+    "DELL ESCALATION": DELL_ESCALATION_FIELDS,
     "ADDITIONAL INFORMATION": ["additional_info"],
 }
 
@@ -8570,6 +8656,9 @@ HW_CATEGORY_MAP = {
 }
 
 
+OPTIONAL_PROGRESS_CATEGORIES = {"DELL ESCALATION"}
+
+
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
     if st.session_state.get("second_line_mode"):
@@ -8577,6 +8666,7 @@ def active_category_map():
     if not st.session_state.get("include_escalations", True):
         cm.pop("AX COORDINATORS", None)
         cm.pop("ESCALATION 2ND LINE", None)
+        cm.pop("DELL ESCALATION", None)
     if st.session_state.get("include_hardware"):
         cm.update(HW_CATEGORY_MAP)
     return cm
@@ -8762,6 +8852,8 @@ def compute_progress(d: CaseData, cat_map):
     """Compute completion progress for each category."""
     prog, miss = {}, {}
     for cat, flds in cat_map.items():
+        if cat in OPTIONAL_PROGRESS_CATEGORIES:
+            continue
         vals = [getattr(d, f) for f in flds]
         done = sum(bool(v) for v in vals)
         prog[cat] = int(done / len(flds) * 100)
@@ -8868,9 +8960,12 @@ def category_dataframe(
 ) -> pd.DataFrame:
     """Return a DataFrame with human readable field names for a category."""
     rows = []
+    label_overrides = dict(DELL_ESCALATION_FIELD_LABELS)
     for fld in (cat_map or {}).get(cat, []):
         value = getattr(d, fld, "N/A")
         label = fld.replace("_", " ").title()
+        if cat == "DELL ESCALATION":
+            label = label_overrides.get(fld, label)
         if fld == "scanner_accidental_damage":
             label = "Damage Classification"
             value = "Accidental Damage" if getattr(d, fld) else "Internal Damage"
@@ -8890,6 +8985,7 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
     """Return a newline formatted view of a category table."""
 
     lines = [table_title(cat)]
+    label_overrides = dict(DELL_ESCALATION_FIELD_LABELS)
     for fld in (cat_map or {}).get(cat, []):
         raw_value = getattr(d, fld, "")
         if isinstance(raw_value, bool):
@@ -8901,8 +8997,84 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
         if "\n" in display:
             display = "\n    ".join(display.splitlines())
         label = fld.replace("_", " ").title()
+        if cat == "DELL ESCALATION":
+            label = label_overrides.get(fld, label)
         lines.append(f"{label}: {display}")
     return "\n".join(lines)
+
+
+def _format_display_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if value is None:
+        return "N/A"
+    text = str(value).strip()
+    return text if text else "N/A"
+
+
+def _format_multiline(value: str) -> str:
+    cleaned = value.replace("\r\n", "\n").replace("\r", "\n")
+    if "\n" in cleaned:
+        return "\n  ".join(cleaned.splitlines())
+    return cleaned
+
+
+def dell_escalation_rows(d: CaseData) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for field, label in DELL_ESCALATION_FIELD_LABELS:
+        raw_value = getattr(d, field, "")
+        display = _format_display_value(raw_value)
+        rows.append({"Field": label, "Value": display})
+    return rows
+
+
+def dell_escalation_dataframe(d: CaseData) -> pd.DataFrame:
+    return pd.DataFrame(dell_escalation_rows(d))
+
+
+def dell_escalation_plain_text(d: CaseData) -> str:
+    lines = ["Dell Escalation"]
+    for field, label in DELL_ESCALATION_FIELD_LABELS:
+        raw_value = getattr(d, field, "")
+        display = _format_multiline(_format_display_value(raw_value))
+        lines.append(f"{label}: {display}")
+    return "\n".join(lines)
+
+
+def build_dell_escalation_email(d: CaseData) -> str:
+    """Compose the Dell escalation template using captured diagnostics and contacts."""
+
+    company = d.company_name or "(Company Name)"
+    issue_desc = d.brief_description or "(Issue Description)"
+    issue_start = _format_display_value(d.dell_issue_start_date)
+    case_no = d.case_id or "(Case ID)"
+    service_tag = _format_display_value(d.service_tag)
+
+    pc_lines = [
+        f"- {label}: {_format_multiline(_format_display_value(getattr(d, field, '')))}"
+        for field, label in DELL_ESCALATION_PC_FIELDS
+    ]
+    contact_lines = [
+        f"- {label}: {_format_multiline(_format_display_value(getattr(d, field, '')))}"
+        for field, label in DELL_ESCALATION_CONTACT_FIELDS
+    ]
+
+    pc_section = "\n".join(pc_lines)
+    contact_section = "\n".join(contact_lines)
+
+    return (
+        "Hello Dell Support team,\n\n"
+        f"The end-user from {company} has been reporting {issue_desc}, which has been happening since {issue_start}. "
+        "Could you please assist this customer with a Dell Technician on site?\n"
+        f"Case ID {case_no}\n"
+        f"PC service tag {service_tag}\n"
+        "Evidence attached to this email.\n\n"
+        "Computer information:\n\n"
+        f"{pc_section}\n\n"
+        "Clinic's contact information:\n\n"
+        f"{contact_section}\n\n"
+        "Thank you in advance,"
+    )
 
 
 def _slugify_hotkey(text: str) -> str:
@@ -10499,59 +10671,14 @@ End with: We look forward to your reply."""
                     if extras:
                         prompt += "\n\n" + "\n".join(extras)
             elif email_type == "Dell Escalation Email":
-                st.markdown("#### Dell escalation options")
-                ext["issue_start_date"] = st.text_input(
-                    "Issue start date", ext.get("issue_start_date", "")
+                st.markdown("#### Dell escalation data preview")
+                st.info(
+                    "Update the Dell escalation section in the Escalations tab to refresh this template."
                 )
-                company = D.company_name or "(Company Name)"
-                issue_desc = D.brief_description or "(Issue Description)"
-                issue_start = ext["issue_start_date"] or "(Issue Start Date)"
-                case_no = D.case_id or "(Case ID)"
-                service_tag = D.service_tag or "(Service Tag)"
-                pc_model = D.pc_model or ""
-                bios = D.bios_version or ""
-                windows = D.windows_version or ""
-                email_text = f"""Hello Dell Support team,
-
-The end-user from {company} has been reporting {issue_desc}, which has been happening since {issue_start}. Could you please assist this customer with a Dell Technician on site?
-Case ID {case_no}
-PC service tag {service_tag}
-Evidence attached to this email.
-
-Computer information:
-
-- Type of PC: {pc_model}
-- BIOS Version: {bios}
-- Windows Version: {windows}
-- Dell Command Updates:
-- Power Options setup:
-- Dell Optimizer setup:
-- Intel Processor Power Management Utility installed?:
-- CPU Speed / Is CPU throttling?:
-- GPU Usage % (Integrated):
-- GPU Usage % (Dedicated):
-- CPU Utilization %:
-- Benchmark used and results:
-- Can it launch simulation on Ultra Resolution? (If needed):
-- Which GPU driver versions were tested?:
-- Reliability Monitor and Event Viewer results:
-- Dell Diagnosis test results (ePSA tests included):
-- Has Windows been reimaged?:
-
-Clinic's contact information:
-
-- Address 1
-- Address 2 (Suite, etc.)
-- City
-- State
-- Zip Code
-- Full name of person responsible for receiving the equipment
-- Phone number
-- Email address
-- Clinic name
-
-Thank you in advance,
-"""
+                st.dataframe(
+                    dell_escalation_dataframe(D), use_container_width=True
+                )
+                email_text = build_dell_escalation_email(D)
                 st.text_area(
                     "Email",
                     email_text,
@@ -10869,6 +10996,178 @@ Thank you in advance,
                 st.dataframe(
                     category_dataframe("ESCALATION 2ND LINE", D, cat_map),
                     width="stretch",
+                )
+
+            st.markdown("---")
+            st.subheader("Dell escalation data")
+            st.caption(
+                "Capture the Dell-specific diagnostics and clinic contact details required for vendor escalations."
+            )
+            auto_text_input("Issue start date", "dell_issue_start_date")
+
+            st.markdown("##### PC diagnostics & setup")
+            diag_col1, diag_col2 = st.columns(2)
+            auto_text_input(
+                "Dell Command Updates status",
+                "dell_command_updates_status",
+                container=diag_col1,
+            )
+            auto_text_input(
+                "Power Options setup",
+                "dell_power_options_setup",
+                container=diag_col2,
+            )
+            auto_text_input(
+                "Dell Optimizer setup",
+                "dell_optimizer_setup",
+                container=diag_col1,
+            )
+            auto_text_input(
+                "Intel Processor Power Management Utility installed?",
+                "dell_intel_ppm_installed",
+                container=diag_col2,
+            )
+
+            st.markdown("##### Performance & drivers")
+            perf_col1, perf_col2 = st.columns(2)
+            auto_text_input(
+                "CPU Speed / Is CPU throttling?",
+                "dell_cpu_speed_or_throttling",
+                container=perf_col1,
+            )
+            auto_text_input(
+                "GPU Usage % (Integrated)",
+                "dell_gpu_usage_integrated",
+                container=perf_col2,
+            )
+            auto_text_input(
+                "GPU Usage % (Dedicated)",
+                "dell_gpu_usage_dedicated",
+                container=perf_col1,
+            )
+            auto_text_input(
+                "CPU Utilization %",
+                "dell_cpu_utilization",
+                container=perf_col2,
+            )
+            auto_text_area(
+                "Benchmark used and results",
+                "dell_benchmark_results",
+                container=perf_col1,
+                height=100,
+            )
+            auto_text_area(
+                "Which GPU driver versions were tested?",
+                "dell_gpu_driver_versions",
+                container=perf_col2,
+                height=100,
+            )
+            auto_text_input(
+                "Can it launch simulation on Ultra Resolution? (If needed)",
+                "dell_ultra_resolution_support",
+            )
+
+            st.markdown("##### Diagnostics")
+            diag_notes_col1, diag_notes_col2 = st.columns(2)
+            auto_text_area(
+                "Reliability Monitor and Event Viewer results",
+                "dell_reliability_monitor_results",
+                container=diag_notes_col1,
+                height=120,
+            )
+            auto_text_area(
+                "Dell Diagnosis test results (ePSA tests included)",
+                "dell_diagnostics_results",
+                container=diag_notes_col2,
+                height=120,
+            )
+            auto_text_input(
+                "Has Windows been reimaged?",
+                "dell_windows_reimaged",
+            )
+
+            st.markdown("##### Clinic contact information")
+            clinic_col1, clinic_col2 = st.columns(2)
+            auto_text_input("Clinic name", "clinic_name", container=clinic_col1)
+            auto_text_input(
+                "Full name of person responsible for receiving the equipment",
+                "clinic_contact_name",
+                container=clinic_col2,
+            )
+            auto_text_input(
+                "Phone number",
+                "clinic_contact_phone",
+                container=clinic_col1,
+            )
+            auto_text_input(
+                "Email address",
+                "clinic_contact_email",
+                container=clinic_col2,
+            )
+            auto_text_input("Address 1", "clinic_address_line_1", container=clinic_col1)
+            auto_text_input("Address 2 (Suite, etc.)", "clinic_address_line_2", container=clinic_col2)
+            auto_text_input("City", "clinic_city", container=clinic_col1)
+            auto_text_input("State", "clinic_state", container=clinic_col2)
+            auto_text_input("Zip Code", "clinic_postal_code", container=clinic_col1)
+
+            st.markdown("##### Dell escalation table preview")
+            dell_table = dell_escalation_dataframe(D)
+            st.dataframe(dell_table, use_container_width=True)
+            copy_col, download_col = st.columns([2, 3])
+            with copy_col:
+                copy_key = widget_key("dell_escalation_copy", case_idx)
+                copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_key.lower())
+                if not copy_suffix:
+                    copy_suffix = "dellcopy"
+                if copy_suffix[0].isdigit():
+                    copy_suffix = f"d{copy_suffix}"
+                table_payload = json.dumps(dell_escalation_plain_text(D))
+                table_payload = table_payload.replace("</", "<\\/")
+                components.html(
+                    f"""
+                    <div style=\"display:flex;gap:0.5rem;align-items:center;\">
+                        <button onclick=\"copyDellTable{copy_suffix}()\"
+                                style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                            Copy Dell table
+                        </button>
+                        <span id=\"dell-feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                    </div>
+                    <script>
+                        const dellFeedback{copy_suffix} = document.getElementById('dell-feedback-{copy_suffix}');
+                        function showDellFeedback{copy_suffix}(message) {{
+                            if (!dellFeedback{copy_suffix}) return;
+                            dellFeedback{copy_suffix}.textContent = message;
+                            setTimeout(() => {{
+                                if (dellFeedback{copy_suffix}.textContent === message) {{
+                                    dellFeedback{copy_suffix}.textContent = '';
+                                }}
+                            }}, 2000);
+                        }}
+                        function copyDellTable{copy_suffix}() {{
+                            navigator.clipboard.writeText({table_payload}).then(() => {{
+                                showDellFeedback{copy_suffix}('Dell escalation copied');
+                            }});
+                        }}
+                    </script>
+                    """,
+                    height=60,
+                )
+            with download_col:
+                csv_bytes = dell_table.to_csv(index=False).encode("utf-8")
+                json_bytes = json.dumps(dell_escalation_rows(D), indent=2).encode("utf-8")
+                st.download_button(
+                    "Download CSV",
+                    csv_bytes,
+                    file_name=f"{D.case_id or 'case'}_dell_escalation.csv",
+                    mime="text/csv",
+                    key=widget_key("download_dell_escalation_csv", case_idx),
+                )
+                st.download_button(
+                    "Download JSON",
+                    json_bytes,
+                    file_name=f"{D.case_id or 'case'}_dell_escalation.json",
+                    mime="application/json",
+                    key=widget_key("download_dell_escalation_json", case_idx),
                 )
 
             if st.session_state.second_line_mode:
