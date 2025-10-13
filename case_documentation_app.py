@@ -543,6 +543,78 @@ _REPORT_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 }
 
 
+_STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
+    "Scanner Hardware": {
+        "scanner_models": (
+            "trios 3",
+            "trios3",
+            "trios 4",
+            "trios4",
+            "trios 5",
+            "trios5",
+            "trios move",
+            "trios move+",
+            "move+",
+            "move plus",
+            "pod",
+            "pod 3",
+            "pod 4",
+            "go",
+        ),
+        "root_cause_codes": (
+            "hw",
+            "hardware",
+            "scanner",
+            "device",
+        ),
+        "recurrence_threshold": 2,
+    },
+    "Software / Installation": {
+        "root_cause_codes": (
+            "bug",
+            "sw",
+            "software",
+            "defect",
+        ),
+        "tokens": ("bug", "defect"),
+        "recurrence_threshold": 1,
+    },
+    "Hardware / Connectivity": {
+        "root_cause_codes": (
+            "net",
+            "network",
+            "connect",
+            "vpn",
+            "wifi",
+        ),
+    },
+    "Workflow Guidance": {
+        "root_cause_codes": (
+            "workflow",
+            "training",
+            "usage",
+            "user",
+        ),
+    },
+    "Account / Licensing": {
+        "root_cause_codes": (
+            "lic",
+            "license",
+            "licensing",
+        ),
+    },
+    "Data Management": {
+        "root_cause_codes": (
+            "db",
+            "database",
+            "backup",
+            "restore",
+            "sync",
+        ),
+    },
+}
+
+
 def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
@@ -550,6 +622,21 @@ def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = re.sub(r"[^0-9A-Za-z]+", " ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
     return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+
+
+def _normalize_text_field(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _infer_report_category(
@@ -599,15 +686,90 @@ def _infer_report_category(
     return None
 
 
-def _derive_analysis_label(row: Mapping[str, object]) -> str:
+def _infer_structured_category(
+    row: Mapping[str, object], tokens: list[str], context: Mapping[str, object] | None = None
+) -> tuple[str, int] | None:
+    context = context or {}
+    scanner_candidates = [
+        row.get("scanner_model"),
+        row.get("scanner"),
+        row.get("scanner_type"),
+        row.get("scanner_sn"),
+    ]
+    scanner_model = ""
+    for candidate in scanner_candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            scanner_model = candidate.strip()
+            break
+
+    scanner_norm = _normalize_text_field(scanner_model)
+    root_cause_code = row.get("root_cause_code") or row.get("root_cause_id")
+    if isinstance(root_cause_code, str):
+        root_cause_code_norm = _normalize_text_field(root_cause_code)
+    elif isinstance(root_cause_code, (int, float)):
+        root_cause_code_norm = str(root_cause_code)
+    else:
+        root_cause_code_norm = ""
+
+    root_cause_text = _normalize_text_field(row.get("root_cause"))
+    recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
+    structured_scores: dict[str, int] = {}
+
+    token_set = {token.lower() for token in tokens}
+
+    for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
+        score = 0
+        codes = hints.get("root_cause_codes")
+        if codes:
+            for candidate in codes:
+                candidate_norm = _normalize_text_field(candidate)
+                if not candidate_norm:
+                    continue
+                if root_cause_code_norm and (
+                    root_cause_code_norm == candidate_norm
+                    or root_cause_code_norm.startswith(candidate_norm)
+                ):
+                    score += 8
+                if candidate_norm and candidate_norm in root_cause_text:
+                    score += 3
+        scanner_models = hints.get("scanner_models")
+        if scanner_models and scanner_norm:
+            for candidate in scanner_models:
+                candidate_norm = _normalize_text_field(candidate)
+                if not candidate_norm:
+                    continue
+                if scanner_norm == candidate_norm or scanner_norm.startswith(candidate_norm):
+                    score += 6
+        token_prefixes = hints.get("tokens")
+        if token_prefixes:
+            for prefix in token_prefixes:
+                prefix_norm = _normalize_text_field(prefix)
+                if not prefix_norm:
+                    continue
+                for token in token_set:
+                    if token.startswith(prefix_norm):
+                        score += 1
+        threshold = _coerce_int(hints.get("recurrence_threshold"), 0)
+        if threshold and recurrence_count >= threshold:
+            score += 2
+        if score:
+            structured_scores[label] = score
+
+    if not structured_scores:
+        return None
+
+    return max(structured_scores.items(), key=lambda item: item[1])
+
+
+def _derive_analysis_label(
+    row: Mapping[str, object], context: Mapping[str, object] | None = None
+) -> str:
+    context = context or {}
     text_candidates: list[str] = []
     for key in ("category", "classification", "topic", "root_cause", "title", "description_excerpt", "solution"):
         value = row.get(key)
         if isinstance(value, str) and value.strip():
             text_candidates.append(value)
-
-    if not text_candidates:
-        return "General"
 
     tokens: list[str] = []
     for text in text_candidates:
@@ -619,24 +781,83 @@ def _derive_analysis_label(row: Mapping[str, object]) -> str:
             if isinstance(keyword, str) and keyword.strip():
                 tokens.extend(_tokenize_issue_description(keyword))
 
-    if not tokens:
-        return "General"
+    structured_match = _infer_structured_category(row, tokens, context)
+    scanner_label_map: Mapping[str, str] = context.get("scanner_labels", {}) if context else {}
+    root_cause_label_map: Mapping[str, str] = context.get("root_cause_labels", {}) if context else {}
+
+    recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
+    scanner_model = ""
+    for candidate in (
+        row.get("scanner_model"),
+        row.get("scanner"),
+        row.get("scanner_type"),
+        row.get("scanner_sn"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            scanner_model = candidate.strip()
+            break
+
+    root_cause_code = row.get("root_cause_code") or row.get("root_cause_id")
+    if isinstance(root_cause_code, str):
+        root_cause_code_display = root_cause_code.strip().upper()
+    elif root_cause_code is not None:
+        root_cause_code_display = str(root_cause_code)
+    else:
+        root_cause_code_display = ""
+
+    root_cause_text_norm = _normalize_text_field(row.get("root_cause"))
+    root_cause_display = (
+        root_cause_label_map.get(root_cause_text_norm)
+        if root_cause_label_map
+        else row.get("root_cause")
+    )
+
+    if structured_match:
+        label, score = structured_match
+        if root_cause_code_display:
+            return f"{label} – {root_cause_code_display}"
+        if scanner_model:
+            return f"{label} – {scanner_model}"
+        if recurrence_count >= 3:
+            return f"{label} (Recurring)"
+        return label
 
     inferred_category = _infer_report_category(row, tokens)
     if inferred_category:
+        if recurrence_count >= 3:
+            return f"{inferred_category} (Recurring)"
         return inferred_category
 
-    top_tokens: list[str] = []
-    for token, _ in Counter(tokens).most_common():
-        if token not in top_tokens:
-            top_tokens.append(token)
-        if len(top_tokens) >= 2:
-            break
+    if root_cause_code_display:
+        return f"Root Cause – {root_cause_code_display}"
 
-    if not top_tokens:
-        return "General"
+    if scanner_model:
+        scanner_norm = _normalize_text_field(scanner_model)
+        display = scanner_label_map.get(scanner_norm, scanner_model)
+        return f"Scanner – {display}"
 
-    return " / ".join(token.title() for token in top_tokens)
+    if recurrence_count >= 3:
+        if isinstance(root_cause_display, str) and root_cause_display.strip():
+            return f"Recurring – {_summarize_text(root_cause_display, width=40)}"
+        return "Recurring Issue"
+
+    if tokens:
+        top_tokens: list[str] = []
+        for token, _ in Counter(tokens).most_common():
+            if token not in top_tokens:
+                top_tokens.append(token)
+            if len(top_tokens) >= 2:
+                break
+        if top_tokens:
+            return " / ".join(token.title() for token in top_tokens)
+
+    if isinstance(root_cause_display, str) and root_cause_display.strip():
+        return _summarize_text(root_cause_display, width=40)
+
+    if text_candidates:
+        return _summarize_text(text_candidates[0], width=40)
+
+    return "General"
 _persistent_settings_cache.update(_load_persistent_settings())
 
 
@@ -5412,6 +5633,12 @@ def _render_settings_ai_tab() -> None:
             if ai_dataset:
                 st.success("AI Educate actualizó el conocimiento con los casos guardados.")
                 dataset_updated = True
+                try:
+                    st.session_state.ai_educate_report_cache = collect_ai_educate_report_data(
+                        ai_dataset
+                    )
+                except Exception as exc:
+                    logging.debug("Failed to build report cache after refresh: %s", exc)
             else:
                 st.warning(
                     "No se encontraron casos guardados para analizar. Guarda casos primero."
@@ -5685,16 +5912,67 @@ def render_report_panel() -> None:
         st.info("Activa AI Educate desde Settings para generar reportes.")
         return
     dataset = ensure_ai_learning_dataset()
-    insights = collect_ai_educate_report_data(dataset)
+    if not dataset:
+        st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
+        return
+    cached_insights = st.session_state.get("ai_educate_report_cache")
+    dataset_case_total = dataset.get("case_count") if isinstance(dataset, Mapping) else None
+    if (
+        isinstance(cached_insights, Mapping)
+        and dataset_case_total is not None
+        and cached_insights.get("case_total") == dataset_case_total
+    ):
+        insights = cached_insights
+    else:
+        insights = collect_ai_educate_report_data(dataset)
+        if insights:
+            st.session_state.ai_educate_report_cache = insights
     if not insights:
         st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
         return
 
+    view_order = ["30d", "all_time"]
+    view_labels = {"30d": "Últimos 30 días", "all_time": "Todo el historial"}
+    default_view = st.session_state.get("ai_report_view", "30d")
+    if default_view not in view_order:
+        default_view = "30d"
+    selected_view = st.radio(
+        "Rango de tiempo",
+        options=view_order,
+        index=view_order.index(default_view),
+        format_func=lambda key: view_labels.get(key, key),
+        horizontal=True,
+        key=global_widget_key("ai_report_view"),
+    )
+    st.session_state.ai_report_view = selected_view
+
+    view_totals = insights.get("view_totals", {})
+    current_totals = view_totals.get(selected_view, {})
+
     cols = st.columns(4)
-    cols[0].metric("Casos totales", insights.get("case_total", 0))
-    cols[1].metric("Casos últimos 30 días", insights.get("recent_total", 0))
-    cols[2].metric("Solucionados como bug", insights.get("bug_solution_count", 0))
-    cols[3].metric("Menciones de 'bug'", insights.get("bug_mentions_count", 0))
+    cols[0].metric(
+        f"Casos ({view_labels[selected_view]})",
+        current_totals.get("case_total", 0),
+    )
+    cols[1].metric(
+        "Tipos de caso únicos",
+        current_totals.get("unique_labels", 0),
+    )
+    cols[2].metric(
+        "Solucionados como bug",
+        current_totals.get("bug_solution_count", 0),
+    )
+    cols[3].metric(
+        "Menciones de 'bug'",
+        current_totals.get("bug_mentions_count", 0),
+    )
+
+    if selected_view != "all_time":
+        overall_totals = view_totals.get("all_time", {})
+        st.caption(
+            f"Historial completo: {overall_totals.get('case_total', 0)} casos · "
+            f"{overall_totals.get('unique_labels', 0)} tipos únicos"
+        )
 
     highlight_label = insights.get("highlight_label")
     if highlight_label:
@@ -5707,41 +5985,81 @@ def render_report_panel() -> None:
         if solution_excerpt:
             st.caption(f"Insight de solución: {solution_excerpt}")
 
-    recent_counts = insights.get("recent_counts")
-    if isinstance(recent_counts, pd.DataFrame) and not recent_counts.empty:
-        st.markdown("### Casos más frecuentes (30 días)")
+    counts_map = insights.get("counts", {})
+    selected_counts = counts_map.get(selected_view)
+    if isinstance(selected_counts, pd.DataFrame) and not selected_counts.empty:
+        st.markdown(
+            f"### Casos más frecuentes ({view_labels[selected_view]})"
+        )
         st.dataframe(
-            recent_counts.rename(
+            selected_counts.rename(
                 columns={"analysis_label": "Caso", "count": "Frecuencia"}
             ),
             width="stretch",
         )
         freq_chart = (
-            alt.Chart(recent_counts)
+            alt.Chart(selected_counts)
             .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
             .encode(
                 x=alt.X("count:Q", title="Casos"),
                 y=alt.Y("analysis_label:N", sort="-x", title="Caso"),
-                tooltip=["analysis_label", "count"],
+                tooltip=[
+                    alt.Tooltip("analysis_label:N", title="Caso"),
+                    alt.Tooltip("count:Q", title="Frecuencia"),
+                ],
+                color=alt.value("#2563eb"),
             )
-            .properties(height=260)
+            .properties(height=min(360, 40 * len(selected_counts)))
         )
         render_responsive_altair_chart(freq_chart)
 
-    timeline = insights.get("timeline")
-    if isinstance(timeline, pd.DataFrame) and not timeline.empty:
-        st.markdown("### Tendencia últimos 30 días")
+    timeline_map = {
+        "30d": insights.get("timeline"),
+        "all_time": insights.get("timeline_all"),
+    }
+    selected_timeline = timeline_map.get(selected_view)
+    if isinstance(selected_timeline, pd.DataFrame) and not selected_timeline.empty:
+        st.markdown(f"### Tendencia de casos ({view_labels[selected_view]})")
         timeline_chart = (
-            alt.Chart(timeline)
-            .mark_line(point=True)
+            alt.Chart(selected_timeline)
+            .mark_line(point=True, color="#16a34a")
             .encode(
                 x=alt.X("timestamp:T", title="Fecha"),
                 y=alt.Y("count:Q", title="Casos"),
-                tooltip=["timestamp:T", "count:Q"],
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Fecha"),
+                    alt.Tooltip("count:Q", title="Casos"),
+                ],
             )
-            .properties(height=220)
+            .properties(height=260)
         )
         render_responsive_altair_chart(timeline_chart)
+
+    recurring_df = insights.get("recurring_issue_types")
+    if isinstance(recurring_df, pd.DataFrame) and not recurring_df.empty:
+        st.markdown("### Patrones recurrentes")
+        st.dataframe(
+            recurring_df.rename(
+                columns={"analysis_label": "Caso", "count": "Recurrencias"}
+            ),
+            width="stretch",
+        )
+
+    root_cause_df = insights.get("common_root_causes")
+    if isinstance(root_cause_df, pd.DataFrame) and not root_cause_df.empty:
+        st.markdown("### Causas raíz más comunes")
+        st.dataframe(
+            root_cause_df.rename(columns={"root_cause": "Causa", "count": "Casos"}),
+            width="stretch",
+        )
+
+    scanner_df = insights.get("common_scanner_models")
+    if isinstance(scanner_df, pd.DataFrame) and not scanner_df.empty:
+        st.markdown("### Modelos de escáner reportados")
+        st.dataframe(
+            scanner_df.rename(columns={"scanner": "Modelo", "count": "Casos"}),
+            width="stretch",
+        )
 
     bug_report = st.session_state.get("ai_bug_report")
     bug_cases = insights.get("bug_cases")
@@ -6689,25 +7007,79 @@ def collect_ai_educate_report_data(
 
     df["timestamp"] = pd.to_datetime(df.get("timestamp"), unit="s", errors="coerce")
     df["saved_at_dt"] = pd.to_datetime(df.get("saved_at"), errors="coerce")
-    df["analysis_label"] = df.apply(_derive_analysis_label, axis=1)
+    df["event_time"] = df["timestamp"].where(df["timestamp"].notna(), df["saved_at_dt"])
+
+    root_cause_series = df.get("root_cause", pd.Series(dtype="object"))
+    root_cause_norm = root_cause_series.apply(_normalize_text_field)
+    root_cause_labels: dict[str, str] = {}
+    if isinstance(root_cause_series, pd.Series):
+        for original, normalized in zip(root_cause_series.tolist(), root_cause_norm.tolist()):
+            if normalized and normalized not in root_cause_labels and isinstance(original, str):
+                root_cause_labels[normalized] = original
+    root_cause_counts = root_cause_norm[root_cause_norm != ""].value_counts()
+
+    existing_recurrence = df.get("recurrence_count")
+    if isinstance(existing_recurrence, pd.Series):
+        df["recurrence_count"] = existing_recurrence.apply(_coerce_int)
+    else:
+        df["recurrence_count"] = 0
+    df["recurrence_count"] = df["recurrence_count"].fillna(0).astype(int)
+    df["root_cause_norm"] = root_cause_norm
+    df["root_cause_recurrence"] = df["root_cause_norm"].map(root_cause_counts).fillna(1).astype(int)
+    df["recurrence_count"] = (
+        df[["recurrence_count", "root_cause_recurrence"]].max(axis=1).astype(int)
+    )
+
+    scanner_series = df.get("scanner_model")
+    if scanner_series is None:
+        for alt_col in ("scanner", "scanner_type", "scanner_sn"):
+            if alt_col in df.columns:
+                scanner_series = df.get(alt_col)
+                if scanner_series is not None:
+                    break
+    if scanner_series is None:
+        scanner_series = pd.Series(["" for _ in range(len(df))])
+    scanner_norm = scanner_series.apply(_normalize_text_field)
+    df["scanner_norm"] = scanner_norm
+    scanner_labels: dict[str, str] = {}
+    for original, normalized in zip(scanner_series.tolist(), scanner_norm.tolist()):
+        if normalized and normalized not in scanner_labels and isinstance(original, str):
+            scanner_labels[normalized] = original
+
+    analysis_context = {
+        "root_cause_labels": root_cause_labels,
+        "scanner_labels": scanner_labels,
+    }
+    df["analysis_label"] = df.apply(
+        _derive_analysis_label, axis=1, args=(analysis_context,)
+    )
+
+    analysis_counts = df["analysis_label"].value_counts()
+    df["analysis_recurrence"] = (
+        df["analysis_label"].map(analysis_counts).fillna(1).astype(int)
+    )
+    df["recurrence_count"] = (
+        df[["recurrence_count", "analysis_recurrence"]].max(axis=1).astype(int)
+    )
 
     now = pd.Timestamp.utcnow().tz_localize(None)
     recent_cutoff = now - pd.Timedelta(days=30)
-    recent_cases = df[df["timestamp"] >= recent_cutoff]
+    df["event_time"] = pd.to_datetime(df["event_time"], errors="coerce")
+    recent_cases = df[df["event_time"] >= recent_cutoff]
 
-    recent_counts = (
-        recent_cases.groupby("analysis_label")
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
+    def _build_counts(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return pd.DataFrame(columns=["analysis_label", "count"])
+        counts = (
+            frame.groupby("analysis_label")
+            .size()
+            .reset_index(name="count")
+            .sort_values("count", ascending=False)
+        )
+        return counts
 
-    overall_counts = (
-        df.groupby("analysis_label")
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
+    overall_counts = _build_counts(df)
+    recent_counts = _build_counts(recent_cases)
 
     highlight_case: dict[str, object] | None = None
     highlight_label = None
@@ -6718,7 +7090,7 @@ def collect_ai_educate_report_data(
         highlight_count = int(row["count"])
         candidate = (
             df[df["analysis_label"] == highlight_label]
-            .sort_values("timestamp", ascending=False)
+            .sort_values("event_time", ascending=False)
             .head(1)
         )
         if not candidate.empty:
@@ -6739,32 +7111,99 @@ def collect_ai_educate_report_data(
         axis=1,
     )
 
-    timeline = pd.DataFrame(columns=["timestamp", "count"])
-    if not recent_cases.empty:
+    recent_mask = df["event_time"] >= recent_cutoff
+    bug_mentions_recent = int((bug_mask & recent_mask).sum())
+    bug_solution_recent = int((bug_solution_mask & recent_mask).sum())
+
+    def _build_timeline(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return pd.DataFrame(columns=["timestamp", "count"])
         timeline = (
-            recent_cases.set_index("timestamp")
+            frame.dropna(subset=["event_time"])
+            .set_index("event_time")
             .resample("D")
             .size()
             .rename("count")
             .reset_index()
         )
+        return timeline
 
-    return {
+    timeline_recent = _build_timeline(recent_cases)
+    timeline_all = _build_timeline(df)
+
+    recurring_issue_types = overall_counts[overall_counts["count"] >= 2]
+
+    root_cause_summary = (
+        df[df["root_cause_norm"] != ""]
+        .groupby("root_cause_norm")
+        .agg(count=("root_cause_norm", "size"))
+        .reset_index()
+        .sort_values("count", ascending=False)
+    )
+    if not root_cause_summary.empty:
+        root_cause_summary["root_cause"] = root_cause_summary["root_cause_norm"].map(
+            root_cause_labels
+        )
+        root_cause_summary = root_cause_summary[["root_cause", "count"]]
+
+    scanner_summary = (
+        df[df["scanner_norm"] != ""]
+        .assign(scanner_display=lambda frame: frame["scanner_norm"].map(scanner_labels))
+        .groupby(["scanner_norm", "scanner_display"], dropna=False)
+        .size()
+        .reset_index(name="count")
+        .sort_values("count", ascending=False)
+    )
+    if not scanner_summary.empty:
+        scanner_summary.rename(
+            columns={"scanner_display": "scanner"}, inplace=True
+        )
+        scanner_summary = scanner_summary[["scanner", "count"]]
+    else:
+        scanner_summary = pd.DataFrame(columns=["scanner", "count"])
+
+    view_totals = {
+        "all_time": {
+            "case_total": int(len(df)),
+            "bug_solution_count": int(bug_solution_mask.sum()),
+            "bug_mentions_count": int(bug_mask.sum()),
+            "unique_labels": int(overall_counts["analysis_label"].nunique()) if not overall_counts.empty else 0,
+        },
+        "30d": {
+            "case_total": int(len(recent_cases)),
+            "bug_solution_count": bug_solution_recent,
+            "bug_mentions_count": bug_mentions_recent,
+            "unique_labels": int(recent_counts["analysis_label"].nunique()) if not recent_counts.empty else 0,
+        },
+    }
+
+    insights = {
         "recent_counts": recent_counts,
-        "timeline": timeline,
+        "overall_counts": overall_counts,
+        "counts": {"30d": recent_counts, "all_time": overall_counts},
+        "timeline": timeline_recent,
+        "timeline_all": timeline_all,
         "bug_cases": bug_cases,
         "bug_mentions_count": int(bug_mask.sum()),
         "bug_solution_count": int(bug_solution_mask.sum()),
+        "bug_mentions_recent": bug_mentions_recent,
+        "bug_solution_recent": bug_solution_recent,
         "highlight_case": highlight_case,
         "highlight_label": highlight_label,
         "highlight_count": highlight_count,
         "recent_total": int(len(recent_cases)),
         "case_total": int(len(df)),
+        "view_totals": view_totals,
+        "recurring_issue_types": recurring_issue_types,
+        "common_root_causes": root_cause_summary,
+        "common_scanner_models": scanner_summary,
     }
 
+    return insights
 
-def _build_recent_counts_chart(recent_counts: pd.DataFrame) -> Drawing:
-    chart_data = recent_counts.head(8).copy()
+
+def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
+    chart_data = counts.head(8).copy()
     if chart_data.empty:
         raise ValueError("No hay datos para el gráfico de recurrencia.")
 
@@ -6800,7 +7239,7 @@ def _build_recent_counts_chart(recent_counts: pd.DataFrame) -> Drawing:
         String(
             drawing_width / 2,
             drawing_height - 20,
-            "Casos más frecuentes (30 días)",
+            title,
             fontName="Helvetica-Bold",
             fontSize=12,
             textAnchor="middle",
@@ -6834,7 +7273,7 @@ def _build_recent_counts_chart(recent_counts: pd.DataFrame) -> Drawing:
     return drawing
 
 
-def _build_timeline_chart(timeline: pd.DataFrame) -> Drawing:
+def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
     if timeline.empty:
         raise ValueError("No hay datos para la tendencia temporal.")
 
@@ -6894,7 +7333,7 @@ def _build_timeline_chart(timeline: pd.DataFrame) -> Drawing:
         String(
             drawing_width / 2,
             drawing_height - 20,
-            "Volumen de casos por día (30 días)",
+            title,
             fontName="Helvetica-Bold",
             fontSize=12,
             textAnchor="middle",
@@ -6941,20 +7380,35 @@ def generate_ai_educate_report_pdf(
     story.append(Paragraph("AI Educate – Informe de análisis", title_style))
     story.append(Spacer(1, 16))
 
+    view_totals = insights.get("view_totals") or {}
+    totals_recent = view_totals.get("30d", {}) if isinstance(view_totals, Mapping) else {}
+    totals_all = view_totals.get("all_time", {}) if isinstance(view_totals, Mapping) else {}
+
     summary_data = [
-        ["Total de casos", str(insights.get("case_total", 0))],
-        ["Casos analizados (30 días)", str(insights.get("recent_total", 0))],
+        ["Métrica", "30 días", "Historial"],
         [
-            "Casos con solución marcada como bug",
-            str(insights.get("bug_solution_count", 0)),
+            "Casos analizados",
+            str(totals_recent.get("case_total", insights.get("recent_total", 0))),
+            str(totals_all.get("case_total", insights.get("case_total", 0))),
+        ],
+        [
+            "Tipos de caso únicos",
+            str(totals_recent.get("unique_labels", 0)),
+            str(totals_all.get("unique_labels", 0)),
+        ],
+        [
+            "Soluciones marcadas como bug",
+            str(totals_recent.get("bug_solution_count", insights.get("bug_solution_recent", 0))),
+            str(totals_all.get("bug_solution_count", insights.get("bug_solution_count", 0))),
         ],
         [
             "Casos con mención de bug",
-            str(insights.get("bug_mentions_count", 0)),
+            str(totals_recent.get("bug_mentions_count", insights.get("bug_mentions_recent", 0))),
+            str(totals_all.get("bug_mentions_count", insights.get("bug_mentions_count", 0))),
         ],
     ]
 
-    summary_table = Table(summary_data, colWidths=[240, 120])
+    summary_table = Table(summary_data, colWidths=[220, 120, 120])
     summary_table.setStyle(
         TableStyle(
             [
@@ -6986,33 +7440,108 @@ def generate_ai_educate_report_pdf(
                 story.append(Paragraph("<br/>".join(detail_lines), body_style))
         story.append(Spacer(1, 12))
 
-    recent_counts = insights.get("recent_counts")
-    if isinstance(recent_counts, pd.DataFrame) and not recent_counts.empty:
-        try:
-            drawing = _build_recent_counts_chart(recent_counts)
-            story.append(drawing)
-            story.append(Spacer(1, 12))
-        except Exception:
-            story.append(
-                Paragraph(
-                    "No se pudieron renderizar los gráficos de recurrencia reciente.",
-                    body_style,
+    counts_map_raw = insights.get("counts")
+    counts_map = counts_map_raw if isinstance(counts_map_raw, Mapping) else {}
+    chart_specs = [
+        ("30d", "Casos más frecuentes (30 días)"),
+        ("all_time", "Casos más frecuentes (historial)")
+    ]
+    for key, title in chart_specs:
+        counts_df = counts_map.get(key) if isinstance(counts_map, Mapping) else None
+        if isinstance(counts_df, pd.DataFrame) and not counts_df.empty:
+            try:
+                drawing = _build_frequency_chart(counts_df, title)
+                story.append(drawing)
+                story.append(Spacer(1, 12))
+            except Exception:
+                story.append(
+                    Paragraph(
+                        f"No se pudo renderizar el gráfico de frecuencia ({title}).",
+                        body_style,
+                    )
                 )
-            )
 
-    timeline = insights.get("timeline")
-    if isinstance(timeline, pd.DataFrame) and not timeline.empty:
-        try:
-            drawing = _build_timeline_chart(timeline)
-            story.append(drawing)
-            story.append(Spacer(1, 12))
-        except Exception:
-            story.append(
-                Paragraph(
-                    "No se pudieron renderizar los gráficos de tendencia temporal.",
-                    body_style,
+    timeline_map = [
+        (insights.get("timeline"), "Volumen diario (30 días)"),
+        (insights.get("timeline_all"), "Volumen diario (historial)"),
+    ]
+    for timeline_df, title in timeline_map:
+        if isinstance(timeline_df, pd.DataFrame) and not timeline_df.empty:
+            try:
+                drawing = _build_timeline_chart(timeline_df, title)
+                story.append(drawing)
+                story.append(Spacer(1, 12))
+            except Exception:
+                story.append(
+                    Paragraph(
+                        f"No se pudieron renderizar los gráficos de tendencia ({title}).",
+                        body_style,
+                    )
                 )
+
+    recurring_df = insights.get("recurring_issue_types")
+    if isinstance(recurring_df, pd.DataFrame) and not recurring_df.empty:
+        story.append(Paragraph("Patrones recurrentes", heading_style))
+        rows = [["Caso", "Recurrencias"]]
+        for _, row in recurring_df.head(10).iterrows():
+            rows.append(
+                [str(row.get("analysis_label", "")), str(row.get("count", 0))]
             )
+        recurring_table = Table(rows, colWidths=[320, 120])
+        recurring_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                ]
+            )
+        )
+        story.append(recurring_table)
+        story.append(Spacer(1, 12))
+
+    root_cause_df = insights.get("common_root_causes")
+    if isinstance(root_cause_df, pd.DataFrame) and not root_cause_df.empty:
+        story.append(Paragraph("Causas raíz más comunes", heading_style))
+        rows = [["Causa", "Casos"]]
+        for _, row in root_cause_df.head(10).iterrows():
+            rows.append(
+                [str(row.get("root_cause", "")), str(row.get("count", 0))]
+            )
+        root_table = Table(rows, colWidths=[320, 120])
+        root_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                ]
+            )
+        )
+        story.append(root_table)
+        story.append(Spacer(1, 12))
+
+    scanner_df = insights.get("common_scanner_models")
+    if isinstance(scanner_df, pd.DataFrame) and not scanner_df.empty:
+        story.append(Paragraph("Modelos de escáner reportados", heading_style))
+        rows = [["Modelo", "Casos"]]
+        for _, row in scanner_df.head(10).iterrows():
+            rows.append([str(row.get("scanner", "")), str(row.get("count", 0))])
+        scanner_table = Table(rows, colWidths=[320, 120])
+        scanner_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
+                ]
+            )
+        )
+        story.append(scanner_table)
+        story.append(Spacer(1, 12))
 
     bug_cases = insights.get("bug_cases")
     if isinstance(bug_cases, pd.DataFrame) and not bug_cases.empty:
