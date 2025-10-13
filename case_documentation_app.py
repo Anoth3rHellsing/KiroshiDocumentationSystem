@@ -34,6 +34,7 @@ from typing import Dict, List
 from html import escape
 import textwrap
 import inspect
+import traceback
 
 import pandas as pd
 import altair as alt
@@ -49,6 +50,8 @@ from reportlab.platypus import (
     TableStyle,
     Paragraph,
     Spacer,
+    Image,
+    Preformatted,
 )
 from reportlab.graphics.shapes import Drawing, String
 from reportlab.graphics.charts.barcharts import VerticalBarChart
@@ -115,6 +118,34 @@ DEFAULT_AI_MODE = (
     )
 )
 LOG_FILE = "app.log"
+
+ERROR_DIALOG_MESSAGES = [
+    "Even cybernetic scribes trip sometimes. Give me a second to regroup.",
+    "That panel face-planted. Let's grab the logs before it pretends nothing happened.",
+    "Something went sideways. Want to tag in Support with a quick report?",
+    "Kiroshi hit a weird edge case. Capture it now so the engineers can slay it later.",
+]
+
+
+def _collect_recent_logs(max_bytes: int = 65536) -> str:
+    """Return the tail of the application log file for diagnostics."""
+
+    log_path = Path(LOG_FILE)
+    if not log_path.exists():
+        return "Log file not found."
+
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            start = max(size - max_bytes, 0)
+            handle.seek(start)
+            if start > 0:
+                handle.readline()
+            return handle.read().strip()
+    except OSError as exc:
+        logging.error("Unable to read log file %s: %s", log_path, exc)
+        return f"Unable to read logs: {exc}"
 
 PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
 DEFAULT_TRACKING_PRIORITY = "Normal"
@@ -4548,6 +4579,19 @@ _init_state("autosave_notice", None)
 _init_state("update_status", None)
 _init_state("update_status_checked_at", None)
 _init_state("update_apply_feedback", None)
+_init_state("render_failure_detected", False)
+_init_state("error_modal_open", False)
+_init_state("failure_modal_message", None)
+_init_state("incident_context", None)
+_init_state("reporter_open", False)
+_init_state("reporter_allow_screenshot", True)
+_init_state("incident_reporter_description", "")
+_init_state("incident_reporter_pdf", None)
+_init_state("incident_reporter_capture_error", None)
+_init_state("incident_reporter_screenshot", None)
+_init_state("reporter_source", "auto")
+_init_state("last_rendered_tab", "Dashboard")
+_init_state("last_rendered_case", None)
 _init_state(
     "bored_game",
     {
@@ -5185,6 +5229,179 @@ class CaseSession:
     attachments_index: dict[str, list[dict[str, str]]] = field(
         default_factory=_default_attachments_index
     )
+
+
+def _case_metadata_snapshot(active_index: int | None = None) -> list[dict[str, str]]:
+    """Return a serialised view of known cases for diagnostic exports."""
+
+    sessions = st.session_state.get("case_sessions", [])
+    snapshot: list[dict[str, str]] = []
+    for idx, session in enumerate(sessions):
+        case = getattr(session, "case", None)
+        if not isinstance(case, CaseData):
+            continue
+        tracking = getattr(case, "tracking", None)
+        priority = ""
+        if isinstance(tracking, TrackingData):
+            priority = tracking.priority
+        snapshot.append(
+            {
+                "Case": case.case_id or f"Case {idx + 1}",
+                "Company": case.company_name or "",
+                "Summary": case.brief_description or "",
+                "Priority": priority,
+                "Active": "Yes" if active_index is not None and idx == active_index else "",
+            }
+        )
+    return snapshot
+
+
+def build_incident_report_pdf(
+    context: Mapping[str, object],
+    logs: str,
+    user_notes: str,
+    case_snapshot: list[Mapping[str, str]],
+    *,
+    screenshot: InMemoryUploadedFile | None = None,
+) -> bytes:
+    """Generate a PDF summarising a captured incident."""
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=48,
+        bottomMargin=36,
+    )
+    styles = getSampleStyleSheet()
+    title_style = styles["Title"]
+    body_style = styles["BodyText"]
+    heading_style = styles["Heading3"]
+    code_style = styles.get("Code", body_style)
+
+    elements = [
+        Paragraph("Kiroshi Incident Report", title_style),
+        Spacer(1, 12),
+        Paragraph(
+            f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            body_style,
+        ),
+        Spacer(1, 18),
+    ]
+
+    meta_fields = [
+        ("Section", context.get("section", "")),
+        ("Tab", context.get("tab", "")),
+        ("Trigger", context.get("trigger", "")),
+        ("Timestamp", context.get("timestamp", "")),
+    ]
+    case_index = context.get("case_index")
+    if case_index is not None:
+        try:
+            case_number = int(case_index) + 1
+        except (TypeError, ValueError):
+            case_number = case_index
+        meta_fields.append(("Case index", str(case_number)))
+    exception = context.get("exception")
+    if exception:
+        meta_fields.append(("Exception", str(exception)))
+
+    meta_table_data = [
+        [Paragraph("Field", body_style), Paragraph("Value", body_style)]
+    ]
+    for label, value in meta_fields:
+        meta_table_data.append(
+            [Paragraph(str(label), body_style), Paragraph(str(value or ""), body_style)]
+        )
+    meta_table = Table(meta_table_data, colWidths=[150, 360])
+    meta_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ]
+        )
+    )
+    elements.extend([meta_table, Spacer(1, 18)])
+
+    if case_snapshot:
+        elements.append(Paragraph("Case overview", heading_style))
+        case_table_data: list[list[Paragraph]] = [
+            [
+                Paragraph("Case", body_style),
+                Paragraph("Company", body_style),
+                Paragraph("Summary", body_style),
+                Paragraph("Priority", body_style),
+                Paragraph("Active", body_style),
+            ]
+        ]
+        for entry in case_snapshot:
+            case_table_data.append(
+                [
+                    Paragraph(str(entry.get("Case", "")), body_style),
+                    Paragraph(str(entry.get("Company", "")), body_style),
+                    Paragraph(str(entry.get("Summary", "")), body_style),
+                    Paragraph(str(entry.get("Priority", "")), body_style),
+                    Paragraph(str(entry.get("Active", "")), body_style),
+                ]
+            )
+        case_table = Table(case_table_data, colWidths=[80, 120, 200, 70, 40])
+        case_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ]
+            )
+        )
+        elements.extend([case_table, Spacer(1, 18)])
+
+    elements.append(Paragraph("User notes", heading_style))
+    elements.append(
+        Paragraph(user_notes.strip() or "No user notes provided.", body_style)
+    )
+    elements.append(Spacer(1, 18))
+
+    stacktrace = context.get("stacktrace")
+    if stacktrace:
+        elements.append(Paragraph("Stack trace", heading_style))
+        elements.append(Preformatted(str(stacktrace), code_style))
+        elements.append(Spacer(1, 18))
+
+    elements.append(Paragraph("Recent logs", heading_style))
+    elements.append(Preformatted(logs or "No log entries were captured.", code_style))
+    elements.append(Spacer(1, 18))
+
+    if screenshot:
+        elements.append(Paragraph("Screenshot", heading_style))
+        try:
+            img_stream = io.BytesIO(screenshot.data)
+            shot = Image(img_stream)
+            max_width = 420
+            if shot.drawWidth > max_width:
+                scale = max_width / shot.drawWidth
+                shot.drawWidth *= scale
+                shot.drawHeight *= scale
+            shot.hAlign = "LEFT"
+            elements.extend([shot, Spacer(1, 12)])
+        except Exception as exc:  # pragma: no cover - reportlab image edge cases
+            elements.append(
+                Paragraph(
+                    f"Unable to embed screenshot: {escape(str(exc))}",
+                    body_style,
+                )
+            )
+
+    doc.build(elements)
+    buf.seek(0)
+    return buf.read()
 
 
 # ──────────────── CASE TAB MEMORY ────────────────
@@ -7008,6 +7225,27 @@ def _render_settings_workspace_tab() -> None:
         st.rerun()
 
     st.markdown(
+        "<div class='settings-section-title'><span>🛡️</span>Diagnostics & support</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Collect recent logs and craft a quick PDF for Support whenever something looks off."
+    )
+    if st.button(
+        "Open incident reporter",
+        key=global_widget_key("open_incident_reporter"),
+    ):
+        _open_incident_reporter(
+            {
+                "section": "Manual incident report",
+                "tab": "Settings",
+                "trigger": "manual",
+                "case_index": st.session_state.get("last_rendered_case"),
+            },
+            allow_screenshot=False,
+        )
+
+    st.markdown(
         "<div class='settings-section-title'><span>🌿</span>Wellness reminders</div>",
         unsafe_allow_html=True,
     )
@@ -7645,12 +7883,257 @@ def render_report_panel() -> None:
                         slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_name.lower()).strip("-")
                         file_name = f"recurring_{slug or 'patron'}.pdf"
                         st.download_button(
-                            "Descargar guía PDF", 
+                            "Descargar guía PDF",
                             pattern_pdf,
                             file_name=file_name,
                             mime="application/pdf",
                             key=global_widget_key("recurring_pattern_pdf"),
                         )
+
+
+def _open_incident_reporter(
+    context: Mapping[str, object] | None,
+    *,
+    allow_screenshot: bool,
+) -> None:
+    """Prepare the incident reporter modal with the provided context."""
+
+    base_context: dict[str, object] = {}
+    if isinstance(context, Mapping):
+        base_context.update(context)
+    if "timestamp" not in base_context:
+        base_context["timestamp"] = datetime.now(timezone.utc).isoformat()
+    if "tab" not in base_context:
+        base_context["tab"] = st.session_state.get("last_rendered_tab")
+    if "section" not in base_context:
+        base_context["section"] = base_context.get("tab", "Unknown section")
+    base_context.setdefault("trigger", "auto")
+    base_context.setdefault("case_index", st.session_state.get("last_rendered_case"))
+
+    st.session_state.incident_context = base_context
+    st.session_state.reporter_open = True
+    st.session_state.reporter_allow_screenshot = allow_screenshot
+    st.session_state.reporter_source = str(base_context.get("trigger") or "auto")
+    st.session_state.incident_reporter_description = ""
+    st.session_state.incident_reporter_pdf = None
+    st.session_state.incident_reporter_capture_error = None
+    st.session_state.incident_reporter_screenshot = None
+    st.session_state.error_modal_open = False
+
+
+def show_failure_modal() -> None:
+    """Display a modal when a render failure has been detected."""
+
+    if not st.session_state.get("render_failure_detected"):
+        return
+    if not st.session_state.get("error_modal_open"):
+        return
+
+    message = st.session_state.get("failure_modal_message")
+    if not message:
+        message = random.choice(ERROR_DIALOG_MESSAGES)
+        st.session_state.failure_modal_message = message
+    context = st.session_state.get("incident_context") or {}
+    section_label = context.get("section")
+
+    with st.modal("Something went wrong", key=global_widget_key("render_failure_modal")):
+        st.write(message)
+        if section_label:
+            st.caption(f"Detected while rendering: {section_label}")
+        col_report, col_ignore = st.columns(2)
+        if col_report.button("Report", key=global_widget_key("render_failure_report")):
+            _open_incident_reporter(context, allow_screenshot=True)
+        if col_ignore.button(
+            "I know what I'm doing",
+            key=global_widget_key("render_failure_ignore"),
+        ):
+            st.session_state.error_modal_open = False
+            st.session_state.render_failure_detected = False
+            st.session_state.failure_modal_message = None
+
+
+def show_incident_report_modal() -> None:
+    """Render the incident reporter modal when requested."""
+
+    if not st.session_state.get("reporter_open"):
+        return
+
+    context = st.session_state.get("incident_context") or {}
+    allow_screenshot = bool(st.session_state.get("reporter_allow_screenshot"))
+
+    with st.modal("Incident reporter", key=global_widget_key("incident_report_modal")):
+        st.markdown("### Incident reporter")
+        st.caption(
+            "We'll bundle recent logs, context, and optional screenshots into a PDF you can download."
+        )
+        section = context.get("section")
+        tab_label = context.get("tab")
+        if section or tab_label:
+            context_bits = [str(bit) for bit in (section, tab_label) if bit]
+            st.write("**Context:** " + " · ".join(context_bits))
+
+        st.text_area(
+            "What happened?",
+            key="incident_reporter_description",
+            placeholder="Share any extra detail you'd like Support to know.",
+        )
+
+        screenshot = None
+        if allow_screenshot:
+            st.markdown("#### Screenshot (optional)")
+            shot_name = st.text_input(
+                "Screenshot name",
+                key=global_widget_key("incident_screenshot_name"),
+                help="Used to label the image inside the PDF.",
+            )
+            capture_error = st.session_state.get("incident_reporter_capture_error")
+            if capture_error:
+                st.warning(capture_error)
+            capture_cols = st.columns([1, 1, 1])
+            if capture_cols[0].button(
+                "Capture region",
+                key=global_widget_key("incident_capture"),
+            ):
+                safe_name = shot_name.strip() or f"incident_{int(time.time())}"
+                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
+                shot, error = capture_region_screenshot(safe_name)
+                if shot:
+                    st.session_state.incident_reporter_screenshot = shot
+                    st.session_state.incident_reporter_capture_error = None
+                elif error:
+                    st.session_state.incident_reporter_capture_error = error
+            if capture_cols[1].button(
+                "Use full screenshot",
+                key=global_widget_key("incident_full_capture"),
+            ):
+                if not PYAUTOGUI_AVAILABLE or pyautogui is None:
+                    st.session_state.incident_reporter_capture_error = (
+                        "Full-screen capture is unavailable in this environment."
+                    )
+                else:
+                    safe_name = shot_name.strip() or f"incident_{int(time.time())}"
+                    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
+                    try:
+                        img = pyautogui.screenshot()  # type: ignore[union-attr]
+                    except Exception as exc:  # pragma: no cover - GUI dependent
+                        st.session_state.incident_reporter_capture_error = (
+                            f"Unable to capture screenshot: {exc}"
+                        )
+                    else:
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        buf.seek(0)
+                        st.session_state.incident_reporter_screenshot = InMemoryUploadedFile(
+                            f"{safe_name}.png", buf.getvalue()
+                        )
+                        st.session_state.incident_reporter_capture_error = None
+            if capture_cols[2].button(
+                "Clear screenshot",
+                key=global_widget_key("incident_clear_capture"),
+            ):
+                st.session_state.incident_reporter_screenshot = None
+                st.session_state.incident_reporter_capture_error = None
+
+            screenshot = st.session_state.get("incident_reporter_screenshot")
+            if screenshot:
+                st.image(screenshot.data, caption=screenshot.name, use_column_width=True)
+        else:
+            st.info(
+                "Manual reports skip screenshots. Logs and your notes will still be packaged into the PDF."
+            )
+
+        description = st.session_state.get("incident_reporter_description", "")
+        case_index = context.get("case_index")
+        try:
+            case_idx_int = int(case_index) if case_index is not None else None
+        except (TypeError, ValueError):
+            case_idx_int = None
+
+        if st.button("Generate PDF", key=global_widget_key("incident_generate_pdf")):
+            logs = _collect_recent_logs()
+            case_snapshot = _case_metadata_snapshot(case_idx_int)
+            try:
+                pdf_bytes = build_incident_report_pdf(
+                    context,
+                    logs,
+                    description,
+                    case_snapshot,
+                    screenshot=screenshot if allow_screenshot else None,
+                )
+            except Exception as exc:
+                st.error(f"Unable to build PDF: {exc}")
+            else:
+                st.session_state.incident_reporter_pdf = pdf_bytes
+                st.success("Incident PDF generated. Download below.")
+
+        pdf_bytes = st.session_state.get("incident_reporter_pdf")
+        if isinstance(pdf_bytes, (bytes, bytearray)):
+            st.download_button(
+                "Download incident PDF",
+                data=pdf_bytes,
+                file_name="kiroshi-incident-report.pdf",
+                mime="application/pdf",
+                key=global_widget_key("incident_pdf_download"),
+            )
+
+        if st.button("Close", key=global_widget_key("incident_close")):
+            st.session_state.reporter_open = False
+            st.session_state.incident_reporter_pdf = None
+            st.session_state.incident_reporter_capture_error = None
+            st.session_state.incident_reporter_screenshot = None
+            if st.session_state.get("reporter_source") != "manual":
+                st.session_state.render_failure_detected = False
+                st.session_state.failure_modal_message = None
+            st.session_state.error_modal_open = False
+            st.session_state.reporter_source = "auto"
+
+
+def render_with_monitor(
+    section_name: str,
+    render_fn: Callable[..., object],
+    *args,
+    tab_label: str | None = None,
+    case_index: int | None = None,
+    **kwargs,
+) -> None:
+    """Execute a rendering function and capture failures into session state."""
+
+    placeholder = st.container()
+    if tab_label:
+        st.session_state.last_rendered_tab = tab_label
+    st.session_state.last_rendered_case = case_index
+    try:
+        with placeholder:
+            render_fn(*args, **kwargs)
+    except Exception as exc:  # pragma: no cover - streamlit runtime guard
+        if getattr(exc, "is_rerun", False) or exc.__class__.__name__ == "RerunException":
+            raise
+        logging.exception("Error rendering %s: %s", section_name, exc)
+        if not st.session_state.get("failure_modal_message"):
+            st.session_state.failure_modal_message = random.choice(ERROR_DIALOG_MESSAGES)
+        st.session_state.render_failure_detected = True
+        st.session_state.error_modal_open = True
+        st.session_state.incident_context = {
+            "section": section_name,
+            "tab": tab_label or section_name,
+            "trigger": "auto",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "case_index": case_index,
+            "exception": repr(exc),
+            "stacktrace": traceback.format_exc(),
+        }
+        st.session_state.reporter_source = "auto"
+        placeholder.error(
+            f"Kiroshi couldn't render **{section_name}**. Use the incident reporter to capture details."
+        )
+
+
+def _render_case_tab(idx: int) -> None:
+    """Render a single case tab inside the failure monitor."""
+
+    load_case_state(idx)
+    render_case_ui(idx)
+    save_case_state(idx)
 
 
 def render_kiroshi_chat_panel() -> None:
@@ -13380,24 +13863,23 @@ all_tabs = st.tabs(tab_labels)
 
 tab_index = 0
 with all_tabs[tab_index]:
-    render_dashboard()
+    render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
 tab_index += 1
 with all_tabs[tab_index]:
-    render_saved_cases_page()
-tab_index += 1
-with all_tabs[tab_index]:
-    render_settings_panel()
+    render_with_monitor("Settings", render_settings_panel, tab_label="Settings")
 tab_index += 1
 if st.session_state.debug_mode:
     with all_tabs[tab_index]:
-        render_debug_panel()
+        render_with_monitor("Debug", render_debug_panel, tab_label="Debug")
     tab_index += 1
 with all_tabs[tab_index]:
-    render_report_panel()
+    render_with_monitor("Report", render_report_panel, tab_label="Report")
 tab_index += 1
 if show_kiroshi_chat:
     with all_tabs[tab_index]:
-        render_kiroshi_chat_panel()
+        render_with_monitor(
+            "Kiroshi Chat", render_kiroshi_chat_panel, tab_label="Kiroshi Chat"
+        )
     tab_index += 1
 
 case_tabs = all_tabs[tab_index:]
@@ -13409,6 +13891,14 @@ for idx, tab in enumerate(case_tabs):
                 _sync_case_memory_from_sessions()
                 st.rerun()
         else:
-            load_case_state(idx)
-            render_case_ui(idx)
-            save_case_state(idx)
+            case_label = case_labels[idx]
+            render_with_monitor(
+                f"Case: {case_label}",
+                _render_case_tab,
+                idx,
+                tab_label=case_label,
+                case_index=idx,
+            )
+
+show_failure_modal()
+show_incident_report_modal()
