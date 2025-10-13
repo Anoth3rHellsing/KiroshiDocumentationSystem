@@ -289,6 +289,7 @@ WELLNESS_TIPS: list[str] = [
 PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "second_line_mode": False,
     "debug_mode": False,
+    "frutiger_aero_mode": False,
     "case_compact_mode": False,
     "show_kiroshi_chat": True,
     "autosave_to_database": False,
@@ -2049,38 +2050,30 @@ if len(KIROSHI_QUIPS_GENERAL) < 8640:
         "Kiroshi slot {slot}: {reference} would binge this efficiency—approve the draft.",
         "Kiroshi slot {slot}: keeping the queue tighter than a {reference} finale timeline.",
     ]
-    _days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-
     general_extension: list[str] = []
     ai_extension: list[str] = []
     for slot_offset in range(_total_slots_needed):
-        month_index = slot_offset // 720
-        week_index = (slot_offset % 720) // 180
-        day_index = (slot_offset % 180) // 36
-        slot_in_day = slot_offset % 36
-        hour = 8 + (slot_in_day // 4)
-        minute = (slot_in_day % 4) * 15
-        time_label = (
-            f"{calendar.month_name[month_index + 1]} W{week_index + 1} "
-            f"{_days_of_week[day_index]} {hour:02d}:{minute:02d}"
-        )
         reference = _references[slot_offset % len(_references)]
         slot_number = slot_offset + 1
         if slot_offset < len(_general_trios_templates):
             general_extension.append(
-                f"{time_label}: {_general_trios_templates[slot_offset].format(reference=reference, slot=slot_number)}"
+                _general_trios_templates[slot_offset].format(
+                    reference=reference, slot=slot_number
+                )
             )
             ai_extension.append(
-                f"{time_label}: {_ai_trios_templates[slot_offset].format(reference=reference, slot=slot_number)}"
+                _ai_trios_templates[slot_offset].format(
+                    reference=reference, slot=slot_number
+                )
             )
             continue
         general_template = _general_templates[slot_offset % len(_general_templates)]
         ai_template = _ai_templates[slot_offset % len(_ai_templates)]
         general_extension.append(
-            f"{time_label}: {general_template.format(reference=reference, slot=slot_number)}"
+            general_template.format(reference=reference, slot=slot_number)
         )
         ai_extension.append(
-            f"{time_label}: {ai_template.format(reference=reference, slot=slot_number)}"
+            ai_template.format(reference=reference, slot=slot_number)
         )
 
     KIROSHI_QUIPS_GENERAL.extend(general_extension)
@@ -2196,12 +2189,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "new_year": ThemePalette(
         key="new_year",
         name="New Year's Day",
-        primary="#0f172a",
-        accent="#fbbf24",
-        background="#0b1120",
-        surface="#10172a",
-        text="#f8fafc",
-        muted_text="#94a3b8",
+        primary="#5b7fff",
+        accent="#ffd166",
+        background="#eef2ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#475569",
         glados_messages=[
             "Fresh calendar, fresh chance—let's make this year's cases legendary!",
             "New year, same scanners. Let’s keep them happier this time.",
@@ -2211,12 +2204,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "mlk_day": ThemePalette(
         key="mlk_day",
         name="Martin Luther King Jr. Day",
-        primary="#1f2937",
-        accent="#60a5fa",
-        background="#0f172a",
-        surface="#16213c",
-        text="#f9fafb",
-        muted_text="#d1d5db",
+        primary="#6d83f2",
+        accent="#b4c6ff",
+        background="#f2f4ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#4b5563",
         glados_messages=[
             "Support with dignity, lead with service—today and every day.",
             "Great support honors great dreams. Keep the mission moving.",
@@ -2226,12 +2219,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "presidents_day": ThemePalette(
         key="presidents_day",
         name="Presidents' Day",
-        primary="#1d4ed8",
-        accent="#ef4444",
-        background="#0f172a",
-        surface="#152346",
-        text="#f9fafb",
-        muted_text="#cbd5f5",
+        primary="#4f70ff",
+        accent="#ff6b6b",
+        background="#f0f4ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#64748b",
         glados_messages=[
             "Lead every ticket like it’s a campaign promise kept.",
             "Checks, balances, and perfectly balanced documentation.",
@@ -2241,12 +2234,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "memorial_day": ThemePalette(
         key="memorial_day",
         name="Memorial Day",
-        primary="#1f2937",
-        accent="#ef4444",
-        background="#111827",
-        surface="#1f2937",
-        text="#f3f4f6",
-        muted_text="#9ca3af",
+        primary="#5b6b92",
+        accent="#ff7b7b",
+        background="#f5f7ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#6b7280",
         glados_messages=[
             "Honor the service. Support with purpose.",
             "Resilience isn’t just for systems—carry it in every case.",
@@ -2256,12 +2249,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "juneteenth": ThemePalette(
         key="juneteenth",
         name="Juneteenth",
-        primary="#047857",
-        accent="#dc2626",
-        background="#022c22",
-        surface="#04312a",
-        text="#f0fdfa",
-        muted_text="#a7f3d0",
+        primary="#22c55e",
+        accent="#f97316",
+        background="#fef6e4",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#4d7c0f",
         glados_messages=[
             "Freedom celebrated, progress documented.",
             "Empower every clinic, uplift every voice.",
@@ -2271,12 +2264,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "independence_day": ThemePalette(
         key="independence_day",
         name="Independence Day",
-        primary="#1d4ed8",
+        primary="#3b82f6",
         accent="#ef4444",
-        background="#0f172a",
-        surface="#172554",
-        text="#f9fafb",
-        muted_text="#cbd5f5",
+        background="#f0f7ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#64748b",
         glados_messages=[
             "Liberty, justice, and scanners for all.",
             "Fireworks are loud—our fixes are louder.",
@@ -2286,12 +2279,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "labor_day": ThemePalette(
         key="labor_day",
         name="Labor Day",
-        primary="#2563eb",
-        accent="#f59e0b",
-        background="#0f172a",
-        surface="#13203d",
-        text="#f9fafb",
-        muted_text="#cbd5f5",
+        primary="#60a5fa",
+        accent="#fbbf24",
+        background="#f2f8ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#475569",
         glados_messages=[
             "Hard work deserves smart workflows. Let’s automate the pain away.",
             "Celebrate progress—ship smoother support.",
@@ -2301,12 +2294,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "columbus_day": ThemePalette(
         key="columbus_day",
         name="Indigenous Peoples' Day",
-        primary="#7c3aed",
-        accent="#f97316",
-        background="#1f172a",
-        surface="#2a1f3d",
-        text="#fdf4ff",
-        muted_text="#d8b4fe",
+        primary="#a855f7",
+        accent="#fb923c",
+        background="#f7f0ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#7c3aed",
         glados_messages=[
             "Respect every journey—map the customer path clearly.",
             "Discover better processes, honor every story.",
@@ -2316,12 +2309,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "veterans_day": ThemePalette(
         key="veterans_day",
         name="Veterans Day",
-        primary="#1f2937",
-        accent="#3b82f6",
-        background="#0f172a",
-        surface="#1f2937",
-        text="#f9fafb",
-        muted_text="#d1d5db",
+        primary="#3b82f6",
+        accent="#facc15",
+        background="#eef5ff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#4b5563",
         glados_messages=[
             "Serve those who served with flawless follow-up.",
             "Precision, honor, gratitude—build them into every note.",
@@ -2331,12 +2324,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "thanksgiving": ThemePalette(
         key="thanksgiving",
         name="Thanksgiving",
-        primary="#b45309",
-        accent="#d97706",
-        background="#422006",
-        surface="#78350f",
-        text="#fef3c7",
-        muted_text="#fde68a",
+        primary="#f59e0b",
+        accent="#f97316",
+        background="#fff7eb",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#92400e",
         glados_messages=[
             "Grateful users, grateful agents—pass the uptime.",
             "Feast on solutions, serve seconds of documentation.",
@@ -2346,12 +2339,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "christmas": ThemePalette(
         key="christmas",
         name="Christmas",
-        primary="#047857",
-        accent="#b91c1c",
-        background="#03110c",
-        surface="#0f1f17",
-        text="#ecfdf5",
-        muted_text="#a7f3d0",
+        primary="#f87171",
+        accent="#34d399",
+        background="#fff9f7",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#6b7280",
         glados_messages=[
             "Wrap each fix with cheer and clarity.",
             "All we want for Christmas is zero escalations.",
@@ -2361,12 +2354,12 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "halloween": ThemePalette(
         key="halloween",
         name="Halloween",
-        primary="#f97316",
-        accent="#7c3aed",
-        background="#111827",
-        surface="#1f2937",
-        text="#fef3c7",
-        muted_text="#c4b5fd",
+        primary="#c084fc",
+        accent="#fb923c",
+        background="#f5ecff",
+        surface="#ffffff",
+        text="#111827",
+        muted_text="#8b5cf6",
         glados_messages=[
             "No tricks, just treats—squash those phantom bugs.",
             "Ghost the downtime, not the customers.",
@@ -2535,6 +2528,21 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             --kiroshi-text-on-surface: {text_on_surface};
             --kiroshi-text-on-white: {text_on_white};
         }}
+        @keyframes kiroshiFadeIn {{
+            from {{
+                opacity: 0;
+                transform: translateY(12px) scale(0.99);
+            }}
+            to {{
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }}
+        }}
+        @keyframes kiroshiSoftDrift {{
+            0% {{ transform: translate3d(0, 0, 0); }}
+            50% {{ transform: translate3d(0, -4px, 0) scale(1.003); }}
+            100% {{ transform: translate3d(0, 0, 0); }}
+        }}
         html, body {{
             background:
                 radial-gradient(circle at 15% 20%, var(--kiroshi-primary-glow) 0%, transparent 55%),
@@ -2570,6 +2578,12 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             box-shadow: 0 26px 60px {_rgba(card_shadow_color, 0.36)};
             padding: 2.2rem 2.4rem 2.4rem;
             color: var(--kiroshi-text);
+            animation: kiroshiFadeIn 0.7s ease-out both;
+            transition: background 320ms ease, box-shadow 320ms ease, transform 260ms ease;
+        }}
+        .stApp .block-container:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 30px 70px {_rgba(card_shadow_color, 0.32)};
         }}
         .stApp [data-testid="stSidebar"] > div:first-child {{
             background: linear-gradient(205deg, var(--kiroshi-surface) 0%, var(--kiroshi-surface-muted) 100%);
@@ -2594,6 +2608,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             border-radius: 0.85rem;
             border: 1px solid color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            transition: border-color 220ms ease, box-shadow 220ms ease;
         }}
         .stApp input::placeholder,
         .stApp textarea::placeholder {{
@@ -2669,6 +2684,48 @@ def apply_theme_palette(theme: ThemePalette) -> None:
         """,
         unsafe_allow_html=True,
     )
+    if st.session_state.get("frutiger_aero_mode"):
+        st.markdown(
+            """
+            <style>
+            @keyframes frutigerGlow {
+                0% { opacity: 0.6; }
+                50% { opacity: 0.9; }
+                100% { opacity: 0.6; }
+            }
+            body::before {
+                content: "";
+                position: fixed;
+                inset: -12% -12% auto;
+                min-height: 120vh;
+                background:
+                    radial-gradient(circle at 20% 20%, rgba(120, 187, 255, 0.32), transparent 55%),
+                    radial-gradient(circle at 80% 10%, rgba(255, 255, 255, 0.35), transparent 60%),
+                    radial-gradient(circle at 65% 85%, rgba(164, 234, 212, 0.28), transparent 65%);
+                pointer-events: none;
+                z-index: -1;
+                animation: frutigerGlow 14s ease-in-out infinite;
+            }
+            .stApp .block-container {
+                backdrop-filter: blur(18px) saturate(130%);
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.92));
+                border: 1px solid rgba(255, 255, 255, 0.55);
+            }
+            .dashboard-section {
+                background: linear-gradient(140deg, rgba(255, 255, 255, 0.92), rgba(212, 233, 255, 0.72));
+                border: 1px solid rgba(255, 255, 255, 0.65);
+                box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
+                animation: kiroshiSoftDrift 16s ease-in-out infinite;
+            }
+            .case-hero {
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(220, 243, 255, 0.75));
+                border: 1px solid rgba(255, 255, 255, 0.7);
+                box-shadow: 0 20px 45px rgba(30, 64, 175, 0.18);
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
     _enable_altair_theme(theme)
 
 
@@ -3608,6 +3665,12 @@ def inject_base_styles() -> None:
             border-radius: 1.1rem;
             box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
             color: var(--kiroshi-text-on-surface);
+            transition: transform 220ms ease, box-shadow 220ms ease;
+            animation: kiroshiFadeIn 0.8s ease-out both;
+        }
+        .dashboard-section:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
         }
 
         .tutorial-wrapper {
@@ -4633,6 +4696,7 @@ _init_state("include_escalations", False)
 _init_state("include_hardware", False)
 _init_state("debug_auth", False)
 _init_state("debug_mode", _get_persistent_default("debug_mode", False))
+_init_state("frutiger_aero_mode", _get_persistent_default("frutiger_aero_mode", False))
 _init_state(
     "autosave_to_database", _get_persistent_default("autosave_to_database", False)
 )
@@ -4734,6 +4798,7 @@ _init_state("incident_reporter_description", "")
 _init_state("incident_reporter_pdf", None)
 _init_state("incident_reporter_capture_error", None)
 _init_state("incident_reporter_screenshot", None)
+_init_state("incident_helpjuice_outline", None)
 _init_state("reporter_source", "auto")
 _init_state("last_rendered_tab", "Dashboard")
 _init_state("last_rendered_case", None)
@@ -7336,10 +7401,22 @@ def _render_settings_workspace_tab() -> None:
             key="debug_mode",
             on_change=_on_setting_change("debug_mode"),
         )
+        if st.session_state.get("debug_mode"):
+            st.toggle(
+                "Activate Frutiger Aero easter egg",
+                key="frutiger_aero_mode",
+                on_change=_on_setting_change("frutiger_aero_mode"),
+                help=(
+                    "Adds a glassy Windows Vista-inspired sheen across the interface. "
+                    "Only available while Debug mode is enabled."
+                ),
+            )
     if prev_debug and not st.session_state.debug_mode:
         st.session_state.debug_auth = False
         st.session_state.show_bored = False
         st.session_state.theme_preview = "auto"
+        st.session_state.frutiger_aero_mode = False
+        _persist_setting("frutiger_aero_mode")
 
     st.markdown(
         "<div class='settings-section-title'><span>💾</span>Autosave & workspace</div>",
@@ -8128,6 +8205,7 @@ def _open_incident_reporter(
     st.session_state.incident_reporter_pdf = None
     st.session_state.incident_reporter_capture_error = None
     st.session_state.incident_reporter_screenshot = None
+    st.session_state.incident_helpjuice_outline = None
     st.session_state.error_modal_open = False
 
 
@@ -8258,6 +8336,17 @@ def show_incident_report_modal() -> None:
             case_idx_int = int(case_index) if case_index is not None else None
         except (TypeError, ValueError):
             case_idx_int = None
+        case_data: CaseData | None = None
+        sessions = st.session_state.get("case_sessions")
+        if isinstance(sessions, list) and case_idx_int is not None:
+            try:
+                session_candidate = sessions[case_idx_int]
+            except (IndexError, TypeError):
+                session_candidate = None
+            if session_candidate is not None:
+                candidate_case = getattr(session_candidate, "case", None)
+                if isinstance(candidate_case, CaseData):
+                    case_data = candidate_case
 
         if st.button("Generate PDF", key=global_widget_key("incident_generate_pdf")):
             logs = _collect_recent_logs()
@@ -8276,6 +8365,25 @@ def show_incident_report_modal() -> None:
                 st.session_state.incident_reporter_pdf = pdf_bytes
                 st.success("Incident PDF generated. Download below.")
 
+        if st.button("Create Helpjuice guide", key=global_widget_key("incident_helpjuice")):
+            logs = _collect_recent_logs()
+            matches = st.session_state.get("ai_learning_matches") or []
+            manual_docs = st.session_state.get("manual_docs") or []
+            try:
+                outline = build_helpjuice_outline(
+                    case_data,
+                    context=context,
+                    logs=logs,
+                    user_notes=description,
+                    matches=matches,
+                    manual_docs=manual_docs,
+                )
+            except Exception as exc:
+                st.error(f"Unable to assemble Helpjuice guide: {exc}")
+            else:
+                st.session_state.incident_helpjuice_outline = outline
+                st.success("Helpjuice outline generated. Copy or download below.")
+
         pdf_bytes = st.session_state.get("incident_reporter_pdf")
         if isinstance(pdf_bytes, (bytes, bytearray)):
             st.download_button(
@@ -8286,11 +8394,29 @@ def show_incident_report_modal() -> None:
                 key=global_widget_key("incident_pdf_download"),
             )
 
+        outline_text = st.session_state.get("incident_helpjuice_outline")
+        if isinstance(outline_text, str) and outline_text.strip():
+            st.markdown("#### Helpjuice guide preview")
+            st.text_area(
+                "Outline",
+                value=outline_text,
+                height=320,
+                key=global_widget_key("incident_helpjuice_preview"),
+            )
+            st.download_button(
+                "Download Helpjuice guide (Markdown)",
+                data=outline_text.encode("utf-8"),
+                file_name="kiroshi-helpjuice-guide.md",
+                mime="text/markdown",
+                key=global_widget_key("incident_helpjuice_download"),
+            )
+
         if st.button("Close", key=global_widget_key("incident_close")):
             st.session_state.reporter_open = False
             st.session_state.incident_reporter_pdf = None
             st.session_state.incident_reporter_capture_error = None
             st.session_state.incident_reporter_screenshot = None
+            st.session_state.incident_helpjuice_outline = None
             if st.session_state.get("reporter_source") != "manual":
                 st.session_state.render_failure_detected = False
                 st.session_state.failure_modal_message = None
@@ -9995,6 +10121,132 @@ def generate_recurring_issue_pdf(
     return buffer.read()
 
 
+def build_helpjuice_outline(
+    case: CaseData | None,
+    *,
+    context: Mapping[str, object] | None = None,
+    logs: str = "",
+    user_notes: str = "",
+    matches: Sequence[Mapping[str, object]] | None = None,
+    manual_docs: Sequence[Mapping[str, object]] | None = None,
+) -> str:
+    """Assemble a Markdown Helpjuice guide based on incident context and history."""
+
+    context = context or {}
+    title_seed = "Helpjuice Guide"
+    if case:
+        for candidate in (case.brief_description, case.company_name, case.case_id):
+            if candidate:
+                title_seed = str(candidate)
+                break
+    elif context.get("section"):
+        title_seed = str(context.get("section"))
+
+    lines: list[str] = [f"# Helpjuice Guide – {title_seed}"]
+
+    meta_bits: list[str] = []
+    if case:
+        if case.company_name:
+            meta_bits.append(f"**Company:** {case.company_name}")
+        if case.case_id:
+            meta_bits.append(f"**Case ID:** {case.case_id}")
+        if case.subscription_id:
+            meta_bits.append(f"**Subscription:** {case.subscription_id}")
+        if case.tracking and getattr(case.tracking, "priority", ""):
+            meta_bits.append(f"**Priority:** {case.tracking.priority}")
+    if context.get("tab"):
+        meta_bits.append(f"**Detected in:** {context.get('tab')}")
+    if context.get("timestamp"):
+        meta_bits.append(f"**Captured:** {context.get('timestamp')}")
+    if meta_bits:
+        lines.append("## Case snapshot")
+        lines.extend(f"- {bit}" for bit in meta_bits)
+
+    if user_notes and user_notes.strip():
+        lines.append("\n## Reporter notes")
+        lines.append(user_notes.strip())
+
+    steps: list[str] = []
+    if case:
+        if case.repro_steps:
+            steps.append(f"Reproduce issue: {case.repro_steps.strip()}")
+        remote_summary = format_remote_sessions_summary(
+            case.remote_sessions, include_timestamps=False
+        )
+        if remote_summary:
+            steps.append(f"Remote session recap: {remote_summary}")
+        if case.solution:
+            steps.append(f"Documented fix: {case.solution.strip()}")
+        if case.root_cause:
+            steps.append(f"Root cause notes: {case.root_cause.strip()}")
+
+    top_matches: Sequence[Mapping[str, object]] = matches or []
+    for match in list(top_matches)[:3]:
+        if not isinstance(match, Mapping):
+            continue
+        case_id = str(match.get("case_id") or "Related case")
+        label = str(
+            match.get("root_cause")
+            or match.get("title")
+            or match.get("solution_excerpt")
+            or case_id
+        )
+        solution = str(match.get("solution") or match.get("solution_excerpt") or "Review full case notes.")
+        steps.append(f"Cross-reference {case_id}: {label} → {solution}")
+
+    if steps:
+        lines.append("\n## Step-by-step remediation")
+        for idx, step in enumerate(steps, start=1):
+            cleaned = " ".join(str(step).split())
+            lines.append(f"{idx}. {cleaned}")
+
+    keywords: set[str] = set()
+    if case:
+        keywords.update(
+            _extract_keywords(
+                case.brief_description,
+                case.description,
+                case.root_cause,
+                case.solution,
+                case.additional_info,
+                case.tracking.ticket_number if case.tracking else "",
+            )
+        )
+    keywords.update(_extract_keywords(user_notes, logs))
+
+    doc_summaries: list[tuple[int, str, str]] = []
+    for entry in manual_docs or []:
+        if not isinstance(entry, Mapping):
+            continue
+        title = str(entry.get("title") or "")
+        content = str(entry.get("content") or "")
+        if not content:
+            continue
+        score = 0
+        lowered = content.lower()
+        for keyword in keywords:
+            if keyword and keyword in lowered:
+                score += 1
+        if not score:
+            continue
+        snippet = _summarize_text(content, width=220)
+        doc_summaries.append((score, title, snippet))
+
+    if doc_summaries:
+        lines.append("\n## Related knowledge base entries")
+        for _, title, snippet in sorted(doc_summaries, reverse=True)[:3]:
+            lines.append(f"- **{title}** — {snippet}")
+
+    log_lines = [line.rstrip() for line in logs.splitlines() if line.strip()]
+    if log_lines:
+        lines.append("\n## Recent log highlights")
+        lines.append("```text")
+        lines.extend(log_lines[-10:])
+        lines.append("```")
+
+    return "\n".join(lines).strip()
+
+
 def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] | None:
     if not dataset:
         return None
@@ -10577,32 +10829,44 @@ def _inject_case_tab_theme() -> None:
         """
         <style>
             .case-tab-shell {
-                background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.12));
+                background: linear-gradient(
+                    135deg,
+                    color-mix(in srgb, var(--kiroshi-primary) 16%, #ffffff 84%),
+                    color-mix(in srgb, var(--kiroshi-accent) 18%, #ffffff 82%)
+                );
                 border-radius: 24px;
                 padding: 2.5rem clamp(1rem, 4vw, 2.75rem);
                 margin-bottom: 2rem;
-                box-shadow: 0 25px 50px -25px rgba(15, 23, 42, 0.35);
+                box-shadow: 0 28px 58px -26px rgba(15, 23, 42, 0.35);
                 position: relative;
                 overflow: hidden;
+                animation: kiroshiSoftDrift 20s ease-in-out infinite;
             }
             .case-tab-shell::after {
                 content: "";
                 position: absolute;
-                inset: -40% -25% auto auto;
-                width: min(340px, 60vw);
+                inset: -42% -30% auto auto;
+                width: min(360px, 62vw);
                 aspect-ratio: 1;
-                background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.35), transparent 55%);
-                transform: rotate(25deg);
+                background: radial-gradient(circle at 35% 30%, rgba(99, 102, 241, 0.28), transparent 60%);
+                transform: rotate(18deg);
                 pointer-events: none;
+                filter: blur(0.5px);
             }
             .case-card {
-                background: rgba(255, 255, 255, 0.92);
-                backdrop-filter: blur(16px);
-                border-radius: 18px;
-                padding: 1.5rem 1.75rem;
-                margin-bottom: 1.25rem;
-                box-shadow: 0 18px 45px -22px rgba(15, 23, 42, 0.3);
-                border: 1px solid rgba(148, 163, 184, 0.25);
+                background: rgba(255, 255, 255, 0.9);
+                backdrop-filter: blur(18px) saturate(120%);
+                border-radius: 20px;
+                padding: 1.6rem 1.85rem;
+                margin-bottom: 1.35rem;
+                box-shadow: 0 22px 48px -24px rgba(15, 23, 42, 0.35);
+                border: 1px solid rgba(148, 163, 184, 0.28);
+                transition: transform 240ms ease, box-shadow 240ms ease, border-color 240ms ease;
+            }
+            .case-card:hover {
+                transform: translateY(-4px);
+                box-shadow: 0 24px 56px -20px rgba(15, 23, 42, 0.34);
+                border-color: color-mix(in srgb, var(--kiroshi-primary) 24%, rgba(148, 163, 184, 0.18));
             }
             .case-card h3, .case-card h4 {
                 margin-top: 0;
@@ -10614,23 +10878,44 @@ def _inject_case_tab_theme() -> None:
                 position: relative;
                 z-index: 1;
                 display: grid;
-                gap: clamp(1.5rem, 3vw, 2.25rem);
+                gap: clamp(1.6rem, 3vw, 2.4rem);
                 grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
                 align-items: center;
-                margin-bottom: 1.5rem;
-                padding-bottom: 0.5rem;
+                margin-bottom: 1.8rem;
+                padding: 1.9rem clamp(1.4rem, 3vw, 2.4rem);
+                border-radius: 26px;
+                background: linear-gradient(
+                    120deg,
+                    color-mix(in srgb, var(--kiroshi-primary) 10%, rgba(255, 255, 255, 0.95)),
+                    color-mix(in srgb, var(--kiroshi-accent) 12%, rgba(255, 255, 255, 0.9))
+                );
+                box-shadow: 0 26px 48px -26px rgba(15, 23, 42, 0.35);
+                overflow: hidden;
+                animation: kiroshiFadeIn 0.8s ease-out both;
+            }
+            .case-hero::before {
+                content: "";
+                position: absolute;
+                inset: -30% auto auto -25%;
+                width: min(320px, 58vw);
+                aspect-ratio: 1;
+                background: radial-gradient(circle at center, rgba(255, 255, 255, 0.55), transparent 65%);
+                pointer-events: none;
+                opacity: 0.7;
+                animation: kiroshiSoftDrift 18s ease-in-out infinite reverse;
             }
             .case-hero__eyebrow {
                 display: inline-block;
-                padding: 0.35rem 0.75rem;
+                padding: 0.38rem 0.9rem;
                 border-radius: 999px;
                 font-size: 0.8rem;
                 text-transform: uppercase;
                 letter-spacing: 0.08em;
                 font-weight: 600;
-                background: rgba(79, 70, 229, 0.15);
-                color: #4338ca;
+                background: color-mix(in srgb, var(--kiroshi-primary) 18%, rgba(255, 255, 255, 0.92));
+                color: var(--kiroshi-primary);
                 margin-bottom: 0.75rem;
+                box-shadow: 0 6px 14px rgba(79, 70, 229, 0.18);
             }
             .case-hero__title {
                 font-size: clamp(1.65rem, 4vw, 2.4rem);
@@ -10639,8 +10924,8 @@ def _inject_case_tab_theme() -> None:
             }
             .case-hero__subtitle {
                 margin: 0 0 1rem;
-                color: rgba(15, 23, 42, 0.75);
-                font-size: 1rem;
+                color: rgba(15, 23, 42, 0.72);
+                font-size: 1.05rem;
             }
             .case-hero__badges {
                 display: flex;
@@ -10648,20 +10933,26 @@ def _inject_case_tab_theme() -> None:
                 gap: 0.5rem;
             }
             .case-hero__badge {
-                padding: 0.4rem 0.85rem;
+                padding: 0.45rem 0.95rem;
                 border-radius: 999px;
-                background: rgba(15, 23, 42, 0.08);
-                font-size: 0.85rem;
+                background: color-mix(in srgb, var(--kiroshi-accent) 22%, rgba(255, 255, 255, 0.85));
+                font-size: 0.9rem;
                 font-weight: 600;
-                color: rgba(15, 23, 42, 0.8);
-                backdrop-filter: blur(8px);
+                color: color-mix(in srgb, var(--kiroshi-primary) 40%, #111827 60%);
+                backdrop-filter: blur(10px);
+                box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
+                transition: transform 200ms ease;
+            }
+            .case-hero__badge:hover {
+                transform: translateY(-3px);
             }
             .case-hero__progress {
-                background: rgba(15, 23, 42, 0.75);
-                color: #f8fafc;
-                border-radius: 20px;
-                padding: 1.5rem 1.75rem;
-                box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+                background: rgba(255, 255, 255, 0.92);
+                color: var(--kiroshi-primary);
+                border-radius: 22px;
+                padding: 1.6rem 1.9rem;
+                box-shadow: 0 18px 40px -22px rgba(15, 23, 42, 0.3);
+                border: 1px solid rgba(148, 163, 184, 0.25);
             }
             .case-hero__progress-label {
                 font-size: 0.95rem;
@@ -10669,10 +10960,10 @@ def _inject_case_tab_theme() -> None:
                 text-transform: uppercase;
                 letter-spacing: 0.08em;
                 margin-bottom: 0.75rem;
-                color: rgba(248, 250, 252, 0.85);
+                color: color-mix(in srgb, var(--kiroshi-primary) 55%, #1f2937 45%);
             }
             .case-hero__progress-track {
-                background: rgba(248, 250, 252, 0.15);
+                background: rgba(15, 23, 42, 0.08);
                 height: 12px;
                 border-radius: 999px;
                 overflow: hidden;
@@ -10680,16 +10971,23 @@ def _inject_case_tab_theme() -> None:
             }
             .case-hero__progress-fill {
                 height: 100%;
-                background: linear-gradient(90deg, #22d3ee 0%, #6366f1 50%, #ec4899 100%);
+                background: linear-gradient(90deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+                animation: progressPulse 6s ease-in-out infinite;
             }
             .case-hero__progress-value {
                 font-size: 2rem;
                 font-weight: 700;
                 margin-bottom: 0.5rem;
+                color: color-mix(in srgb, var(--kiroshi-primary) 70%, #111827 30%);
             }
             .case-hero__progress-meta {
                 font-size: 0.9rem;
-                color: rgba(248, 250, 252, 0.75);
+                color: rgba(15, 23, 42, 0.65);
+            }
+            @keyframes progressPulse {
+                0% { filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0.0)); }
+                50% { filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.55)); }
+                100% { filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0.0)); }
             }
             @media (max-width: 768px) {
                 .case-tab-shell {
