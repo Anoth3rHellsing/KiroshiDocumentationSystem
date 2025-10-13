@@ -259,6 +259,16 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "tutorial_completed": False,
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
+    "tutorial_metadata": {
+        "version": "",
+        "visited": [],
+        "last_step": 0,
+        "total_steps": 0,
+        "completed": False,
+        "completion_type": "",
+        "completed_at": "",
+        "furthest_step": 0,
+    },
     "enable_holiday_theme": True,
     "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
     "kiroshi_sarcasm_mode": False,
@@ -1013,6 +1023,8 @@ ALTAIR_CHART_KWARGS = (
 
 AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
 
+TUTORIAL_VERSION = "2025.05"
+
 TUTORIAL_STEPS: list[dict[str, object]] = [
     {
         "id": "welcome",
@@ -1085,6 +1097,54 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         },
     },
     {
+        "id": "issue_reporter",
+        "title": "Instant Issue Reporter",
+        "visual": "issue_reporter_flow",
+        "description": textwrap.dedent(
+            """
+            Launch the Issue Reporter from any case to bundle call notes, logs, and screenshots into a
+            single vendor-ready packet. Kiroshi maps your troubleshooting narrative into the structured
+            summary that partners expect, attaches the latest evidence, and stores a timestamped copy in
+            your database for follow-up.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "What does the Issue Reporter automatically include before you submit?",
+            "options": [
+                "Only the text from your root cause field",
+                "Screenshots, selected logs, and the troubleshooting summary",
+                "A blank template you must fill in manually",
+            ],
+            "answer": "Screenshots, selected logs, and the troubleshooting summary",
+            "success": "Yes — it packages artifacts and notes so vendors see the full story.",
+            "failure": "Remember, the Issue Reporter assembles evidence for you before sending.",
+        },
+    },
+    {
+        "id": "escalations",
+        "title": "Escalation Control Tower",
+        "visual": "escalation_matrix",
+        "description": textwrap.dedent(
+            """
+            Use the escalations drawer to track every hand-off. Capture vendor queue IDs, urgency, and
+            response targets, then pin critical follow-ups to the dashboard badge strip. Shared escalation
+            history keeps teams synchronized while automated reminders flag anything approaching its SLA.
+            """
+        ),
+        "interaction": {
+            "type": "checkbox_group",
+            "prompt": "Mark each checklist item once you have seen where to manage escalations.",
+            "items": [
+                "I can open the escalation drawer from a case tab.",
+                "I know where SLA timers appear on the dashboard.",
+                "I saw how vendor queue IDs are stored with the case.",
+            ],
+            "success": "Great — you can now coordinate escalations without losing context.",
+            "instruction": "Check every box after reviewing the escalation features above.",
+        },
+    },
+    {
         "id": "reporting",
         "title": "Reporting & Exports",
         "visual": "report_overview",
@@ -1105,14 +1165,39 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
         },
     },
     {
+        "id": "analytics",
+        "title": "Operations Analytics",
+        "visual": "analytics_suite",
+        "description": textwrap.dedent(
+            """
+            The analytics suite blends saved case metrics, Issue Reporter outcomes, and escalation load
+            into a unified view. Trendlines spotlight recurring failure types, while the resolution heat
+            map highlights where teams are beating or missing their targets.
+            """
+        ),
+        "interaction": {
+            "type": "radio",
+            "prompt": "Which visual helps you spot workload bottlenecks over the week?",
+            "options": [
+                "Resolution heat map",
+                "Issue Reporter draft list",
+                "Kiroshi Chat history",
+            ],
+            "answer": "Resolution heat map",
+            "success": "Exactly — the heat map shows when cases cluster above SLA thresholds.",
+            "failure": "Hint: look for the analytic that compares days to SLA performance.",
+        },
+    },
+    {
         "id": "settings",
         "title": "Settings & Personalisation",
         "visual": "settings_overview",
         "description": textwrap.dedent(
             """
-            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding history.
-            Use this panel to toggle advanced assistance, import or export Educate datasets, and relaunch this tutorial whenever you like.
-            Your completion status is saved in the persistent configuration so first-time use is recorded automatically.
+            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding
+            history. Use this panel to toggle advanced assistance, import or export Educate datasets, and
+            relaunch this tutorial whenever you like. Completion metadata records when you finished the
+            tour and the version you saw.
             """
         ),
         "interaction": {
@@ -1122,6 +1207,29 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
             "answer": "Settings",
             "success": "That's right — the Settings tab now includes a Repeat Tutorial button.",
             "failure": "Look in Settings for the onboarding controls and status badge.",
+        },
+    },
+    {
+        "id": "ui_refresh",
+        "title": "Polished Interface & Shortcuts",
+        "visual": "ui_refresh",
+        "description": textwrap.dedent(
+            """
+            Subtle gradients, animated progress badges, and keyboard-aware navigation make the refreshed
+            UI easier to scan. Tutorial step selectors, card highlights, and quick access buttons guide new
+            users without getting in your way.
+            """
+        ),
+        "interaction": {
+            "type": "checkbox_group",
+            "prompt": "Tick the enhancements you noticed in the new interface.",
+            "items": [
+                "Animated progress badges in the tutorial",
+                "Improved contrast on cards and tables",
+                "Step selector for jumping around the tour",
+            ],
+            "success": "Nicely spotted — those touches keep the workflow feeling fast.",
+            "instruction": "Mark each enhancement after you've seen it in action.",
         },
     },
     {
@@ -2783,6 +2891,19 @@ def inject_base_styles() -> None:
             background: linear-gradient(145deg, rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.85));
             box-shadow: 0 18px 32px rgba(15, 23, 42, 0.16);
             color: var(--kiroshi-text-on-white);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tutorial-wrapper::before {
+            content: "";
+            position: absolute;
+            inset: -40% -40% auto auto;
+            width: 320px;
+            height: 320px;
+            background: radial-gradient(circle at center, rgba(93, 93, 255, 0.16), transparent 65%);
+            pointer-events: none;
+            animation: tutorialGlow 8s ease-in-out infinite;
         }
 
         .tutorial-step-title {
@@ -2790,6 +2911,75 @@ def inject_base_styles() -> None:
             font-weight: 700;
             color: var(--kiroshi-primary);
             margin-bottom: 0.35rem;
+        }
+
+        .tutorial-step-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .tutorial-step-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.45rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            background: rgba(255, 255, 255, 0.7);
+            box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .tutorial-step-badge__index {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-weight: 700;
+            font-size: 0.95rem;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+            color: white;
+        }
+
+        .tutorial-step-badge__label {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1;
+            font-size: 0.82rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-step-badge__label span {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--kiroshi-muted);
+        }
+
+        .tutorial-step-badge__label strong {
+            font-size: 0.86rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-step-badge.completed .tutorial-step-badge__index {
+            background: linear-gradient(135deg, #22c55e 0%, #4ade80 100%);
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+        }
+
+        .tutorial-step-badge.active {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 22px rgba(37, 99, 235, 0.25);
+        }
+
+        .tutorial-step-badge.active .tutorial-step-badge__index {
+            animation: tutorialBadgePulse 2.6s ease-in-out infinite;
+        }
+
+        .tutorial-step-badge.upcoming {
+            opacity: 0.8;
         }
 
         .tutorial-intro {
@@ -2806,11 +2996,143 @@ def inject_base_styles() -> None:
             border: 1px solid rgba(209, 213, 219, 0.7);
             height: 100%;
             color: var(--kiroshi-text-on-white);
+            position: relative;
+            overflow: hidden;
         }
 
         .tutorial-footnote {
             font-size: 0.85rem;
             color: var(--kiroshi-muted);
+        }
+
+        .tutorial-wrapper [data-testid="stProgressBar"] {
+            border-radius: 999px;
+            background: rgba(226, 232, 240, 0.65);
+            padding: 0.15rem;
+            margin-bottom: 1rem;
+        }
+
+        .tutorial-wrapper [data-testid="stProgressBar"] div[role="progressbar"] {
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+            box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+        }
+
+        .tutorial-flow {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.1rem;
+            margin-top: 0.75rem;
+        }
+
+        .tutorial-flow__step {
+            position: relative;
+            padding: 1.1rem 1rem 1.25rem;
+            border-radius: 0.95rem;
+            background: rgba(248, 250, 252, 0.88);
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+        }
+
+        .tutorial-flow__icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 0.75rem;
+            display: grid;
+            place-items: center;
+            margin-bottom: 0.65rem;
+            font-weight: 700;
+            color: white;
+            background: linear-gradient(135deg, var(--kiroshi-primary) 0%, var(--kiroshi-accent) 100%);
+        }
+
+        .tutorial-flow__title {
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+            color: var(--kiroshi-text-on-surface);
+        }
+
+        .tutorial-highlight-list {
+            margin: 0.8rem 0 0;
+            padding-left: 1rem;
+            display: grid;
+            gap: 0.35rem;
+        }
+
+        .tutorial-highlight-list li {
+            font-size: 0.92rem;
+            color: var(--kiroshi-text-on-white);
+        }
+
+        .tutorial-color-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .tutorial-color-chip {
+            flex: 1;
+            height: 36px;
+            border-radius: 0.75rem;
+            position: relative;
+            box-shadow: 0 8px 16px rgba(15, 23, 42, 0.18);
+            overflow: hidden;
+        }
+
+        .tutorial-color-chip::after {
+            content: attr(data-label);
+            position: absolute;
+            inset: auto 0 0;
+            padding: 0.2rem 0.55rem;
+            font-size: 0.65rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: rgba(15, 23, 42, 0.75);
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .tutorial-insight-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .tutorial-insight-card {
+            padding: 1rem;
+            border-radius: 1rem;
+            background: rgba(15, 23, 42, 0.65);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.2);
+        }
+
+        .tutorial-insight-card strong {
+            font-size: 1.1rem;
+        }
+
+        @keyframes tutorialBadgePulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+            }
+            50% {
+                transform: scale(1.08);
+                box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.08);
+            }
+        }
+
+        @keyframes tutorialGlow {
+            0%, 100% {
+                transform: translate3d(0, 0, 0) scale(1);
+                opacity: 0.9;
+            }
+            50% {
+                transform: translate3d(-12%, 6%, 0) scale(1.1);
+                opacity: 0.6;
+            }
         }
 
         .case-card {
@@ -3193,6 +3515,144 @@ def _render_tutorial_visual(kind: str) -> None:
             ]
         )
         st.table(settings_summary)
+    elif kind == "issue_reporter_flow":
+        flow_steps = [
+            (
+                "Capture",
+                "Pulls in customer summary, reproduction steps, and impact statements automatically.",
+            ),
+            (
+                "Evidence",
+                "Attaches the latest screenshots and any logs you selected from the case workspace.",
+            ),
+            (
+                "Package",
+                "Formats the narrative into a vendor-ready template with tags and queue routing.",
+            ),
+            (
+                "Archive",
+                "Saves a timestamped copy to your database for auditing and future follow-up.",
+            ),
+        ]
+        flow_markup = "".join(
+            "<div class='tutorial-flow__step'>"
+            f"<div class='tutorial-flow__icon'>{idx}</div>"
+            f"<div class='tutorial-flow__title'>{escape(title)}</div>"
+            f"<div class='tutorial-footnote'>{escape(detail)}</div>"
+            "</div>"
+            for idx, (title, detail) in enumerate(flow_steps, start=1)
+        )
+        st.markdown(f"<div class='tutorial-flow'>{flow_markup}</div>", unsafe_allow_html=True)
+        st.caption(
+            "Start the Issue Reporter from any case tab — Kiroshi keeps the vendor package aligned with"
+            " your troubleshooting notes."
+        )
+    elif kind == "escalation_matrix":
+        escalation_summary = pd.DataFrame(
+            [
+                {
+                    "Escalation": "Vendor follow-up",
+                    "Tracked in": "Escalation drawer",
+                    "What you see": "Queue ID, assigned engineer, promised callback, SLA timer",
+                },
+                {
+                    "Escalation": "Internal hand-off",
+                    "Tracked in": "Dashboard badge",
+                    "What you see": "Owner, severity, days outstanding, linked case",
+                },
+                {
+                    "Escalation": "Customer update",
+                    "Tracked in": "Reminder banner",
+                    "What you see": "Next contact window, notes, completion checklist",
+                },
+            ]
+        )
+        st.dataframe(escalation_summary, width="stretch")
+        st.caption(
+            "Escalations sync between the case drawer and dashboard, so the entire team sees timers and"
+            " commitments in one view."
+        )
+    elif kind == "analytics_suite":
+        heatmap_rows = [
+            ("Mon", "On target", 14),
+            ("Mon", "Warning", 3),
+            ("Mon", "Escalated", 1),
+            ("Tue", "On target", 11),
+            ("Tue", "Warning", 4),
+            ("Tue", "Escalated", 2),
+            ("Wed", "On target", 16),
+            ("Wed", "Warning", 2),
+            ("Wed", "Escalated", 1),
+            ("Thu", "On target", 13),
+            ("Thu", "Warning", 5),
+            ("Thu", "Escalated", 2),
+            ("Fri", "On target", 10),
+            ("Fri", "Warning", 6),
+            ("Fri", "Escalated", 3),
+        ]
+        heatmap_data = pd.DataFrame(heatmap_rows, columns=["Day", "Status", "Cases"])
+        day_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        status_order = ["On target", "Warning", "Escalated"]
+        chart = (
+            alt.Chart(heatmap_data)
+            .mark_rect()
+            .encode(
+                x=alt.X("Day:N", sort=day_order, title="Weekday"),
+                y=alt.Y("Status:N", sort=status_order, title="Status"),
+                color=alt.Color(
+                    "Cases:Q",
+                    scale=alt.Scale(scheme="blues", domain=[0, heatmap_data["Cases"].max()]),
+                    legend=None,
+                ),
+                tooltip=["Day", "Status", alt.Tooltip("Cases", title="Cases")],
+            )
+            .properties(height=220)
+        )
+        st.altair_chart(chart, use_container_width=True, **ALTAIR_CHART_KWARGS)
+        insights = [
+            ("82%", "cases resolved within SLA", "+6% vs last week"),
+            ("18", "active escalations", "Most due Thursday"),
+            ("4.6h", "median resolution time", "Down 40 minutes"),
+        ]
+        insight_markup = "".join(
+            "<div class='tutorial-insight-card'>"
+            f"<strong>{escape(value)}</strong>"
+            f"<div>{escape(caption)}</div>"
+            f"<small>{escape(delta)}</small>"
+            "</div>"
+            for value, caption, delta in insights
+        )
+        st.markdown(
+            f"<div class='tutorial-insight-grid'>{insight_markup}</div>", unsafe_allow_html=True
+        )
+    elif kind == "ui_refresh":
+        col_left, col_right = st.columns([1.4, 1])
+        highlights = [
+            "Animated badges highlight your current tutorial step.",
+            "Navigation slider jumps directly to any topic in the tour.",
+            "Cards and tables ship with increased contrast for readability.",
+        ]
+        with col_left:
+            highlight_markup = "".join(
+                f"<li>{escape(item)}</li>" for item in highlights
+            )
+            st.markdown(
+                f"<ul class='tutorial-highlight-list'>{highlight_markup}</ul>",
+                unsafe_allow_html=True,
+            )
+        with col_right:
+            st.markdown(
+                "<div class='tutorial-visual-card' style='height:100%'>"
+                "<strong>Palette preview</strong>"
+                "<div class='tutorial-color-row'>"
+                "<div class='tutorial-color-chip' data-label='Primary' style='background:linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);'></div>"
+                "<div class='tutorial-color-chip' data-label='Accent' style='background:linear-gradient(135deg, #f97316 0%, #fb923c 100%);'></div>"
+                "<div class='tutorial-color-chip' data-label='Surface' style='background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);'></div>"
+                "</div>"
+                "<p class='tutorial-footnote' style='margin-top:0.75rem;'>New gradients keep focus on key actions while maintaining accessibility targets.</p>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
     elif kind == "chat_resources":
         col_chat, col_manual, col_reference = st.columns(3)
         with col_chat:
@@ -3220,9 +3680,38 @@ def _mark_tutorial_completion(status: str) -> None:
     st.session_state.tutorial_completed = True
     st.session_state.tutorial_completion_type = status
     st.session_state.tutorial_completed_at = timestamp
+    metadata = st.session_state.get("tutorial_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    visited = metadata.get("visited")
+    if not isinstance(visited, list):
+        visited = []
+    all_step_ids = [str(step.get("id", idx)) for idx, step in enumerate(TUTORIAL_STEPS)]
+    for step_id in all_step_ids:
+        if step_id not in visited:
+            visited.append(step_id)
+    metadata.update(
+        {
+            "version": TUTORIAL_VERSION,
+            "visited": visited,
+            "last_step": max(len(TUTORIAL_STEPS) - 1, 0),
+            "total_steps": len(TUTORIAL_STEPS),
+            "completed": status == "completed",
+            "completion_type": status,
+            "completed_at": timestamp,
+            "furthest_step": max(
+                len(TUTORIAL_STEPS) - 1,
+                int(metadata.get("furthest_step", 0))
+                if isinstance(metadata.get("furthest_step"), int)
+                else 0,
+            ),
+        }
+    )
+    st.session_state.tutorial_metadata = metadata
     _persist_setting("tutorial_completed")
     _persist_setting("tutorial_completion_type")
     _persist_setting("tutorial_completed_at")
+    _persist_setting("tutorial_metadata")
     st.session_state.show_tutorial = False
     st.session_state.tutorial_step = 0
     st.rerun()
@@ -3241,9 +3730,61 @@ def render_onboarding_tutorial() -> None:
         step_idx = total_steps - 1
     st.session_state.tutorial_step = step_idx
     step = TUTORIAL_STEPS[step_idx]
+    step_id = str(step.get("id", step_idx))
+
+    metadata = st.session_state.get("tutorial_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    visited = metadata.get("visited")
+    if not isinstance(visited, list):
+        visited = []
+    metadata_changed = False
+    if step_id not in visited:
+        visited.append(step_id)
+        metadata_changed = True
+    if metadata.get("last_step") != step_idx:
+        metadata["last_step"] = step_idx
+        metadata_changed = True
+    if metadata.get("total_steps") != total_steps:
+        metadata["total_steps"] = total_steps
+        metadata_changed = True
+    if metadata.get("version") != TUTORIAL_VERSION:
+        metadata["version"] = TUTORIAL_VERSION
+        metadata_changed = True
+    furthest_step = metadata.get("furthest_step")
+    if not isinstance(furthest_step, int):
+        furthest_step = step_idx
+        metadata_changed = True
+    if step_idx > furthest_step:
+        furthest_step = step_idx
+        metadata_changed = True
+    metadata["furthest_step"] = furthest_step
+    metadata["visited"] = visited
+    st.session_state.tutorial_metadata = metadata
+    if metadata_changed:
+        _persist_setting("tutorial_metadata")
 
     with st.container():
         st.markdown("<div class='tutorial-wrapper'>", unsafe_allow_html=True)
+        badge_markup = "".join(
+            "<div class='{}'>"
+            "<div class='tutorial-step-badge__index'>{}</div>"
+            "<div class='tutorial-step-badge__label'><span>Step {}</span><strong>{}</strong></div>"
+            "</div>".format(
+                "tutorial-step-badge completed"
+                if idx < step_idx
+                else "tutorial-step-badge active"
+                if idx == step_idx
+                else "tutorial-step-badge upcoming",
+                idx + 1,
+                idx + 1,
+                escape(str(item.get("title", ""))),
+            )
+            for idx, item in enumerate(TUTORIAL_STEPS)
+        )
+        st.markdown(
+            f"<div class='tutorial-step-badges'>{badge_markup}</div>", unsafe_allow_html=True
+        )
         st.markdown(
             "<div class='tutorial-step-title'>Step {} of {}: {}</div>".format(
                 step_idx + 1, total_steps, escape(str(step.get("title", "")))
@@ -3251,6 +3792,32 @@ def render_onboarding_tutorial() -> None:
             unsafe_allow_html=True,
         )
         st.progress((step_idx + 1) / total_steps)
+        if total_steps > 1:
+            def _format_step_label(idx: int) -> str:
+                title = str(TUTORIAL_STEPS[idx].get("title", "Step"))
+                return f"{idx + 1}. {title}"
+
+            raw_furthest = st.session_state.tutorial_metadata.get("furthest_step", step_idx)
+            try:
+                furthest_idx = int(raw_furthest)
+            except (TypeError, ValueError):
+                furthest_idx = step_idx
+            max_allowed = max(step_idx, furthest_idx)
+            slider_options = list(range(max_allowed + 1))
+            jump_selection = st.select_slider(
+                "Navigate to a step",
+                options=slider_options,
+                value=step_idx,
+                format_func=_format_step_label,
+                key="tutorial_step_selector",
+            )
+            if len(slider_options) < total_steps:
+                st.caption(
+                    "Complete the current content to unlock the remaining tutorial steps."
+                )
+            if jump_selection != step_idx:
+                st.session_state.tutorial_step = int(jump_selection)
+                st.rerun()
         description = step.get("description")
         if isinstance(description, str):
             st.markdown(description)
@@ -3393,6 +3960,14 @@ _init_state(
         _get_persistent_default("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
     ),
 )
+_tutorial_meta_default = _get_persistent_default(
+    "tutorial_metadata", PERSISTENT_SETTINGS_DEFAULTS["tutorial_metadata"]
+)
+if isinstance(_tutorial_meta_default, dict):
+    _tutorial_meta_default = deepcopy(_tutorial_meta_default)
+else:
+    _tutorial_meta_default = deepcopy(PERSISTENT_SETTINGS_DEFAULTS["tutorial_metadata"])
+_init_state("tutorial_metadata", _tutorial_meta_default)
 # Tracking related state
 _init_state("track_case", False)
 _init_state("tracking_info", {})
