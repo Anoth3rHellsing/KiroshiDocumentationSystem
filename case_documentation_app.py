@@ -5969,6 +5969,18 @@ def widget_key(base: str, idx: int) -> str:
     return _register_widget_key(key)
 
 
+def case_widget_key(slug: str, widget: str, idx: int) -> str:
+    """Return a widget key scoped to both the case index and a logical UI slug."""
+
+    safe_slug = re.sub(r"[^0-9a-z_]+", "_", slug.lower()).strip("_")
+    safe_widget = re.sub(r"[^0-9a-z_]+", "_", widget.lower()).strip("_")
+    if safe_slug and safe_widget:
+        base = f"{safe_slug}_{safe_widget}"
+    else:
+        base = safe_slug or safe_widget or "widget"
+    return widget_key(base, idx)
+
+
 def global_widget_key(base: str) -> str:
     """Return a Streamlit widget key reserved for global (non-case) widgets."""
     key = f"global_{base}"
@@ -12788,7 +12800,9 @@ def render_case_ui(case_idx: int):
             elif email_type == "Broken Scanner":
                 st.markdown("#### Incident questionnaire (prefill if known)")
                 ext["experience"] = st.text_input(
-                    "Experience level (new / experienced)", ext.get("experience", "")
+                    "Experience level (new / experienced)",
+                    ext.get("experience", ""),
+                    key=case_widget_key("email_broken_scanner", "experience", case_idx),
                 )
                 st.info(
                     "Fill in internal notes, conclusion, additional information, and support fee details "
@@ -12871,22 +12885,34 @@ def render_case_ui(case_idx: int):
             if email_type == "Broken Tip":
                 st.markdown("#### Damaged tip questionnaire")
                 ext["times_autoclaved"] = st.text_input(
-                    "Times autoclaved", ext.get("times_autoclaved", "")
+                    "Times autoclaved",
+                    ext.get("times_autoclaved", ""),
+                    key=case_widget_key("email_broken_tip", "times_autoclaved", case_idx),
                 )
                 ext["bath_number"] = st.text_input(
-                    "Bath number", ext.get("bath_number", "")
+                    "Bath number",
+                    ext.get("bath_number", ""),
+                    key=case_widget_key("email_broken_tip", "bath_number", case_idx),
                 )
                 ext["model"] = st.text_input(
-                    "Autoclave model", ext.get("model", "")
+                    "Autoclave model",
+                    ext.get("model", ""),
+                    key=case_widget_key("email_broken_tip", "model", case_idx),
                 )
                 ext["program"] = st.text_input(
-                    "Program used", ext.get("program", "")
+                    "Program used",
+                    ext.get("program", ""),
+                    key=case_widget_key("email_broken_tip", "program", case_idx),
                 )
                 ext["airtight"] = st.text_input(
-                    "Autoclaved in airtight pouch?", ext.get("airtight", "")
+                    "Autoclaved in airtight pouch?",
+                    ext.get("airtight", ""),
+                    key=case_widget_key("email_broken_tip", "airtight", case_idx),
                 )
                 ext["other"] = st.text_input(
-                    "Other info", ext.get("other", "")
+                    "Other info",
+                    ext.get("other", ""),
+                    key=case_widget_key("email_broken_tip", "other", case_idx),
                 )
 
                 intro = build_email_intro(D)
@@ -12913,11 +12939,26 @@ List each question and provide any known answer beneath it, ready for the custom
                 )
                 D.request_issue = D.description
                 D.contact_name = D.caller_name
-                st.text_input("Contact name", D.contact_name, disabled=True)
+                st.text_input(
+                    "Contact name",
+                    D.contact_name,
+                    disabled=True,
+                    key=case_widget_key("email_ax_coordinator", "contact_name", case_idx),
+                )
                 D.office_ph = D.phone_number
-                st.text_input("Office phone", D.office_ph, disabled=True)
+                st.text_input(
+                    "Office phone",
+                    D.office_ph,
+                    disabled=True,
+                    key=case_widget_key("email_ax_coordinator", "office_phone", case_idx),
+                )
                 D.direct_ph = D.phone_number
-                st.text_input("Direct phone", D.direct_ph, disabled=True)
+                st.text_input(
+                    "Direct phone",
+                    D.direct_ph,
+                    disabled=True,
+                    key=case_widget_key("email_ax_coordinator", "direct_phone", case_idx),
+                )
                 best_cb = st.toggle(
                     "Specify best call-back time",
                     D.best_time not in ("", "ASAP"),
@@ -12961,13 +13002,19 @@ List each question and provide any known answer beneath it, ready for the custom
             elif email_type == "FedEx Tracking Email":
                 st.markdown("#### FedEx tracking options")
                 ext["agent_name"] = st.text_input(
-                    "Agent name", ext.get("agent_name", "")
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_fedex_tracking", "agent_name", case_idx),
                 )
                 ext["device_type"] = st.text_input(
-                    "Device type (scanner or Move+)", ext.get("device_type", "")
+                    "Device type (scanner or Move+)",
+                    ext.get("device_type", ""),
+                    key=case_widget_key("email_fedex_tracking", "device_type", case_idx),
                 )
                 ext["tracking_number"] = st.text_input(
-                    "FedEx tracking number", ext.get("tracking_number", "")
+                    "FedEx tracking number",
+                    ext.get("tracking_number", ""),
+                    key=case_widget_key("email_fedex_tracking", "tracking_number", case_idx),
                 )
                 customer = D.caller_name or "(Caller Name)"
                 company = D.company_name or "(Company Name)"
@@ -12997,7 +13044,9 @@ Wishing you the best again!"""
             elif email_type == "Replacement Wired Scanner Setup":
                 st.markdown("#### Replacement scanner options")
                 ext["agent_name"] = st.text_input(
-                    "Agent name", ext.get("agent_name", "")
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_replacement_wired", "agent_name", case_idx),
                 )
                 ext["fedex_pickup_link"] = st.text_input(
                     "FedEx pickup link",
@@ -13005,6 +13054,7 @@ Wishing you the best again!"""
                         "fedex_pickup_link",
                         "https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html",
                     ),
+                    key=case_widget_key("email_replacement_wired", "fedex_pickup_link", case_idx),
                 )
                 customer = D.caller_name or "(Caller Name)"
                 company = D.company_name or "(Company Name)"
@@ -13049,7 +13099,9 @@ Wishing you the best again!"""
             elif email_type == "Replacement Move+ Closure":
                 st.markdown("#### Replacement Move+ options")
                 ext["agent_name"] = st.text_input(
-                    "Agent name", ext.get("agent_name", "")
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_replacement_move", "agent_name", case_idx),
                 )
                 customer = D.caller_name or "(Caller Name)"
                 company = D.company_name or "(Company Name)"
@@ -13192,14 +13244,19 @@ End with: We look forward to your reply."""
             elif email_type == "Advanced Request":
                 st.markdown("#### Custom email options")
                 ext["reason"] = st.text_input(
-                    "Reason for contacting the customer", ext.get("reason", "")
+                    "Reason for contacting the customer",
+                    ext.get("reason", ""),
+                    key=case_widget_key("email_advanced_request", "reason", case_idx),
                 )
                 ext["goal"] = st.text_input(
-                    "Goal of the email", ext.get("goal", "")
+                    "Goal of the email",
+                    ext.get("goal", ""),
+                    key=case_widget_key("email_advanced_request", "goal", case_idx),
                 )
                 ext["customer_need"] = st.text_input(
                     "What do we need from the customer?",
                     ext.get("customer_need", ""),
+                    key=case_widget_key("email_advanced_request", "customer_need", case_idx),
                 )
                 intro = build_email_intro(D)
                 reason = ext.get("reason", "").strip() or "(reason for the outreach)"
@@ -13363,18 +13420,43 @@ End with: We look forward to your reply."""
                 key=tracking_type_key,
             )
 
-            st.text_input("Case ID", value=D.case_id, disabled=True)
-            st.text_input("Company", value=D.company_name, disabled=True)
+            st.text_input(
+                "Case ID",
+                value=D.case_id,
+                disabled=True,
+                key=case_widget_key("tracking", "case_id", case_idx),
+            )
+            st.text_input(
+                "Company",
+                value=D.company_name,
+                disabled=True,
+                key=case_widget_key("tracking", "company", case_idx),
+            )
             end_user_value = D.contact_name or D.caller_name or ""
-            st.text_input("End User", value=end_user_value, disabled=True)
+            st.text_input(
+                "End User",
+                value=end_user_value,
+                disabled=True,
+                key=case_widget_key("tracking", "end_user", case_idx),
+            )
             phone_value = (
                 D.phone_number or D.office_ph or D.direct_ph or ""
             )
-            st.text_input("Phone", value=phone_value, disabled=True)
+            st.text_input(
+                "Phone",
+                value=phone_value,
+                disabled=True,
+                key=case_widget_key("tracking", "phone", case_idx),
+            )
             created_display = format_tracking_date(D.tracking.creation_day)
             if not created_display:
                 created_display = datetime.now().strftime("%Y-%m-%d")
-            st.text_input("Created", value=created_display, disabled=True)
+            st.text_input(
+                "Created",
+                value=created_display,
+                disabled=True,
+                key=case_widget_key("tracking", "created", case_idx),
+            )
 
             ticket_key = widget_key("track_ticket_number", case_idx)
             ticket_number = st.text_input("Ticket Number", key=ticket_key)
