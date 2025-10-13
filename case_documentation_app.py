@@ -5923,17 +5923,72 @@ def clear_case_state(idx: int) -> None:
     _sync_case_memory_from_sessions()
 
 
+class WidgetKeyCollisionError(RuntimeError):
+    """Raised when duplicate Streamlit widget keys are detected in debug mode."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(f"Duplicate Streamlit widget key detected: {key}")
+        self.key = key
+
+
+def _register_widget_key(key: str) -> str:
+    """Track widget keys during debug sessions and detect duplicates."""
+
+    if not st.session_state.get("debug_mode"):
+        st.session_state.pop("debug_widget_key_registry", None)
+        st.session_state.pop("debug_widget_key_collisions", None)
+        st.session_state.pop("debug_widget_key_last_collision", None)
+        st.session_state.pop("debug_widget_key_collision_flag", None)
+        st.session_state.pop("debug_widget_key_collision_context", None)
+        return key
+
+    registry = st.session_state.get("debug_widget_key_registry")
+    if not isinstance(registry, set):
+        registry = set()
+        st.session_state.debug_widget_key_registry = registry
+
+    collisions = st.session_state.get("debug_widget_key_collisions")
+    if not isinstance(collisions, set):
+        collisions = set()
+        st.session_state.debug_widget_key_collisions = collisions
+
+    if key in registry:
+        collisions.add(key)
+        st.session_state.debug_widget_key_last_collision = key
+        st.session_state.debug_widget_key_collision_flag = True
+        raise WidgetKeyCollisionError(key)
+
+    registry.add(key)
+    st.session_state.debug_widget_key_collision_flag = bool(collisions)
+    return key
+
+
 def widget_key(base: str, idx: int) -> str:
     """Return a Streamlit widget key namespaced to a case index."""
-    return f"{base}_{idx}"
+    key = f"{base}_{idx}"
+    return _register_widget_key(key)
 
 
 def global_widget_key(base: str) -> str:
     """Return a Streamlit widget key reserved for global (non-case) widgets."""
-    return f"global_{base}"
+    key = f"global_{base}"
+    return _register_widget_key(key)
 
 
 CURRENT_CASE_IDX = 0
+
+if st.session_state.get("debug_mode"):
+    st.session_state.debug_widget_key_registry = set()
+    st.session_state.debug_widget_key_collisions = set()
+    st.session_state.debug_widget_key_collision_flag = False
+    st.session_state.debug_widget_key_collision_context = None
+    st.session_state.debug_widget_key_last_collision = None
+else:
+    st.session_state.pop("debug_widget_key_registry", None)
+    st.session_state.pop("debug_widget_key_collisions", None)
+    st.session_state.pop("debug_widget_key_collision_flag", None)
+    st.session_state.pop("debug_widget_key_collision_context", None)
+    st.session_state.pop("debug_widget_key_last_collision", None)
 
 # Ensure session state mirrors the current case data before any widgets are created
 for key, value in asdict(D).items():
@@ -8441,6 +8496,32 @@ def render_with_monitor(
     try:
         with placeholder:
             render_fn(*args, **kwargs)
+    except WidgetKeyCollisionError as collision:
+        if not st.session_state.get("debug_mode"):
+            raise
+        logging.warning(
+            "Duplicate widget key detected while rendering %s: %s",
+            section_name,
+            collision.key,
+        )
+        context = {
+            "section": section_name,
+            "tab": tab_label or section_name,
+            "trigger": "auto",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "case_index": case_index,
+            "warning": str(collision),
+            "collision_key": collision.key,
+            "type": "widget_key_collision",
+            "level": "warning",
+            "stacktrace": traceback.format_exc(),
+        }
+        st.session_state.incident_context = context
+        st.session_state.reporter_source = "auto"
+        st.session_state.debug_widget_key_collision_context = context
+        placeholder.warning(
+            f"Duplicate widget key detected: `{collision.key}`. Check the incident reporter for details."
+        )
     except Exception as exc:  # pragma: no cover - streamlit runtime guard
         if getattr(exc, "is_rerun", False) or exc.__class__.__name__ == "RerunException":
             raise
