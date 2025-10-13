@@ -3551,6 +3551,19 @@ class CaseData:
     remote_steps: str = ""
     root_cause: str = ""
     repro_steps: str = ""
+    third_line_hj_article: str = ""
+    third_line_troubleshoot_summary: str = ""
+    third_line_comments: str = ""
+    third_line_reseller_name: str = ""
+    third_line_reseller_phone: str = ""
+    third_line_reseller_phone_alt: str = ""
+    third_line_reseller_email: str = ""
+    third_line_clinic_rep_name: str = ""
+    third_line_clinic_rep_phone: str = ""
+    third_line_clinic_rep_phone_alt: str = ""
+    third_line_tv_id: str = ""
+    third_line_tv_password: str = ""
+    third_line_unite_pin: str = ""
 
     solution: str = ""
     survey_link: str = ""
@@ -8035,43 +8048,62 @@ def build_case_data_block(d: CaseData) -> str:
 def build_third_line_escalation(d: CaseData) -> str:
     """Generate a third line escalation template using case data."""
     date_str = datetime.now().strftime("%Y %m %d")
+    
+    def first_non_empty(*values: str) -> str:
+        for value in values:
+            if isinstance(value, str):
+                cleaned = value.strip()
+                if cleaned:
+                    return cleaned
+        return ""
+
+    def section_value(placeholder: str, *values: str) -> str:
+        chosen = first_non_empty(*values)
+        return chosen if chosen else placeholder
+
+    def contact_line(label: str, placeholder_detail: str, *values: str) -> str:
+        chosen = first_non_empty(*values)
+        if chosen:
+            return f"{label}: {chosen}"
+        return f"{label}: {placeholder_detail}"
+
     return f"""3Q({date_str})
 
 Hello, Advanced support team,
 
 We need your assistance in this case:
 
-{d.brief_description}
+{section_value("Add a brief description of the issue.", d.brief_description)}
 
 HJ article or possible root cause found
 
-{d.root_cause}
+{section_value("Add Helpjuice article link or suspected root cause.", d.third_line_hj_article, d.root_cause)}
 
 How to reproduce it:
 
-{d.repro_steps}
+{section_value("Provide detailed reproduction steps.", d.repro_steps)}
 
 Troubleshoot summary:
 
-{d.remote_steps}
+{section_value("Summarize all troubleshooting performed.", d.third_line_troubleshoot_summary, d.remote_steps)}
 
 For more specific information, check the TV session.
 
 Comments:
 
-{d.additional_info}
+{section_value("Add any additional comments for the advanced team.", d.third_line_comments, d.additional_info)}
 
 Contact information:
-Reseller Name:
-Reseller Phone Number:
-Reseller Phone Number 2:
-Reseller email:
-Clinic rep name:
-Clinic rep phone number:
-Clinic rep phone number 2:
-TV ID: {d.teamviewer_id}
-TV Customer Pass: {d.teamviewer_password}
-Unite pin: {d.subscription_id}
+{contact_line("Reseller Name", "[Add reseller name]", d.third_line_reseller_name)}
+{contact_line("Reseller Phone Number", "[Add primary reseller phone]", d.third_line_reseller_phone)}
+{contact_line("Reseller Phone Number 2", "[Add alternate reseller phone]", d.third_line_reseller_phone_alt)}
+{contact_line("Reseller email", "[Add reseller email address]", d.third_line_reseller_email)}
+{contact_line("Clinic rep name", "[Add clinic representative name]", d.third_line_clinic_rep_name)}
+{contact_line("Clinic rep phone number", "[Add clinic representative phone]", d.third_line_clinic_rep_phone)}
+{contact_line("Clinic rep phone number 2", "[Add alternate clinic representative phone]", d.third_line_clinic_rep_phone_alt)}
+{contact_line("TV ID", "[Add TeamViewer ID]", d.third_line_tv_id, d.teamviewer_id)}
+{contact_line("TV Customer Pass", "[Add TeamViewer password]", d.third_line_tv_password, d.teamviewer_password)}
+{contact_line("Unite pin", "[Add Unite PIN]", d.third_line_unite_pin, d.subscription_id)}
 
 Find all screenshots and logs on the internal note.
 
@@ -10090,13 +10122,132 @@ Thank you in advance,
             if st.session_state.second_line_mode:
                 st.markdown("---")
                 st.subheader("Escalation 3rd line")
-                auto_text_area("How to reproduce it", "repro_steps", height=100)
+                auto_text_area(
+                    "HJ article or possible root cause found",
+                    "third_line_hj_article",
+                    height=100,
+                    placeholder=(D.internal_helpjuice or D.root_cause or ""),
+                )
+                auto_text_area(
+                    "How to reproduce it",
+                    "repro_steps",
+                    height=100,
+                    placeholder="Provide detailed reproduction steps.",
+                )
+                auto_text_area(
+                    "Troubleshoot summary",
+                    "third_line_troubleshoot_summary",
+                    height=120,
+                    placeholder=(D.remote_steps or ""),
+                )
+                auto_text_area(
+                    "Comments",
+                    "third_line_comments",
+                    height=100,
+                    placeholder=(D.additional_info or ""),
+                )
+                st.markdown("**Reseller contact information**")
+                reseller_col1, reseller_col2 = st.columns(2)
+                with reseller_col1:
+                    auto_text_input(
+                        "Reseller name",
+                        "third_line_reseller_name",
+                        placeholder="Enter reseller contact name",
+                    )
+                    auto_text_input(
+                        "Reseller phone",
+                        "third_line_reseller_phone",
+                        placeholder="Primary phone number",
+                    )
+                with reseller_col2:
+                    auto_text_input(
+                        "Reseller alternate phone",
+                        "third_line_reseller_phone_alt",
+                        placeholder="Secondary phone number",
+                    )
+                    auto_text_input(
+                        "Reseller email",
+                        "third_line_reseller_email",
+                        placeholder="Email address",
+                    )
+                st.markdown("**Clinic representative**")
+                clinic_col1, clinic_col2 = st.columns(2)
+                with clinic_col1:
+                    auto_text_input(
+                        "Clinic representative name",
+                        "third_line_clinic_rep_name",
+                        placeholder="Clinic contact name",
+                    )
+                    auto_text_input(
+                        "Clinic representative phone",
+                        "third_line_clinic_rep_phone",
+                        placeholder="Primary phone number",
+                    )
+                with clinic_col2:
+                    auto_text_input(
+                        "Clinic representative alternate phone",
+                        "third_line_clinic_rep_phone_alt",
+                        placeholder="Secondary phone number",
+                    )
+                st.markdown("**Remote session details**")
+                tv_col1, tv_col2, tv_col3 = st.columns(3)
+                with tv_col1:
+                    auto_text_input(
+                        "TeamViewer ID",
+                        "third_line_tv_id",
+                        placeholder=D.teamviewer_id or "",
+                    )
+                with tv_col2:
+                    auto_text_input(
+                        "TeamViewer password",
+                        "third_line_tv_password",
+                        placeholder=D.teamviewer_password or "",
+                    )
+                with tv_col3:
+                    auto_text_input(
+                        "Unite PIN",
+                        "third_line_unite_pin",
+                        placeholder=D.subscription_id or "",
+                    )
                 msg = build_third_line_escalation(D)
                 st.text_area(
                     "Escalation message",
                     msg,
                     height=400,
                     key=widget_key("esc_message", case_idx),
+                )
+                components.html(
+                    f"""
+                    <script>
+                    function copyThirdLineEscalation{case_idx}() {{
+                        const text = {json.dumps(msg)};
+                        navigator.clipboard.writeText(text).then(() => {{
+                            const host = document.getElementById('third-line-copy-feedback-{case_idx}');
+                            if (host) {{
+                                host.innerText = 'Escalation message copied to clipboard.';
+                            }}
+                        }}).catch(() => {{
+                            const host = document.getElementById('third-line-copy-feedback-{case_idx}');
+                            if (host) {{
+                                host.innerText = 'Unable to copy escalation message.';
+                            }}
+                        }});
+                    }}
+                    </script>
+                    <button onclick="copyThirdLineEscalation{case_idx}()"
+                            style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;">
+                        Copy escalation message
+                    </button>
+                    <div id="third-line-copy-feedback-{case_idx}" style="font-size:0.8rem;margin-top:0.35rem;"></div>
+                    """,
+                    height=90,
+                )
+                st.download_button(
+                    "Download escalation message",
+                    msg,
+                    file_name=f"third_line_escalation_{TODAY_STR}.txt",
+                    mime="text/plain",
+                    key=widget_key("download_third_line_escalation", case_idx),
                 )
                 st.markdown("---")
 
