@@ -3036,6 +3036,24 @@ def case_loading_overlay(message: str = "Preparing case data…"):
 
 
 @contextmanager
+def streamlit_modal(title: str, key: str):
+    """Provide a Streamlit modal when available with a graceful fallback."""
+
+    if hasattr(st, "modal"):
+        with st.modal(title, key=key):
+            yield
+        return
+
+    placeholder = st.empty()
+    try:
+        with placeholder.container():
+            st.markdown(f"### {title}")
+            yield
+    finally:
+        placeholder.empty()
+
+
+@contextmanager
 def loading_indicator(message: str = "Loading case…"):
     """Display a spinner for at least two seconds while loading cases."""
 
@@ -8297,7 +8315,9 @@ def show_failure_modal() -> None:
     context = st.session_state.get("incident_context") or {}
     section_label = context.get("section")
 
-    with st.modal("Something went wrong", key=global_widget_key("render_failure_modal")):
+    with streamlit_modal(
+        "Something went wrong", key=global_widget_key("render_failure_modal")
+    ):
         st.write(message)
         if section_label:
             st.caption(f"Detected while rendering: {section_label}")
@@ -8322,7 +8342,9 @@ def show_incident_report_modal() -> None:
     context = st.session_state.get("incident_context") or {}
     allow_screenshot = bool(st.session_state.get("reporter_allow_screenshot"))
 
-    with st.modal("Incident reporter", key=global_widget_key("incident_report_modal")):
+    with streamlit_modal(
+        "Incident reporter", key=global_widget_key("incident_report_modal")
+    ):
         st.markdown("### Incident reporter")
         st.caption(
             "We'll bundle recent logs, context, and optional screenshots into a PDF you can download."
