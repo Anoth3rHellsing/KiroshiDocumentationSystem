@@ -9157,40 +9157,10 @@ def dell_escalation_plain_text(d: CaseData) -> str:
     return "\n".join(lines)
 
 
-def build_dell_escalation_email(d: CaseData) -> str:
-    """Compose the Dell escalation template using captured diagnostics and contacts."""
+def script_safe_json(value: str) -> str:
+    """Return a JSON string literal safe for embedding inside <script> tags."""
 
-    company = d.company_name or "(Company Name)"
-    issue_desc = d.brief_description or "(Issue Description)"
-    issue_start = _format_display_value(d.dell_issue_start_date)
-    case_no = d.case_id or "(Case ID)"
-    service_tag = _format_display_value(d.service_tag)
-
-    pc_lines = [
-        f"- {label}: {_format_multiline(_format_display_value(getattr(d, field, '')))}"
-        for field, label in DELL_ESCALATION_PC_FIELDS
-    ]
-    contact_lines = [
-        f"- {label}: {_format_multiline(_format_display_value(getattr(d, field, '')))}"
-        for field, label in DELL_ESCALATION_CONTACT_FIELDS
-    ]
-
-    pc_section = "\n".join(pc_lines)
-    contact_section = "\n".join(contact_lines)
-
-    return (
-        "Hello Dell Support team,\n\n"
-        f"The end-user from {company} has been reporting {issue_desc}, which has been happening since {issue_start}. "
-        "Could you please assist this customer with a Dell Technician on site?\n"
-        f"Case ID {case_no}\n"
-        f"PC service tag {service_tag}\n"
-        "Evidence attached to this email.\n\n"
-        "Computer information:\n\n"
-        f"{pc_section}\n\n"
-        "Clinic's contact information:\n\n"
-        f"{contact_section}\n\n"
-        "Thank you in advance,"
-    )
+    return json.dumps(value).replace("</", "<\\/")
 
 
 def _slugify_hotkey(text: str) -> str:
@@ -10429,8 +10399,8 @@ def render_case_ui(case_idx: int):
                         if copy_suffix[0].isdigit():
                             copy_suffix = f"a{copy_suffix}"
 
-                        title_payload = json.dumps(title_text)
-                        table_payload = json.dumps(table_plain_text(cat, D, cat_map))
+                        title_payload = script_safe_json(title_text)
+                        table_payload = script_safe_json(table_plain_text(cat, D, cat_map))
                         components.html(
                             f"""
                             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
@@ -11628,8 +11598,8 @@ End with: We look forward to your reply."""
             if copy_suffix[0].isdigit():
                 copy_suffix = f"a{copy_suffix}"
 
-            title_payload = json.dumps(title_text)
-            table_payload = json.dumps(table_plain_text(cat, D, cat_map))
+            title_payload = script_safe_json(title_text)
+            table_payload = script_safe_json(table_plain_text(cat, D, cat_map))
             components.html(
                 f"""
                 <div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;\">
