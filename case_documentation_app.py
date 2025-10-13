@@ -4140,7 +4140,7 @@ def render_logo():
         </div>
         <div id="kiroshi-header__companion">
             <div id="kiroshi-header__companion-card">
-                <div id="kiroshi-header__companion-title">Kiroshi Motivational Compannion</div>
+                <div id="kiroshi-header__companion-title">Kiroshi Motivational Companion</div>
                 <div id="kiroshi-header__companion-text">{kiroshi_message}</div>
             </div>
         </div>
@@ -5843,7 +5843,9 @@ def load_case_state(idx: int) -> None:
     st.session_state.screenshots = cs.screenshots
     scratch_value = getattr(cs, "scratch", "")
     st.session_state.scratch = scratch_value
-    st.session_state[widget_key("scratch", idx)] = scratch_value
+    st.session_state[
+        case_widget_key(CASE_TAB_NAMESPACES["Case"], "scratch", idx, register=False)
+    ] = scratch_value
     global D
     D = st.session_state.case
     for key, value in asdict(D).items():
@@ -5851,7 +5853,9 @@ def load_case_state(idx: int) -> None:
 
 
 def save_case_state(idx: int) -> None:
-    scratch_key = widget_key("scratch", idx)
+    scratch_key = case_widget_key(
+        CASE_TAB_NAMESPACES["Case"], "scratch", idx, register=False
+    )
     scratch_value = st.session_state.get(scratch_key, st.session_state.get("scratch", ""))
     existing_session = st.session_state.case_sessions[idx]
     st.session_state.case_sessions[idx] = CaseSession(
@@ -5895,7 +5899,9 @@ def clear_case_state(idx: int) -> None:
         st.session_state.log_uploads = []
         st.session_state.screenshots = []
         st.session_state.scratch = ""
-        st.session_state[widget_key("scratch", idx)] = ""
+        st.session_state[
+            case_widget_key(CASE_TAB_NAMESPACES["Case"], "scratch", idx, register=False)
+        ] = ""
         for key in (
             "ai_assist_result",
             "verify_result",
@@ -5923,17 +5929,91 @@ def clear_case_state(idx: int) -> None:
     _sync_case_memory_from_sessions()
 
 
+WIDGET_KEY_REGISTRY_KEY = "_widget_key_registry"
+WIDGET_KEY_COLLISIONS_KEY = "_widget_key_collisions"
+
+
+class WidgetKeyCollisionError(RuntimeError):
+    """Raised when a duplicate widget key is detected during debug sessions."""
+
+    def __init__(self, key: str):
+        super().__init__(
+            (
+                "Duplicate widget key detected: "
+                f"{key}. Use case_widget_key/ global_widget_key helpers to avoid collisions."
+            )
+        )
+        self.widget_key = key
+
+
+def _should_validate_widget_keys() -> bool:
+    return bool(st.session_state.get("debug_mode"))
+
+
+def _reset_widget_key_registry() -> None:
+    if _should_validate_widget_keys():
+        st.session_state[WIDGET_KEY_REGISTRY_KEY] = set()
+        st.session_state[WIDGET_KEY_COLLISIONS_KEY] = set()
+
+
+def _register_widget_key(key: str) -> None:
+    if not _should_validate_widget_keys():
+        return
+    registry = st.session_state.setdefault(WIDGET_KEY_REGISTRY_KEY, set())
+    if key in registry:
+        collisions = st.session_state.setdefault(WIDGET_KEY_COLLISIONS_KEY, set())
+        collisions.add(key)
+        raise WidgetKeyCollisionError(key)
+    registry.add(key)
+
+
 def widget_key(base: str, idx: int) -> str:
     """Return a Streamlit widget key namespaced to a case index."""
     return f"{base}_{idx}"
 
 
-def global_widget_key(base: str) -> str:
+def global_widget_key(base: str, *, register: bool = True) -> str:
     """Return a Streamlit widget key reserved for global (non-case) widgets."""
-    return f"global_{base}"
+    key = f"global_{base}"
+    if register:
+        _register_widget_key(key)
+    return key
+
+
+def case_widget_key(
+    tab_slug: str,
+    control: str,
+    case_idx: int,
+    *segments: str,
+    register: bool = True,
+) -> str:
+    """Return a widget key scoped to a case tab namespace."""
+
+    parts = [tab_slug, control, *segments]
+    base = "_".join(part for part in parts if part)
+    key = widget_key(base, case_idx)
+    if register:
+        _register_widget_key(key)
+    return key
+
+
+# Mapping of visible case tabs to the slug prefixes used for widget key namespaces.
+CASE_TAB_NAMESPACES = {
+    "Case": "case",
+    "Tracking": "tracking",
+    "Escalations": "escalations",
+    "Email": "email",
+    "Hardware Issues": "hardware",
+    "Remote Session": "remote",
+    "Tables": "tables",
+    "Save/Load": "save_load",
+    "I'm bored": "bored",
+    "Debug": "debug",
+}
 
 
 CURRENT_CASE_IDX = 0
+CURRENT_CASE_TAB_SLUG = CASE_TAB_NAMESPACES["Case"]
 
 # Ensure session state mirrors the current case data before any widgets are created
 for key, value in asdict(D).items():
@@ -6199,7 +6279,9 @@ def ensure_tracking_session_defaults(
     """Populate Streamlit state with stored tracking defaults for a case."""
 
     def assign(base_key: str, value) -> None:
-        key = widget_key(base_key, case_idx)
+        key = case_widget_key(
+            CASE_TAB_NAMESPACES["Tracking"], base_key, case_idx, register=False
+        )
         if force or key not in st.session_state:
             st.session_state[key] = value
 
@@ -6211,7 +6293,9 @@ def ensure_tracking_session_defaults(
     assign("track_priority", normalize_priority(tracking.priority))
     assign("track_service_tag", tracking.service_tag or "")
 
-    expected_key = widget_key("track_expected_arrival", case_idx)
+    expected_key = case_widget_key(
+        CASE_TAB_NAMESPACES["Tracking"], "track_expected_arrival", case_idx, register=False
+    )
     if tracking.expected_arrival_date:
         try:
             expected_value = datetime.fromisoformat(tracking.expected_arrival_date).date()
@@ -6415,9 +6499,11 @@ def _apply_tracked_priority_update(
             target_case_id = None
     if target_case_id and D.case_id == target_case_id:
         D.tracking.priority = normalized_priority
-        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = (
-            normalized_priority
-        )
+        st.session_state[
+            case_widget_key(
+                CASE_TAB_NAMESPACES["Tracking"], "track_priority", CURRENT_CASE_IDX, register=False
+            )
+        ] = normalized_priority
         if timestamp:
             D.last_modified = timestamp
             if "case" in st.session_state:
@@ -6465,7 +6551,9 @@ def update_tracked_status(
             target_case_id = None
     if target_case_id and D.case_id == target_case_id:
         D.tracking.status = new_status
-        status_key = widget_key("track_status", CURRENT_CASE_IDX)
+        status_key = case_widget_key(
+            CASE_TAB_NAMESPACES["Tracking"], "track_status", CURRENT_CASE_IDX, register=False
+        )
         st.session_state[status_key] = new_status
         if timestamp:
             D.last_modified = timestamp
@@ -8438,6 +8526,7 @@ def render_with_monitor(
     if tab_label:
         st.session_state.last_rendered_tab = tab_label
     st.session_state.last_rendered_case = case_index
+    _reset_widget_key_registry()
     try:
         with placeholder:
             render_fn(*args, **kwargs)
@@ -10429,7 +10518,9 @@ def _apply_case_payload(
     st.session_state.log_uploads = log_uploads
     st.session_state.screenshots = screenshots
 
-    scratch_key = widget_key("scratch", CURRENT_CASE_IDX)
+    scratch_key = case_widget_key(
+        CASE_TAB_NAMESPACES["Case"], "scratch", CURRENT_CASE_IDX, register=False
+    )
     scratch_default = st.session_state.get("scratch", "")
     if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
         existing_session = st.session_state.case_sessions[CURRENT_CASE_IDX]
@@ -10632,35 +10723,70 @@ def request_case_dex(case_id: str) -> bytes:
     return response.content
 
 
-def _update_field(field: str):
+def _update_field(field: str, tab_slug: str | None = None):
     """Update dataclass field from session state and persist."""
-    key = widget_key(field, CURRENT_CASE_IDX)
+    if tab_slug:
+        key = case_widget_key(tab_slug, field, CURRENT_CASE_IDX, register=False)
+    else:
+        key = widget_key(field, CURRENT_CASE_IDX)
     setattr(D, field, st.session_state.get(key))
     autosave()
 
 
-def auto_text_input(label: str, field: str, container=st, **kwargs):
+def auto_text_input(
+    label: str,
+    field: str,
+    *,
+    tab_slug: str | None = None,
+    container=st,
+    **kwargs,
+):
     """Text input that saves on every change."""
-    key = widget_key(field, CURRENT_CASE_IDX)
+    slug = tab_slug or CURRENT_CASE_TAB_SLUG
+    key = case_widget_key(slug, field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
+    kwargs.setdefault("on_change", _update_field)
+    kwargs.setdefault("args", (field, slug))
     value = container.text_input(
-        label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
+        label,
+        getattr(D, field),
+        **kwargs,
     )
     setattr(D, field, value)
 
 
-def auto_text_area(label: str, field: str, container=st, **kwargs):
+def auto_text_area(
+    label: str,
+    field: str,
+    *,
+    tab_slug: str | None = None,
+    container=st,
+    **kwargs,
+):
     """Text area that saves on every change."""
-    key = widget_key(field, CURRENT_CASE_IDX)
+    slug = tab_slug or CURRENT_CASE_TAB_SLUG
+    key = case_widget_key(slug, field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
+    kwargs.setdefault("on_change", _update_field)
+    kwargs.setdefault("args", (field, slug))
     value = container.text_area(
-        label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
+        label,
+        getattr(D, field),
+        **kwargs,
     )
     setattr(D, field, value)
 
 
-def auto_number_input(label: str, field: str, container=st, **kwargs):
-    key = widget_key(field, CURRENT_CASE_IDX)
+def auto_number_input(
+    label: str,
+    field: str,
+    *,
+    tab_slug: str | None = None,
+    container=st,
+    **kwargs,
+):
+    slug = tab_slug or CURRENT_CASE_TAB_SLUG
+    key = case_widget_key(slug, field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
     kwargs.setdefault("min_value", 0)
     kwargs.setdefault("step", 1)
@@ -10677,8 +10803,16 @@ def auto_number_input(label: str, field: str, container=st, **kwargs):
         autosave()
 
 
-def auto_toggle(label: str, field: str, container=st, **kwargs):
-    key = widget_key(field, CURRENT_CASE_IDX)
+def auto_toggle(
+    label: str,
+    field: str,
+    *,
+    tab_slug: str | None = None,
+    container=st,
+    **kwargs,
+):
+    slug = tab_slug or CURRENT_CASE_TAB_SLUG
+    key = case_widget_key(slug, field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
     value = container.toggle(label, value=bool(getattr(D, field)), **kwargs)
     if value != getattr(D, field):
@@ -11331,7 +11465,12 @@ def sync_autohotkey_script(script: str) -> Path | None:
         return None
 
 
-def render_case_header_section(container, case_idx: int, compact_mode: bool) -> None:
+def render_case_header_section(
+    container,
+    case_idx: int,
+    compact_mode: bool,
+    tab_slug: str,
+) -> None:
     if not compact_mode:
         cat_map = active_category_map()
         prog, miss = compute_progress(D, cat_map)
@@ -11418,7 +11557,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             )
 
         if st.session_state.second_line_mode:
-            reseller_key = widget_key("reseller_case_number", case_idx)
+            reseller_key = case_widget_key(tab_slug, "reseller_case_number", case_idx)
             default_value = st.session_state.get(
                 reseller_key, D.straumann or D.patterson or ""
             )
@@ -11431,54 +11570,68 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             if merged_value != D.straumann or merged_value != D.patterson:
                 D.straumann = merged_value
                 D.patterson = merged_value
-                st.session_state[widget_key("straumann", case_idx)] = merged_value
-                st.session_state[widget_key("patterson", case_idx)] = merged_value
+                st.session_state[
+                    case_widget_key(tab_slug, "straumann", case_idx, register=False)
+                ] = merged_value
+                st.session_state[
+                    case_widget_key(tab_slug, "patterson", case_idx, register=False)
+                ] = merged_value
                 autosave()
         else:
             cleared = False
-            reseller_key = widget_key("reseller_case_number", case_idx)
+            reseller_key = case_widget_key(tab_slug, "reseller_case_number", case_idx)
             if reseller_key in st.session_state:
                 st.session_state.pop(reseller_key)
             if D.patterson != "N/A":
                 D.patterson = "N/A"
-                st.session_state[widget_key("patterson", case_idx)] = "N/A"
+                st.session_state[
+                    case_widget_key(tab_slug, "patterson", case_idx, register=False)
+                ] = "N/A"
                 cleared = True
             if D.straumann != "N/A":
                 D.straumann = "N/A"
-                st.session_state[widget_key("straumann", case_idx)] = "N/A"
+                st.session_state[
+                    case_widget_key(tab_slug, "straumann", case_idx, register=False)
+                ] = "N/A"
                 cleared = True
             if cleared:
                 autosave()
 
         name_cols = card.columns((1.3, 1, 1))
-        auto_text_input("Company name", "company_name", container=name_cols[0])
-        auto_text_input("Subscription ID", "subscription_id", container=name_cols[1])
-        auto_text_input("Case ID", "case_id", container=name_cols[2])
+        auto_text_input(
+            "Company name", "company_name", tab_slug=tab_slug, container=name_cols[0]
+        )
+        auto_text_input(
+            "Subscription ID", "subscription_id", tab_slug=tab_slug, container=name_cols[1]
+        )
+        auto_text_input("Case ID", "case_id", tab_slug=tab_slug, container=name_cols[2])
 
         details_cols = card.columns((2, 1))
         auto_text_input(
             "Brief description",
             "brief_description",
+            tab_slug=tab_slug,
             container=details_cols[0],
         )
         version_col = details_cols[1]
         auto_text_input(
             "Application and version",
             "application_version",
+            tab_slug=tab_slug,
             container=version_col,
             placeholder="e.g., Unite 1.8.10.1",
             help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
         )
 
         version_col.markdown("#### Support Fee")
-        ct_key = widget_key("customer_trios_only", case_idx)
-        sf_key = widget_key("support_fee_accepted", case_idx)
+        ct_key = case_widget_key(tab_slug, "customer_trios_only", case_idx)
+        sf_key = case_widget_key(tab_slug, "support_fee_accepted", case_idx)
         customer_trios_only = version_col.toggle(
             "Customer is TRIOS Only?",
             value=st.session_state.get(ct_key, D.customer_trios_only),
             key=ct_key,
             on_change=_update_field,
-            args=("customer_trios_only",),
+            args=("customer_trios_only", tab_slug),
         )
         if customer_trios_only:
             version_col.toggle(
@@ -11486,14 +11639,16 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 value=st.session_state.get(sf_key, D.support_fee_accepted),
                 key=sf_key,
                 on_change=_update_field,
-                args=("support_fee_accepted",),
+                args=("support_fee_accepted", tab_slug),
             )
         else:
             st.session_state[sf_key] = False
-            _update_field("support_fee_accepted")
+            _update_field("support_fee_accepted", tab_slug)
 
 
-def render_description_and_internal_notes(container, compact_mode: bool) -> None:
+def render_description_and_internal_notes(
+    container, compact_mode: bool, tab_slug: str
+) -> None:
     with case_tab_card(container, "case-card--story", compact_mode) as card:
         if not compact_mode:
             card.markdown("### 📝 Case story & internal context")
@@ -11517,21 +11672,28 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
         auto_text_area(
             "Description",
             "description",
+            tab_slug=tab_slug,
             height=desc_height,
             container=description_col,
         )
 
-        auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
+        auto_text_input(
+            "Helpjuice link",
+            "internal_helpjuice",
+            tab_slug=tab_slug,
+            container=notes_col,
+        )
         logs_height = 52 if compact_mode else 68
         auto_text_area(
             "Logs / screenshots",
             "internal_logs",
+            tab_slug=tab_slug,
             height=logs_height,
             container=notes_col,
         )
 
 
-def render_phonecall_section(container, compact_mode: bool) -> None:
+def render_phonecall_section(container, compact_mode: bool, tab_slug: str) -> None:
     with case_tab_card(container, "case-card--call", compact_mode) as card:
         header = "📞 Phone-call notes" if not compact_mode else "Phone-call notes"
         card.markdown(f"### {header}")
@@ -11544,10 +11706,16 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            tab_slug=tab_slug,
+            container=notes_col,
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
+            tab_slug=tab_slug,
             height=desc_height,
             container=notes_col,
         )
@@ -11558,19 +11726,33 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         else:
             contact_col.subheader(contact_header)
         first_row = contact_col.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-        auto_text_input("Phone number", "phone_number", container=first_row[1])
-        auto_text_input("Customer email", "email", container=contact_col)
+        auto_text_input(
+            "Dongle number", "dongle_number", tab_slug=tab_slug, container=first_row[0]
+        )
+        auto_text_input(
+            "Phone number", "phone_number", tab_slug=tab_slug, container=first_row[1]
+        )
+        auto_text_input(
+            "Customer email", "email", tab_slug=tab_slug, container=contact_col
+        )
         second_row = contact_col.columns(2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer ID",
+            "teamviewer_id",
+            tab_slug=tab_slug,
+            container=second_row[0],
+        )
         auto_text_input(
             "TeamViewer password",
             "teamviewer_password",
+            tab_slug=tab_slug,
             container=second_row[1],
         )
 
 
-def render_conclusion_and_additional(container, compact_mode: bool) -> None:
+def render_conclusion_and_additional(
+    container, compact_mode: bool, tab_slug: str
+) -> None:
     with case_tab_card(container, "case-card--wrapup", compact_mode) as card:
         if compact_mode:
             card.subheader("Conclusion")
@@ -11582,11 +11764,16 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
 
         conclusion_cols = card.columns(2)
         conclusion_left, conclusion_right = conclusion_cols
-        auto_text_input("Root cause", "root_cause", container=conclusion_left)
-        auto_text_input("Solution", "solution", container=conclusion_right)
+        auto_text_input(
+            "Root cause", "root_cause", tab_slug=tab_slug, container=conclusion_left
+        )
+        auto_text_input(
+            "Solution", "solution", tab_slug=tab_slug, container=conclusion_right
+        )
         auto_text_input(
             "Customer satisfaction survey URL",
             "survey_link",
+            tab_slug=tab_slug,
             container=conclusion_right,
         )
 
@@ -11597,6 +11784,7 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
         auto_text_area(
             "Additional details",
             "additional_info",
+            tab_slug=tab_slug,
             height=220 if compact_mode else 400,
             container=card,
             help=(
@@ -11829,14 +12017,16 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         hotkey_script.encode("utf-8"),
         file_name=f"kiroshi_tables_hotkeys_{TODAY_STR}.ahk",
         mime="text/plain",
-        key=widget_key("download_hotkeys", case_idx),
+        key=case_widget_key(
+            CASE_TAB_NAMESPACES["Debug"], "download_hotkeys", case_idx
+        ),
     )
     with st.expander("Preview generated hotkeys"):
         st.code(hotkey_script, language="autohotkey")
 
 
 def render_case_ui(case_idx: int):
-    global CURRENT_CASE_IDX
+    global CURRENT_CASE_IDX, CURRENT_CASE_TAB_SLUG
     CURRENT_CASE_IDX = case_idx
     # ──────────── TABS ───────────
     if case_idx == 0:
@@ -11883,13 +12073,46 @@ def render_case_ui(case_idx: int):
     tab_bored = next(tab_iter) if st.session_state.show_bored else None
     tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
+    def _tab_key(slug: str):
+        def _key(control: str, *segments, register: bool = True) -> str:
+            trailing_segments = list(segments)
+            if trailing_segments and trailing_segments[-1] == case_idx:
+                trailing_segments.pop()
+            str_segments = [str(seg) for seg in trailing_segments]
+            return case_widget_key(slug, control, case_idx, *str_segments, register=register)
+
+        return _key
+
+    case_slug = CASE_TAB_NAMESPACES["Case"]
+    tracking_slug = CASE_TAB_NAMESPACES["Tracking"]
+    escalations_slug = CASE_TAB_NAMESPACES["Escalations"]
+    email_slug = CASE_TAB_NAMESPACES["Email"]
+    hardware_slug = CASE_TAB_NAMESPACES["Hardware Issues"]
+    remote_slug = CASE_TAB_NAMESPACES["Remote Session"]
+    tables_slug = CASE_TAB_NAMESPACES["Tables"]
+    save_load_slug = CASE_TAB_NAMESPACES["Save/Load"]
+    bored_slug = CASE_TAB_NAMESPACES["I'm bored"]
+    debug_slug = CASE_TAB_NAMESPACES["Debug"]
+
+    case_key = _tab_key(case_slug)
+    tracking_key = _tab_key(tracking_slug)
+    escalations_key = _tab_key(escalations_slug)
+    email_key = _tab_key(email_slug)
+    hardware_key = _tab_key(hardware_slug)
+    remote_key = _tab_key(remote_slug)
+    tables_key = _tab_key(tables_slug)
+    save_load_key = _tab_key(save_load_slug)
+    bored_key = _tab_key(bored_slug)
+    debug_key = _tab_key(debug_slug)
+
     # ================== 2ND LINE MODE TAB =================
     # ================== CASE TAB =================
+    CURRENT_CASE_TAB_SLUG = case_slug
     with tab_case:
         api_key = st.session_state.openai_api_key
         model = st.session_state.openai_model
         base_url = st.session_state.ai_base_url
-        toggle_key = widget_key("quick_actions_open", case_idx)
+        toggle_key = case_key("quick_actions_open", register=False)
         if toggle_key not in st.session_state:
             st.session_state[toggle_key] = False
 
@@ -11903,13 +12126,13 @@ def render_case_ui(case_idx: int):
 
             if st.button(
                 "Save case",
-                key=widget_key("quick_save", case_idx),
+                key=case_key("quick_save"),
                 width="stretch",
             ):
                 save_case_to_database(D)
             if st.button(
                 "Clear all",
-                key=widget_key("clear_all_button", case_idx),
+                key=case_key("clear_all_button"),
                 width="stretch",
             ):
                 logging.info("Clear all button clicked")
@@ -11933,19 +12156,19 @@ def render_case_ui(case_idx: int):
                 st.button(
                     "Tracking enabled",
                     disabled=True,
-                    key=widget_key("tracking_enabled", case_idx),
+                    key=case_key("tracking_enabled"),
                     width="stretch",
                 )
             elif st.button(
                 "Track case",
-                key=widget_key("track_case_button", case_idx),
+                key=case_key("track_case_button"),
                 width="stretch",
             ):
                 st.session_state.track_case = True
                 st.rerun()
             if st.button(
                 "AI Assistance",
-                key=widget_key("assist_button", case_idx),
+                key=case_key("assist_button"),
                 width="stretch",
             ):
                 logging.info("AI Assistance button clicked")
@@ -12063,7 +12286,7 @@ def render_case_ui(case_idx: int):
                     st.caption(
                         "AI Educate did not find a close historical match; general patterns were provided instead."
                     )
-            if st.button("Categorize", key=widget_key("categorize_button", case_idx), width="stretch"):
+            if st.button("Categorize", key=case_key("categorize_button"), width="stretch"):
                 logging.info("Categorize button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -12127,7 +12350,7 @@ def render_case_ui(case_idx: int):
                             save_memory(st.session_state.kiroshi_chat_history)
                             st.session_state.categorizer_result = reply
                             st.session_state.categorizer_summary = parse_categorizer_summary(reply)
-            if st.button("Ask", key=widget_key("ask_button", case_idx), use_container_width=True):
+            if st.button("Ask", key=case_key("ask_button"), use_container_width=True):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -12188,7 +12411,7 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ask_result = reply
-            if st.button("Verify", key=widget_key("verify_button", case_idx), width="stretch"):
+            if st.button("Verify", key=case_key("verify_button"), width="stretch"):
                 logging.info("Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -12291,7 +12514,7 @@ def render_case_ui(case_idx: int):
             bubble_label = "✕" if st.session_state[toggle_key] else "⚡"
             if st.button(
                 bubble_label,
-                key=widget_key("quick_actions_toggle_button", case_idx),
+                key=case_key("quick_actions_toggle_button"),
                 width="stretch",
             ):
                 st.session_state[toggle_key] = not st.session_state[toggle_key]
@@ -12351,29 +12574,30 @@ def render_case_ui(case_idx: int):
             if compact_mode:
                 top_left, top_right = st.columns(2, gap="medium")
                 with top_left:
-                    render_case_header_section(top_left, case_idx, True)
+                    render_case_header_section(top_left, case_idx, True, case_slug)
                 with top_right:
-                    render_description_and_internal_notes(top_right, True)
+                    render_description_and_internal_notes(top_right, True, case_slug)
                 bottom_left, bottom_right = st.columns(2, gap="medium")
                 with bottom_left:
-                    render_phonecall_section(bottom_left, True)
+                    render_phonecall_section(bottom_left, True, case_slug)
                 with bottom_right:
-                    render_conclusion_and_additional(bottom_right, True)
+                    render_conclusion_and_additional(bottom_right, True, case_slug)
             else:
                 with case_tab_shell(st) as case_shell:
-                    render_case_header_section(case_shell, case_idx, False)
-                    render_description_and_internal_notes(case_shell, False)
-                    render_phonecall_section(case_shell, False)
-                    render_conclusion_and_additional(case_shell, False)
+                    render_case_header_section(case_shell, case_idx, False, case_slug)
+                    render_description_and_internal_notes(case_shell, False, case_slug)
+                    render_phonecall_section(case_shell, False, case_slug)
+                    render_conclusion_and_additional(case_shell, False, case_slug)
     # ================== EMAIL TAB =================
     if tab_email:
+        CURRENT_CASE_TAB_SLUG = email_slug
         with tab_email:
             st.subheader("Email Prompt Generator")
             if st.session_state.email_type == "Custom Request":
                 st.session_state.email_type = "Advanced Request"
 
-            email_widget_key = widget_key("email_template", case_idx)
-            group_widget_key = widget_key("email_template_group", case_idx)
+            email_widget_key = email_key("email_template")
+            group_widget_key = email_key("email_template_group")
             template_definitions = [
                 {
                     "value": "Recap (Customer)",
@@ -12677,13 +12901,13 @@ def render_case_ui(case_idx: int):
                     "Original customer email",
                     ext.get("reply_original", ""),
                     height=240,
-                    key=widget_key("reply_original", case_idx),
+                    key=email_key("reply_original"),
                 )
                 ext["reply_focus"] = st.text_area(
                     "What should we address in the reply?",
                     ext.get("reply_focus", ""),
                     height=140,
-                    key=widget_key("reply_focus", case_idx),
+                    key=email_key("reply_focus"),
                 )
                 case_snapshot = {
                     "case_id": D.case_id,
@@ -12719,7 +12943,7 @@ def render_case_ui(case_idx: int):
                     make_pdf(D, cat_map),
                     file_name=f"{D.case_id or 'case'}.pdf",
                     mime="application/pdf",
-                    key=widget_key("download_pdf", case_idx),
+                    key=email_key("download_pdf"),
                 )
             if not compact_mode and left is not None:
                 with left:
@@ -12828,7 +13052,7 @@ List each question and provide any known answer beneath it, ready for the custom
                     "Request / Issue",
                     D.description,
                     disabled=True,
-                    key=widget_key("request_issue", case_idx),
+                    key=email_key("request_issue"),
                 )
                 D.request_issue = D.description
                 D.contact_name = D.caller_name
@@ -12840,9 +13064,9 @@ List each question and provide any known answer beneath it, ready for the custom
                 best_cb = st.toggle(
                     "Specify best call-back time",
                     D.best_time not in ("", "ASAP"),
-                    key=widget_key("best_cb", case_idx),
+                    key=email_key("best_cb"),
                 )
-                best_time_key = widget_key("best_time", case_idx)
+                best_time_key = email_key("best_time")
                 if best_cb:
                     default_best_time = (
                         D.best_time if D.best_time not in ("", "ASAP") else ""
@@ -12910,7 +13134,7 @@ Wishing you the best again!"""
                     "Email",
                     email_text,
                     height=300,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_key("generated_email"),
                 )
 
             elif email_type == "Replacement Wired Scanner Setup":
@@ -12962,7 +13186,7 @@ Wishing you the best again!"""
                     "Email",
                     email_text,
                     height=400,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_key("generated_email"),
                 )
 
             elif email_type == "Replacement Move+ Closure":
@@ -12996,50 +13220,50 @@ Wishing you the best again!"""
                     "Email",
                     email_text,
                     height=400,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_key("generated_email"),
                 )
 
             elif email_type == "Callback Email":
                 st.markdown("#### Callback email options")
-                cb_remote_key = widget_key("callback_remote", case_idx)
+                cb_remote_key = email_key("callback_remote")
                 cb_remote = st.toggle(
                     "Need remote session?",
                     st.session_state.get(cb_remote_key, False),
                     key=cb_remote_key,
                 )
-                cb_remote_text_key = widget_key("callback_remote_text", case_idx)
+                cb_remote_text_key = email_key("callback_remote_text")
                 if cb_remote:
                     st.text_area(
                         "Remote session details",
                         st.session_state.get(cb_remote_text_key, ""),
                         key=cb_remote_text_key,
                     )
-                cb_contact_key = widget_key("callback_contact", case_idx)
+                cb_contact_key = email_key("callback_contact")
                 st.toggle(
                     "Need contact information?",
                     st.session_state.get(cb_contact_key, False),
                     key=cb_contact_key,
                 )
-                cb_clarify_key = widget_key("callback_clarify", case_idx)
+                cb_clarify_key = email_key("callback_clarify")
                 st.toggle(
                     "Need to clarify what happened?",
                     st.session_state.get(cb_clarify_key, False),
                     key=cb_clarify_key,
                 )
-                cb_needed_key = widget_key("callback_needed", case_idx)
+                cb_needed_key = email_key("callback_needed")
                 st.toggle(
                     "Callback needed?",
                     st.session_state.get(cb_needed_key, True),
                     key=cb_needed_key,
                 )
-                cb_address_key = widget_key("callback_address", case_idx)
+                cb_address_key = email_key("callback_address")
                 cb_address = st.toggle(
                     "Request address?",
                     st.session_state.get(cb_address_key, False),
                     key=cb_address_key,
                 )
                 if cb_address:
-                    cb_equipment_key = widget_key("callback_equipment", case_idx)
+                    cb_equipment_key = email_key("callback_equipment")
                     st.text_input(
                         "Equipment to replace",
                         st.session_state.get(cb_equipment_key, ""),
@@ -13105,7 +13329,7 @@ End with: We look forward to your reply."""
                     "Email",
                     email_text,
                     height=600,
-                    key=widget_key("generated_email", case_idx),
+                    key=email_key("generated_email"),
                 )
 
             elif email_type == "Advanced Request":
@@ -13139,8 +13363,10 @@ End with: We look forward to your reply."""
                 )
                 pat_cb = st.toggle(
                     "Include Patterson legacy #",
-                    value=st.session_state.get(widget_key("pat_cb", case_idx), False),
-                    key=widget_key("pat_cb", case_idx),
+                    value=st.session_state.get(
+                        email_key("pat_cb", register=False), False
+                    ),
+                    key=email_key("pat_cb"),
                 )
                 if pat_cb:
                     auto_text_input(
@@ -13155,7 +13381,7 @@ End with: We look forward to your reply."""
                         "Straumann ticket #",
                         D.straumann,
                         disabled=True,
-                        key=widget_key("straumann_tab", case_idx),
+                        key=email_key("straumann_tab"),
                     )
                 else:
                     D.straumann = "N/A"
@@ -13166,14 +13392,14 @@ End with: We look forward to your reply."""
                     "User instructions",
                     ext.get("custom_user_prompt", ""),
                     height=140,
-                    key=widget_key("custom_user_prompt", case_idx),
+                    key=email_key("custom_user_prompt"),
                 )
                 case_context = build_case_data_block(D)
                 st.text_area(
                     "Case data provided by Kiroshi",
                     case_context,
                     height=220,
-                    key=widget_key("custom_case_context", case_idx),
+                    key=email_key("custom_case_context"),
                     disabled=True,
                 )
                 user_prompt = ext.get("custom_user_prompt", "").strip()
@@ -13196,31 +13422,37 @@ End with: We look forward to your reply."""
                     prompt_label,
                     prompt,
                     height=300,
-                    key=widget_key("api_prompt_area", case_idx),
+                    key=email_key("api_prompt_area"),
                 )
                 st.session_state["last_prompt"] = prompt
 
                 include_helpjuice = st.toggle(
                     "Helpjuice tutorial",
-                    value=st.session_state.get(widget_key("api_helpjuice", case_idx), False),
-                    key=widget_key("api_helpjuice", case_idx),
+                    value=st.session_state.get(
+                        email_key("api_helpjuice", register=False), False
+                    ),
+                    key=email_key("api_helpjuice"),
                 )
                 include_restart = st.toggle(
                     "Restart the computer",
-                    value=st.session_state.get(widget_key("api_restart", case_idx), False),
-                    key=widget_key("api_restart", case_idx),
+                    value=st.session_state.get(
+                        email_key("api_restart", register=False), False
+                    ),
+                    key=email_key("api_restart"),
                 )
                 include_scan_time = st.toggle(
                     "Scan time warning",
-                    value=st.session_state.get(widget_key("api_scan_time", case_idx), False),
-                    key=widget_key("api_scan_time", case_idx),
+                    value=st.session_state.get(
+                        email_key("api_scan_time", register=False), False
+                    ),
+                    key=email_key("api_scan_time"),
                 )
-                generated_email_key = widget_key("generated_email_output", case_idx)
+                generated_email_key = email_key("generated_email_output")
                 if generated_email_key not in st.session_state:
                     st.session_state[generated_email_key] = st.session_state.get(
                         "generated_email", ""
                     )
-                if st.button("Use GPT-OSS", key=widget_key("use_gpt", case_idx)):
+                if st.button("Use GPT-OSS", key=email_key("use_gpt")):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
                     base_url = st.session_state.ai_base_url
@@ -13272,10 +13504,11 @@ End with: We look forward to your reply."""
                 )
     # ================== TRACKING TAB =================
     if tab_tracking:
+        CURRENT_CASE_TAB_SLUG = tracking_slug
         with tab_tracking:
             st.subheader("Tracking")
             ensure_tracking_session_defaults(case_idx, D.tracking)
-            tracking_type_key = widget_key("tracking_type", case_idx)
+            tracking_type_key = tracking_key("tracking_type")
             tracking_type = st.selectbox(
                 "Tracking type",
                 ["Dell", "FedEx", "Custom"],
@@ -13295,19 +13528,19 @@ End with: We look forward to your reply."""
                 created_display = datetime.now().strftime("%Y-%m-%d")
             st.text_input("Created", value=created_display, disabled=True)
 
-            ticket_key = widget_key("track_ticket_number", case_idx)
+            ticket_key = tracking_key("track_ticket_number")
             ticket_number = st.text_input("Ticket Number", key=ticket_key)
 
-            priority_key = widget_key("track_priority", case_idx)
+            priority_key = tracking_key("track_priority")
             st.session_state[priority_key] = normalize_priority(
                 st.session_state.get(priority_key)
             )
             st.selectbox("Priority", PRIORITY_OPTIONS, key=priority_key)
 
-            category_key = widget_key("track_category", case_idx)
+            category_key = tracking_key("track_category")
             st.text_input("Category", key=category_key)
 
-            status_key = widget_key("track_status", case_idx)
+            status_key = tracking_key("track_status")
             status_options = TRACKING_STATUS_OPTIONS.get(tracking_type)
             if status_options:
                 status_choices = list(status_options)
@@ -13320,8 +13553,8 @@ End with: We look forward to your reply."""
             else:
                 st.text_input("Status", key=status_key)
 
-            service_tag_key = widget_key("track_service_tag", case_idx)
-            expected_key = widget_key("track_expected_arrival", case_idx)
+            service_tag_key = tracking_key("track_service_tag")
+            expected_key = tracking_key("track_expected_arrival")
             if tracking_type == "Dell":
                 if (
                     not D.tracking.active
@@ -13333,10 +13566,10 @@ End with: We look forward to your reply."""
             elif tracking_type == "FedEx":
                 st.date_input("Expected arrival date", key=expected_key)
 
-            case_link_key = widget_key("track_case_link", case_idx)
+            case_link_key = tracking_key("track_case_link")
             st.text_input("Case link (CRM)", key=case_link_key)
 
-            if st.button("Save and track", key=widget_key("save_and_track", case_idx)):
+            if st.button("Save and track", key=tracking_key("save_and_track")):
                 if not D.case_id:
                     st.error("Case ID is required before tracking can be enabled.")
                 else:
@@ -13376,7 +13609,7 @@ End with: We look forward to your reply."""
                     st.success("Tracking information saved.")
             if st.button(
                 "Close case & stop tracking",
-                key=widget_key("close_tracking", case_idx),
+                key=tracking_key("close_tracking"),
             ):
                 D.tracking.active = False
                 save_case_to_database(D, notify=False)
@@ -13385,6 +13618,7 @@ End with: We look forward to your reply."""
 
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
+        CURRENT_CASE_TAB_SLUG = escalations_slug
         with tab_escalations:
             if "AX COORDINATORS" in cat_map:
                 st.markdown("#### AX Coordinators Table")
@@ -13400,21 +13634,21 @@ End with: We look forward to your reply."""
                 "Name",
                 D.esc_name,
                 disabled=True,
-                key=widget_key("esc_name_tab", case_idx),
+                key=escalations_key("esc_name_tab"),
             )
             D.esc_ph = D.phone_number
             st.text_input(
                 "Phone",
                 D.esc_ph,
                 disabled=True,
-                key=widget_key("esc_ph_tab", case_idx),
+                key=escalations_key("esc_ph_tab"),
             )
             D.esc_email = D.email
             st.text_input(
                 "Email",
                 D.esc_email,
                 disabled=True,
-                key=widget_key("esc_email_tab", case_idx),
+                key=escalations_key("esc_email_tab"),
             )
             if "ESCALATION 2ND LINE" in cat_map:
                 st.markdown("#### Escalation 2nd line Table")
@@ -13540,7 +13774,7 @@ End with: We look forward to your reply."""
             st.dataframe(dell_table, use_container_width=True)
             copy_col, download_col = st.columns([2, 3])
             with copy_col:
-                copy_key = widget_key("dell_escalation_copy", case_idx)
+                copy_key = escalations_key("dell_escalation_copy")
                 copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_key.lower())
                 if not copy_suffix:
                     copy_suffix = "dellcopy"
@@ -13585,14 +13819,14 @@ End with: We look forward to your reply."""
                     csv_bytes,
                     file_name=f"{D.case_id or 'case'}_dell_escalation.csv",
                     mime="text/csv",
-                    key=widget_key("download_dell_escalation_csv", case_idx),
+                    key=escalations_key("download_dell_escalation_csv"),
                 )
                 st.download_button(
                     "Download JSON",
                     json_bytes,
                     file_name=f"{D.case_id or 'case'}_dell_escalation.json",
                     mime="application/json",
-                    key=widget_key("download_dell_escalation_json", case_idx),
+                    key=escalations_key("download_dell_escalation_json"),
                 )
 
             if st.session_state.second_line_mode:
@@ -13691,7 +13925,7 @@ End with: We look forward to your reply."""
                     "Escalation message",
                     msg,
                     height=400,
-                    key=widget_key("esc_message", case_idx),
+                    key=escalations_key("esc_message"),
                 )
                 components.html(
                     f"""
@@ -13724,12 +13958,13 @@ End with: We look forward to your reply."""
                     msg,
                     file_name=f"third_line_escalation_{TODAY_STR}.txt",
                     mime="text/plain",
-                    key=widget_key("download_third_line_escalation", case_idx),
+                    key=escalations_key("download_third_line_escalation"),
                 )
                 st.markdown("---")
 
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
+        CURRENT_CASE_TAB_SLUG = hardware_slug
         with tab_hw:
             st.subheader("PC Hardware Issue")
             col_pc1, col_pc2 = st.columns(2)
@@ -13774,11 +14009,13 @@ End with: We look forward to your reply."""
             )
 
     if tab_debug:
+        CURRENT_CASE_TAB_SLUG = debug_slug
         with tab_debug:
             st.subheader("Case debug tools")
             render_autohotkey_panel(cat_map, case_idx)
 
     # ================== REMOTE SESSION TAB =================
+    CURRENT_CASE_TAB_SLUG = remote_slug
     with tab_remote:
         st.subheader("Remote sessions")
         ensure_remote_session_entries(D)
@@ -13788,7 +14025,7 @@ End with: We look forward to your reply."""
         with action_cols[0]:
             if st.button(
                 "Add session",
-                key=widget_key("remote_session_add", case_idx),
+                key=remote_key("remote_session_add"),
             ):
                 new_session = RemoteSessionEntry(
                     title=f"Session {len(sessions) + 1}",
@@ -13797,12 +14034,12 @@ End with: We look forward to your reply."""
                 sessions.append(new_session)
                 update_case_remote_sessions(D, sessions)
                 st.session_state[
-                    widget_key(
+                    remote_key(
                         f"remote_session_title_{new_session.session_id}", case_idx
                     )
                 ] = new_session.title
                 st.session_state[
-                    widget_key(
+                    remote_key(
                         f"remote_session_notes_{new_session.session_id}", case_idx
                     )
                 ] = new_session.notes
@@ -13820,7 +14057,7 @@ End with: We look forward to your reply."""
             container = st.container()
             with container:
                 header_cols = st.columns([6, 1, 1, 1])
-                title_key = widget_key(
+                title_key = remote_key(
                     f"remote_session_title_{session.session_id}", case_idx
                 )
                 if title_key not in st.session_state:
@@ -13830,13 +14067,13 @@ End with: We look forward to your reply."""
                     value=session.title,
                     key=title_key,
                 )
-                move_up_key = widget_key(
+                move_up_key = remote_key(
                     f"remote_session_up_{session.session_id}", case_idx
                 )
-                move_down_key = widget_key(
+                move_down_key = remote_key(
                     f"remote_session_down_{session.session_id}", case_idx
                 )
-                remove_key = widget_key(
+                remove_key = remote_key(
                     f"remote_session_remove_{session.session_id}", case_idx
                 )
                 with header_cols[1]:
@@ -13894,7 +14131,7 @@ End with: We look forward to your reply."""
                 if timestamp_parts:
                     st.caption(" · ".join(timestamp_parts))
 
-                notes_key = widget_key(
+                notes_key = remote_key(
                     f"remote_session_notes_{session.session_id}", case_idx
                 )
                 if notes_key not in st.session_state:
@@ -13915,6 +14152,7 @@ End with: We look forward to your reply."""
 
 
     # ================== TABLES TAB =================
+    CURRENT_CASE_TAB_SLUG = tables_slug
     with tab_tables:
         st.subheader("Copy all tables")
         st.download_button(
@@ -13922,7 +14160,7 @@ End with: We look forward to your reply."""
             make_tables_pdf(D),
             file_name=f"{D.case_id or 'case'}_info.pdf",
             mime="application/pdf",
-            key=widget_key("download_info_pdf", case_idx),
+            key=tables_key("download_info_pdf"),
         )
         for cat in cat_map:
             title_text = table_title(cat)
@@ -13974,37 +14212,38 @@ End with: We look forward to your reply."""
                 </script>
                 """,
                 height=80,
-                key=widget_key(f"tables_copy_controls_{copy_suffix}", case_idx),
+                key=tables_key(f"tables_copy_controls_{copy_suffix}"),
             )
             st.dataframe(
                 category_dataframe(cat, D, cat_map),
                 width="stretch",
-                key=widget_key(f"tables_df_{copy_suffix}", case_idx),
+                key=tables_key(f"tables_df_{copy_suffix}"),
             )
 
     # ================== SAVE/LOAD TAB =================
+    CURRENT_CASE_TAB_SLUG = save_load_slug
     with tab_save_load:
         st.subheader("Save / Load")
         col_save, col_load = st.columns(2)
         with col_save:
-            if st.button("Save", key=widget_key("save_case_button", case_idx)):
+            if st.button("Save", key=save_load_key("save_case_button")):
                 save_case_to_database(D)
         with col_load:
             uploaded_case = st.file_uploader(
                 "Select case JSON",
                 type="json",
-                key=widget_key("load_case_uploader", case_idx),
+                key=save_load_key("load_case_uploader"),
             )
             if uploaded_case and st.button(
-                "Load", key=widget_key("load_case_button", case_idx)
+                "Load", key=save_load_key("load_case_button")
             ):
                 request_load_from_bytes(uploaded_case.getvalue())
 
         st.subheader("Case Dex")
         dex_case_id = st.text_input(
-            "Case ID", key=widget_key("case_dex_id", case_idx)
+            "Case ID", key=save_load_key("case_dex_id")
         )
-        if st.button("Fetch Case Dex", key=widget_key("fetch_case_dex", case_idx)):
+        if st.button("Fetch Case Dex", key=save_load_key("fetch_case_dex")):
             if dex_case_id:
                 try:
                     dex_bytes = request_case_dex(dex_case_id)
@@ -14012,21 +14251,23 @@ End with: We look forward to your reply."""
                     st.error(f"Failed to download Case Dex: {e}")
                 else:
                     st.session_state[
-                        widget_key("case_dex_bytes", case_idx)
+                        save_load_key("case_dex_bytes", register=False)
                     ] = dex_bytes
                     st.session_state[
-                        widget_key("case_dex_id_store", case_idx)
+                        save_load_key("case_dex_id_store", register=False)
                     ] = dex_case_id
             else:
                 st.error("Please enter a Case ID")
-        dex_bytes = st.session_state.get(widget_key("case_dex_bytes", case_idx))
+        dex_bytes = st.session_state.get(
+            save_load_key("case_dex_bytes", register=False)
+        )
         if dex_bytes:
             st.download_button(
                 "Download Case Dex",
                 dex_bytes,
-                file_name=f"{st.session_state.get(widget_key('case_dex_id_store', case_idx), 'case')}_case_dex.zip",
+                file_name=f"{st.session_state.get(save_load_key('case_dex_id_store', register=False), 'case')}_case_dex.zip",
                 mime="application/zip",
-                key=widget_key("download_case_dex", case_idx),
+                key=save_load_key("download_case_dex"),
             )
 
         st.subheader("Recent cases")
@@ -14040,7 +14281,7 @@ End with: We look forward to your reply."""
             else:
                 info_col.write(f"{case['case_id']}\n{case['path']}")
             if btn_col.button(
-                "Load", key=widget_key(f"recent_load_{idx}", case_idx)
+                "Load", key=save_load_key(f"recent_load_{idx}")
             ):
                 request_load_from_path(case["path"])
 
@@ -14049,14 +14290,14 @@ End with: We look forward to your reply."""
             st.error("Remember to save your information before loading a new case")
             col_i, col_s = st.columns(2)
             target_idx = pending.get("target_idx", CURRENT_CASE_IDX)
-            if col_i.button("Ignore and load", key=widget_key("ignore_and_load", case_idx)):
+            if col_i.button("Ignore and load", key=save_load_key("ignore_and_load")):
                 _activate_case_index(target_idx)
                 if "path" in pending:
                     load_case_from_path(pending["path"])
                 else:
                     load_case_from_bytes(pending["data"])
                 st.session_state.pending_load = None
-            if col_s.button("Save", key=widget_key("save_before_loading", case_idx)):
+            if col_s.button("Save", key=save_load_key("save_before_loading")):
                 save_case_to_database(D)
 
     # ================== FILE UPLOADS & EXPORTS =================
@@ -14065,7 +14306,7 @@ End with: We look forward to your reply."""
     new_files = st.file_uploader(
         "Upload screenshots / videos",
         accept_multiple_files=True,
-        key=widget_key("new_files", case_idx),
+        key=save_load_key("new_files"),
     )
     if new_files:
         existing_names = {f.name for f in st.session_state.uploads}
@@ -14077,7 +14318,7 @@ End with: We look forward to your reply."""
     log_files = st.file_uploader(
         "Upload case logs",
         accept_multiple_files=True,
-        key=widget_key("log_files", case_idx),
+        key=save_load_key("log_files"),
     )
     if log_files:
         existing_log_names = {f.name for f in st.session_state.log_uploads}
@@ -14087,11 +14328,11 @@ End with: We look forward to your reply."""
                 existing_log_names.add(lf.name)
 
     screenshot_name = st.text_input(
-        "Screenshot name", key=widget_key("screenshot_name", case_idx)
+        "Screenshot name", key=save_load_key("screenshot_name")
     )
     full_btn_col, region_btn_col = st.columns(2)
 
-    if full_btn_col.button("Take Screenshot", key=widget_key("take_screenshot", case_idx)):
+    if full_btn_col.button("Take Screenshot", key=save_load_key("take_screenshot")):
         if screenshot_name:
             safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
             shot, error = capture_full_screenshot(safe_name)
@@ -14105,7 +14346,7 @@ End with: We look forward to your reply."""
 
     if region_btn_col.button(
         "Advanced Screenshot (select area)",
-        key=widget_key("take_region_screenshot", case_idx),
+        key=save_load_key("take_region_screenshot"),
     ):
         if not screenshot_name:
             st.error("Please provide a screenshot name before capturing.")
@@ -14137,7 +14378,7 @@ End with: We look forward to your reply."""
                 cols = st.columns([8, 1])
                 cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
                 if cols[1].button(
-                    "Remove", key=widget_key(f"rem_upload_{i}", case_idx)
+                    "Remove", key=save_load_key(f"rem_upload_{i}")
                 ):
                     st.session_state.uploads.pop(i)
                     st.rerun()
@@ -14147,7 +14388,7 @@ End with: We look forward to your reply."""
                 cols = st.columns([8, 1])
                 cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
                 if cols[1].button(
-                    "Remove", key=widget_key(f"rem_log_{i}", case_idx)
+                    "Remove", key=save_load_key(f"rem_log_{i}")
                 ):
                     st.session_state.log_uploads.pop(i)
                     st.rerun()
@@ -14157,11 +14398,11 @@ End with: We look forward to your reply."""
                 cols = st.columns([8, 1])
                 cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
                 if cols[1].button(
-                    "Remove", key=widget_key(f"rem_shot_{i}", case_idx)
+                    "Remove", key=save_load_key(f"rem_shot_{i}")
                 ):
                     st.session_state.screenshots.pop(i)
                     st.rerun()
-        if st.button("Create ZIP", key=widget_key("create_zip", case_idx)):
+        if st.button("Create ZIP", key=save_load_key("create_zip")):
             zbuf = io.BytesIO()
             with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
                 for f in st.session_state.uploads:
@@ -14178,11 +14419,12 @@ End with: We look forward to your reply."""
                 zbuf,
                 file_name=f"{D.case_id or 'case'}_attachments.zip",
                 mime="application/zip",
-                key=widget_key("download_zip", case_idx),
+                key=save_load_key("download_zip"),
             )
 
     # ================== BORED TAB =================
     if tab_bored:
+        CURRENT_CASE_TAB_SLUG = bored_slug
         with tab_bored:
             st.subheader("One Click RPG")
             game = st.session_state.bored_game
@@ -14274,7 +14516,7 @@ End with: We look forward to your reply."""
                 "zealous",
                 "hot-headed",
             ]
-            if st.button("Explore", key=widget_key("bored_explore", case_idx)):
+            if st.button("Explore", key=bored_key("bored_explore")):
                 adventure = random.choice(area)
                 encounter = random.choice(monster)
                 descript = random.choice(description)
@@ -14340,7 +14582,7 @@ End with: We look forward to your reply."""
             st.markdown(f"Power ranking: {game['power_ranking']}")
 
             st.subheader("Secret Arena")
-            if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
+            if st.button("Launch arena", key=bored_key("launch_arena")):
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
 
