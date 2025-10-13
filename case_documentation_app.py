@@ -7727,6 +7727,170 @@ def active_category_map():
         cm.update(HW_CATEGORY_MAP)
     return cm
 
+
+def _inject_case_tab_theme() -> None:
+    """Lazy‑load the visual theme used by the Case tab."""
+
+    if st.session_state.get("_case_tab_theme_injected"):
+        return
+    st.session_state["_case_tab_theme_injected"] = True
+    st.markdown(
+        """
+        <style>
+            .case-tab-shell {
+                background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.12));
+                border-radius: 24px;
+                padding: 2.5rem clamp(1rem, 4vw, 2.75rem);
+                margin-bottom: 2rem;
+                box-shadow: 0 25px 50px -25px rgba(15, 23, 42, 0.35);
+                position: relative;
+                overflow: hidden;
+            }
+            .case-tab-shell::after {
+                content: "";
+                position: absolute;
+                inset: -40% -25% auto auto;
+                width: min(340px, 60vw);
+                aspect-ratio: 1;
+                background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.35), transparent 55%);
+                transform: rotate(25deg);
+                pointer-events: none;
+            }
+            .case-card {
+                background: rgba(255, 255, 255, 0.92);
+                backdrop-filter: blur(16px);
+                border-radius: 18px;
+                padding: 1.5rem 1.75rem;
+                margin-bottom: 1.25rem;
+                box-shadow: 0 18px 45px -22px rgba(15, 23, 42, 0.3);
+                border: 1px solid rgba(148, 163, 184, 0.25);
+            }
+            .case-card h3, .case-card h4 {
+                margin-top: 0;
+                margin-bottom: 0.75rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+            }
+            .case-hero {
+                position: relative;
+                z-index: 1;
+                display: grid;
+                gap: clamp(1.5rem, 3vw, 2.25rem);
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                align-items: center;
+                margin-bottom: 1.5rem;
+                padding-bottom: 0.5rem;
+            }
+            .case-hero__eyebrow {
+                display: inline-block;
+                padding: 0.35rem 0.75rem;
+                border-radius: 999px;
+                font-size: 0.8rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                font-weight: 600;
+                background: rgba(79, 70, 229, 0.15);
+                color: #4338ca;
+                margin-bottom: 0.75rem;
+            }
+            .case-hero__title {
+                font-size: clamp(1.65rem, 4vw, 2.4rem);
+                margin: 0 0 0.5rem;
+                font-weight: 700;
+            }
+            .case-hero__subtitle {
+                margin: 0 0 1rem;
+                color: rgba(15, 23, 42, 0.75);
+                font-size: 1rem;
+            }
+            .case-hero__badges {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+            .case-hero__badge {
+                padding: 0.4rem 0.85rem;
+                border-radius: 999px;
+                background: rgba(15, 23, 42, 0.08);
+                font-size: 0.85rem;
+                font-weight: 600;
+                color: rgba(15, 23, 42, 0.8);
+                backdrop-filter: blur(8px);
+            }
+            .case-hero__progress {
+                background: rgba(15, 23, 42, 0.75);
+                color: #f8fafc;
+                border-radius: 20px;
+                padding: 1.5rem 1.75rem;
+                box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+            }
+            .case-hero__progress-label {
+                font-size: 0.95rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                margin-bottom: 0.75rem;
+                color: rgba(248, 250, 252, 0.85);
+            }
+            .case-hero__progress-track {
+                background: rgba(248, 250, 252, 0.15);
+                height: 12px;
+                border-radius: 999px;
+                overflow: hidden;
+                margin-bottom: 0.75rem;
+            }
+            .case-hero__progress-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #22d3ee 0%, #6366f1 50%, #ec4899 100%);
+            }
+            .case-hero__progress-value {
+                font-size: 2rem;
+                font-weight: 700;
+                margin-bottom: 0.5rem;
+            }
+            .case-hero__progress-meta {
+                font-size: 0.9rem;
+                color: rgba(248, 250, 252, 0.75);
+            }
+            @media (max-width: 768px) {
+                .case-tab-shell {
+                    padding: 2rem 1rem;
+                }
+                .case-card {
+                    padding: 1.25rem 1.35rem;
+                }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+@contextmanager
+def case_tab_shell(container):
+    _inject_case_tab_theme()
+    container.markdown('<div class="case-tab-shell">', unsafe_allow_html=True)
+    shell = container.container()
+    try:
+        yield shell
+    finally:
+        container.markdown("</div>", unsafe_allow_html=True)
+
+
+@contextmanager
+def case_tab_card(container, card_class: str, compact_mode: bool):
+    if compact_mode:
+        yield container
+        return
+
+    classes = f"case-card {card_class}".strip()
+    container.markdown(f'<div class="{classes}">', unsafe_allow_html=True)
+    card = container.container()
+    try:
+        yield card
+    finally:
+        container.markdown("</div>", unsafe_allow_html=True)
+
 # ────────── HELPERS ──────────
 
 def build_title(d: CaseData) -> str:
@@ -7960,159 +8124,279 @@ def sync_autohotkey_script(script: str) -> Path | None:
 
 
 def render_case_header_section(container, case_idx: int, compact_mode: bool) -> None:
-    container.subheader("Case Header")
-    if st.session_state.second_line_mode:
-        reseller_key = widget_key("reseller_case_number", case_idx)
-        default_value = st.session_state.get(
-            reseller_key, D.straumann or D.patterson or ""
+    if not compact_mode:
+        cat_map = active_category_map()
+        prog, miss = compute_progress(D, cat_map)
+        progress_values = list(prog.values())
+        progress_pct = (
+            int(sum(progress_values) / len(progress_values)) if progress_values else 0
         )
-        st.session_state[reseller_key] = default_value
-        merged_value = container.text_input(
-            "Reseller case # (Straumann / Patterson)",
-            default_value,
-            key=reseller_key,
+        progress_pct = max(0, min(100, progress_pct))
+        outstanding = sum(len(v) for v in miss.values())
+        outstanding_text = (
+            "All mandatory fields complete"
+            if outstanding == 0
+            else f"{outstanding} field{'s' if outstanding != 1 else ''} remaining"
         )
-        if merged_value != D.straumann or merged_value != D.patterson:
-            D.straumann = merged_value
-            D.patterson = merged_value
-            st.session_state[widget_key("straumann", case_idx)] = merged_value
-            st.session_state[widget_key("patterson", case_idx)] = merged_value
-            autosave()
-    else:
-        cleared = False
-        reseller_key = widget_key("reseller_case_number", case_idx)
-        if reseller_key in st.session_state:
-            st.session_state.pop(reseller_key)
-        if D.patterson != "N/A":
-            D.patterson = "N/A"
-            st.session_state[widget_key("patterson", case_idx)] = "N/A"
-            cleared = True
-        if D.straumann != "N/A":
-            D.straumann = "N/A"
-            st.session_state[widget_key("straumann", case_idx)] = "N/A"
-            cleared = True
-        if cleared:
-            autosave()
+        status_text = (D.tracking.status or "").strip()
+        last_mod = (D.last_modified or "").strip()
+        meta_parts = [outstanding_text]
+        if status_text:
+            meta_parts.append(f"Status: {status_text}")
+        if last_mod:
+            meta_parts.append(f"Updated {last_mod}")
+        progress_meta = " • ".join(escape(part) for part in meta_parts if part)
+        if not progress_meta:
+            progress_meta = "Begin documenting the engagement below."
 
-    name_cols = container.columns((1.3, 1, 1))
-    auto_text_input("Company name", "company_name", container=name_cols[0])
-    auto_text_input("Subscription ID", "subscription_id", container=name_cols[1])
-    auto_text_input("Case ID", "case_id", container=name_cols[2])
+        priority_label = D.tracking.priority or DEFAULT_TRACKING_PRIORITY
+        priority_emoji = {
+            "High": "🔥",
+            "On Time": "⏱️",
+            "Escalation": "🚨",
+            "Low": "🕊️",
+            "Normal": "📌",
+        }.get(priority_label, "📌")
+        badge_texts: list[str] = [f"{priority_emoji} Priority: {priority_label}"]
+        if D.tracking.active:
+            badge_texts.append("📡 Tracking enabled")
+        if st.session_state.get("second_line_mode"):
+            badge_texts.append("🛠️ 2nd-line workspace")
+        if D.customer_trios_only:
+            badge_texts.append("🧪 TRIOS-only customer")
+        if D.support_fee_accepted:
+            badge_texts.append("💳 Support fee accepted")
+        badge_html = "".join(
+            f'<span class="case-hero__badge">{escape(text)}</span>'
+            for text in badge_texts
+        )
 
-    details_cols = container.columns((2, 1))
-    auto_text_input(
-        "Brief description",
-        "brief_description",
-        container=details_cols[0],
-    )
-    version_col = details_cols[1]
-    auto_text_input(
-        "Application and version",
-        "application_version",
-        container=version_col,
-        placeholder="e.g., Unite 1.8.10.1",
-        help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
-    )
+        case_id_label = escape(D.case_id or "Draft case")
+        headline = escape(
+            D.brief_description or "Describe the issue to kick things off."
+        )
+        subtitle = escape(
+            D.company_name or "Add the customer or clinic to personalise the workspace."
+        )
 
-    version_col.subheader("Support Fee")
-    ct_key = widget_key("customer_trios_only", case_idx)
-    sf_key = widget_key("support_fee_accepted", case_idx)
-    customer_trios_only = version_col.toggle(
-        "Customer is TRIOS Only?",
-        value=st.session_state.get(ct_key, D.customer_trios_only),
-        key=ct_key,
-        on_change=_update_field,
-        args=("customer_trios_only",),
-    )
-    if customer_trios_only:
-        version_col.toggle(
-            "Support fee price accepted?",
-            value=st.session_state.get(sf_key, D.support_fee_accepted),
-            key=sf_key,
+        container.markdown(
+            f"""
+            <div class="case-hero">
+                <div>
+                    <span class="case-hero__eyebrow">{case_id_label}</span>
+                    <h2 class="case-hero__title">{headline}</h2>
+                    <p class="case-hero__subtitle">{subtitle}</p>
+                    <div class="case-hero__badges">{badge_html}</div>
+                </div>
+                <div class="case-hero__progress">
+                    <div class="case-hero__progress-label">Documentation progress</div>
+                    <div class="case-hero__progress-track">
+                        <div class="case-hero__progress-fill" style="width: {progress_pct}%"></div>
+                    </div>
+                    <div class="case-hero__progress-value">{progress_pct}%</div>
+                    <div class="case-hero__progress-meta">{progress_meta}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with case_tab_card(container, "case-card--header", compact_mode) as card:
+        header_text = "🗂️ Case Header" if not compact_mode else "Case Header"
+        card.markdown(f"### {header_text}")
+        if not compact_mode:
+            card.caption(
+                "Start with the essentials so teammates instantly know who, what, and where."
+            )
+
+        if st.session_state.second_line_mode:
+            reseller_key = widget_key("reseller_case_number", case_idx)
+            default_value = st.session_state.get(
+                reseller_key, D.straumann or D.patterson or ""
+            )
+            st.session_state[reseller_key] = default_value
+            merged_value = card.text_input(
+                "Reseller case # (Straumann / Patterson)",
+                default_value,
+                key=reseller_key,
+            )
+            if merged_value != D.straumann or merged_value != D.patterson:
+                D.straumann = merged_value
+                D.patterson = merged_value
+                st.session_state[widget_key("straumann", case_idx)] = merged_value
+                st.session_state[widget_key("patterson", case_idx)] = merged_value
+                autosave()
+        else:
+            cleared = False
+            reseller_key = widget_key("reseller_case_number", case_idx)
+            if reseller_key in st.session_state:
+                st.session_state.pop(reseller_key)
+            if D.patterson != "N/A":
+                D.patterson = "N/A"
+                st.session_state[widget_key("patterson", case_idx)] = "N/A"
+                cleared = True
+            if D.straumann != "N/A":
+                D.straumann = "N/A"
+                st.session_state[widget_key("straumann", case_idx)] = "N/A"
+                cleared = True
+            if cleared:
+                autosave()
+
+        name_cols = card.columns((1.3, 1, 1))
+        auto_text_input("Company name", "company_name", container=name_cols[0])
+        auto_text_input("Subscription ID", "subscription_id", container=name_cols[1])
+        auto_text_input("Case ID", "case_id", container=name_cols[2])
+
+        details_cols = card.columns((2, 1))
+        auto_text_input(
+            "Brief description",
+            "brief_description",
+            container=details_cols[0],
+        )
+        version_col = details_cols[1]
+        auto_text_input(
+            "Application and version",
+            "application_version",
+            container=version_col,
+            placeholder="e.g., Unite 1.8.10.1",
+            help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
+        )
+
+        version_col.markdown("#### Support Fee")
+        ct_key = widget_key("customer_trios_only", case_idx)
+        sf_key = widget_key("support_fee_accepted", case_idx)
+        customer_trios_only = version_col.toggle(
+            "Customer is TRIOS Only?",
+            value=st.session_state.get(ct_key, D.customer_trios_only),
+            key=ct_key,
             on_change=_update_field,
-            args=("support_fee_accepted",),
+            args=("customer_trios_only",),
         )
-    else:
-        st.session_state[sf_key] = False
-        _update_field("support_fee_accepted")
+        if customer_trios_only:
+            version_col.toggle(
+                "Support fee price accepted?",
+                value=st.session_state.get(sf_key, D.support_fee_accepted),
+                key=sf_key,
+                on_change=_update_field,
+                args=("support_fee_accepted",),
+            )
+        else:
+            st.session_state[sf_key] = False
+            _update_field("support_fee_accepted")
 
 
 def render_description_and_internal_notes(container, compact_mode: bool) -> None:
-    desc_cols = container.columns((3, 2))
-    description_col, notes_col = desc_cols
+    with case_tab_card(container, "case-card--story", compact_mode) as card:
+        if not compact_mode:
+            card.markdown("### 📝 Case story & internal context")
+            card.caption(
+                "Tell the story of the incident and capture quick-access links for the squad."
+            )
 
-    description_col.subheader("Description (What / When / Where)")
-    desc_height = 52 if compact_mode else 68
-    auto_text_area(
-        "Description",
-        "description",
-        height=desc_height,
-        container=description_col,
-    )
+        desc_cols = card.columns((3, 2))
+        description_col, notes_col = desc_cols
 
-    notes_col.subheader("Internal notes")
-    auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
-    logs_height = 52 if compact_mode else 68
-    auto_text_area(
-        "Logs / screenshots",
-        "internal_logs",
-        height=logs_height,
-        container=notes_col,
-    )
+        description_label = "Description (What / When / Where)"
+        notes_label = "Internal notes"
+        if not compact_mode:
+            description_col.subheader(f"🗒️ {description_label}")
+            notes_col.subheader(f"🔖 {notes_label}")
+        else:
+            description_col.subheader(description_label)
+            notes_col.subheader(notes_label)
+
+        desc_height = 52 if compact_mode else 68
+        auto_text_area(
+            "Description",
+            "description",
+            height=desc_height,
+            container=description_col,
+        )
+
+        auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
+        logs_height = 52 if compact_mode else 68
+        auto_text_area(
+            "Logs / screenshots",
+            "internal_logs",
+            height=logs_height,
+            container=notes_col,
+        )
 
 
 def render_phonecall_section(container, compact_mode: bool) -> None:
-    container.subheader("Phone-call notes")
-    desc_height = 52 if compact_mode else 68
-    layout_cols = container.columns((3, 2))
-    notes_col, contact_col = layout_cols
+    with case_tab_card(container, "case-card--call", compact_mode) as card:
+        header = "📞 Phone-call notes" if not compact_mode else "Phone-call notes"
+        card.markdown(f"### {header}")
+        if not compact_mode:
+            card.caption(
+                "Capture the live conversation details so follow-up agents can pick up the phone with confidence."
+            )
 
-    auto_text_input("Caller name", "caller_name", container=notes_col)
-    auto_text_area(
-        "Caller issue description",
-        "phone_description",
-        height=desc_height,
-        container=notes_col,
-    )
+        desc_height = 52 if compact_mode else 68
+        layout_cols = card.columns((3, 2))
+        notes_col, contact_col = layout_cols
 
-    contact_col.subheader("Contact details")
-    first_row = contact_col.columns(2)
-    auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-    auto_text_input("Phone number", "phone_number", container=first_row[1])
-    auto_text_input("Customer email", "email", container=contact_col)
-    second_row = contact_col.columns(2)
-    auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
-    auto_text_input(
-        "TeamViewer password",
-        "teamviewer_password",
-        container=second_row[1],
-    )
+        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_area(
+            "Caller issue description",
+            "phone_description",
+            height=desc_height,
+            container=notes_col,
+        )
+
+        contact_header = "Contact details"
+        if not compact_mode:
+            contact_col.subheader(f"📇 {contact_header}")
+        else:
+            contact_col.subheader(contact_header)
+        first_row = contact_col.columns(2)
+        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
+        auto_text_input("Phone number", "phone_number", container=first_row[1])
+        auto_text_input("Customer email", "email", container=contact_col)
+        second_row = contact_col.columns(2)
+        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer password",
+            "teamviewer_password",
+            container=second_row[1],
+        )
 
 
 def render_conclusion_and_additional(container, compact_mode: bool) -> None:
-    container.subheader("Conclusion")
-    conclusion_cols = container.columns(2)
-    conclusion_left, conclusion_right = conclusion_cols
-    auto_text_input("Root cause", "root_cause", container=conclusion_left)
-    auto_text_input("Solution", "solution", container=conclusion_right)
-    auto_text_input(
-        "Customer satisfaction survey URL",
-        "survey_link",
-        container=conclusion_right,
-    )
+    with case_tab_card(container, "case-card--wrapup", compact_mode) as card:
+        if compact_mode:
+            card.subheader("Conclusion")
+        else:
+            card.markdown("### ✅ Resolution & wrap-up")
+            card.caption(
+                "Summarise the fix, celebrate the win, and log any follow-up intel for your peers."
+            )
 
-    container.subheader("Additional information")
-    auto_text_area(
-        "Additional details",
-        "additional_info",
-        height=220 if compact_mode else 400,
-        container=container,
-        help=(
-            "Include details such as antivirus, firewalls enabled, update history, "
-            "related case ID, possible cause, performance issues, manual additional notes, "
-            "recurring issues, and recent issues."
-        ),
-    )
+        conclusion_cols = card.columns(2)
+        conclusion_left, conclusion_right = conclusion_cols
+        auto_text_input("Root cause", "root_cause", container=conclusion_left)
+        auto_text_input("Solution", "solution", container=conclusion_right)
+        auto_text_input(
+            "Customer satisfaction survey URL",
+            "survey_link",
+            container=conclusion_right,
+        )
+
+        if compact_mode:
+            card.subheader("Additional information")
+        else:
+            card.markdown("#### 🧠 Additional information")
+        auto_text_area(
+            "Additional details",
+            "additional_info",
+            height=220 if compact_mode else 400,
+            container=card,
+            help=(
+                "Include details such as antivirus, firewalls enabled, update history, "
+                "related case ID, possible cause, performance issues, manual additional notes, "
+                "recurring issues, and recent issues."
+            ),
+        )
 
 
 def make_pdf(d: CaseData, cat_map) -> bytes:
@@ -8720,10 +9004,11 @@ def render_case_ui(case_idx: int):
                 with bottom_right:
                     render_conclusion_and_additional(bottom_right, True)
             else:
-                render_case_header_section(st, case_idx, False)
-                render_description_and_internal_notes(st, False)
-                render_phonecall_section(st, False)
-                render_conclusion_and_additional(st, False)
+                with case_tab_shell(st) as case_shell:
+                    render_case_header_section(case_shell, case_idx, False)
+                    render_description_and_internal_notes(case_shell, False)
+                    render_phonecall_section(case_shell, False)
+                    render_conclusion_and_additional(case_shell, False)
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
