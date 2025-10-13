@@ -21,6 +21,7 @@ from pathlib import Path
 import hashlib
 import re
 import base64
+import binascii
 import random
 import subprocess
 import sys
@@ -88,6 +89,7 @@ from kiroshi_chat import (
     get_assistant_notes,
     set_assistant_notes,
     build_assistant_memory_prompt,
+    build_system_prompt,
 )
 
 # Some corporate networks perform SSL interception with a self-signed
@@ -209,6 +211,8 @@ APP_ROOT = Path(__file__).resolve().parent
 # "Unable to retrieve remote version" warning on startup.
 DEFAULT_UPDATE_REPO = "Anoth3rHellsing/KiroshiDocumentationSystem"
 DEFAULT_UPDATE_BRANCH = "main"
+GITHUB_TOKEN_ENV_VAR = "KIROSHI_UPDATE_GITHUB_TOKEN"
+GITHUB_API_VERSION = "2022-11-28"
 try:
     UPDATE_CHECK_TIMEOUT = float(os.environ.get("KIROSHI_UPDATE_TIMEOUT", "15"))
 except (TypeError, ValueError):
@@ -368,6 +372,176 @@ _GENERIC_STOPWORDS = {
 }
 
 
+_REPORT_CATEGORY_HINTS: dict[str, dict[str, object]] = {
+    "3Shape Unite / Login": {
+        "tokens": (
+            "unite",
+            "signin",
+            "sign",
+            "login",
+            "credential",
+            "token",
+            "account",
+            "password",
+            "sesion",
+            "cuenta",
+        ),
+        "category_terms": (
+            "unite / login",
+            "unite login",
+            "login / unite",
+        ),
+        "min_score": 2,
+    },
+    "3Shape Unite / Case Submission": {
+        "tokens": (
+            "proxy",
+            "timeout",
+            "firewall",
+            "submission",
+            "submit",
+            "upload",
+            "envio",
+            "enviar",
+            "case",
+            "inbox",
+            "transfer",
+        ),
+        "category_terms": (
+            "unite / case",
+            "unite / submission",
+            "case submission",
+            "send case",
+        ),
+        "min_score": 2,
+    },
+    "TRIOS / Calibration": {
+        "tokens": (
+            "calibr",
+            "drift",
+            "tip",
+            "aline",
+            "alignment",
+            "dongle",
+            "firmware",
+            "led",
+        ),
+        "category_terms": (
+            "trios / calibration",
+            "calibration",
+        ),
+        "min_score": 1,
+    },
+    "TRIOS / Scan Quality": {
+        "tokens": (
+            "scan",
+            "occlusion",
+            "margin",
+            "artefact",
+            "artifact",
+            "noise",
+            "texture",
+            "superpos",
+            "detalle",
+            "detail",
+        ),
+        "category_terms": (
+            "trios / scan",
+            "scan quality",
+        ),
+        "min_score": 2,
+    },
+    "Dental System / Performance": {
+        "tokens": (
+            "performance",
+            "freeze",
+            "crash",
+            "lag",
+            "slow",
+            "render",
+            "rendering",
+            "ds",
+        ),
+        "category_terms": (
+            "dental system",
+            "ds / performance",
+        ),
+        "min_score": 2,
+    },
+    "Hardware / Connectivity": {
+        "tokens": (
+            "usb",
+            "power",
+            "cable",
+            "battery",
+            "connect",
+            "conexion",
+            "bluetooth",
+            "wifi",
+            "ethernet",
+            "adapter",
+        ),
+        "category_terms": (
+            "hardware",
+            "connectivity",
+        ),
+        "min_score": 2,
+    },
+    "Software / Installation": {
+        "tokens": (
+            "install",
+            "setup",
+            "installer",
+            "update",
+            "upgrade",
+            "patch",
+            "deploy",
+            "reinstall",
+        ),
+        "category_terms": (
+            "installation",
+            "software install",
+        ),
+        "min_score": 2,
+    },
+    "Account / Licensing": {
+        "tokens": (
+            "license",
+            "licence",
+            "licencia",
+            "activation",
+            "renew",
+            "billing",
+            "suscription",
+            "subscription",
+        ),
+        "category_terms": (
+            "license",
+            "licensing",
+            "licencia",
+        ),
+        "min_score": 1,
+    },
+    "Data Management": {
+        "tokens": (
+            "database",
+            "backup",
+            "restore",
+            "export",
+            "import",
+            "sync",
+            "sinc",
+            "storage",
+        ),
+        "category_terms": (
+            "data management",
+            "database",
+        ),
+        "min_score": 2,
+    },
+}
+
+
 def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
@@ -375,6 +549,53 @@ def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = re.sub(r"[^0-9A-Za-z]+", " ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
     return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+
+
+def _infer_report_category(
+    row: Mapping[str, object], tokens: list[str]
+) -> str | None:
+    token_counter = Counter(token.lower() for token in tokens if token)
+    if not token_counter:
+        return None
+
+    category_fields: list[str] = []
+    for key in ("category", "classification", "topic"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            category_fields.append(value.lower())
+    category_blob = " ".join(category_fields)
+
+    scores: dict[str, int] = {}
+    for label, hints in _REPORT_CATEGORY_HINTS.items():
+        score = 0
+        category_terms = hints.get("category_terms")
+        if isinstance(category_terms, (list, tuple, set)):
+            for term in category_terms:
+                if isinstance(term, str) and term and term in category_blob:
+                    score += 4
+        token_prefixes = hints.get("tokens")
+        if isinstance(token_prefixes, (list, tuple, set)):
+            for prefix in token_prefixes:
+                if not isinstance(prefix, str) or not prefix:
+                    continue
+                for token, count in token_counter.items():
+                    if token == prefix or token.startswith(prefix):
+                        score += count
+        if score:
+            scores[label] = score
+
+    if not scores:
+        return None
+
+    best_label, best_score = max(scores.items(), key=lambda item: item[1])
+    threshold_raw = _REPORT_CATEGORY_HINTS.get(best_label, {}).get("min_score", 2)
+    try:
+        threshold = int(threshold_raw)
+    except (TypeError, ValueError):
+        threshold = 2
+    if best_score >= threshold:
+        return best_label
+    return None
 
 
 def _derive_analysis_label(row: Mapping[str, object]) -> str:
@@ -391,14 +612,24 @@ def _derive_analysis_label(row: Mapping[str, object]) -> str:
     for text in text_candidates:
         tokens.extend(_tokenize_issue_description(text))
 
+    keywords = row.get("keywords")
+    if isinstance(keywords, (list, tuple, set)):
+        for keyword in keywords:
+            if isinstance(keyword, str) and keyword.strip():
+                tokens.extend(_tokenize_issue_description(keyword))
+
     if not tokens:
         return "General"
+
+    inferred_category = _infer_report_category(row, tokens)
+    if inferred_category:
+        return inferred_category
 
     top_tokens: list[str] = []
     for token, _ in Counter(tokens).most_common():
         if token not in top_tokens:
             top_tokens.append(token)
-        if len(top_tokens) >= 3:
+        if len(top_tokens) >= 2:
             break
 
     if not top_tokens:
@@ -447,6 +678,22 @@ def _resolve_update_target() -> tuple[str, str]:
     return repo, branch
 
 
+def _get_update_token() -> str:
+    """Return the GitHub token configured for update checks, if any."""
+
+    return os.environ.get(GITHUB_TOKEN_ENV_VAR, "").strip()
+
+
+def _build_github_headers(*, accept: str = "application/vnd.github+json") -> dict[str, str]:
+    """Return standard headers for GitHub API requests."""
+
+    headers = {"Accept": accept, "X-GitHub-Api-Version": GITHUB_API_VERSION}
+    token = _get_update_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def _discover_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     """Inspect the Git tree and yield locations of the Streamlit entry point.
 
@@ -461,7 +708,7 @@ def _discover_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     """
 
     api_url = f"https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
-    headers = {"Accept": "application/vnd.github+json"}
+    headers = _build_github_headers()
     try:
         response = requests.get(
             api_url,
@@ -526,15 +773,60 @@ def _iter_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     )
 
 
+def _download_remote_app_source(repo: str, branch: str, path: str) -> str:
+    """Return the text contents of ``case_documentation_app.py`` from GitHub."""
+
+    token = _get_update_token()
+    if token:
+        api_url = f"https://api.github.com/repos/{repo}/contents/{path}"
+        response = requests.get(
+            api_url,
+            headers=_build_github_headers(),
+            params={"ref": branch},
+            timeout=UPDATE_CHECK_TIMEOUT,
+            verify=False,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            encoding = payload.get("encoding")
+            content = payload.get("content")
+            if encoding == "base64" and isinstance(content, str):
+                try:
+                    decoded = base64.b64decode(content, validate=True)
+                except (binascii.Error, ValueError):  # pragma: no cover - defensive
+                    decoded = base64.b64decode(content)
+                return decoded.decode("utf-8", "replace")
+            download_url = payload.get("download_url")
+            if isinstance(download_url, str):
+                download_headers = _build_github_headers(
+                    accept="application/vnd.github.raw"
+                )
+                response = requests.get(
+                    download_url,
+                    headers=download_headers,
+                    timeout=UPDATE_CHECK_TIMEOUT,
+                    verify=False,
+                )
+                response.raise_for_status()
+                return response.text
+        raise RuntimeError(
+            "Unexpected payload returned when downloading application source."
+        )
+
+    raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
+    response.raise_for_status()
+    return response.text
+
+
 def _fetch_remote_version(repo: str, branch: str) -> str:
     candidate_paths = list(dict.fromkeys(_iter_remote_app_paths(repo, branch)))
 
     last_error: Exception | None = None
     for path in candidate_paths:
-        raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
         try:
-            response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
-            response.raise_for_status()
+            source = _download_remote_app_source(repo, branch, path)
         except requests.HTTPError as exc:
             # If the file is not present at this location, try the next candidate.
             if exc.response is not None and exc.response.status_code == 404:
@@ -544,8 +836,11 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
         except requests.RequestException as exc:  # pragma: no cover - network errors
             last_error = exc
             continue
+        except RuntimeError as exc:
+            last_error = exc
+            continue
 
-        match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", response.text, re.MULTILINE)
+        match = re.search(r"^VERSION\s*=\s*[\"']([^\"']+)[\"']", source, re.MULTILINE)
         if not match:
             raise RuntimeError("VERSION marker not found in remote application source.")
         return match.group(1).strip()
@@ -560,7 +855,7 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
 
 def _fetch_latest_commit_info(repo: str, branch: str) -> dict[str, str | None]:
     api_url = f"https://api.github.com/repos/{repo}/commits/{branch}"
-    headers = {"Accept": "application/vnd.github+json"}
+    headers = _build_github_headers()
     response = requests.get(
         api_url,
         headers=headers,
@@ -676,7 +971,7 @@ except (TypeError, ValueError):
 ALTAIR_CHART_KWARGS = (
     {"width": "stretch"}
     if _altair_signature and "width" in _altair_signature.parameters
-    else {"use_container_width": True}
+    else {}
 )
 
 AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
@@ -1209,16 +1504,6 @@ KIROSHI_QUIPS_GENERAL = [
     "Doing nothing is hard. You never know when you’re done!",
     "Fresh patch notes: +10 sarcasm, +5 empathy, -3 patience.",
     "We have a case volcano situation. Magma level: simmering sarcasm.",
-    "Night City called; it wants its overtime back.",
-    "Johnny Silverhand tried to smash the backlog; it respawned.",
-    "These patch notes read like a braindance transcript.",
-    "If Kiroshi optics can see Night City, they still can’t find your missing PTO.",
-    "We’ve got more gigs queued than V on a fixer speed dial.",
-    "Cyberdeck diagnostics say we’re overdue for a break; the schedule disagrees.",
-    "Night City rumor: Kiroshi optics named an implant after me; still no royalty check.",
-    "If Kojima directed this sprint, the kanban board would have four plot twists per card.",
-    "Death Stranding called; it wants its delivery grind back from our ticket queue.",
-    "Our backlog cliffhanger has more reveals than a Kojima post-credits scene.",
 ]
 
 KIROSHI_QUIPS_AI_VOICE = [
@@ -1262,16 +1547,6 @@ KIROSHI_QUIPS_AI_VOICE = [
     "Kiroshi scoreboard: The sarcasm toggle is there so you can't say you weren't warned.",
     "Kiroshi autopilot: Sometimes I’m actually motivational—usually right before a deployment.",
     "Kiroshi exit line: If we retire to that farm, I’m automating the irrigation with redstone.",
-    "Kiroshi system log: apparently my namesake makes cybernetic eyes—now I want ray tracing for our UI.",
-    "Kiroshi to user: Johnny Silverhand keeps screaming to burn the backlog; I muted him at 40%.",
-    "Kiroshi patch note: I decoded these requirements like a braindance so you don’t have to.",
-    "Kiroshi optics lament: the implant division gets neon billboards; I get your half-finished drafts.",
-    "Kiroshi fixer mode: I scheduled more gigs for you than Wakako—consider me sarcastically impressed.",
-    "Kiroshi burnout alert: slot a chrome break into the planner before you flatline on keyboard.",
-    "Kiroshi diagnostic: yes, my name is lifted from those Cyberpunk optics—I’m the sarcastic firmware edition.",
-    "Kiroshi narration: if Kojima wrote our stand-ups, I’d be the codec voice whispering exposition between sarcasm.",
-    "Kiroshi delivery log: hauling cases like Sam Porter Bridges, minus the cool backpack.",
-    "Kiroshi epilogue: plot twist achieved—while you read this, I finished the report and toggled your sarcasm mode for emphasis.",
 ]
 
 KIROSHI_MESSAGES: list[str] = []
@@ -2786,7 +3061,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
             ]
         )
-        st.dataframe(summary, use_container_width=True)
+        st.dataframe(summary, width="stretch")
     elif kind == "case_sections":
         case_sections = pd.DataFrame(
             [
@@ -2824,7 +3099,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
             ]
         )
-        st.dataframe(case_sections, use_container_width=True)
+        st.dataframe(case_sections, width="stretch")
     elif kind == "report_overview":
         report_summary = pd.DataFrame(
             [
@@ -2846,7 +3121,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
             ]
         )
-        st.dataframe(report_summary, use_container_width=True)
+        st.dataframe(report_summary, width="stretch")
     elif kind == "settings_overview":
         settings_summary = pd.DataFrame(
             [
@@ -3080,6 +3355,10 @@ _init_state("tracking_info", {})
 _init_state("second_line_mode", _get_persistent_default("second_line_mode", False))
 _init_state("case_compact_mode", _get_persistent_default("case_compact_mode", False))
 _init_state("show_kiroshi_chat", _get_persistent_default("show_kiroshi_chat", True))
+_init_state(
+    "kiroshi_sarcasm_mode",
+    _get_persistent_default("kiroshi_sarcasm_mode", False),
+)
 _init_state("tutorial_completed", _get_persistent_default("tutorial_completed", False))
 _init_state(
     "tutorial_completed_at",
@@ -3577,20 +3856,33 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
 def _sync_case_memory_from_sessions() -> None:
     if "case_sessions" not in st.session_state:
         return
+    default_case_payload = asdict(CaseData())
     entries: list[dict[str, object]] = []
     for session in st.session_state.case_sessions:
         try:
             case_payload = asdict(session.case)
         except Exception:
             case_payload = {}
+        attachments_index = _normalise_attachments_index(
+            getattr(session, "attachments_index", {})
+        )
+        scratch_value = getattr(session, "scratch", "")
+        source_path = getattr(session, "source_path", "")
+        has_scratch = isinstance(scratch_value, str) and scratch_value.strip()
+        has_attachments = any(attachments_index.values())
+        if (
+            case_payload == default_case_payload
+            and not source_path
+            and not has_scratch
+            and not has_attachments
+        ):
+            continue
         entries.append(
             {
                 "case": case_payload,
-                "source_path": getattr(session, "source_path", ""),
-                "scratch": getattr(session, "scratch", ""),
-                "attachments_index": _normalise_attachments_index(
-                    getattr(session, "attachments_index", {})
-                ),
+                "source_path": source_path,
+                "scratch": scratch_value,
+                "attachments_index": attachments_index,
             }
         )
     _write_case_tab_memory(entries)
@@ -5365,7 +5657,7 @@ def render_report_panel() -> None:
             recent_counts.rename(
                 columns={"analysis_label": "Caso", "count": "Frecuencia"}
             ),
-            use_container_width=True,
+            width="stretch",
         )
         freq_chart = (
             alt.Chart(recent_counts)
@@ -5408,7 +5700,7 @@ def render_report_panel() -> None:
                 }
             )
             .head(15),
-            use_container_width=True,
+            width="stretch",
         )
 
     col_pdf, col_bug = st.columns([1, 1])
@@ -5518,11 +5810,40 @@ def render_kiroshi_chat_panel() -> None:
             st.session_state.kiroshi_chat_history = load_memory()
 
     with st.expander("Personality Construct"):
+        personality_mode = st.session_state.get("personality_mode", "utility")
+        personality_label = personality_mode.replace("_", " ").title()
+        sarcasm_state = "On" if sarcasm_enabled else "Off"
+        st.caption(
+            f"Active personality: {personality_label} · Sarcasm mode: {sarcasm_state}"
+        )
+
+        base_prompt_key = global_widget_key("system_prompt_base")
+        if base_prompt_key not in st.session_state:
+            st.session_state[base_prompt_key] = st.session_state.get(
+                "system_prompt", SYSTEM_PROMPT
+            )
+        edited_prompt = st.text_area(
+            "Base system prompt",
+            height=220,
+            key=base_prompt_key,
+            help=(
+                "Adjust the underlying construct template. Personality and sarcasm settings "
+                "are layered on top of this base."
+            ),
+        )
+        if edited_prompt != st.session_state.get("system_prompt"):
+            st.session_state["system_prompt"] = edited_prompt
+
+        preview_value = build_system_prompt()
+        preview_key = global_widget_key("system_prompt_preview")
+        st.session_state[preview_key] = preview_value
         st.text_area(
-            "System Prompt",
-            st.session_state.get("system_prompt", SYSTEM_PROMPT),
-            height=300,
-            key=global_widget_key("system_prompt_display"),
+            "Active construct preview",
+            value=preview_value,
+            height=220,
+            key=preview_key,
+            help="Exact system prompt currently sent with each chat request.",
+            disabled=True,
         )
 
     api_key = st.session_state.openai_api_key
@@ -7419,6 +7740,170 @@ def active_category_map():
         cm.update(HW_CATEGORY_MAP)
     return cm
 
+
+def _inject_case_tab_theme() -> None:
+    """Lazy‑load the visual theme used by the Case tab."""
+
+    if st.session_state.get("_case_tab_theme_injected"):
+        return
+    st.session_state["_case_tab_theme_injected"] = True
+    st.markdown(
+        """
+        <style>
+            .case-tab-shell {
+                background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.12));
+                border-radius: 24px;
+                padding: 2.5rem clamp(1rem, 4vw, 2.75rem);
+                margin-bottom: 2rem;
+                box-shadow: 0 25px 50px -25px rgba(15, 23, 42, 0.35);
+                position: relative;
+                overflow: hidden;
+            }
+            .case-tab-shell::after {
+                content: "";
+                position: absolute;
+                inset: -40% -25% auto auto;
+                width: min(340px, 60vw);
+                aspect-ratio: 1;
+                background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.35), transparent 55%);
+                transform: rotate(25deg);
+                pointer-events: none;
+            }
+            .case-card {
+                background: rgba(255, 255, 255, 0.92);
+                backdrop-filter: blur(16px);
+                border-radius: 18px;
+                padding: 1.5rem 1.75rem;
+                margin-bottom: 1.25rem;
+                box-shadow: 0 18px 45px -22px rgba(15, 23, 42, 0.3);
+                border: 1px solid rgba(148, 163, 184, 0.25);
+            }
+            .case-card h3, .case-card h4 {
+                margin-top: 0;
+                margin-bottom: 0.75rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+            }
+            .case-hero {
+                position: relative;
+                z-index: 1;
+                display: grid;
+                gap: clamp(1.5rem, 3vw, 2.25rem);
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                align-items: center;
+                margin-bottom: 1.5rem;
+                padding-bottom: 0.5rem;
+            }
+            .case-hero__eyebrow {
+                display: inline-block;
+                padding: 0.35rem 0.75rem;
+                border-radius: 999px;
+                font-size: 0.8rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                font-weight: 600;
+                background: rgba(79, 70, 229, 0.15);
+                color: #4338ca;
+                margin-bottom: 0.75rem;
+            }
+            .case-hero__title {
+                font-size: clamp(1.65rem, 4vw, 2.4rem);
+                margin: 0 0 0.5rem;
+                font-weight: 700;
+            }
+            .case-hero__subtitle {
+                margin: 0 0 1rem;
+                color: rgba(15, 23, 42, 0.75);
+                font-size: 1rem;
+            }
+            .case-hero__badges {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+            .case-hero__badge {
+                padding: 0.4rem 0.85rem;
+                border-radius: 999px;
+                background: rgba(15, 23, 42, 0.08);
+                font-size: 0.85rem;
+                font-weight: 600;
+                color: rgba(15, 23, 42, 0.8);
+                backdrop-filter: blur(8px);
+            }
+            .case-hero__progress {
+                background: rgba(15, 23, 42, 0.75);
+                color: #f8fafc;
+                border-radius: 20px;
+                padding: 1.5rem 1.75rem;
+                box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+            }
+            .case-hero__progress-label {
+                font-size: 0.95rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                margin-bottom: 0.75rem;
+                color: rgba(248, 250, 252, 0.85);
+            }
+            .case-hero__progress-track {
+                background: rgba(248, 250, 252, 0.15);
+                height: 12px;
+                border-radius: 999px;
+                overflow: hidden;
+                margin-bottom: 0.75rem;
+            }
+            .case-hero__progress-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #22d3ee 0%, #6366f1 50%, #ec4899 100%);
+            }
+            .case-hero__progress-value {
+                font-size: 2rem;
+                font-weight: 700;
+                margin-bottom: 0.5rem;
+            }
+            .case-hero__progress-meta {
+                font-size: 0.9rem;
+                color: rgba(248, 250, 252, 0.75);
+            }
+            @media (max-width: 768px) {
+                .case-tab-shell {
+                    padding: 2rem 1rem;
+                }
+                .case-card {
+                    padding: 1.25rem 1.35rem;
+                }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+@contextmanager
+def case_tab_shell(container):
+    _inject_case_tab_theme()
+    container.markdown('<div class="case-tab-shell">', unsafe_allow_html=True)
+    shell = container.container()
+    try:
+        yield shell
+    finally:
+        container.markdown("</div>", unsafe_allow_html=True)
+
+
+@contextmanager
+def case_tab_card(container, card_class: str, compact_mode: bool):
+    if compact_mode:
+        yield container
+        return
+
+    classes = f"case-card {card_class}".strip()
+    container.markdown(f'<div class="{classes}">', unsafe_allow_html=True)
+    card = container.container()
+    try:
+        yield card
+    finally:
+        container.markdown("</div>", unsafe_allow_html=True)
+
 # ────────── HELPERS ──────────
 
 def build_title(d: CaseData) -> str:
@@ -7652,159 +8137,279 @@ def sync_autohotkey_script(script: str) -> Path | None:
 
 
 def render_case_header_section(container, case_idx: int, compact_mode: bool) -> None:
-    container.subheader("Case Header")
-    if st.session_state.second_line_mode:
-        reseller_key = widget_key("reseller_case_number", case_idx)
-        default_value = st.session_state.get(
-            reseller_key, D.straumann or D.patterson or ""
+    if not compact_mode:
+        cat_map = active_category_map()
+        prog, miss = compute_progress(D, cat_map)
+        progress_values = list(prog.values())
+        progress_pct = (
+            int(sum(progress_values) / len(progress_values)) if progress_values else 0
         )
-        st.session_state[reseller_key] = default_value
-        merged_value = container.text_input(
-            "Reseller case # (Straumann / Patterson)",
-            default_value,
-            key=reseller_key,
+        progress_pct = max(0, min(100, progress_pct))
+        outstanding = sum(len(v) for v in miss.values())
+        outstanding_text = (
+            "All mandatory fields complete"
+            if outstanding == 0
+            else f"{outstanding} field{'s' if outstanding != 1 else ''} remaining"
         )
-        if merged_value != D.straumann or merged_value != D.patterson:
-            D.straumann = merged_value
-            D.patterson = merged_value
-            st.session_state[widget_key("straumann", case_idx)] = merged_value
-            st.session_state[widget_key("patterson", case_idx)] = merged_value
-            autosave()
-    else:
-        cleared = False
-        reseller_key = widget_key("reseller_case_number", case_idx)
-        if reseller_key in st.session_state:
-            st.session_state.pop(reseller_key)
-        if D.patterson != "N/A":
-            D.patterson = "N/A"
-            st.session_state[widget_key("patterson", case_idx)] = "N/A"
-            cleared = True
-        if D.straumann != "N/A":
-            D.straumann = "N/A"
-            st.session_state[widget_key("straumann", case_idx)] = "N/A"
-            cleared = True
-        if cleared:
-            autosave()
+        status_text = (D.tracking.status or "").strip()
+        last_mod = (D.last_modified or "").strip()
+        meta_parts = [outstanding_text]
+        if status_text:
+            meta_parts.append(f"Status: {status_text}")
+        if last_mod:
+            meta_parts.append(f"Updated {last_mod}")
+        progress_meta = " • ".join(escape(part) for part in meta_parts if part)
+        if not progress_meta:
+            progress_meta = "Begin documenting the engagement below."
 
-    name_cols = container.columns((1.3, 1, 1))
-    auto_text_input("Company name", "company_name", container=name_cols[0])
-    auto_text_input("Subscription ID", "subscription_id", container=name_cols[1])
-    auto_text_input("Case ID", "case_id", container=name_cols[2])
+        priority_label = D.tracking.priority or DEFAULT_TRACKING_PRIORITY
+        priority_emoji = {
+            "High": "🔥",
+            "On Time": "⏱️",
+            "Escalation": "🚨",
+            "Low": "🕊️",
+            "Normal": "📌",
+        }.get(priority_label, "📌")
+        badge_texts: list[str] = [f"{priority_emoji} Priority: {priority_label}"]
+        if D.tracking.active:
+            badge_texts.append("📡 Tracking enabled")
+        if st.session_state.get("second_line_mode"):
+            badge_texts.append("🛠️ 2nd-line workspace")
+        if D.customer_trios_only:
+            badge_texts.append("🧪 TRIOS-only customer")
+        if D.support_fee_accepted:
+            badge_texts.append("💳 Support fee accepted")
+        badge_html = "".join(
+            f'<span class="case-hero__badge">{escape(text)}</span>'
+            for text in badge_texts
+        )
 
-    details_cols = container.columns((2, 1))
-    auto_text_input(
-        "Brief description",
-        "brief_description",
-        container=details_cols[0],
-    )
-    version_col = details_cols[1]
-    auto_text_input(
-        "Application and version",
-        "application_version",
-        container=version_col,
-        placeholder="e.g., Unite 1.8.10.1",
-        help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
-    )
+        case_id_label = escape(D.case_id or "Draft case")
+        headline = escape(
+            D.brief_description or "Describe the issue to kick things off."
+        )
+        subtitle = escape(
+            D.company_name or "Add the customer or clinic to personalise the workspace."
+        )
 
-    version_col.subheader("Support Fee")
-    ct_key = widget_key("customer_trios_only", case_idx)
-    sf_key = widget_key("support_fee_accepted", case_idx)
-    customer_trios_only = version_col.toggle(
-        "Customer is TRIOS Only?",
-        value=st.session_state.get(ct_key, D.customer_trios_only),
-        key=ct_key,
-        on_change=_update_field,
-        args=("customer_trios_only",),
-    )
-    if customer_trios_only:
-        version_col.toggle(
-            "Support fee price accepted?",
-            value=st.session_state.get(sf_key, D.support_fee_accepted),
-            key=sf_key,
+        container.markdown(
+            f"""
+            <div class="case-hero">
+                <div>
+                    <span class="case-hero__eyebrow">{case_id_label}</span>
+                    <h2 class="case-hero__title">{headline}</h2>
+                    <p class="case-hero__subtitle">{subtitle}</p>
+                    <div class="case-hero__badges">{badge_html}</div>
+                </div>
+                <div class="case-hero__progress">
+                    <div class="case-hero__progress-label">Documentation progress</div>
+                    <div class="case-hero__progress-track">
+                        <div class="case-hero__progress-fill" style="width: {progress_pct}%"></div>
+                    </div>
+                    <div class="case-hero__progress-value">{progress_pct}%</div>
+                    <div class="case-hero__progress-meta">{progress_meta}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with case_tab_card(container, "case-card--header", compact_mode) as card:
+        header_text = "🗂️ Case Header" if not compact_mode else "Case Header"
+        card.markdown(f"### {header_text}")
+        if not compact_mode:
+            card.caption(
+                "Start with the essentials so teammates instantly know who, what, and where."
+            )
+
+        if st.session_state.second_line_mode:
+            reseller_key = widget_key("reseller_case_number", case_idx)
+            default_value = st.session_state.get(
+                reseller_key, D.straumann or D.patterson or ""
+            )
+            st.session_state[reseller_key] = default_value
+            merged_value = card.text_input(
+                "Reseller case # (Straumann / Patterson)",
+                default_value,
+                key=reseller_key,
+            )
+            if merged_value != D.straumann or merged_value != D.patterson:
+                D.straumann = merged_value
+                D.patterson = merged_value
+                st.session_state[widget_key("straumann", case_idx)] = merged_value
+                st.session_state[widget_key("patterson", case_idx)] = merged_value
+                autosave()
+        else:
+            cleared = False
+            reseller_key = widget_key("reseller_case_number", case_idx)
+            if reseller_key in st.session_state:
+                st.session_state.pop(reseller_key)
+            if D.patterson != "N/A":
+                D.patterson = "N/A"
+                st.session_state[widget_key("patterson", case_idx)] = "N/A"
+                cleared = True
+            if D.straumann != "N/A":
+                D.straumann = "N/A"
+                st.session_state[widget_key("straumann", case_idx)] = "N/A"
+                cleared = True
+            if cleared:
+                autosave()
+
+        name_cols = card.columns((1.3, 1, 1))
+        auto_text_input("Company name", "company_name", container=name_cols[0])
+        auto_text_input("Subscription ID", "subscription_id", container=name_cols[1])
+        auto_text_input("Case ID", "case_id", container=name_cols[2])
+
+        details_cols = card.columns((2, 1))
+        auto_text_input(
+            "Brief description",
+            "brief_description",
+            container=details_cols[0],
+        )
+        version_col = details_cols[1]
+        auto_text_input(
+            "Application and version",
+            "application_version",
+            container=version_col,
+            placeholder="e.g., Unite 1.8.10.1",
+            help="Examples: Unite 1.8.10.1, TRIOS 1.18.8.8, Dental System",
+        )
+
+        version_col.markdown("#### Support Fee")
+        ct_key = widget_key("customer_trios_only", case_idx)
+        sf_key = widget_key("support_fee_accepted", case_idx)
+        customer_trios_only = version_col.toggle(
+            "Customer is TRIOS Only?",
+            value=st.session_state.get(ct_key, D.customer_trios_only),
+            key=ct_key,
             on_change=_update_field,
-            args=("support_fee_accepted",),
+            args=("customer_trios_only",),
         )
-    else:
-        st.session_state[sf_key] = False
-        _update_field("support_fee_accepted")
+        if customer_trios_only:
+            version_col.toggle(
+                "Support fee price accepted?",
+                value=st.session_state.get(sf_key, D.support_fee_accepted),
+                key=sf_key,
+                on_change=_update_field,
+                args=("support_fee_accepted",),
+            )
+        else:
+            st.session_state[sf_key] = False
+            _update_field("support_fee_accepted")
 
 
 def render_description_and_internal_notes(container, compact_mode: bool) -> None:
-    desc_cols = container.columns((3, 2))
-    description_col, notes_col = desc_cols
+    with case_tab_card(container, "case-card--story", compact_mode) as card:
+        if not compact_mode:
+            card.markdown("### 📝 Case story & internal context")
+            card.caption(
+                "Tell the story of the incident and capture quick-access links for the squad."
+            )
 
-    description_col.subheader("Description (What / When / Where)")
-    desc_height = 52 if compact_mode else 68
-    auto_text_area(
-        "Description",
-        "description",
-        height=desc_height,
-        container=description_col,
-    )
+        desc_cols = card.columns((3, 2))
+        description_col, notes_col = desc_cols
 
-    notes_col.subheader("Internal notes")
-    auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
-    logs_height = 52 if compact_mode else 68
-    auto_text_area(
-        "Logs / screenshots",
-        "internal_logs",
-        height=logs_height,
-        container=notes_col,
-    )
+        description_label = "Description (What / When / Where)"
+        notes_label = "Internal notes"
+        if not compact_mode:
+            description_col.subheader(f"🗒️ {description_label}")
+            notes_col.subheader(f"🔖 {notes_label}")
+        else:
+            description_col.subheader(description_label)
+            notes_col.subheader(notes_label)
+
+        desc_height = 52 if compact_mode else 68
+        auto_text_area(
+            "Description",
+            "description",
+            height=desc_height,
+            container=description_col,
+        )
+
+        auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
+        logs_height = 52 if compact_mode else 68
+        auto_text_area(
+            "Logs / screenshots",
+            "internal_logs",
+            height=logs_height,
+            container=notes_col,
+        )
 
 
 def render_phonecall_section(container, compact_mode: bool) -> None:
-    container.subheader("Phone-call notes")
-    desc_height = 52 if compact_mode else 68
-    layout_cols = container.columns((3, 2))
-    notes_col, contact_col = layout_cols
+    with case_tab_card(container, "case-card--call", compact_mode) as card:
+        header = "📞 Phone-call notes" if not compact_mode else "Phone-call notes"
+        card.markdown(f"### {header}")
+        if not compact_mode:
+            card.caption(
+                "Capture the live conversation details so follow-up agents can pick up the phone with confidence."
+            )
 
-    auto_text_input("Caller name", "caller_name", container=notes_col)
-    auto_text_area(
-        "Caller issue description",
-        "phone_description",
-        height=desc_height,
-        container=notes_col,
-    )
+        desc_height = 52 if compact_mode else 68
+        layout_cols = card.columns((3, 2))
+        notes_col, contact_col = layout_cols
 
-    contact_col.subheader("Contact details")
-    first_row = contact_col.columns(2)
-    auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-    auto_text_input("Phone number", "phone_number", container=first_row[1])
-    auto_text_input("Customer email", "email", container=contact_col)
-    second_row = contact_col.columns(2)
-    auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
-    auto_text_input(
-        "TeamViewer password",
-        "teamviewer_password",
-        container=second_row[1],
-    )
+        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_area(
+            "Caller issue description",
+            "phone_description",
+            height=desc_height,
+            container=notes_col,
+        )
+
+        contact_header = "Contact details"
+        if not compact_mode:
+            contact_col.subheader(f"📇 {contact_header}")
+        else:
+            contact_col.subheader(contact_header)
+        first_row = contact_col.columns(2)
+        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
+        auto_text_input("Phone number", "phone_number", container=first_row[1])
+        auto_text_input("Customer email", "email", container=contact_col)
+        second_row = contact_col.columns(2)
+        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer password",
+            "teamviewer_password",
+            container=second_row[1],
+        )
 
 
 def render_conclusion_and_additional(container, compact_mode: bool) -> None:
-    container.subheader("Conclusion")
-    conclusion_cols = container.columns(2)
-    conclusion_left, conclusion_right = conclusion_cols
-    auto_text_input("Root cause", "root_cause", container=conclusion_left)
-    auto_text_input("Solution", "solution", container=conclusion_right)
-    auto_text_input(
-        "Customer satisfaction survey URL",
-        "survey_link",
-        container=conclusion_right,
-    )
+    with case_tab_card(container, "case-card--wrapup", compact_mode) as card:
+        if compact_mode:
+            card.subheader("Conclusion")
+        else:
+            card.markdown("### ✅ Resolution & wrap-up")
+            card.caption(
+                "Summarise the fix, celebrate the win, and log any follow-up intel for your peers."
+            )
 
-    container.subheader("Additional information")
-    auto_text_area(
-        "Additional details",
-        "additional_info",
-        height=220 if compact_mode else 400,
-        container=container,
-        help=(
-            "Include details such as antivirus, firewalls enabled, update history, "
-            "related case ID, possible cause, performance issues, manual additional notes, "
-            "recurring issues, and recent issues."
-        ),
-    )
+        conclusion_cols = card.columns(2)
+        conclusion_left, conclusion_right = conclusion_cols
+        auto_text_input("Root cause", "root_cause", container=conclusion_left)
+        auto_text_input("Solution", "solution", container=conclusion_right)
+        auto_text_input(
+            "Customer satisfaction survey URL",
+            "survey_link",
+            container=conclusion_right,
+        )
+
+        if compact_mode:
+            card.subheader("Additional information")
+        else:
+            card.markdown("#### 🧠 Additional information")
+        auto_text_area(
+            "Additional details",
+            "additional_info",
+            height=220 if compact_mode else 400,
+            container=card,
+            help=(
+                "Include details such as antivirus, firewalls enabled, update history, "
+                "related case ID, possible cause, performance issues, manual additional notes, "
+                "recurring issues, and recent issues."
+            ),
+        )
 
 
 def build_kiroshi_tone_directive() -> str:
@@ -7975,6 +8580,66 @@ def make_tables_pdf(d: CaseData) -> bytes:
     buf.seek(0)
     return buf.read()
 
+def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> None:
+    st.markdown("#### AutoHotkey quick paste")
+    st.caption(
+        "Generate a Windows AutoHotkey script so typing `phonecall1`, `remotesession1`, "
+        "etc. instantly pastes the current case tables."
+    )
+    hotkey_script = build_autohotkey_script(
+        [cs.case for cs in st.session_state.case_sessions],
+        cat_map,
+    )
+    script_path = sync_autohotkey_script(hotkey_script)
+    if script_path:
+        script_path_str = str(script_path)
+        encoded_hotkeys = json.dumps(hotkey_script)
+        st.success(
+            "Hotkeys auto-synced locally. Add a single `#Include` to your AutoHotkey "
+            "launcher and the triggers will refresh whenever you update cases."
+        )
+        st.code(f"#Include {script_path_str}", language="autohotkey")
+        components.html(
+            f"""
+            <script>
+            function copyKiroshiHotkeys() {{
+                navigator.clipboard.writeText({encoded_hotkeys}).then(() => {{
+                    const note = document.createElement('div');
+                    note.innerText = 'Hotkeys copied to clipboard';
+                    note.style.fontSize = '0.8rem';
+                    note.style.marginTop = '0.35rem';
+                    const host = document.getElementById('kiroshi-hotkeys-feedback');
+                    host.innerHTML = '';
+                    host.appendChild(note);
+                }});
+            }}
+            </script>
+            <button onclick="copyKiroshiHotkeys();"
+                    style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
+                    title="Copy the live hotkeys to the clipboard">
+                Copy hotkeys to clipboard
+            </button>
+            <div id='kiroshi-hotkeys-feedback'></div>
+            <p style='font-size:0.8rem;margin-top:0.5rem;'>Script path: {script_path_str}</p>
+            """,
+            height=90,
+        )
+    else:
+        st.info(
+            "Download the script or copy it manually. Automatic syncing is only available "
+            "on Windows."
+        )
+    st.download_button(
+        "Download hotkey script",
+        hotkey_script.encode("utf-8"),
+        file_name=f"kiroshi_tables_hotkeys_{TODAY_STR}.ahk",
+        mime="text/plain",
+        key=widget_key("download_hotkeys", case_idx),
+    )
+    with st.expander("Preview generated hotkeys"):
+        st.code(hotkey_script, language="autohotkey")
+
+
 def render_case_ui(case_idx: int):
     global CURRENT_CASE_IDX
     CURRENT_CASE_IDX = case_idx
@@ -8044,13 +8709,13 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "Save case",
                 key=widget_key("quick_save", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 save_case_to_database(D)
             if st.button(
                 "Clear all",
                 key=widget_key("clear_all_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 logging.info("Clear all button clicked")
                 with case_loading_overlay("Cycling the workspace back to zero…"):
@@ -8074,19 +8739,19 @@ def render_case_ui(case_idx: int):
                     "Tracking enabled",
                     disabled=True,
                     key=widget_key("tracking_enabled", case_idx),
-                    use_container_width=True,
+                    width="stretch",
                 )
             elif st.button(
                 "Track case",
                 key=widget_key("track_case_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state.track_case = True
                 st.rerun()
             if st.button(
                 "AI Assistance",
                 key=widget_key("assist_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 logging.info("AI Assistance button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
@@ -8203,7 +8868,7 @@ def render_case_ui(case_idx: int):
                     st.caption(
                         "AI Educate did not find a close historical match; general patterns were provided instead."
                     )
-            if st.button("Categorize", key=widget_key("categorize_button", case_idx), use_container_width=True):
+            if st.button("Categorize", key=widget_key("categorize_button", case_idx), width="stretch"):
                 logging.info("Categorize button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -8328,7 +8993,7 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ask_result = reply
-            if st.button("Verify", key=widget_key("verify_button", case_idx), use_container_width=True):
+            if st.button("Verify", key=widget_key("verify_button", case_idx), width="stretch"):
                 logging.info("Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -8432,7 +9097,7 @@ def render_case_ui(case_idx: int):
             if st.button(
                 bubble_label,
                 key=widget_key("quick_actions_toggle_button", case_idx),
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state[toggle_key] = not st.session_state[toggle_key]
                 st.rerun()
@@ -8500,10 +9165,11 @@ def render_case_ui(case_idx: int):
                 with bottom_right:
                     render_conclusion_and_additional(bottom_right, True)
             else:
-                render_case_header_section(st, case_idx, False)
-                render_description_and_internal_notes(st, False)
-                render_phonecall_section(st, False)
-                render_conclusion_and_additional(st, False)
+                with case_tab_shell(st) as case_shell:
+                    render_case_header_section(case_shell, case_idx, False)
+                    render_description_and_internal_notes(case_shell, False)
+                    render_phonecall_section(case_shell, False)
+                    render_conclusion_and_additional(case_shell, False)
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -8675,65 +9341,9 @@ def render_case_ui(case_idx: int):
                             height=80,
                         )
                         st.dataframe(
-                            category_dataframe(cat, D, cat_map), use_container_width=True
+                            category_dataframe(cat, D, cat_map), width="stretch"
                         )
                     st.markdown("---")
-                    st.markdown("#### AutoHotkey quick paste")
-                    st.caption(
-                        "Generate a Windows AutoHotkey script so typing `phonecall1`, `remotesession1`, etc. "
-                        "instantly pastes the current case tables."
-                    )
-                    hotkey_script = build_autohotkey_script(
-                        [cs.case for cs in st.session_state.case_sessions],
-                        cat_map,
-                    )
-                    script_path = sync_autohotkey_script(hotkey_script)
-                if script_path:
-                    script_path_str = str(script_path)
-                    encoded_hotkeys = json.dumps(hotkey_script)
-                    st.success(
-                        "Hotkeys auto-synced locally. Add a single `#Include` to your AutoHotkey launcher "
-                        "and the triggers will refresh whenever you update cases."
-                    )
-                    st.code(f"#Include {script_path_str}", language="autohotkey")
-                    components.html(
-                        f"""
-                        <script>
-                        function copyKiroshiHotkeys() {{
-                            navigator.clipboard.writeText({encoded_hotkeys}).then(() => {{
-                                const note = document.createElement('div');
-                                note.innerText = 'Hotkeys copied to clipboard';
-                                note.style.fontSize = '0.8rem';
-                                note.style.marginTop = '0.35rem';
-                                const host = document.getElementById('kiroshi-hotkeys-feedback');
-                                host.innerHTML = '';
-                                host.appendChild(note);
-                            }});
-                        }}
-                        </script>
-                        <button onclick="copyKiroshiHotkeys();"
-                                style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
-                                title="Copy the live hotkeys to the clipboard">
-                            Copy hotkeys to clipboard
-                        </button>
-                        <div id='kiroshi-hotkeys-feedback'></div>
-                        <p style='font-size:0.8rem;margin-top:0.5rem;'>Script path: {script_path_str}</p>
-                        """,
-                        height=90,
-                    )
-                else:
-                    st.info(
-                        "Download the script or copy it manually. Automatic syncing is only available on Windows."
-                    )
-                st.download_button(
-                    "Download hotkey script",
-                    hotkey_script.encode("utf-8"),
-                    file_name=f"kiroshi_tables_hotkeys_{TODAY_STR}.ahk",
-                    mime="text/plain",
-                    key=widget_key("download_hotkeys", case_idx),
-                )
-                with st.expander("Preview generated hotkeys"):
-                    st.code(hotkey_script, language="autohotkey")
                 if st.session_state.categorizer_result:
                     st.subheader("Kiroshi Categorizer")
                     st.markdown(st.session_state.categorizer_result)
@@ -9387,7 +9997,7 @@ Thank you in advance,
                 st.markdown("#### AX Coordinators Table")
                 st.dataframe(
                     category_dataframe("AX COORDINATORS", D, cat_map),
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.markdown("---")
 
@@ -9417,7 +10027,7 @@ Thank you in advance,
                 st.markdown("#### Escalation 2nd line Table")
                 st.dataframe(
                     category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if st.session_state.second_line_mode:
@@ -9475,9 +10085,14 @@ Thank you in advance,
                 container=col_sc1,
             )
             st.dataframe(
-                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
+                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
-    
+
+    if tab_debug:
+        with tab_debug:
+            st.subheader("Case debug tools")
+            render_autohotkey_panel(cat_map, case_idx)
+
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
         st.subheader("Remote session – steps")
@@ -9495,7 +10110,7 @@ Thank you in advance,
         )
         for cat in cat_map:
             st.markdown(f"**{table_title(cat)}**")
-            st.dataframe(category_dataframe(cat, D, cat_map), use_container_width=True)
+            st.dataframe(category_dataframe(cat, D, cat_map), width="stretch")
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
