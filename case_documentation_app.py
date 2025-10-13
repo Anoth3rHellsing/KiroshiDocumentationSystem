@@ -14001,6 +14001,11 @@ with all_tabs[tab_index]:
     render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
 tab_index += 1
 with all_tabs[tab_index]:
+    render_with_monitor(
+        "Saved Cases", render_saved_cases_page, tab_label="Saved Cases"
+    )
+tab_index += 1
+with all_tabs[tab_index]:
     render_with_monitor("Settings", render_settings_panel, tab_label="Settings")
 tab_index += 1
 if st.session_state.debug_mode:
