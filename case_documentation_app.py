@@ -5744,8 +5744,8 @@ def build_incident_report_pdf(
                 Paragraph("Active", body_style),
             ]
         ]
-        for entry in case_snapshot:
-            case_table_data.append(
+        case_table_data.extend(
+            [
                 [
                     Paragraph(str(entry.get("Case", "")), body_style),
                     Paragraph(str(entry.get("Company", "")), body_style),
@@ -5753,7 +5753,9 @@ def build_incident_report_pdf(
                     Paragraph(str(entry.get("Priority", "")), body_style),
                     Paragraph(str(entry.get("Active", "")), body_style),
                 ]
-            )
+                for entry in case_snapshot
+            ]
+        )
         case_table = Table(case_table_data, colWidths=[80, 120, 200, 70, 40])
         case_table.setStyle(
             TableStyle(
@@ -5822,11 +5824,7 @@ def _load_case_tab_memory() -> list[dict[str, object]]:
     tabs = payload.get("tabs") if isinstance(payload, Mapping) else None
     if not isinstance(tabs, list):
         return []
-    cleaned: list[dict[str, object]] = []
-    for entry in tabs:
-        if isinstance(entry, Mapping):
-            cleaned.append(dict(entry))
-    return cleaned
+    return [dict(entry) for entry in tabs if isinstance(entry, Mapping)]
 
 
 def _write_case_tab_memory(entries: list[dict[str, object]]) -> None:
@@ -10230,28 +10228,30 @@ def generate_recurring_issue_pdf(
 
     normalized_cases: list[dict[str, object]] = []
     if isinstance(raw_cases, list):
-        for item in raw_cases:
-            if isinstance(item, Mapping):
-                normalized_cases.append(
-                    {
-                        "case_id": str(item.get("case_id") or ""),
-                        "title": str(item.get("title") or ""),
-                        "root_cause": str(item.get("root_cause") or ""),
-                        "solution": str(item.get("solution") or ""),
-                        "troubleshooting": (
-                            extract_remote_steps_from_mapping(item)
-                            or str(item.get("troubleshooting") or "").strip()
-                        ),
-                        "repro_steps": str(item.get("repro_steps") or ""),
-                        "additional_info": str(
-                            item.get("additional_info")
-                            or item.get("description_excerpt")
-                            or ""
-                        ),
-                        "saved_at": item.get("saved_at"),
-                        "source_path": item.get("source_path"),
-                    }
-                )
+        normalized_cases.extend(
+            [
+                {
+                    "case_id": str(item.get("case_id") or ""),
+                    "title": str(item.get("title") or ""),
+                    "root_cause": str(item.get("root_cause") or ""),
+                    "solution": str(item.get("solution") or ""),
+                    "troubleshooting": (
+                        extract_remote_steps_from_mapping(item)
+                        or str(item.get("troubleshooting") or "").strip()
+                    ),
+                    "repro_steps": str(item.get("repro_steps") or ""),
+                    "additional_info": str(
+                        item.get("additional_info")
+                        or item.get("description_excerpt")
+                        or ""
+                    ),
+                    "saved_at": item.get("saved_at"),
+                    "source_path": item.get("source_path"),
+                }
+                for item in raw_cases
+                if isinstance(item, Mapping)
+            ]
+        )
 
     if not normalized_cases:
         normalized_cases = _collect_pattern_cases(pattern, dataset)
@@ -10331,8 +10331,8 @@ def generate_recurring_issue_pdf(
         ]
     ]
 
-    for case in normalized_cases:
-        detail_rows.append(
+    detail_rows.extend(
+        [
             [
                 _to_paragraph(case.get("case_id", "")),
                 _to_paragraph(case.get("title", "")),
@@ -10340,7 +10340,9 @@ def generate_recurring_issue_pdf(
                 _to_paragraph(case.get("troubleshooting", "")),
                 _to_paragraph(case.get("solution", "")),
             ]
-        )
+            for case in normalized_cases
+        ]
+    )
 
     detail_table = Table(
         detail_rows,
@@ -12250,22 +12252,21 @@ def render_case_ui(case_idx: int):
                         matches = find_relevant_learning_cases(D, ai_learning_dataset)
                         st.session_state.ai_learning_matches = matches
                         if matches:
-                            condensed_matches = []
-                            for match in matches:
-                                condensed_matches.append(
-                                    {
-                                        "case_id": match.get("case_id"),
-                                        "title": match.get("title"),
-                                        "root_cause": match.get("root_cause"),
-                                        "solution": _summarize_text(
-                                            str(match.get("solution") or match.get("solution_excerpt") or ""),
-                                            width=240,
-                                        ),
-                                        "keywords": match.get("keywords"),
-                                        "score": match.get("score"),
-                                        "saved_at": match.get("saved_at"),
-                                    }
-                                )
+                            condensed_matches = [
+                                {
+                                    "case_id": match.get("case_id"),
+                                    "title": match.get("title"),
+                                    "root_cause": match.get("root_cause"),
+                                    "solution": _summarize_text(
+                                        str(match.get("solution") or match.get("solution_excerpt") or ""),
+                                        width=240,
+                                    ),
+                                    "keywords": match.get("keywords"),
+                                    "score": match.get("score"),
+                                    "saved_at": match.get("saved_at"),
+                                }
+                                for match in matches
+                            ]
                             learning_context = (
                                 "Leverage these historical cases when reasoning about the current issue:\n\n"
                                 + json.dumps(condensed_matches, indent=2)
