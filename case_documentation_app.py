@@ -3050,6 +3050,24 @@ def case_loading_overlay(message: str = "Preparing case data…"):
 
 
 @contextmanager
+def streamlit_modal(title: str, key: str):
+    """Provide a Streamlit modal when available with a graceful fallback."""
+
+    if hasattr(st, "modal"):
+        with st.modal(title, key=key):
+            yield
+        return
+
+    placeholder = st.empty()
+    try:
+        with placeholder.container():
+            st.markdown(f"### {title}")
+            yield
+    finally:
+        placeholder.empty()
+
+
+@contextmanager
 def loading_indicator(message: str = "Loading case…"):
     """Display a spinner for at least two seconds while loading cases."""
 
