@@ -2522,6 +2522,30 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     button_shadow_color = _blend_hex_colors(theme.primary, "#000000", 0.55)
     text_on_surface = _preferred_text_for_background(theme.surface, theme.text)
     text_on_white = _preferred_text_for_background("#ffffff", theme.text)
+    is_holiday_theme = theme.key != DEFAULT_THEME.key
+    if is_holiday_theme:
+        pastel_primary = _blend_hex_colors(theme.primary, "#ffffff", 0.75)
+        pastel_accent = _blend_hex_colors(theme.accent, "#ffffff", 0.78)
+        pastel_backdrop = _blend_hex_colors(theme.background, "#ffffff", 0.65)
+        pastel_overlay = _blend_hex_colors(theme.surface, "#ffffff", 0.55)
+        background_layers = "\n                ".join(
+            [
+                "radial-gradient(circle at 12% 18%, "
+                f"{pastel_primary} 0%, transparent 58%)",
+                "radial-gradient(circle at 88% 15%, "
+                f"{pastel_accent} 0%, transparent 60%)",
+                "linear-gradient(170deg, "
+                f"{pastel_overlay} 0%, {pastel_backdrop} 55%, {theme.background} 100%)",
+            ]
+        )
+    else:
+        background_layers = "\n                ".join(
+            [
+                "radial-gradient(circle at 15% 20%, var(--kiroshi-primary-glow) 0%, transparent 55%)",
+                "radial-gradient(circle at 85% 12%, var(--kiroshi-accent-glow) 0%, transparent 60%)",
+                f"linear-gradient(165deg, {background_soft} 0%, {theme.background} 100%)",
+            ]
+        )
     st.markdown(
         f"""
         <style>
@@ -2560,9 +2584,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
         }}
         html, body {{
             background:
-                radial-gradient(circle at 15% 20%, var(--kiroshi-primary-glow) 0%, transparent 55%),
-                radial-gradient(circle at 85% 12%, var(--kiroshi-accent-glow) 0%, transparent 60%),
-                linear-gradient(165deg, {background_soft} 0%, {theme.background} 100%);
+                {background_layers};
             color: var(--kiroshi-text);
             font-family: 'Source Sans Pro', sans-serif;
             min-height: 100vh;
