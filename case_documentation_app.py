@@ -12196,6 +12196,159 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         st.code(hotkey_script, language="autohotkey")
 
 
+def render_case_attachments_panel(
+    case: CaseData, *, case_idx: int, tab_slug: str
+) -> None:
+    """Render the exports and attachments controls for a case tab."""
+
+    attachments_key = partial(case_widget_key, tab_slug, case_idx=case_idx)
+
+    st.markdown("---")
+    st.subheader("Exports & attachments")
+
+    new_files = st.file_uploader(
+        "Upload screenshots / videos",
+        accept_multiple_files=True,
+        key=attachments_key("attachments_new_files"),
+    )
+    if new_files:
+        existing_names = {f.name for f in st.session_state.uploads}
+        for nf in new_files:
+            if nf.name not in existing_names:
+                st.session_state.uploads.append(nf)
+                existing_names.add(nf.name)
+
+    log_files = st.file_uploader(
+        "Upload case logs",
+        accept_multiple_files=True,
+        key=attachments_key("attachments_log_files"),
+    )
+    if log_files:
+        existing_log_names = {f.name for f in st.session_state.log_uploads}
+        for lf in log_files:
+            if lf.name not in existing_log_names:
+                st.session_state.log_uploads.append(lf)
+                existing_log_names.add(lf.name)
+
+    screenshot_state_key = f"attachments_screenshot_name_{case_idx}"
+    shared_screenshot_name = st.session_state.setdefault(screenshot_state_key, "")
+
+    screenshot_widget_key = attachments_key("attachments_screenshot_name")
+    if (
+        screenshot_widget_key not in st.session_state
+        or st.session_state[screenshot_widget_key] != shared_screenshot_name
+    ):
+        st.session_state[screenshot_widget_key] = shared_screenshot_name
+
+    screenshot_name_input = st.text_input(
+        "Screenshot name",
+        key=screenshot_widget_key,
+    )
+    st.session_state[screenshot_state_key] = screenshot_name_input
+
+    screenshot_name_value = st.session_state[screenshot_state_key]
+
+    full_btn_col, region_btn_col = st.columns(2)
+    if full_btn_col.button(
+        "Take Screenshot",
+        key=attachments_key("attachments_take_screenshot"),
+    ):
+        if screenshot_name_value:
+            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name_value)
+            shot, error = capture_full_screenshot(safe_name)
+            if shot:
+                st.session_state.screenshots.append(shot)
+                st.success(f"Captured screenshot: {safe_name}")
+            else:
+                st.error(error or "Screenshot capture is unavailable in this environment.")
+        else:
+            st.error("Please provide a screenshot name before capturing.")
+
+    if region_btn_col.button(
+        "Advanced Screenshot (select area)",
+        key=attachments_key("attachments_take_region_screenshot"),
+    ):
+        if not screenshot_name_value:
+            st.error("Please provide a screenshot name before capturing.")
+        else:
+            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name_value)
+            shot, error = capture_region_screenshot(safe_name)
+            if shot:
+                st.session_state.screenshots.append(shot)
+                st.success(
+                    "Captured targeted screenshot. Confirm it excludes unnecessary PHI before sharing."
+                )
+            else:
+                message = error or "Unable to capture the selected region."
+                if "cancel" in message.lower():
+                    st.warning("Region capture cancelled—no image was saved.")
+                elif "environment" in message.lower() or "available" in message.lower():
+                    st.warning(message)
+                else:
+                    st.error(message)
+
+    if (
+        st.session_state.uploads
+        or st.session_state.log_uploads
+        or st.session_state.screenshots
+    ):
+        if st.session_state.uploads:
+            st.markdown("Files queued:")
+            for i, f in enumerate(st.session_state.uploads):
+                cols = st.columns([8, 1])
+                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+                if cols[1].button(
+                    "Remove",
+                    key=attachments_key(f"attachments_rem_upload_{i}"),
+                ):
+                    st.session_state.uploads.pop(i)
+                    st.rerun()
+        if st.session_state.log_uploads:
+            st.markdown("Logs queued:")
+            for i, f in enumerate(st.session_state.log_uploads):
+                cols = st.columns([8, 1])
+                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
+                if cols[1].button(
+                    "Remove",
+                    key=attachments_key(f"attachments_rem_log_{i}"),
+                ):
+                    st.session_state.log_uploads.pop(i)
+                    st.rerun()
+        if st.session_state.screenshots:
+            st.markdown("Screenshots captured:")
+            for i, s in enumerate(st.session_state.screenshots):
+                cols = st.columns([8, 1])
+                cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
+                if cols[1].button(
+                    "Remove",
+                    key=attachments_key(f"attachments_rem_shot_{i}"),
+                ):
+                    st.session_state.screenshots.pop(i)
+                    st.rerun()
+        if st.button(
+            "Create ZIP",
+            key=attachments_key("attachments_create_zip"),
+        ):
+            zbuf = io.BytesIO()
+            with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+                for f in st.session_state.uploads:
+                    z.writestr(f"Screenshots/{f.name}", f.getvalue())
+                for f in st.session_state.log_uploads:
+                    z.writestr(f"logs/{f.name}", f.getvalue())
+                for s in st.session_state.screenshots:
+                    z.writestr(f"Screenshots/{s.name}", s.getvalue())
+                if st.session_state.get("attachments_include_case_json", True):
+                    z.writestr("case.json", json.dumps(asdict(case), indent=2))
+            zbuf.seek(0)
+            st.download_button(
+                "Download attachments.zip",
+                zbuf,
+                file_name=f"{case.case_id or 'case'}_attachments.zip",
+                mime="application/zip",
+                key=attachments_key("attachments_download_zip"),
+            )
+
+
 CASE_TAB_SLUGS = {
     # Keep this mapping in sync with the tab layout inside ``render_case_ui``.
     # Each human-friendly tab label resolves to a slug used for widget keys.
@@ -12738,6 +12891,11 @@ def render_case_ui(case_idx: int):
                     render_description_and_internal_notes(case_shell, False)
                     render_phonecall_section(case_shell, False)
                     render_conclusion_and_additional(case_shell, False)
+        render_case_attachments_panel(
+            D,
+            case_idx=case_idx,
+            tab_slug=CASE_TAB_SLUGS["Case"],
+        )
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -13693,6 +13851,11 @@ End with: We look forward to your reply."""
                     height=300,
                     key=generated_email_key,
                 )
+        render_case_attachments_panel(
+            D,
+            case_idx=case_idx,
+            tab_slug=CASE_TAB_SLUGS["Email"],
+        )
     # ================== TRACKING TAB =================
     if tab_tracking:
         with tab_tracking:
@@ -13833,6 +13996,12 @@ End with: We look forward to your reply."""
                 save_case_to_database(D, notify=False)
                 st.session_state.track_case = False
                 st.rerun()
+
+            render_case_attachments_panel(
+                D,
+                case_idx=case_idx,
+                tab_slug=CASE_TAB_SLUGS["Tracking"],
+            )
 
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
@@ -14182,6 +14351,12 @@ End with: We look forward to your reply."""
                 )
                 st.markdown("---")
 
+            render_case_attachments_panel(
+                D,
+                case_idx=case_idx,
+                tab_slug=CASE_TAB_SLUGS["Escalations"],
+            )
+
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
         with tab_hw:
@@ -14227,10 +14402,21 @@ End with: We look forward to your reply."""
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
 
+            render_case_attachments_panel(
+                D,
+                case_idx=case_idx,
+                tab_slug=CASE_TAB_SLUGS["Hardware Issues"],
+            )
+
     if tab_debug:
         with tab_debug:
             st.subheader("Case debug tools")
             render_autohotkey_panel(cat_map, case_idx)
+            render_case_attachments_panel(
+                D,
+                case_idx=case_idx,
+                tab_slug=CASE_TAB_SLUGS["Debug"],
+            )
 
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
@@ -14370,6 +14556,12 @@ End with: We look forward to your reply."""
                     session = sessions[idx]
                     st.session_state[notes_key] = session.notes
 
+        render_case_attachments_panel(
+            D,
+            case_idx=case_idx,
+            tab_slug=CASE_TAB_SLUGS["Remote Session"],
+        )
+
 
     # ================== TABLES TAB =================
     with tab_tables:
@@ -14440,6 +14632,12 @@ End with: We look forward to your reply."""
                 width="stretch",
                 key=tables_tab_key(f"df_{copy_suffix}"),
             )
+
+        render_case_attachments_panel(
+            D,
+            case_idx=case_idx,
+            tab_slug=CASE_TAB_SLUGS["Tables"],
+        )
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
@@ -14519,127 +14717,11 @@ End with: We look forward to your reply."""
             if col_s.button("Save", key=save_tab_key("save_before_loading")):
                 save_case_to_database(D)
 
-        # ================== FILE UPLOADS & EXPORTS =================
-        st.markdown("---")
-        st.subheader("Exports & attachments")
-        new_files = st.file_uploader(
-            "Upload screenshots / videos",
-            accept_multiple_files=True,
-            key=save_tab_key("new_files"),
+        render_case_attachments_panel(
+            D,
+            case_idx=case_idx,
+            tab_slug=CASE_TAB_SLUGS["Save/Load"],
         )
-        if new_files:
-            existing_names = {f.name for f in st.session_state.uploads}
-            for nf in new_files:
-                if nf.name not in existing_names:
-                    st.session_state.uploads.append(nf)
-                    existing_names.add(nf.name)
-
-        log_files = st.file_uploader(
-            "Upload case logs",
-            accept_multiple_files=True,
-            key=save_tab_key("log_files"),
-        )
-        if log_files:
-            existing_log_names = {f.name for f in st.session_state.log_uploads}
-            for lf in log_files:
-                if lf.name not in existing_log_names:
-                    st.session_state.log_uploads.append(lf)
-                    existing_log_names.add(lf.name)
-
-        screenshot_name = st.text_input(
-            "Screenshot name", key=save_tab_key("screenshot_name")
-        )
-        full_btn_col, region_btn_col = st.columns(2)
-
-        if full_btn_col.button("Take Screenshot", key=save_tab_key("take_screenshot")):
-            if screenshot_name:
-                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
-                shot, error = capture_full_screenshot(safe_name)
-                if shot:
-                    st.session_state.screenshots.append(shot)
-                    st.success(f"Captured screenshot: {safe_name}")
-                else:
-                    st.error(error or "Screenshot capture is unavailable in this environment.")
-            else:
-                st.error("Please provide a screenshot name before capturing.")
-
-        if region_btn_col.button(
-            "Advanced Screenshot (select area)",
-            key=save_tab_key("take_region_screenshot"),
-        ):
-            if not screenshot_name:
-                st.error("Please provide a screenshot name before capturing.")
-            else:
-                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name)
-                shot, error = capture_region_screenshot(safe_name)
-                if shot:
-                    st.session_state.screenshots.append(shot)
-                    st.success(
-                        "Captured targeted screenshot. Confirm it excludes unnecessary PHI before sharing."
-                    )
-                else:
-                    message = error or "Unable to capture the selected region."
-                    if "cancel" in message.lower():
-                        st.warning("Region capture cancelled—no image was saved.")
-                    elif "environment" in message.lower() or "available" in message.lower():
-                        st.warning(message)
-                    else:
-                        st.error(message)
-
-        if (
-            st.session_state.uploads
-            or st.session_state.log_uploads
-            or st.session_state.screenshots
-        ):
-            if st.session_state.uploads:
-                st.markdown("Files queued:")
-                for i, f in enumerate(st.session_state.uploads):
-                    cols = st.columns([8, 1])
-                    cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                    if cols[1].button(
-                        "Remove", key=save_tab_key(f"rem_upload_{i}")
-                    ):
-                        st.session_state.uploads.pop(i)
-                        st.rerun()
-            if st.session_state.log_uploads:
-                st.markdown("Logs queued:")
-                for i, f in enumerate(st.session_state.log_uploads):
-                    cols = st.columns([8, 1])
-                    cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                    if cols[1].button(
-                        "Remove", key=save_tab_key(f"rem_log_{i}")
-                    ):
-                        st.session_state.log_uploads.pop(i)
-                        st.rerun()
-            if st.session_state.screenshots:
-                st.markdown("Screenshots captured:")
-                for i, s in enumerate(st.session_state.screenshots):
-                    cols = st.columns([8, 1])
-                    cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
-                    if cols[1].button(
-                        "Remove", key=save_tab_key(f"rem_shot_{i}")
-                    ):
-                        st.session_state.screenshots.pop(i)
-                        st.rerun()
-            if st.button("Create ZIP", key=save_tab_key("create_zip")):
-                zbuf = io.BytesIO()
-                with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-                    for f in st.session_state.uploads:
-                        z.writestr(f"Screenshots/{f.name}", f.getvalue())
-                    for f in st.session_state.log_uploads:
-                        z.writestr(f"logs/{f.name}", f.getvalue())
-                    for s in st.session_state.screenshots:
-                        z.writestr(f"Screenshots/{s.name}", s.getvalue())
-                    if st.session_state.get("attachments_include_case_json", True):
-                        z.writestr("case.json", json.dumps(asdict(D), indent=2))
-                zbuf.seek(0)
-                st.download_button(
-                    "Download attachments.zip",
-                    zbuf,
-                    file_name=f"{D.case_id or 'case'}_attachments.zip",
-                    mime="application/zip",
-                    key=save_tab_key("download_zip"),
-                )
 
     # ================== BORED TAB =================
     if tab_bored:
@@ -14806,6 +14888,12 @@ End with: We look forward to your reply."""
             if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
+
+            render_case_attachments_panel(
+                D,
+                case_idx=case_idx,
+                tab_slug=CASE_TAB_SLUGS["I'm bored"],
+            )
 
     autosave()
 
