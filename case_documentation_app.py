@@ -6096,21 +6096,31 @@ def widget_key(base: str, idx: int) -> str:
     return _register_widget_key(key)
 
 
-def case_widget_key(slug: str, widget: str, idx: int) -> str:
-    """Return a widget key scoped to both the case index and a logical UI slug."""
+def case_widget_key(
+    slug: str,
+    widget: str | None = None,
+    idx: int | None = None,
+    *,
+    case_idx: int | None = None,
+) -> str:
+    """Return a Streamlit widget key scoped to the case index and logical slug."""
+
+    if idx is None:
+        idx = case_idx
+    if idx is None:
+        raise ValueError("case_widget_key requires a case index")
 
     safe_slug = re.sub(r"[^0-9a-z_]+", "_", slug.lower()).strip("_")
-    safe_widget = re.sub(r"[^0-9a-z_]+", "_", widget.lower()).strip("_")
+    safe_widget = ""
+    if widget is not None:
+        safe_widget = re.sub(r"[^0-9a-z_]+", "_", widget.lower()).strip("_")
+
     if safe_slug and safe_widget:
         base = f"{safe_slug}_{safe_widget}"
     else:
         base = safe_slug or safe_widget or "widget"
+
     return widget_key(base, idx)
-
-
-def case_widget_key(tab_slug: str, control: str, case_idx: int) -> str:
-    """Return a widget key scoped to a tab slug and case index."""
-    return widget_key(f"{tab_slug}_{control}", case_idx)
 
 
 def global_widget_key(base: str) -> str:
