@@ -13459,10 +13459,11 @@ End with: We look forward to your reply."""
                     f"Clearly ask the customer for {customer_need}.\n"
                     "Close by inviting them to reply if they have any questions or need further assistance."
                 )
+                pat_cb_key = email_tab_key("pat_cb")
                 pat_cb = st.toggle(
                     "Include Patterson legacy #",
-                    value=st.session_state.get(email_tab_key("pat_cb"), False),
-                    key=email_tab_key("pat_cb"),
+                    value=st.session_state.get(pat_cb_key, False),
+                    key=pat_cb_key,
                 )
                 if pat_cb:
                     auto_text_input(
@@ -13522,20 +13523,23 @@ End with: We look forward to your reply."""
                 )
                 st.session_state["last_prompt"] = prompt
 
+                helpjuice_toggle_key = email_tab_key("api_helpjuice")
                 include_helpjuice = st.toggle(
                     "Helpjuice tutorial",
-                    value=st.session_state.get(email_tab_key("api_helpjuice"), False),
-                    key=email_tab_key("api_helpjuice"),
+                    value=st.session_state.get(helpjuice_toggle_key, False),
+                    key=helpjuice_toggle_key,
                 )
+                restart_toggle_key = email_tab_key("api_restart")
                 include_restart = st.toggle(
                     "Restart the computer",
-                    value=st.session_state.get(email_tab_key("api_restart"), False),
-                    key=email_tab_key("api_restart"),
+                    value=st.session_state.get(restart_toggle_key, False),
+                    key=restart_toggle_key,
                 )
+                scan_time_toggle_key = email_tab_key("api_scan_time")
                 include_scan_time = st.toggle(
                     "Scan time warning",
-                    value=st.session_state.get(email_tab_key("api_scan_time"), False),
-                    key=email_tab_key("api_scan_time"),
+                    value=st.session_state.get(scan_time_toggle_key, False),
+                    key=scan_time_toggle_key,
                 )
                 generated_email_key = email_tab_key("generated_email_output")
                 if generated_email_key not in st.session_state:
