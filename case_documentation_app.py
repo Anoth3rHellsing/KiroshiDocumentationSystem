@@ -5611,6 +5611,27 @@ def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
     }
 
 
+def _set_active_session_attachments_index(
+    attachments_index: Mapping[str, Iterable[Mapping[str, object]]] | None,
+) -> None:
+    """Persist attachment metadata for the active case session."""
+
+    normalised = _normalise_attachments_index(attachments_index)
+    st.session_state["attachments_index"] = normalised
+
+    sessions = st.session_state.get("case_sessions")
+    if isinstance(sessions, list) and CURRENT_CASE_IDX < len(sessions):
+        session = sessions[CURRENT_CASE_IDX]
+        try:
+            session.attachments_index = normalised  # type: ignore[attr-defined]
+            session.uploads = st.session_state.get("uploads", [])
+            session.log_uploads = st.session_state.get("log_uploads", [])
+            session.screenshots = st.session_state.get("screenshots", [])
+        except AttributeError:
+            pass
+    _sync_case_memory_from_sessions()
+
+
 def _normalise_attachments_index(
     data: Mapping[str, Iterable[Mapping[str, object]]] | Mapping[str, object] | None,
 ) -> dict[str, list[dict[str, str]]]:
@@ -5961,7 +5982,13 @@ if "case_sessions" not in st.session_state:
         st.session_state.log_uploads = primary_session.log_uploads
         st.session_state.screenshots = primary_session.screenshots
         st.session_state.scratch = primary_session.scratch
+        st.session_state["attachments_index"] = _normalise_attachments_index(
+            getattr(primary_session, "attachments_index", {})
+        )
     else:
+        current_index = _normalise_attachments_index(
+            st.session_state.get("attachments_index")
+        )
         st.session_state.case_sessions = [
             CaseSession(
                 case=D,
@@ -5969,8 +5996,10 @@ if "case_sessions" not in st.session_state:
                 uploads=st.session_state.uploads,
                 log_uploads=st.session_state.log_uploads,
                 screenshots=st.session_state.screenshots,
+                attachments_index=current_index,
             )
         ]
+        st.session_state["attachments_index"] = current_index
     _sync_case_memory_from_sessions()
 
 
@@ -5980,6 +6009,9 @@ def load_case_state(idx: int) -> None:
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
     st.session_state.screenshots = cs.screenshots
+    st.session_state["attachments_index"] = _normalise_attachments_index(
+        getattr(cs, "attachments_index", {})
+    )
     scratch_value = getattr(cs, "scratch", "")
     st.session_state.scratch = scratch_value
     st.session_state[widget_key("scratch", idx)] = scratch_value
@@ -6001,7 +6033,7 @@ def save_case_state(idx: int) -> None:
         screenshots=st.session_state.screenshots,
         source_path=getattr(existing_session, "source_path", ""),
         attachments_index=_normalise_attachments_index(
-            getattr(existing_session, "attachments_index", {})
+            st.session_state.get("attachments_index", getattr(existing_session, "attachments_index", {}))
         ),
     )
     _sync_case_memory_from_sessions()
@@ -6033,6 +6065,7 @@ def clear_case_state(idx: int) -> None:
         st.session_state.uploads = []
         st.session_state.log_uploads = []
         st.session_state.screenshots = []
+        st.session_state["attachments_index"] = _default_attachments_index()
         st.session_state.scratch = ""
         st.session_state[widget_key("scratch", idx)] = ""
         for key in (
@@ -6272,6 +6305,7 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
             seen.add(rel_path)
             attachments_index[key].append({"name": sanitized, "path": rel_path})
 
+    _set_active_session_attachments_index(attachments_index)
     return attachments_index
 
 
@@ -6288,6 +6322,11 @@ def load_case_attachments(
         return uploads, log_uploads, screenshots
 
     base_dir = get_case_attachments_dir(case_id)
+    fallback_dirs = [base_dir]
+
+    default_dir = CASE_ATTACHMENTS_ROOT / sanitize_case_id(case_id)
+    if default_dir not in fallback_dirs:
+        fallback_dirs.append(default_dir)
     mapping = [
         ("uploads", uploads, "uploads"),
         ("log_uploads", log_uploads, "logs"),
@@ -6303,9 +6342,15 @@ def load_case_attachments(
             name = entry.get("name")
             candidate_paths: list[Path] = []
             if isinstance(rel_path, str):
-                candidate_paths.append(base_dir / rel_path)
+                rel_path_obj = Path(rel_path)
+                if rel_path_obj.is_absolute():
+                    candidate_paths.append(rel_path_obj)
+                else:
+                    for root_dir in fallback_dirs:
+                        candidate_paths.append(root_dir / rel_path_obj)
             if isinstance(name, str):
-                candidate_paths.append(base_dir / fallback_subdir / name)
+                for root_dir in fallback_dirs:
+                    candidate_paths.append(root_dir / fallback_subdir / name)
             file_path = next((p for p in candidate_paths if p.exists()), None)
             if not file_path:
                 continue
@@ -10738,6 +10783,8 @@ def _apply_case_payload(
         st.session_state.case_sessions[CURRENT_CASE_IDX] = session_entry
     else:
         st.session_state.case_sessions = [session_entry]
+
+    _set_active_session_attachments_index(attachments_index)
 
     st.session_state.scratch = scratch_value
     st.session_state[scratch_key] = scratch_value
