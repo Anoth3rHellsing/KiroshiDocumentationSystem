@@ -13072,6 +13072,19 @@ def render_case_ui(case_idx: int):
                         font-weight: 600;
                         transition: all 0.2s ease;
                     }
+                    div[aria-label="Email template family"] label > div {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.45rem;
+                    }
+                    div[aria-label="Email template family"] label > div > div:first-child {
+                        display: none;
+                    }
+                    div[aria-label="Email template family"] label > div > div:last-child {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.45rem;
+                    }
                     div[aria-label="Email template family"] label:hover {
                         background: rgba(99, 102, 241, 0.18);
                         border-color: rgba(79, 70, 229, 0.45);
