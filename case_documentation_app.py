@@ -41,6 +41,7 @@ import pandas as pd
 import altair as alt
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit.errors import StreamlitAPIException
 from logging.handlers import RotatingFileHandler
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -10963,10 +10964,37 @@ def auto_number_input(label: str, field: str, container=st, **kwargs):
 def auto_toggle(label: str, field: str, container=st, **kwargs):
     key = widget_key(field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
-    value = container.toggle(label, value=bool(getattr(D, field)), **kwargs)
-    if value != getattr(D, field):
+    default_value = bool(getattr(D, field))
+    alias_key = f"{field}_on"
+    if key in st.session_state:
+        current_value = bool(st.session_state.get(key))
+    elif alias_key in st.session_state:
+        current_value = bool(st.session_state.get(alias_key))
+    else:
+        current_value = default_value
+    st.session_state.setdefault(alias_key, current_value)
+
+    def _render_toggle(initial: bool) -> bool:
+        return container.toggle(label, value=initial, **kwargs)
+
+    try:
+        value = _render_toggle(current_value)
+    except StreamlitAPIException as exc:
+        match = re.search(
+            r"st\\.session_state\\.([^.\\s]+) does not exist", str(exc)
+        )
+        if match:
+            missing_key = match.group(1)
+            st.session_state.setdefault(missing_key, current_value)
+            value = _render_toggle(current_value)
+        else:
+            raise
+
+    previous_value = getattr(D, field)
+    st.session_state[key] = value
+    st.session_state[alias_key] = value
+    if value != previous_value:
         setattr(D, field, value)
-        st.session_state[key] = value
         autosave()
 
 DELL_ESCALATION_OVERVIEW_FIELDS = [
