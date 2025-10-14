@@ -14348,7 +14348,6 @@ End with: We look forward to your reply."""
                 </script>
                 """,
                 height=80,
-                key=tables_tab_key(f"copy_controls_{copy_suffix}"),
             )
             st.dataframe(
                 category_dataframe(cat, D, cat_map),
