@@ -11585,7 +11585,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
 
         version_col.markdown("#### Support Fee")
         ct_key = widget_key("customer_trios_only", case_idx)
-        sf_key = widget_key("support_fee_accepted", case_idx)
+        sf_state_key = f"support_fee_accepted_{case_idx}"
         customer_trios_only = version_col.toggle(
             "Customer is TRIOS Only?",
             value=st.session_state.get(ct_key, D.customer_trios_only),
@@ -11594,6 +11594,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             args=("customer_trios_only",),
         )
         if customer_trios_only:
+            sf_key = widget_key("support_fee_accepted", case_idx)
             version_col.toggle(
                 "Support fee price accepted?",
                 value=st.session_state.get(sf_key, D.support_fee_accepted),
@@ -11602,8 +11603,10 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 args=("support_fee_accepted",),
             )
         else:
-            st.session_state[sf_key] = False
-            _update_field("support_fee_accepted")
+            st.session_state[sf_state_key] = False
+            if D.support_fee_accepted:
+                D.support_fee_accepted = False
+                autosave()
 
 
 def render_description_and_internal_notes(container, compact_mode: bool) -> None:
