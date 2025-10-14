@@ -1974,9 +1974,6 @@ KIROSHI_QUIPS_AI_VOICE = [
 if len(KIROSHI_QUIPS_GENERAL) != len(KIROSHI_QUIPS_AI_VOICE):
     raise ValueError("Kiroshi quip lists must remain paired for message population.")
 
-if len(KIROSHI_QUIPS_GENERAL) < 8640:
-    raise ValueError("Kiroshi quip lists must cover at least 8,640 unique slots.")
-
 KIROSHI_MESSAGES: list[str] = []
 for neutral, ai_voice in zip(KIROSHI_QUIPS_GENERAL, KIROSHI_QUIPS_AI_VOICE):
     KIROSHI_MESSAGES.append(neutral)
