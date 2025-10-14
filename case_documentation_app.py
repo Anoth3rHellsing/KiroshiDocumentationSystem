@@ -5375,6 +5375,7 @@ def update_case_remote_sessions(
     )
     st.session_state["remote_sessions"] = [asdict(entry) for entry in normalized]
     st.session_state["remote_steps"] = case.remote_steps
+    touch_case_last_modified()
     autosave()
 
 
@@ -6091,6 +6092,7 @@ def clear_case_state(idx: int) -> None:
         session.case.tracking.active for session in st.session_state.case_sessions
     )
 
+    touch_case_last_modified()
     autosave()
     _sync_case_memory_from_sessions()
 
@@ -6685,9 +6687,7 @@ def _apply_tracked_priority_update(
             normalized_priority
         )
         if timestamp:
-            D.last_modified = timestamp
-            if "case" in st.session_state:
-                st.session_state.case.last_modified = timestamp
+            touch_case_last_modified(timestamp=timestamp)
     return normalized_priority, timestamp
 
 
@@ -6734,9 +6734,7 @@ def update_tracked_status(
         status_key = widget_key("track_status", CURRENT_CASE_IDX)
         st.session_state[status_key] = new_status
         if timestamp:
-            D.last_modified = timestamp
-            if "case" in st.session_state:
-                st.session_state.case.last_modified = timestamp
+            touch_case_last_modified(timestamp=timestamp)
     st.toast("Status updated") if hasattr(st, "toast") else None
 
 
@@ -10963,11 +10961,34 @@ def request_case_dex(case_id: str) -> bytes:
     return response.content
 
 
+def touch_case_last_modified(*, timestamp: str | None = None) -> str:
+    """Update the active case ``last_modified`` timestamp and return it."""
+
+    if timestamp is None:
+        timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+    if isinstance(D, CaseData):
+        D.last_modified = timestamp
+
+    case_obj = st.session_state.get("case")
+    if isinstance(case_obj, CaseData):
+        case_obj.last_modified = timestamp
+
+    st.session_state["last_modified"] = timestamp
+    return timestamp
+
+
 def _update_field(field: str):
     """Update dataclass field from session state and persist."""
     key = widget_key(field, CURRENT_CASE_IDX)
-    setattr(D, field, st.session_state.get(key))
-    autosave()
+    new_value = st.session_state.get(key)
+    previous = getattr(D, field)
+    if new_value != previous:
+        setattr(D, field, new_value)
+        touch_case_last_modified()
+        autosave()
+    else:
+        setattr(D, field, new_value)
 
 
 def auto_text_input(label: str, field: str, container=st, **kwargs):
@@ -11005,6 +11026,7 @@ def auto_number_input(label: str, field: str, container=st, **kwargs):
     if int_value != current_value:
         setattr(D, field, int_value)
         st.session_state[key] = int_value
+        touch_case_last_modified()
         autosave()
 
 
@@ -11042,6 +11064,7 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
     st.session_state[alias_key] = value
     if value != previous_value:
         setattr(D, field, value)
+        touch_case_last_modified()
         autosave()
 
 DELL_ESCALATION_OVERVIEW_FIELDS = [
@@ -11705,12 +11728,15 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             else f"{outstanding} field{'s' if outstanding != 1 else ''} remaining"
         )
         status_text = (D.tracking.status or "").strip()
-        last_mod = (D.last_modified or "").strip()
+        last_mod_raw = (D.last_modified or "").strip()
+        last_mod_display = format_last_modified(last_mod_raw)
         meta_parts = [outstanding_text]
         if status_text:
             meta_parts.append(f"Status: {status_text}")
-        if last_mod:
-            meta_parts.append(f"Updated {last_mod}")
+        if last_mod_display:
+            meta_parts.append(f"Updated {last_mod_display}")
+        elif last_mod_raw:
+            meta_parts.append(f"Updated {last_mod_raw}")
         progress_meta = " • ".join(escape(part) for part in meta_parts if part)
         if not progress_meta:
             progress_meta = "Begin documenting the engagement below."
@@ -11791,6 +11817,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 D.patterson = merged_value
                 st.session_state[widget_key("straumann", case_idx)] = merged_value
                 st.session_state[widget_key("patterson", case_idx)] = merged_value
+                touch_case_last_modified()
                 autosave()
         else:
             cleared = False
@@ -11806,6 +11833,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 st.session_state[widget_key("straumann", case_idx)] = "N/A"
                 cleared = True
             if cleared:
+                touch_case_last_modified()
                 autosave()
 
         name_cols = card.columns((1.3, 1, 1))
@@ -11851,6 +11879,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             st.session_state[sf_state_key] = False
             if D.support_fee_accepted:
                 D.support_fee_accepted = False
+                touch_case_last_modified()
                 autosave()
 
 
@@ -13727,6 +13756,7 @@ End with: We look forward to your reply."""
                     )
                 else:
                     D.patterson = "N/A"
+                    touch_case_last_modified()
                     autosave()
                 if st.session_state.second_line_mode:
                     st.text_input(
@@ -13737,6 +13767,7 @@ End with: We look forward to your reply."""
                     )
                 else:
                     D.straumann = "N/A"
+                    touch_case_last_modified()
                     autosave()
             elif email_type == "Custom":
                 st.markdown("#### Custom prompt builder")
