@@ -4527,7 +4527,7 @@ def _render_tutorial_visual(kind: str) -> None:
             )
             .properties(height=220)
         )
-        st.altair_chart(chart, use_container_width=True, **ALTAIR_CHART_KWARGS)
+        st.altair_chart(chart, width="stretch", **ALTAIR_CHART_KWARGS)
         insights = [
             ("82%", "cases resolved within SLA", "+6% vs last week"),
             ("18", "active escalations", "Most due Thursday"),
@@ -7386,7 +7386,7 @@ def render_saved_cases_page() -> None:
     )
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -8426,7 +8426,38 @@ def show_failure_modal() -> None:
     section_label = context.get("section")
 
     with safe_modal("Something went wrong", key=global_widget_key("render_failure_modal")):
-        st.write(message)
+        escaped_message = escape(str(message))
+        st.markdown(
+            """
+            <style>
+            .kiroshi-error-card {
+                background: rgba(255, 244, 245, 0.95);
+                border-radius: 20px;
+                padding: 1.5rem;
+                text-align: center;
+                box-shadow: 0 18px 40px rgba(255, 0, 76, 0.18);
+                border: 1px solid rgba(255, 0, 76, 0.25);
+            }
+            .kiroshi-error-card h3 {
+                margin-bottom: 0.5rem;
+            }
+            .kiroshi-error-icon {
+                font-size: 48px;
+                line-height: 1;
+                margin-bottom: 0.75rem;
+            }
+            </style>
+            <div class="kiroshi-error-card">
+                <div class="kiroshi-error-icon">⚠️</div>
+                <h3>Something went wrong</h3>
+                <p>{escaped_message}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.write(
+            "We'll freeze the workspace until you either report the crash or dismiss this alert."
+        )
         if section_label:
             st.caption(f"Detected while rendering: {section_label}")
         col_report, col_ignore = st.columns(2)
@@ -8686,9 +8717,11 @@ def render_with_monitor(
             "stacktrace": traceback.format_exc(),
         }
         st.session_state.reporter_source = "auto"
-        placeholder.error(
-            f"Kiroshi couldn't render **{section_name}**. Use the incident reporter to capture details."
-        )
+        placeholder.empty()
+        show_failure_modal()
+        if st.session_state.get("reporter_open"):
+            show_incident_report_modal()
+        st.stop()
 
 
 def _render_case_tab(idx: int) -> None:
@@ -12370,7 +12403,7 @@ def render_case_ui(case_idx: int):
                             save_memory(st.session_state.kiroshi_chat_history)
                             st.session_state.categorizer_result = reply
                             st.session_state.categorizer_summary = parse_categorizer_summary(reply)
-            if st.button("Ask", key=case_tab_key("ask_button"), use_container_width=True):
+            if st.button("Ask", key=case_tab_key("ask_button"), width="stretch"):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -13382,7 +13415,7 @@ End with: We look forward to your reply."""
                     "Update the Dell escalation section in the Escalations tab to refresh this template."
                 )
                 st.dataframe(
-                    dell_escalation_dataframe(D), use_container_width=True
+                    dell_escalation_dataframe(D), width="stretch"
                 )
                 email_text = build_dell_escalation_email(D)
                 st.text_area(
@@ -13857,7 +13890,7 @@ End with: We look forward to your reply."""
 
             st.markdown("##### Dell escalation table preview")
             dell_table = dell_escalation_dataframe(D)
-            st.dataframe(dell_table, use_container_width=True)
+            st.dataframe(dell_table, width="stretch")
             copy_col, download_col = st.columns([2, 3])
             with copy_col:
                 copy_key = escalations_tab_key("dell_escalation_copy")
