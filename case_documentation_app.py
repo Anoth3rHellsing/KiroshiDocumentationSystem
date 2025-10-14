@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiroshi RC 1.7.2111025 – IT Case Documentation Helper
+Kiroshi RC 141025 – IT Case Documentation Helper
 Run:
     streamlit run case_documentation_app.py
 """
@@ -132,7 +132,7 @@ def safe_modal(title: str, key: str | None = None):
         st.markdown(f"### {title}")
         yield
 
-VERSION = "RC 1.7.2111025"
+VERSION = "RC 141025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
@@ -1703,7 +1703,7 @@ logging.debug("Python executable: %s", sys.executable)
 logging.debug("Python version: %s", sys.version.replace("\n", " "))
 logging.debug("Platform: %s", sys.platform)
 
-INSTALLER_FILENAME = "KiroshiInstaller_RC-1-7-2111025.bat"
+INSTALLER_FILENAME = "KiroshiInstaller_RC-141025.bat"
 
 
 def _resolve_installer_path() -> Path:
@@ -1748,7 +1748,7 @@ def _launch_installer_and_relaunch() -> None:
     if not installer_path.exists():
         st.error(
             "The bundled Kiroshi installer could not be found. Please run "
-            "KiroshiInstaller_RC-1-7-2111025.bat manually from the installation media."
+            "KiroshiInstaller_RC-141025.bat manually from the installation media."
         )
         return
 
@@ -1817,7 +1817,7 @@ def _check_installation_status() -> None:
 
     st.info(
         "If the automatic launch does not start the installer, close this window "
-        "and run `KiroshiInstaller_RC-1-7-2111025.bat` manually."
+        "and run `KiroshiInstaller_RC-141025.bat` manually."
     )
     st.stop()
 

@@ -1,7 +1,7 @@
 # Kiroshi Documentation System
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
-[![Version](https://img.shields.io/badge/version-RC%201.7.2111025-blue)](#)
+[![Version](https://img.shields.io/badge/version-RC%20141025-blue)](#)
 [![Coverage](https://img.shields.io/badge/coverage-active-brightgreen)](#)
 [![Updates](https://img.shields.io/badge/updates-daily-blue)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -46,8 +46,8 @@ Coverage is actively tracked and the project receives daily updates.
 ### Automated installation
 
 1. Download the repository ZIP from GitHub.
-2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_RC-1-7-2111025.bat`).
-3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_RC-1-7-2111025.bat`).
+2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_RC-141025.bat`).
+3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_RC-141025.bat`).
 4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
 
 ### Manual installation
@@ -89,8 +89,8 @@ screen capture button instead.
 ### Updating
 
 The `QuickUpdate.bat` script is intended for small incremental patches.
-Major updates such as **RC 1.7.2111025** introduce new requirements and should be applied manually.
-To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_RC-1-7-2111025.bat`).
+Major updates such as **RC 141025** introduce new requirements and should be applied manually.
+To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_RC-141025.bat`).
 
 #### Updating Python dependencies to the newest releases
 
@@ -248,7 +248,7 @@ not need to reinstall Python or Git).
 
 ## Usage
 
-If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_RC-1-7-2111025.bat`).
+If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_RC-141025.bat`).
 
 For manual runs from source, execute the Streamlit app from the repository root. If you are not already in the project folder,
 navigate there first with `cd`:
@@ -378,7 +378,7 @@ AutoHotkey puede ejecutar programas o abrir documentación clave para tu equipo:
 ```ahk
 ; Abre Kiroshi con Win + Shift + K
 # +k::
-    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-1-7-2111025.bat
+    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-141025.bat
 return
 
 ; Abre la wiki interna con Win + Alt + D
@@ -434,13 +434,13 @@ Kiroshi lee la configuración desde `config.json` o desde variables de entorno. 
 ^!1::
     SetEnv, AI_BASE_URL, https://api.openai.com/v1
     SetEnv, OPENAI_API_KEY, % Clipboard ; asume que copiaste la clave temporal
-    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-1-7-2111025.bat
+    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-141025.bat
 return
 
 ^!2::
     SetEnv, AI_BASE_URL, http://localhost:8000/v1
     SetEnv, OPENAI_API_KEY,
-    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-1-7-2111025.bat
+    Run, C:\\ProgramFiles\\KiroshiLauncher_RC-141025.bat
 return
 ```
 
@@ -496,7 +496,7 @@ Con estas ampliaciones podrás configurar AutoHotkey para lanzar Kiroshi en dist
 Todos los fragmentos del tutorial se elaboraron a partir de fuentes públicas y flujos de trabajo internos habituales:
 
 - **Documentación oficial de AutoHotkey**: La sintaxis y comandos (`MsgBox`, `Send`, `ControlClick`, `FileAppend`, `SetEnv`, etc.) se basan en los manuales publicados en [https://www.autohotkey.com/docs/](https://www.autohotkey.com/docs/).
-- **Instaladores incluidos en este repositorio**: Las rutas que apuntan a `KiroshiInstaller_RC-1-7-2111025.bat`, `KiroshiLauncher_RC-1-7-2111025.bat` y carpetas como `C:\\ProgramFiles\\KiroshiDatabase` reflejan los archivos distribuidos junto al proyecto y el comportamiento descrito en este README.
+- **Instaladores incluidos en este repositorio**: Las rutas que apuntan a `KiroshiInstaller_RC-141025.bat`, `KiroshiLauncher_RC-141025.bat` y carpetas como `C:\\ProgramFiles\\KiroshiDatabase` reflejan los archivos distribuidos junto al proyecto y el comportamiento descrito en este README.
 - **Convenciones operativas del equipo**: La estructura de carpetas sugerida (`C:\Kiroshi\AHK\`, `%AppData%\AutoHotkey\Lib\`, etc.) recoge las prácticas compartidas con el personal de soporte para mantener scripts versionados y listos para su despliegue en estaciones Windows.
 - **Automatizaciones comunes sobre Streamlit/navegadores**: Los ejemplos con coordenadas, uso de `WinWaitActive` o teclas rápidas se derivan de escenarios reales de documentación de casos dentro de Kiroshi y se adaptan según la resolución o el navegador predeterminado.
 
