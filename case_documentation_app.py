@@ -111,6 +111,20 @@ from kiroshi_chat import (
 # ChatGPT API and GitHub update checks can still be reached.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+
+@contextmanager
+def safe_modal(title: str, key: str | None = None):
+    """Provide a backwards-compatible context manager for Streamlit modals."""
+
+    if hasattr(st, "modal"):
+        with st.modal(title, key=key):
+            yield
+    else:  # pragma: no cover - executed only on older Streamlit versions
+        container = st.container()
+        with container:
+            st.markdown(f"### {title}")
+            yield
+
 VERSION = "RC 1.7.2111025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
@@ -8315,9 +8329,7 @@ def show_failure_modal() -> None:
     context = st.session_state.get("incident_context") or {}
     section_label = context.get("section")
 
-    with streamlit_modal(
-        "Something went wrong", key=global_widget_key("render_failure_modal")
-    ):
+    with safe_modal("Something went wrong", key=global_widget_key("render_failure_modal")):
         st.write(message)
         if section_label:
             st.caption(f"Detected while rendering: {section_label}")
@@ -8342,9 +8354,7 @@ def show_incident_report_modal() -> None:
     context = st.session_state.get("incident_context") or {}
     allow_screenshot = bool(st.session_state.get("reporter_allow_screenshot"))
 
-    with streamlit_modal(
-        "Incident reporter", key=global_widget_key("incident_report_modal")
-    ):
+    with safe_modal("Incident reporter", key=global_widget_key("incident_report_modal")):
         st.markdown("### Incident reporter")
         st.caption(
             "We'll bundle recent logs, context, and optional screenshots into a PDF you can download."
@@ -11593,7 +11603,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
 
         version_col.markdown("#### Support Fee")
         ct_key = widget_key("customer_trios_only", case_idx)
-        sf_key = widget_key("support_fee_accepted", case_idx)
+        sf_state_key = f"support_fee_accepted_{case_idx}"
         customer_trios_only = version_col.toggle(
             "Customer is TRIOS Only?",
             value=st.session_state.get(ct_key, D.customer_trios_only),
@@ -11602,6 +11612,7 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             args=("customer_trios_only",),
         )
         if customer_trios_only:
+            sf_key = widget_key("support_fee_accepted", case_idx)
             version_col.toggle(
                 "Support fee price accepted?",
                 value=st.session_state.get(sf_key, D.support_fee_accepted),
@@ -11610,8 +11621,10 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 args=("support_fee_accepted",),
             )
         else:
-            st.session_state[sf_key] = False
-            _update_field("support_fee_accepted")
+            st.session_state[sf_state_key] = False
+            if D.support_fee_accepted:
+                D.support_fee_accepted = False
+                autosave()
 
 
 def render_description_and_internal_notes(container, compact_mode: bool) -> None:
