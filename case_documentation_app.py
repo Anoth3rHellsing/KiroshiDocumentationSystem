@@ -116,14 +116,20 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 def safe_modal(title: str, key: str | None = None):
     """Provide a backwards-compatible context manager for Streamlit modals."""
 
-    if hasattr(st, "modal"):
-        with st.modal(title, key=key):
+    try:
+        modal_callable = getattr(st, "modal")
+    except AttributeError:  # pragma: no cover - executed on older Streamlit versions
+        modal_callable = None
+
+    if callable(modal_callable):
+        with modal_callable(title, key=key):
             yield
-    else:  # pragma: no cover - executed only on older Streamlit versions
-        container = st.container()
-        with container:
-            st.markdown(f"### {title}")
-            yield
+        return
+
+    container = st.container()  # pragma: no cover - fallback path
+    with container:
+        st.markdown(f"### {title}")
+        yield
 
 VERSION = "RC 1.7.2111025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
@@ -3149,8 +3155,13 @@ def case_loading_overlay(message: str = "Preparing case data…"):
 def streamlit_modal(title: str, key: str):
     """Provide a Streamlit modal when available with a graceful fallback."""
 
-    if hasattr(st, "modal"):
-        with st.modal(title, key=key):
+    try:
+        modal_callable = getattr(st, "modal")
+    except AttributeError:  # pragma: no cover - executed on older Streamlit versions
+        modal_callable = None
+
+    if callable(modal_callable):
+        with modal_callable(title, key=key):
             yield
         return
 
