@@ -12891,11 +12891,6 @@ def render_case_ui(case_idx: int):
                     render_description_and_internal_notes(case_shell, False)
                     render_phonecall_section(case_shell, False)
                     render_conclusion_and_additional(case_shell, False)
-        render_case_attachments_panel(
-            D,
-            case_idx=case_idx,
-            tab_slug=CASE_TAB_SLUGS["Case"],
-        )
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -13851,11 +13846,6 @@ End with: We look forward to your reply."""
                     height=300,
                     key=generated_email_key,
                 )
-        render_case_attachments_panel(
-            D,
-            case_idx=case_idx,
-            tab_slug=CASE_TAB_SLUGS["Email"],
-        )
     # ================== TRACKING TAB =================
     if tab_tracking:
         with tab_tracking:
@@ -13997,11 +13987,6 @@ End with: We look forward to your reply."""
                 st.session_state.track_case = False
                 st.rerun()
 
-            render_case_attachments_panel(
-                D,
-                case_idx=case_idx,
-                tab_slug=CASE_TAB_SLUGS["Tracking"],
-            )
 
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
@@ -14351,11 +14336,6 @@ End with: We look forward to your reply."""
                 )
                 st.markdown("---")
 
-            render_case_attachments_panel(
-                D,
-                case_idx=case_idx,
-                tab_slug=CASE_TAB_SLUGS["Escalations"],
-            )
 
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
@@ -14402,21 +14382,11 @@ End with: We look forward to your reply."""
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
 
-            render_case_attachments_panel(
-                D,
-                case_idx=case_idx,
-                tab_slug=CASE_TAB_SLUGS["Hardware Issues"],
-            )
 
     if tab_debug:
         with tab_debug:
             st.subheader("Case debug tools")
             render_autohotkey_panel(cat_map, case_idx)
-            render_case_attachments_panel(
-                D,
-                case_idx=case_idx,
-                tab_slug=CASE_TAB_SLUGS["Debug"],
-            )
 
     # ================== REMOTE SESSION TAB =================
     with tab_remote:
@@ -14556,11 +14526,6 @@ End with: We look forward to your reply."""
                     session = sessions[idx]
                     st.session_state[notes_key] = session.notes
 
-        render_case_attachments_panel(
-            D,
-            case_idx=case_idx,
-            tab_slug=CASE_TAB_SLUGS["Remote Session"],
-        )
 
 
     # ================== TABLES TAB =================
@@ -14633,11 +14598,6 @@ End with: We look forward to your reply."""
                 key=tables_tab_key(f"df_{copy_suffix}"),
             )
 
-        render_case_attachments_panel(
-            D,
-            case_idx=case_idx,
-            tab_slug=CASE_TAB_SLUGS["Tables"],
-        )
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
@@ -14717,11 +14677,6 @@ End with: We look forward to your reply."""
             if col_s.button("Save", key=save_tab_key("save_before_loading")):
                 save_case_to_database(D)
 
-        render_case_attachments_panel(
-            D,
-            case_idx=case_idx,
-            tab_slug=CASE_TAB_SLUGS["Save/Load"],
-        )
 
     # ================== BORED TAB =================
     if tab_bored:
@@ -14889,11 +14844,11 @@ End with: We look forward to your reply."""
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
 
-            render_case_attachments_panel(
-                D,
-                case_idx=case_idx,
-                tab_slug=CASE_TAB_SLUGS["I'm bored"],
-            )
+    render_case_attachments_panel(
+        D,
+        case_idx=case_idx,
+        tab_slug="attachments",
+    )
 
     autosave()
 
