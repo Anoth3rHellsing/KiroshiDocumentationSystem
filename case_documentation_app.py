@@ -3508,7 +3508,17 @@ def render_wellness_alert(reminder_state: dict[str, object] | None = None) -> No
         and not reminder_state.get("audio_played")
         and delta_minutes > 0
     ):
-        st.audio(_get_wellness_audio_clip(), format="audio/wav")
+        audio_clip = _get_wellness_audio_clip()
+        if audio_clip:
+            encoded_clip = base64.b64encode(audio_clip).decode("utf-8")
+            st.markdown(
+                f"""
+                <audio autoplay hidden>
+                    <source src="data:audio/wav;base64,{encoded_clip}" type="audio/wav" />
+                </audio>
+                """,
+                unsafe_allow_html=True,
+            )
         _update_wellness_alert_state(audio_played=True)
 
     label = str(
