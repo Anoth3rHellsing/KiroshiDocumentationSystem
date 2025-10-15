@@ -5,4 +5,10 @@ dist/
 *.spec
 !KiroshiDocumentationSystem.spec
 
+node_modules/
+playwright-report/
+test-results/
+tests/e2e/baselines/**/*.png
+streamlit.log
+
 config.json

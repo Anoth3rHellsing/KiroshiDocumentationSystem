@@ -128,24 +128,56 @@ can be inspected. Without this credential GitHub responds with HTTP 404 for
 private repositories, which prevents the update panel from determining the
 latest available release.
 
-## Monitoring and alerting hooks
+## Visual regression testing
 
-Operational teams often forward Kiroshi's log and warning stream to a wider
-observability platform. The application now supports a synthetic log feed via
-`KIROSHI_SYNTHETIC_LOGS`; when set, the incident reporter bypasses filesystem
-reads and injects the provided text directly into the generated PDF. This makes
-it easy to surface representative diagnostics in automated tests or health
-checks where writing to disk is restricted.
+The Streamlit UI is covered by Playwright screenshot tests. Each test run
+pre-configures the dashboard via the URL query string so we can validate the
+base layout, a forced holiday palette, and a darker seasonal palette without
+clicking through the Settings panel.
 
-Autosave failures are surfaced to both the standard logging channel and the
-Streamlit UI. When the optional database export raises an exception, the app
-logs a warning and emits a `st.warning` banner notifying agents that the shared
-backup failed. You can capture these events in your monitoring stack by scraping
-the log output, forwarding Streamlit status updates to a chat webhook, or
-incrementing custom metrics inside the warning handler. The same pattern applies
-to screenshot capture failures: the incident reporter updates `session_state`
-and shows a visible warning that can be mirrored to Slack, Opsgenie, or other
-alerting tools.
+### One-time setup
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install Node dependencies and Playwright browsers
+npm ci
+npx playwright install --with-deps chromium
+```
+
+### Running the suite locally
+
+```bash
+# In a dedicated terminal
+streamlit run case_documentation_app.py --server.headless true --server.port 8501
+
+# In a second terminal
+npm run test:e2e
+```
+
+The tests navigate to `http://127.0.0.1:8501/?enable_holiday_theme=…&theme_preview=…`
+before the dashboard fully renders, ensuring the desired palette is active for the
+first paint. Baseline payloads live under `tests/e2e/baselines/<browser>/*.base64` and
+are materialized into PNGs at runtime. Each snapshot is stored as a newline-wrapped
+Base64 blob so textual diffs stay manageable when only a portion of the image
+changes. A 1% pixel diff ratio is tolerated to account for minor anti-aliasing
+differences.
+
+### Approving new baselines
+
+If a legitimate UI change alters the visuals, regenerate the baselines and re-encode
+them before committing:
+
+```bash
+npm run test:e2e:update
+npm run baselines:encode
+```
+
+After the run completes, review the refreshed `.base64` blobs in `tests/e2e/baselines/`
+and include them in your pull request. CI will automatically upload the HTML report and
+the `test-results/` diff directory whenever a comparison fails so reviewers can inspect
+the regressions.
 
 ## Building the desktop executable
 
