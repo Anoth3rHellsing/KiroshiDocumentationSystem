@@ -6276,7 +6276,7 @@ def load_case_state(idx: int) -> None:
     )
     scratch_value = getattr(cs, "scratch", "")
     st.session_state.scratch = scratch_value
-    st.session_state[widget_key("scratch", idx)] = scratch_value
+    st.session_state[widget_state_key("scratch", idx)] = scratch_value
     global D
     D = st.session_state.case
     for key, value in asdict(D).items():
@@ -6284,7 +6284,7 @@ def load_case_state(idx: int) -> None:
 
 
 def save_case_state(idx: int) -> None:
-    scratch_key = widget_key("scratch", idx)
+    scratch_key = widget_state_key("scratch", idx)
     scratch_value = st.session_state.get(scratch_key, st.session_state.get("scratch", ""))
     existing_session = st.session_state.case_sessions[idx]
     st.session_state.case_sessions[idx] = CaseSession(
@@ -6329,7 +6329,7 @@ def clear_case_state(idx: int) -> None:
         st.session_state.screenshots = []
         st.session_state["attachments_index"] = _default_attachments_index()
         st.session_state.scratch = ""
-        st.session_state[widget_key("scratch", idx)] = ""
+        st.session_state[widget_state_key("scratch", idx)] = ""
         for key in (
             "ai_assist_result",
             "verify_result",
@@ -6398,10 +6398,29 @@ def _register_widget_key(key: str) -> str:
     return key
 
 
+def _compose_widget_key(base: str, idx: int) -> str:
+    """Return the canonical widget key string for a case index."""
+
+    return f"{base}_{idx}"
+
+
 def widget_key(base: str, idx: int) -> str:
     """Return a Streamlit widget key namespaced to a case index."""
-    key = f"{base}_{idx}"
+    key = _compose_widget_key(base, idx)
     return _register_widget_key(key)
+
+
+def widget_state_key(base: str, idx: int) -> str:
+    """Return a widget key string without registering it for collision checks.
+
+    This helper is intended for scenarios where the key is used solely to
+    interact with ``st.session_state`` (e.g., priming default values or reading
+    state) rather than instantiating a new Streamlit widget. Using this
+    function prevents legitimate state access from being treated as a duplicate
+    widget registration during debug sessions.
+    """
+
+    return _compose_widget_key(base, idx)
 
 
 def case_widget_key(
@@ -6735,7 +6754,7 @@ def ensure_tracking_session_defaults(
     """Populate Streamlit state with stored tracking defaults for a case."""
 
     def assign(base_key: str, value) -> None:
-        key = widget_key(base_key, case_idx)
+        key = widget_state_key(base_key, case_idx)
         if force or key not in st.session_state:
             st.session_state[key] = value
 
@@ -6747,7 +6766,7 @@ def ensure_tracking_session_defaults(
     assign("track_priority", normalize_priority(tracking.priority))
     assign("track_service_tag", tracking.service_tag or "")
 
-    expected_key = widget_key("track_expected_arrival", case_idx)
+    expected_key = widget_state_key("track_expected_arrival", case_idx)
     if tracking.expected_arrival_date:
         try:
             expected_value = datetime.fromisoformat(tracking.expected_arrival_date).date()
@@ -6951,7 +6970,7 @@ def _apply_tracked_priority_update(
             target_case_id = None
     if target_case_id and D.case_id == target_case_id:
         D.tracking.priority = normalized_priority
-        st.session_state[widget_key("track_priority", CURRENT_CASE_IDX)] = (
+        st.session_state[widget_state_key("track_priority", CURRENT_CASE_IDX)] = (
             normalized_priority
         )
         if timestamp:
@@ -6999,7 +7018,7 @@ def update_tracked_status(
             target_case_id = None
     if target_case_id and D.case_id == target_case_id:
         D.tracking.status = new_status
-        status_key = widget_key("track_status", CURRENT_CASE_IDX)
+        status_key = widget_state_key("track_status", CURRENT_CASE_IDX)
         st.session_state[status_key] = new_status
         if timestamp:
             touch_case_last_modified(timestamp=timestamp)
@@ -11066,7 +11085,7 @@ def _apply_case_payload(
     st.session_state.log_uploads = log_uploads
     st.session_state.screenshots = screenshots
 
-    scratch_key = widget_key("scratch", CURRENT_CASE_IDX)
+    scratch_key = widget_state_key("scratch", CURRENT_CASE_IDX)
     scratch_default = st.session_state.get("scratch", "")
     if "case_sessions" in st.session_state and CURRENT_CASE_IDX < len(st.session_state.case_sessions):
         existing_session = st.session_state.case_sessions[CURRENT_CASE_IDX]
@@ -11290,7 +11309,7 @@ def touch_case_last_modified(*, timestamp: str | None = None) -> str:
 
 def _update_field(field: str):
     """Update dataclass field from session state and persist."""
-    key = widget_key(field, CURRENT_CASE_IDX)
+    key = widget_state_key(field, CURRENT_CASE_IDX)
     new_value = st.session_state.get(key)
     previous = getattr(D, field)
     if new_value != previous:
@@ -12127,8 +12146,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             if merged_value != D.straumann or merged_value != D.patterson:
                 D.straumann = merged_value
                 D.patterson = merged_value
-                st.session_state[widget_key("straumann", case_idx)] = merged_value
-                st.session_state[widget_key("patterson", case_idx)] = merged_value
+                st.session_state[widget_state_key("straumann", case_idx)] = merged_value
+                st.session_state[widget_state_key("patterson", case_idx)] = merged_value
                 touch_case_last_modified()
                 autosave()
         else:
@@ -12138,11 +12157,11 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 st.session_state.pop(reseller_key)
             if D.patterson != "N/A":
                 D.patterson = "N/A"
-                st.session_state[widget_key("patterson", case_idx)] = "N/A"
+                st.session_state[widget_state_key("patterson", case_idx)] = "N/A"
                 cleared = True
             if D.straumann != "N/A":
                 D.straumann = "N/A"
-                st.session_state[widget_key("straumann", case_idx)] = "N/A"
+                st.session_state[widget_state_key("straumann", case_idx)] = "N/A"
                 cleared = True
             if cleared:
                 touch_case_last_modified()
