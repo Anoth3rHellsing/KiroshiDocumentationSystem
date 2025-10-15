@@ -40,6 +40,121 @@ Coverage is actively tracked and the project receives daily updates.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
 - **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
   sessions.
+- **KiroshiCloud client** – optional lightweight service that keeps a live
+  SQLite database of every Kiroshi device with Fernet-encrypted metadata,
+  per-device allow/block/remove controls, and encrypted credential storage.
+  Administrators sign in with cloud-managed usernames and passwords, open the
+  Streamlit **Kiroshi Cloud Control Tower** to view device names, IPs, mesh
+  status, and activity, then approve or revoke connections with a click. The
+  client ships with Tailscale-driven peer-to-peer helpers so you can traverse
+  NAT without port forwarding, and it reuses the Educate dataset sync tooling
+  so both Kiroshi and KiroshiCloud share the same AI assistance corpus. Deploy
+  it on Arch Linux, Windows 10/11, or Windows Server using the playbooks linked
+  below.
+
+## KiroshiCloud overview
+
+KiroshiCloud turns any workstation or server into a private hub that keeps a
+live inventory of Kiroshi desktops, tablets, or kiosks. Devices call the HTTP
+API to register, post encrypted heartbeats, and sync the Educate dataset. Admins
+manage the fleet through the Streamlit control tower or the bundled CLI, with
+credential rotation, allow/block policies, mesh orchestration, and audit trails
+stored inside an encrypted SQLite database.
+
+### Architecture at a glance
+
+| Component | Role | Notes |
+|-----------|------|-------|
+| `kiroshi_cloud_client.py` | Core API + CLI | Serves HTTPS-ready JSON endpoints, encrypts metadata at rest, and exposes device/credential/knowledge-base commands. |
+| SQLite + Fernet key | Secure storage | Saved under a platform-specific data directory (`%ProgramData%` on Windows, `$XDG_DATA_HOME` or `$HOME/.local/share` on Linux) unless overridden with `KIROSHI_CLOUD_HOME`. |
+| Kiroshi Cloud Control Tower (`kiroshi_cloud_ui.py`) | Visual management console | Streamlit dashboard with live device metrics, per-device actions, mesh status, and Educate sync tools. |
+| Optional mesh helpers | Zero-config networking | Wraps the `tailscale` CLI to bring remote hosts online without opening firewall ports. |
+
+### Installation and operations guide
+
+The steps below summarise the full lifecycle from prerequisites to day-to-day
+operation. Each platform also has a deep-dive guide in `docs/` when you need
+screen-by-screen detail.
+
+1. **Clone or download the repository.** Place it on the host that will run the
+   cloud service (`/opt/KiroshiDocumentationSystem` on Linux, `C:\KiroshiDocumentationSystem`
+   on Windows).
+2. **Create a dedicated Python environment.** Python 3.10+ is recommended. For
+   isolated deployments run `python -m venv .venv` and activate it.
+3. **Install dependencies.** The base requirements already include
+   `cryptography` for Fernet encryption and `requests` for the mesh helpers.
+   Install the UI extras if you plan to launch Streamlit on the same machine:
+
+   ```bash
+   pip install -r requirements.txt
+   pip install streamlit pandas requests cryptography
+   ```
+
+   On Windows run the commands in **PowerShell**; on Arch Linux ensure the
+   system packages `base-devel` and `openssl` are present so wheels build
+   cleanly. Install the standalone [Tailscale client](https://tailscale.com/download)
+   if you plan to use the secure mesh helpers.
+4. **Choose the data directory.** By default KiroshiCloud stores
+   `kiroshi_cloud.sqlite3` and `kiroshi_cloud.key` under:
+
+   * `$XDG_DATA_HOME/kiroshi_cloud` or `$HOME/.local/share/kiroshi_cloud` on
+     Linux
+   * `%ProgramData%\KiroshiCloud` (fallback `%LOCALAPPDATA%\KiroshiCloud`) on
+     Windows workstations and Windows Server
+
+   Override the location by exporting `KIROSHI_CLOUD_HOME=/custom/path` before
+   running the service or by supplying `--database`/`--key` arguments.
+5. **Start the API once to bootstrap credentials.**
+
+   ```bash
+   python kiroshi_cloud_client.py serve --host 0.0.0.0 --port 8050
+   ```
+
+   The server prints the auto-generated `admin` password the first time it
+   creates a database. Copy it and sign into the control tower to rotate the
+   credentials immediately.
+6. **Secure remote access.** Open TCP/8050 on your private network or install
+   Tailscale so the devices can reach the API across NAT without manual port
+   forwarding. The `secure-mesh` CLI group exposes `status`, `connect`, and
+   `disconnect` helpers.
+7. **Launch the control tower.** From any machine with network access run:
+
+   ```bash
+   streamlit run kiroshi_cloud_ui.py --server.port 8501
+   ```
+
+   Point a browser to `http://<server>:8501` and authenticate with the cloud
+   credentials. Use the **Connections** panel to approve/deny devices and the
+   **Educate Sync** drawer to keep the AI corpus aligned between desktop and
+   cloud deployments.
+8. **Automate startup.**
+   * **Arch Linux:** use the systemd unit described in
+     [`docs/kiroshi_cloud_arch_setup.md`](docs/kiroshi_cloud_arch_setup.md) to
+     run the service under a dedicated user with automatic restarts.
+   * **Windows 10/11 & Windows Server:** wrap the `serve` command with
+     [NSSM](https://nssm.cc/) or `sc.exe` as documented in
+     [`docs/kiroshi_cloud_windows_setup.md`](docs/kiroshi_cloud_windows_setup.md).
+9. **Keep Educate in sync.** Use `python kiroshi_cloud_client.py educate export`
+   and `educate import` from the CLI or the control tower's push/pull buttons so
+   the on-premise Streamlit app and the cloud fleet analyse the same dataset.
+10. **Rotate credentials and audit activity.** The **Accounts** tab lets you
+    change usernames/passwords, while the CLI exposes
+    `python kiroshi_cloud_client.py accounts rotate --username <user>` for
+    scripted rotations. All actions are written to the encrypted database.
+
+#### Platform-specific quick starts
+
+* **Arch Linux:** follow the comprehensive walkthrough in
+  [`docs/kiroshi_cloud_arch_setup.md`](docs/kiroshi_cloud_arch_setup.md) for pacman
+  prerequisites, systemd integration, and firewall guidance.
+* **Windows 10/11 & Windows Server:** see
+  [`docs/kiroshi_cloud_windows_setup.md`](docs/kiroshi_cloud_windows_setup.md) for
+  PowerShell setup, service registration via NSSM or `sc.exe`, firewall rules,
+  and troubleshooting tips tailored to Microsoft's platforms.
+
+> **Tip:** use `python kiroshi_cloud_client.py diag summarize` to print the
+> current configuration, platform, database location, and mesh status during
+> support calls.
 
 ## Installation
 
