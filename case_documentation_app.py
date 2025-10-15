@@ -14821,7 +14821,6 @@ End with: We look forward to your reply."""
                     st.session_state[title_key] = session.title
                 new_title = header_cols[0].text_input(
                     "Title",
-                    value=session.title,
                     key=title_key,
                 )
                 move_up_key = remote_tab_key(
@@ -14895,7 +14894,6 @@ End with: We look forward to your reply."""
                     st.session_state[notes_key] = session.notes
                 new_notes = st.text_area(
                     "Session notes",
-                    session.notes,
                     height=800,
                     key=notes_key,
                 )
