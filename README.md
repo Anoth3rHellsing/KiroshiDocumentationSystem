@@ -128,6 +128,55 @@ can be inspected. Without this credential GitHub responds with HTTP 404 for
 private repositories, which prevents the update panel from determining the
 latest available release.
 
+## Visual regression testing
+
+The Streamlit UI is covered by Playwright screenshot tests. Each test run
+pre-configures the dashboard via the URL query string so we can validate the
+base layout, a forced holiday palette, and a darker seasonal palette without
+clicking through the Settings panel.
+
+### One-time setup
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install Node dependencies and Playwright browsers
+npm ci
+npx playwright install --with-deps chromium
+```
+
+### Running the suite locally
+
+```bash
+# In a dedicated terminal
+streamlit run case_documentation_app.py --server.headless true --server.port 8501
+
+# In a second terminal
+npm run test:e2e
+```
+
+The tests navigate to `http://127.0.0.1:8501/?enable_holiday_theme=…&theme_preview=…`
+before the dashboard fully renders, ensuring the desired palette is active for the
+first paint. Baseline payloads live under `tests/e2e/baselines/<browser>/*.base64` and
+are materialized into PNGs at runtime. A 1% pixel diff ratio is tolerated to account
+for minor anti-aliasing differences.
+
+### Approving new baselines
+
+If a legitimate UI change alters the visuals, regenerate the baselines and re-encode
+them before committing:
+
+```bash
+npm run test:e2e:update
+npm run baselines:encode
+```
+
+After the run completes, review the refreshed `.base64` blobs in `tests/e2e/baselines/`
+and include them in your pull request. CI will automatically upload the HTML report and
+the `test-results/` diff directory whenever a comparison fails so reviewers can inspect
+the regressions.
+
 ## Building the desktop executable
 
 The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it

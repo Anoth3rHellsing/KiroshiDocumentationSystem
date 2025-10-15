@@ -366,6 +366,55 @@ def _load_persistent_settings() -> dict[str, object]:
 _persistent_settings_cache: dict[str, object] = PERSISTENT_SETTINGS_DEFAULTS.copy()
 
 
+def _extract_theme_query_overrides() -> dict[str, object]:
+    """Return theme overrides sourced from the current URL query parameters."""
+
+    try:
+        params = st.experimental_get_query_params()
+    except AttributeError:  # pragma: no cover - legacy Streamlit versions
+        try:
+            params_obj = getattr(st, "query_params")
+        except AttributeError:
+            return {}
+        except StreamlitAPIException:
+            return {}
+        else:
+            if hasattr(params_obj, "to_dict"):
+                params = params_obj.to_dict()
+            else:
+                try:
+                    params = dict(params_obj.items())
+                except Exception:  # pragma: no cover - defensive fallback
+                    return {}
+    except StreamlitAPIException:
+        return {}
+
+    overrides: dict[str, object] = {}
+
+    def _pop_str_value(value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            if not value:
+                return None
+            return str(value[-1]).strip()
+        return str(value).strip()
+
+    raw_theme = _pop_str_value(params.get("theme_preview")) if isinstance(params, dict) else None
+    if raw_theme is not None and raw_theme != "":
+        overrides["theme_preview"] = raw_theme
+
+    raw_holiday = _pop_str_value(params.get("enable_holiday_theme")) if isinstance(params, dict) else None
+    if raw_holiday is not None and raw_holiday != "":
+        normalized = raw_holiday.lower()
+        overrides["enable_holiday_theme"] = normalized not in {"0", "false", "off", "no"}
+
+    return overrides
+
+
+_THEME_QUERY_OVERRIDES = _extract_theme_query_overrides()
+
+
 _CASE_REFERENCE_PATTERN = re.compile(
     r"\b(?:case|caso|ticket|inc(?:ident)?|sr|cs|bug|pr|issue)[-_\s]*\d+\b",
     re.IGNORECASE,
@@ -932,6 +981,10 @@ def _derive_analysis_label(
 
     return "General"
 _persistent_settings_cache.update(_load_persistent_settings())
+if "enable_holiday_theme" in _THEME_QUERY_OVERRIDES:
+    _persistent_settings_cache["enable_holiday_theme"] = bool(
+        _THEME_QUERY_OVERRIDES["enable_holiday_theme"]
+    )
 
 
 def _persist_setting(key: str) -> None:
@@ -4964,6 +5017,13 @@ _init_state(
         "story": "",
     },
 )
+
+if "enable_holiday_theme" in _THEME_QUERY_OVERRIDES:
+    st.session_state.enable_holiday_theme = bool(
+        _THEME_QUERY_OVERRIDES["enable_holiday_theme"]
+    )
+if "theme_preview" in _THEME_QUERY_OVERRIDES:
+    st.session_state.theme_preview = str(_THEME_QUERY_OVERRIDES["theme_preview"])
 
 today = datetime.now()
 if today.day == 20:
