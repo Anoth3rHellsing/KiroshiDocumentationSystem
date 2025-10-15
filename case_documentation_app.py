@@ -160,6 +160,10 @@ ERROR_DIALOG_MESSAGES = [
 def _collect_recent_logs(max_bytes: int = 65536) -> str:
     """Return the tail of the application log file for diagnostics."""
 
+    synthetic_payload = os.environ.get("KIROSHI_SYNTHETIC_LOGS")
+    if isinstance(synthetic_payload, str) and synthetic_payload:
+        return synthetic_payload
+
     log_path = Path(LOG_FILE)
     if not log_path.exists():
         return "Log file not found."
@@ -5682,6 +5686,40 @@ def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
     }
 
 
+def _handle_incident_screenshot_result(
+    screenshot: "InMemoryUploadedFile | None", error: str | None
+) -> None:
+    """Persist screenshot capture outcomes and surface user-facing warnings."""
+
+    if screenshot is not None:
+        st.session_state.incident_reporter_screenshot = screenshot
+        st.session_state.incident_reporter_capture_error = None
+        return
+
+    if not error:
+        return
+
+    st.session_state.incident_reporter_capture_error = error
+    try:
+        st.warning(error)
+    except Exception:  # pragma: no cover - Streamlit unavailable during tests
+        logging.warning("Incident reporter warning: %s", error)
+
+
+def _format_incident_context(context: Mapping[str, object] | None) -> str | None:
+    """Return the formatted context banner shown in the incident reporter."""
+
+    if not isinstance(context, Mapping):
+        return None
+
+    section = context.get("section")
+    tab_label = context.get("tab")
+    bits = [str(bit).strip() for bit in (section, tab_label) if str(bit).strip()]
+    if not bits:
+        return None
+    return "**Context:** " + " · ".join(bits)
+
+
 def _set_active_session_attachments_index(
     attachments_index: Mapping[str, Iterable[Mapping[str, object]]] | None,
 ) -> None:
@@ -6297,6 +6335,13 @@ def autosave():
                         case_id_value,
                         exc,
                     )
+                    try:
+                        st.warning(
+                            "Autosave could not write to the shared database. "
+                            "Check connectivity or permissions before relying on the backup."
+                        )
+                    except Exception:  # pragma: no cover - Streamlit unavailable during tests
+                        logging.debug("Streamlit warning unavailable for autosave alert")
 
 
 def sanitize_case_id(case_id: str) -> str:
@@ -8619,11 +8664,9 @@ def show_incident_report_modal() -> None:
         st.caption(
             "We'll bundle recent logs, context, and optional screenshots into a PDF you can download."
         )
-        section = context.get("section")
-        tab_label = context.get("tab")
-        if section or tab_label:
-            context_bits = [str(bit) for bit in (section, tab_label) if bit]
-            st.write("**Context:** " + " · ".join(context_bits))
+        formatted_context = _format_incident_context(context)
+        if formatted_context:
+            st.write(formatted_context)
 
         st.text_area(
             "What happened?",
@@ -8650,18 +8693,15 @@ def show_incident_report_modal() -> None:
                 safe_name = shot_name.strip() or f"incident_{int(time.time())}"
                 safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
                 shot, error = capture_region_screenshot(safe_name)
-                if shot:
-                    st.session_state.incident_reporter_screenshot = shot
-                    st.session_state.incident_reporter_capture_error = None
-                elif error:
-                    st.session_state.incident_reporter_capture_error = error
+                _handle_incident_screenshot_result(shot, error)
             if capture_cols[1].button(
                 "Use full screenshot",
                 key=global_widget_key("incident_full_capture"),
             ):
                 if not PYAUTOGUI_AVAILABLE or pyautogui is None:
-                    st.session_state.incident_reporter_capture_error = (
-                        "Full-screen capture is unavailable in this environment."
+                    _handle_incident_screenshot_result(
+                        None,
+                        "Full-screen capture is unavailable in this environment.",
                     )
                 else:
                     safe_name = shot_name.strip() or f"incident_{int(time.time())}"
@@ -8669,17 +8709,17 @@ def show_incident_report_modal() -> None:
                     try:
                         img = pyautogui.screenshot()  # type: ignore[union-attr]
                     except Exception as exc:  # pragma: no cover - GUI dependent
-                        st.session_state.incident_reporter_capture_error = (
-                            f"Unable to capture screenshot: {exc}"
+                        _handle_incident_screenshot_result(
+                            None, f"Unable to capture screenshot: {exc}"
                         )
                     else:
                         buf = io.BytesIO()
                         img.save(buf, format="PNG")
                         buf.seek(0)
-                        st.session_state.incident_reporter_screenshot = InMemoryUploadedFile(
-                            f"{safe_name}.png", buf.getvalue()
+                        _handle_incident_screenshot_result(
+                            InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()),
+                            None,
                         )
-                        st.session_state.incident_reporter_capture_error = None
             if capture_cols[2].button(
                 "Clear screenshot",
                 key=global_widget_key("incident_clear_capture"),
@@ -11111,7 +11151,8 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         current_value = bool(st.session_state.get(alias_key))
     else:
         current_value = default_value
-    st.session_state.setdefault(alias_key, current_value)
+    if alias_key not in st.session_state:
+        st.session_state[alias_key] = current_value
 
     def _render_toggle(initial: bool) -> bool:
         return container.toggle(label, value=initial, **kwargs)
@@ -11124,7 +11165,8 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         )
         if match:
             missing_key = match.group(1)
-            st.session_state.setdefault(missing_key, current_value)
+            if missing_key not in st.session_state:
+                st.session_state[missing_key] = current_value
             value = _render_toggle(current_value)
         else:
             raise
