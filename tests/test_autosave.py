@@ -126,3 +126,25 @@ def test_tail_log_unreadable_file_reports_error(tmp_path, monkeypatch):
     result = app.tail_log(log_path)
 
     assert result == "Unable to read log file: boom"
+
+
+def test_update_case_remote_sessions_triggers_autosave(fake_state, monkeypatch):
+    state, _ = fake_state
+    case = app.CaseData(case_id="autosave-test")
+    state.case = case
+    app.D = case
+    app.ensure_remote_session_entries(case)
+    sessions = case.remote_sessions
+    sessions[0].notes = "Documented troubleshooting"
+
+    called = False
+
+    def fake_autosave():
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(app, "autosave", fake_autosave)
+
+    app.update_case_remote_sessions(case, sessions)
+
+    assert called is True
