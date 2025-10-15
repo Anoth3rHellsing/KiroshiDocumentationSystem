@@ -128,6 +128,29 @@ can be inspected. Without this credential GitHub responds with HTTP 404 for
 private repositories, which prevents the update panel from determining the
 latest available release.
 
+## Python test suite
+
+The repository includes a comprehensive `pytest` suite that exercises autosave
+behaviour, attachment handling, PDF exports, update checks, and the built-in
+chat tooling. After installing the runtime requirements you only need the test
+runner itself:
+
+```bash
+pip install -r requirements.txt
+pip install pytest
+```
+
+Then execute the full suite from the project root:
+
+```bash
+pytest
+```
+
+The fixtures automatically adjust `PYTHONPATH` for local imports and provide an
+in-repo shim for the [`responses`](https://github.com/getsentry/responses)
+library, so no additional development dependencies are required. Network calls
+are fully mocked, allowing the tests to run without internet connectivity.
+
 ## Visual regression testing
 
 The Streamlit UI is covered by Playwright screenshot tests. Each test run
