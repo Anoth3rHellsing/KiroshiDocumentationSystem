@@ -12510,7 +12510,7 @@ def render_case_ui(case_idx: int):
     global CURRENT_CASE_IDX
     CURRENT_CASE_IDX = case_idx
     # ──────────── TABS ───────────
-    if case_idx == 0:
+    if case_idx <= 1:
         col_escal, col_hw = st.columns(2)
         with col_escal:
             st.session_state.include_escalations = st.toggle(
@@ -15011,8 +15011,10 @@ End with: We look forward to your reply."""
 reminder_state = _refresh_wellness_reminder_state()
 render_wellness_alert(reminder_state)
 
+visible_case_indices = list(range(1, len(st.session_state.case_sessions)))
 case_labels = [
-    cs.case.case_id or f"Case {i+1}" for i, cs in enumerate(st.session_state.case_sessions)
+    st.session_state.case_sessions[idx].case.case_id or f"Case {idx+1}"
+    for idx in visible_case_indices
 ] + ["+ New Case"]
 tab_labels: list[str] = ["Dashboard", "Saved Cases", "Settings"]
 if st.session_state.debug_mode:
@@ -15053,19 +15055,20 @@ if show_kiroshi_chat:
 case_tabs = all_tabs[tab_index:]
 for idx, tab in enumerate(case_tabs):
     with tab:
-        if idx == len(st.session_state.case_sessions):
+        if idx == len(visible_case_indices):
             if st.button("Add Case"):
                 st.session_state.case_sessions.append(CaseSession(case=CaseData()))
                 _sync_case_memory_from_sessions()
                 st.rerun()
         else:
             case_label = case_labels[idx]
+            actual_idx = visible_case_indices[idx]
             render_with_monitor(
                 f"Case: {case_label}",
                 _render_case_tab,
-                idx,
+                actual_idx,
                 tab_label=case_label,
-                case_index=idx,
+                case_index=actual_idx,
             )
 
 show_failure_modal()
