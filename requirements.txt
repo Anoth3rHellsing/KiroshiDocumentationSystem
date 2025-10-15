@@ -9,3 +9,4 @@ pyinstaller
 pyautogui
 pillow
 mss
+cryptography

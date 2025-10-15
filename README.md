@@ -40,6 +40,12 @@ Coverage is actively tracked and the project receives daily updates.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
 - **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
   sessions.
+- **KiroshiCloud client** – optional lightweight service that keeps a live
+  SQLite database of every Kiroshi device with Fernet-encrypted metadata,
+  Basic-authenticated APIs, and built-in allow/block controls. Deploy it on Arch
+  Linux, manage it through the Streamlit **Kiroshi Cloud Control Tower**, and
+  bridge networks securely via the bundled Tailscale helpers documented in
+  [`docs/kiroshi_cloud_arch_setup.md`](docs/kiroshi_cloud_arch_setup.md).
 
 ## Installation
 
