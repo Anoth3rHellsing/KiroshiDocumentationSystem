@@ -128,6 +128,25 @@ can be inspected. Without this credential GitHub responds with HTTP 404 for
 private repositories, which prevents the update panel from determining the
 latest available release.
 
+## Monitoring and alerting hooks
+
+Operational teams often forward Kiroshi's log and warning stream to a wider
+observability platform. The application now supports a synthetic log feed via
+`KIROSHI_SYNTHETIC_LOGS`; when set, the incident reporter bypasses filesystem
+reads and injects the provided text directly into the generated PDF. This makes
+it easy to surface representative diagnostics in automated tests or health
+checks where writing to disk is restricted.
+
+Autosave failures are surfaced to both the standard logging channel and the
+Streamlit UI. When the optional database export raises an exception, the app
+logs a warning and emits a `st.warning` banner notifying agents that the shared
+backup failed. You can capture these events in your monitoring stack by scraping
+the log output, forwarding Streamlit status updates to a chat webhook, or
+incrementing custom metrics inside the warning handler. The same pattern applies
+to screenshot capture failures: the incident reporter updates `session_state`
+and shows a visible warning that can be mirrored to Slack, Opsgenie, or other
+alerting tools.
+
 ## Building the desktop executable
 
 The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it
