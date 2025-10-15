@@ -11091,7 +11091,8 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         current_value = bool(st.session_state.get(alias_key))
     else:
         current_value = default_value
-    st.session_state.setdefault(alias_key, current_value)
+    if alias_key not in st.session_state:
+        st.session_state[alias_key] = current_value
 
     def _render_toggle(initial: bool) -> bool:
         return container.toggle(label, value=initial, **kwargs)
@@ -11104,7 +11105,8 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         )
         if match:
             missing_key = match.group(1)
-            st.session_state.setdefault(missing_key, current_value)
+            if missing_key not in st.session_state:
+                st.session_state[missing_key] = current_value
             value = _render_toggle(current_value)
         else:
             raise
