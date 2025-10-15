@@ -2036,7 +2036,7 @@ def invoke_gpt(
 ) -> str:
     """Wrapper around :func:`query_kiroshi` that logs request lifecycle details."""
 
-    request_id = f"gpt-{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
+    request_id = f"gpt-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
     history_messages = len(history or [])
     prompt_text = prompt or ""
     prompt_preview = _shorten_for_log(prompt_text)
@@ -5229,7 +5229,8 @@ def tail_log(path: str | Path, lines: int = 100) -> str:
 def _utc_now_z() -> str:
     """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
 
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    return now.isoformat().replace("+00:00", "Z")
 
 
 @dataclass
@@ -6904,7 +6905,7 @@ def update_tracked_case_file(
                 data.update(tracking_updates)
         if updates:
             data.update(updates)
-        timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        timestamp = _utc_now_z()
         if isinstance(data, Mapping):
             data["last_modified"] = timestamp
         if isinstance(payload, list):
@@ -7305,7 +7306,7 @@ def render_tracked_cases_dashboard(
     if not filtered_cases:
         st.info("No tracked cases match your search.")
         return
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     sorted_cases = sorted(
         filtered_cases,
         key=lambda item: (
@@ -7370,7 +7371,7 @@ def render_tracked_cases_dashboard(
                         case["last_modified"] = timestamp
                         last_modified_dt = parse_iso_datetime(timestamp)
                         idle_delta = (
-                            datetime.utcnow() - last_modified_dt
+                            datetime.now(timezone.utc).replace(tzinfo=None) - last_modified_dt
                             if last_modified_dt
                             else None
                         )
@@ -9267,7 +9268,7 @@ def render_smart_aid_panel() -> None:
                 "id": uuid.uuid4().hex,
                 "text": note_text,
                 "supervisor": (supervisor_name or "").strip(),
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
                 "areas": areas,
             }
             notes = get_assistant_notes()
@@ -9556,7 +9557,7 @@ def _create_ai_learning_dataset_from_cases(
     ]
 
     dataset: dict[str, object] = {
-        "generated_at": generated_at or datetime.utcnow().isoformat() + "Z",
+        "generated_at": generated_at or _utc_now_z(),
         "case_count": len(cases),
         "cases": cases,
         "keyword_insights": keyword_insights,
@@ -10981,7 +10982,7 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
         summary_parts.append("No se detectaron comportamientos anómalos consistentes.")
 
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": _utc_now_z(),
         "recurring_patterns": pattern_details,
         "bug_cases": bug_cases.to_dict("records"),
         "summary": " ".join(summary_parts),
@@ -11027,7 +11028,7 @@ def save_case_to_database(
         except Exception:
             last_modified_value = ""
     if touch_last_modified or not last_modified_value:
-        last_modified_value = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        last_modified_value = _utc_now_z()
     case.last_modified = str(last_modified_value)
     case_payload = asdict(case)
     case_payload["attachments"] = persist_case_attachments(case.case_id)
@@ -11274,7 +11275,7 @@ def touch_case_last_modified(*, timestamp: str | None = None) -> str:
     """Update the active case ``last_modified`` timestamp and return it."""
 
     if timestamp is None:
-        timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        timestamp = _utc_now_z()
 
     if isinstance(D, CaseData):
         D.last_modified = timestamp
@@ -14885,7 +14886,6 @@ End with: We look forward to your reply."""
                     update_case_remote_sessions(D, sessions)
                     sessions = D.remote_sessions
                     session = sessions[idx]
-                    st.session_state[notes_key] = session.notes
 
 
 
