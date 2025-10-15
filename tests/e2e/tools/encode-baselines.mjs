@@ -19,11 +19,20 @@ async function collectPngFiles(dir, acc = []) {
   return acc;
 }
 
+function wrapBase64(base64, lineLength = 120) {
+  const chunks = [];
+  for (let i = 0; i < base64.length; i += lineLength) {
+    chunks.push(base64.slice(i, i + lineLength));
+  }
+  return chunks.join('\n');
+}
+
 async function encodeFile(pngPath) {
   const base64Path = pngPath.replace(/\.png$/, '.base64');
   const buffer = await fs.readFile(pngPath);
   const base64 = buffer.toString('base64');
-  await fs.writeFile(base64Path, base64);
+  const wrapped = wrapBase64(base64);
+  await fs.writeFile(base64Path, `${wrapped}\n`);
   await fs.unlink(pngPath);
   return { pngPath, base64Path };
 }

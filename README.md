@@ -159,8 +159,10 @@ npm run test:e2e
 The tests navigate to `http://127.0.0.1:8501/?enable_holiday_theme=…&theme_preview=…`
 before the dashboard fully renders, ensuring the desired palette is active for the
 first paint. Baseline payloads live under `tests/e2e/baselines/<browser>/*.base64` and
-are materialized into PNGs at runtime. A 1% pixel diff ratio is tolerated to account
-for minor anti-aliasing differences.
+are materialized into PNGs at runtime. Each snapshot is stored as a newline-wrapped
+Base64 blob so textual diffs stay manageable when only a portion of the image
+changes. A 1% pixel diff ratio is tolerated to account for minor anti-aliasing
+differences.
 
 ### Approving new baselines
 
