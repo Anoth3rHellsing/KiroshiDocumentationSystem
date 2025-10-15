@@ -416,6 +416,15 @@ def save_memory(history):
         pass
 
 
+def _persist_sarcasm_preference():
+    """Write the current sarcasm preference to disk immediately."""
+
+    history = st.session_state.get("kiroshi_chat_history")
+    if not isinstance(history, list):
+        history = []
+    save_memory(history)
+
+
 def load_manual_docs():
     """Load manual reference documents from disk."""
     docs: list[dict] = []
@@ -522,6 +531,7 @@ def main():
         "Sarcasm mode",
         key="kiroshi_sarcasm_mode",
         help="Adds extra dry wit to Kiroshi's replies while keeping them useful.",
+        on_change=_persist_sarcasm_preference,
     )
     sarcasm_enabled = st.session_state.kiroshi_sarcasm_mode
     with st.expander("Personality Construct"):
