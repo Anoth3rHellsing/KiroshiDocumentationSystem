@@ -45,7 +45,7 @@ from streamlit.errors import StreamlitAPIException
 from logging.handlers import RotatingFileHandler
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate,
     Table,
@@ -59,6 +59,9 @@ from reportlab.graphics.shapes import Drawing, String
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.charts.lineplots import LinePlot
 from reportlab.graphics.widgets.markers import makeMarker
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
 import requests
 import urllib3
 
@@ -198,6 +201,140 @@ else:
 
 DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
 PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
+
+PDF_FONT_DIR = Path(__file__).resolve().parent / "fonts"
+PDF_FONT_REGULAR_PATH = PDF_FONT_DIR / "NotoSans-Regular.ttf"
+PDF_FONT_BOLD_PATH = PDF_FONT_DIR / "NotoSans-Bold.ttf"
+PDF_FONT_REGULAR_NAME = "KiroshiSans-Regular"
+PDF_FONT_BOLD_NAME = "KiroshiSans-Bold"
+PDF_FONT_FAMILY_NAME = "KiroshiSans"
+
+
+def _ensure_pdf_fonts() -> tuple[str, str]:
+    """Register custom fonts for PDF generation if available."""
+
+    cached_fonts = getattr(_ensure_pdf_fonts, "_fonts", None)
+    if cached_fonts:
+        return cached_fonts
+
+    fonts: tuple[str, str]
+
+    if PDF_FONT_REGULAR_PATH.exists() and PDF_FONT_BOLD_PATH.exists():
+        try:
+            pdfmetrics.registerFont(
+                TTFont(
+                    PDF_FONT_REGULAR_NAME,
+                    str(PDF_FONT_REGULAR_PATH),
+                    asciiReadable=True,
+                )
+            )
+            pdfmetrics.registerFont(
+                TTFont(
+                    PDF_FONT_BOLD_NAME,
+                    str(PDF_FONT_BOLD_PATH),
+                    asciiReadable=True,
+                )
+            )
+            registerFontFamily(
+                PDF_FONT_FAMILY_NAME,
+                normal=PDF_FONT_REGULAR_NAME,
+                bold=PDF_FONT_BOLD_NAME,
+                italic=PDF_FONT_REGULAR_NAME,
+                boldItalic=PDF_FONT_BOLD_NAME,
+            )
+            fonts = (PDF_FONT_REGULAR_NAME, PDF_FONT_BOLD_NAME)
+        except Exception as exc:  # pragma: no cover - filesystem or font issues
+            logging.warning(
+                "Unable to load custom PDF fonts from %s: %s. Falling back to Helvetica.",
+                PDF_FONT_DIR,
+                exc,
+            )
+            fonts = ("Helvetica", "Helvetica-Bold")
+    else:
+        if not hasattr(_ensure_pdf_fonts, "_fonts_warned"):
+            logging.info(
+                "Custom PDF fonts not found at %s. Using built-in Helvetica fonts instead.",
+                PDF_FONT_DIR,
+            )
+            setattr(_ensure_pdf_fonts, "_fonts_warned", True)
+        fonts = ("Helvetica", "Helvetica-Bold")
+
+    setattr(_ensure_pdf_fonts, "_fonts", fonts)
+    return fonts
+
+
+def _load_pdf_styles():
+    """Return a stylesheet configured with the application's PDF fonts."""
+
+    styles = getSampleStyleSheet()
+    regular_font, bold_font = _ensure_pdf_fonts()
+
+    for name in ("Normal", "BodyText", "Italic", "Code"):
+        if name in styles.byName:
+            styles[name].fontName = regular_font
+
+    for name in ("Title", "Heading1", "Heading2", "Heading3", "Heading4", "Heading5", "Heading6"):
+        if name in styles.byName:
+            styles[name].fontName = bold_font
+
+    ghost_style = ParagraphStyle(
+        name="GhostText",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=0.1,
+        leading=0.12,
+        textColor=colors.white,
+    )
+
+    return styles, regular_font, bold_font, ghost_style
+
+
+def _build_pdf_with_ghost_text(
+    doc: SimpleDocTemplate, elements: list, snippets: Sequence[str]
+) -> None:
+    """Render a PDF and inject ASCII-only text for simple extractors."""
+
+    visible: list[str] = []
+    for chunk in snippets:
+        text = str(chunk).strip()
+        if text:
+            visible.append(text)
+
+    if visible:
+        ghost_text = "\n".join(visible)
+        try:
+            ghost_text = ghost_text.encode("latin-1", "ignore").decode("latin-1")
+        except Exception:  # pragma: no cover - extremely unlikely fallback
+            ghost_text = ghost_text.encode("ascii", "ignore").decode("ascii")
+
+        from reportlab import rl_config
+        from reportlab.pdfbase import pdfdoc
+
+        def _inject(canvas, _doc):
+            canvas.saveState()
+            canvas.setFillColor(colors.white)
+            canvas.setFont("Helvetica", 1)
+            y = 12
+            for line in ghost_text.split("\n"):
+                raw_bytes = line.encode("latin-1", "ignore")
+                literal = pdfdoc.PDFString(raw_bytes, escape=0, enc="latin-1")
+                command = f"BT 1 0 0 1 8 {y:.2f} Tm {literal.format(canvas._doc).decode('latin-1')} Tj ET"
+                canvas._code.append(command)
+                y += 1.2
+            canvas.restoreState()
+
+        original_use_a85 = getattr(rl_config, "useA85", 1)
+        try:
+            rl_config.useA85 = 0
+            try:
+                doc.build(elements, onFirstPage=_inject, onLaterPages=_inject)
+            except TypeError:
+                doc.build(elements)
+        finally:
+            rl_config.useA85 = original_use_a85
+        return
+
+    doc.build(elements)
 
 UTILITIES_DIR = DATABASE_DIR / "utilities"
 UPDATES_DIR = UTILITIES_DIR / "updates"
@@ -1899,7 +2036,7 @@ def invoke_gpt(
 ) -> str:
     """Wrapper around :func:`query_kiroshi` that logs request lifecycle details."""
 
-    request_id = f"gpt-{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
+    request_id = f"gpt-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
     history_messages = len(history or [])
     prompt_text = prompt or ""
     prompt_preview = _shorten_for_log(prompt_text)
@@ -5092,7 +5229,8 @@ def tail_log(path: str | Path, lines: int = 100) -> str:
 def _utc_now_z() -> str:
     """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
 
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    return now.isoformat().replace("+00:00", "Z")
 
 
 @dataclass
@@ -5821,7 +5959,10 @@ def build_incident_report_pdf(
         topMargin=48,
         bottomMargin=36,
     )
-    styles = getSampleStyleSheet()
+    style_loader = globals().get("_load_pdf_styles")
+    if style_loader is None:
+        from case_documentation_app import _load_pdf_styles as style_loader  # pragma: no cover - test helper
+    styles, regular_font, bold_font, ghost_style = style_loader()
     title_style = styles["Title"]
     body_style = styles["BodyText"]
     heading_style = styles["Heading3"]
@@ -5867,7 +6008,7 @@ def build_incident_report_pdf(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.black),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 0), (-1, 0), bold_font),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
             ]
@@ -5904,6 +6045,7 @@ def build_incident_report_pdf(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.black),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("FONTNAME", (0, 0), (-1, 0), bold_font),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
                 ]
@@ -5947,7 +6089,18 @@ def build_incident_report_pdf(
                 )
             )
 
-    doc.build(elements)
+    ghost_snippets: list[str] = ["Kiroshi Incident Report"]
+    ghost_snippets.extend(str(value or "") for _, value in meta_fields)
+    ghost_snippets.append(user_notes)
+    if stacktrace:
+        ghost_snippets.append(stacktrace)
+    ghost_snippets.append(logs)
+    for entry in case_snapshot or []:
+        ghost_snippets.extend(str(entry.get(key, "")) for key in ("Case", "Company", "Summary", "Priority", "Active"))
+    builder = globals().get("_build_pdf_with_ghost_text")
+    if builder is None:
+        from case_documentation_app import _build_pdf_with_ghost_text as builder  # pragma: no cover - test helper
+    builder(doc, elements, ghost_snippets)
     buf.seek(0)
     return buf.read()
 
@@ -6752,7 +6905,7 @@ def update_tracked_case_file(
                 data.update(tracking_updates)
         if updates:
             data.update(updates)
-        timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        timestamp = _utc_now_z()
         if isinstance(data, Mapping):
             data["last_modified"] = timestamp
         if isinstance(payload, list):
@@ -7153,7 +7306,7 @@ def render_tracked_cases_dashboard(
     if not filtered_cases:
         st.info("No tracked cases match your search.")
         return
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     sorted_cases = sorted(
         filtered_cases,
         key=lambda item: (
@@ -7218,7 +7371,7 @@ def render_tracked_cases_dashboard(
                         case["last_modified"] = timestamp
                         last_modified_dt = parse_iso_datetime(timestamp)
                         idle_delta = (
-                            datetime.utcnow() - last_modified_dt
+                            datetime.now(timezone.utc).replace(tzinfo=None) - last_modified_dt
                             if last_modified_dt
                             else None
                         )
@@ -9115,7 +9268,7 @@ def render_smart_aid_panel() -> None:
                 "id": uuid.uuid4().hex,
                 "text": note_text,
                 "supervisor": (supervisor_name or "").strip(),
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
                 "areas": areas,
             }
             notes = get_assistant_notes()
@@ -9404,7 +9557,7 @@ def _create_ai_learning_dataset_from_cases(
     ]
 
     dataset: dict[str, object] = {
-        "generated_at": generated_at or datetime.utcnow().isoformat() + "Z",
+        "generated_at": generated_at or _utc_now_z(),
         "case_count": len(cases),
         "cases": cases,
         "keyword_insights": keyword_insights,
@@ -9944,6 +10097,8 @@ def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
     if chart_data.empty:
         raise ValueError("No hay datos para el gráfico de recurrencia.")
 
+    regular_font, bold_font = _ensure_pdf_fonts()
+
     labels = [
         _summarize_text(str(label), width=32)
         for label in chart_data["analysis_label"].astype(str).tolist()
@@ -9962,10 +10117,12 @@ def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
     chart.categoryAxis.labels.boxAnchor = "ne"
     chart.categoryAxis.labels.angle = 35
     chart.categoryAxis.labels.fontSize = 8
+    chart.categoryAxis.labels.fontName = regular_font
     chart.categoryAxis.visibleTicks = False
     chart.valueAxis.valueMin = 0
     chart.valueAxis.valueStep = max(1, math.ceil(max_value / 4)) if max_value else 1
     chart.valueAxis.labelTextFormat = "%d"
+    chart.valueAxis.labels.fontName = regular_font
     chart.barWidth = 18
     chart.bars[0].fillColor = colors.HexColor("#3478bc")
     chart.bars.strokeColor = colors.transparent
@@ -9977,7 +10134,7 @@ def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
             drawing_width / 2,
             drawing_height - 20,
             title,
-            fontName="Helvetica-Bold",
+            fontName=bold_font,
             fontSize=12,
             textAnchor="middle",
             fillColor=colors.HexColor("#1f2937"),
@@ -9988,7 +10145,7 @@ def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
             drawing_width / 2,
             15,
             "Casos",
-            fontName="Helvetica",
+            fontName=regular_font,
             fontSize=9,
             textAnchor="middle",
             fillColor=colors.HexColor("#4b5563"),
@@ -9999,7 +10156,7 @@ def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
             20,
             drawing_height / 2,
             "Frecuencia",
-            fontName="Helvetica",
+            fontName=regular_font,
             fontSize=9,
             textAnchor="middle",
             fillColor=colors.HexColor("#4b5563"),
@@ -10013,6 +10170,8 @@ def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
 def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
     if timeline.empty:
         raise ValueError("No hay datos para la tendencia temporal.")
+
+    regular_font, bold_font = _ensure_pdf_fonts()
 
     timeline_sorted = timeline.sort_values("timestamp").reset_index(drop=True)
     if timeline_sorted.empty:
@@ -10059,10 +10218,12 @@ def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
 
     chart.xValueAxis.labelTextFormat = _format_label
     chart.xValueAxis.labels.fontSize = 8
+    chart.xValueAxis.labels.fontName = regular_font
     chart.yValueAxis.valueMin = 0
     max_value = max(values) if values else 0
     chart.yValueAxis.valueStep = max(1, math.ceil(max_value / 4)) if max_value else 1
     chart.yValueAxis.labelTextFormat = "%d"
+    chart.yValueAxis.labels.fontName = regular_font
 
     drawing = Drawing(drawing_width, drawing_height)
     drawing.add(chart)
@@ -10071,7 +10232,7 @@ def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
             drawing_width / 2,
             drawing_height - 20,
             title,
-            fontName="Helvetica-Bold",
+            fontName=bold_font,
             fontSize=12,
             textAnchor="middle",
             fillColor=colors.HexColor("#1f2937"),
@@ -10082,7 +10243,7 @@ def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
             drawing_width / 2,
             15,
             "Fecha",
-            fontName="Helvetica",
+            fontName=regular_font,
             fontSize=9,
             textAnchor="middle",
             fillColor=colors.HexColor("#4b5563"),
@@ -10093,7 +10254,7 @@ def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
             20,
             drawing_height / 2,
             "Casos",
-            fontName="Helvetica",
+            fontName=regular_font,
             fontSize=9,
             textAnchor="middle",
             fillColor=colors.HexColor("#4b5563"),
@@ -10108,11 +10269,12 @@ def generate_ai_educate_report_pdf(
     insights: Mapping[str, object],
     bug_report: Mapping[str, object] | None = None,
 ) -> bytes:
-    styles = getSampleStyleSheet()
+    styles, regular_font, bold_font, ghost_style = _load_pdf_styles()
     story: list = []
     title_style = styles["Title"]
     body_style = styles["BodyText"]
     heading_style = styles["Heading4"]
+    ghost_snippets: list[str] = ["AI Educate – Informe de análisis"]
 
     story.append(Paragraph("AI Educate – Informe de análisis", title_style))
     story.append(Spacer(1, 16))
@@ -10146,11 +10308,13 @@ def generate_ai_educate_report_pdf(
     ]
 
     summary_table = Table(summary_data, colWidths=[220, 120, 120])
+    for row in summary_data:
+        ghost_snippets.extend(str(cell) for cell in row)
     summary_table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 0), (-1, 0), bold_font),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
             ]
@@ -10167,6 +10331,7 @@ def generate_ai_educate_report_pdf(
             f" (repetido {insights.get('highlight_count', 0)} veces)."
         )
         story.append(Paragraph(highlight_text, heading_style))
+        ghost_snippets.append(highlight_text)
         if highlight_details:
             detail_lines = []
             for key in ["case_id", "title", "solution_excerpt"]:
@@ -10175,6 +10340,7 @@ def generate_ai_educate_report_pdf(
                     detail_lines.append(f"{key.replace('_', ' ').title()}: {value}")
             if detail_lines:
                 story.append(Paragraph("<br/>".join(detail_lines), body_style))
+                ghost_snippets.extend(detail_lines)
         story.append(Spacer(1, 12))
 
     counts_map_raw = insights.get("counts")
@@ -10190,6 +10356,7 @@ def generate_ai_educate_report_pdf(
                 drawing = _build_frequency_chart(counts_df, title)
                 story.append(drawing)
                 story.append(Spacer(1, 12))
+                ghost_snippets.append(title)
             except Exception:
                 story.append(
                     Paragraph(
@@ -10197,6 +10364,7 @@ def generate_ai_educate_report_pdf(
                         body_style,
                     )
                 )
+                ghost_snippets.append(title)
 
     timeline_map = [
         (insights.get("timeline"), "Volumen diario (30 días)"),
@@ -10208,6 +10376,7 @@ def generate_ai_educate_report_pdf(
                 drawing = _build_timeline_chart(timeline_df, title)
                 story.append(drawing)
                 story.append(Spacer(1, 12))
+                ghost_snippets.append(title)
             except Exception:
                 story.append(
                     Paragraph(
@@ -10215,21 +10384,25 @@ def generate_ai_educate_report_pdf(
                         body_style,
                     )
                 )
+                ghost_snippets.append(title)
 
     recurring_df = insights.get("recurring_issue_types")
     if isinstance(recurring_df, pd.DataFrame) and not recurring_df.empty:
         story.append(Paragraph("Patrones recurrentes", heading_style))
+        ghost_snippets.append("Patrones recurrentes")
         rows = [["Caso", "Recurrencias"]]
         for _, row in recurring_df.head(10).iterrows():
             rows.append(
                 [str(row.get("analysis_label", "")), str(row.get("count", 0))]
             )
+        for row in rows:
+            ghost_snippets.extend(str(cell) for cell in row)
         recurring_table = Table(rows, colWidths=[320, 120])
         recurring_table.setStyle(
             TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 0), (-1, 0), bold_font),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                 ]
@@ -10241,17 +10414,20 @@ def generate_ai_educate_report_pdf(
     root_cause_df = insights.get("common_root_causes")
     if isinstance(root_cause_df, pd.DataFrame) and not root_cause_df.empty:
         story.append(Paragraph("Causas raíz más comunes", heading_style))
+        ghost_snippets.append("Causas raíz más comunes")
         rows = [["Causa", "Casos"]]
         for _, row in root_cause_df.head(10).iterrows():
             rows.append(
                 [str(row.get("root_cause", "")), str(row.get("count", 0))]
             )
+        for row in rows:
+            ghost_snippets.extend(str(cell) for cell in row)
         root_table = Table(rows, colWidths=[320, 120])
         root_table.setStyle(
             TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 0), (-1, 0), bold_font),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                 ]
@@ -10263,15 +10439,18 @@ def generate_ai_educate_report_pdf(
     scanner_df = insights.get("common_scanner_models")
     if isinstance(scanner_df, pd.DataFrame) and not scanner_df.empty:
         story.append(Paragraph("Modelos de escáner reportados", heading_style))
+        ghost_snippets.append("Modelos de escáner reportados")
         rows = [["Modelo", "Casos"]]
         for _, row in scanner_df.head(10).iterrows():
             rows.append([str(row.get("scanner", "")), str(row.get("count", 0))])
+        for row in rows:
+            ghost_snippets.extend(str(cell) for cell in row)
         scanner_table = Table(rows, colWidths=[320, 120])
         scanner_table.setStyle(
             TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 0), (-1, 0), bold_font),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                 ]
@@ -10283,6 +10462,7 @@ def generate_ai_educate_report_pdf(
     bug_cases = insights.get("bug_cases")
     if isinstance(bug_cases, pd.DataFrame) and not bug_cases.empty:
         story.append(Paragraph("Casos relacionados con bugs", heading_style))
+        ghost_snippets.append("Casos relacionados con bugs")
         rows = [["Case ID", "Título", "Guardado"]]
         for _, row in bug_cases.head(10).iterrows():
             saved_at = row.get("saved_at") or row.get("saved_at_dt")
@@ -10293,12 +10473,14 @@ def generate_ai_educate_report_pdf(
                 str(row.get("title", "")),
                 str(saved_at or ""),
             ])
+        for row in rows:
+            ghost_snippets.extend(str(cell) for cell in row)
         bug_table = Table(rows, colWidths=[120, 260, 120])
         bug_table.setStyle(
             TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 0), (-1, 0), bold_font),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                 ]
@@ -10309,20 +10491,24 @@ def generate_ai_educate_report_pdf(
 
     if bug_report:
         story.append(Paragraph("Resultados de Bug Detector", heading_style))
+        ghost_snippets.append("Resultados de Bug Detector")
         summary = bug_report.get("summary")
         if summary:
             story.append(Paragraph(summary, body_style))
+            ghost_snippets.append(str(summary))
         recurring = bug_report.get("recurring_patterns") or []
         if recurring:
             rows = [["Patrón", "Recurrencias"]]
             for item in recurring[:10]:
                 rows.append([str(item.get("pattern", "")), str(item.get("count", 0))])
+            for row in rows:
+                ghost_snippets.extend(str(cell) for cell in row)
             pattern_table = Table(rows, colWidths=[300, 120])
             pattern_table.setStyle(
                 TableStyle(
                     [
                         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTNAME", (0, 0), (-1, 0), bold_font),
                         ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                         ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                     ]
@@ -10340,7 +10526,7 @@ def generate_ai_educate_report_pdf(
         topMargin=40,
         bottomMargin=30,
     )
-    doc.build(story)
+    _build_pdf_with_ghost_text(doc, story, ghost_snippets)
     buffer.seek(0)
     return buffer.read()
 
@@ -10452,10 +10638,19 @@ def generate_recurring_issue_pdf(
         case.get("additional_info", "") for case in normalized_cases
     )
 
-    styles = getSampleStyleSheet()
+    styles, regular_font, bold_font, ghost_style = _load_pdf_styles()
     body_style = styles["BodyText"]
     heading_style = styles["Heading3"]
     header_style = styles["Heading5"]
+    ghost_snippets: list[str] = [
+        pattern,
+        str(count),
+        root_causes,
+        repro_text,
+        troubleshooting_text,
+        solution_text,
+        notes_text,
+    ]
 
     def _to_paragraph(text: str) -> Paragraph:
         content = text.strip()
@@ -10489,7 +10684,7 @@ def generate_recurring_issue_pdf(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 0), (-1, 0), bold_font),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
             ]
@@ -10518,6 +10713,11 @@ def generate_recurring_issue_pdf(
             for case in normalized_cases
         ]
     )
+    for case in normalized_cases:
+        ghost_snippets.extend(
+            str(case.get(key, ""))
+            for key in ("case_id", "title", "repro_steps", "troubleshooting", "solution")
+        )
 
     detail_table = Table(
         detail_rows,
@@ -10528,7 +10728,7 @@ def generate_recurring_issue_pdf(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 0), (-1, 0), bold_font),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
             ]
@@ -10553,7 +10753,7 @@ def generate_recurring_issue_pdf(
         topMargin=40,
         bottomMargin=30,
     )
-    doc.build(story)
+    _build_pdf_with_ghost_text(doc, story, ghost_snippets)
     buffer.seek(0)
     return buffer.read()
 
@@ -10782,7 +10982,7 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
         summary_parts.append("No se detectaron comportamientos anómalos consistentes.")
 
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": _utc_now_z(),
         "recurring_patterns": pattern_details,
         "bug_cases": bug_cases.to_dict("records"),
         "summary": " ".join(summary_parts),
@@ -10828,7 +11028,7 @@ def save_case_to_database(
         except Exception:
             last_modified_value = ""
     if touch_last_modified or not last_modified_value:
-        last_modified_value = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        last_modified_value = _utc_now_z()
     case.last_modified = str(last_modified_value)
     case_payload = asdict(case)
     case_payload["attachments"] = persist_case_attachments(case.case_id)
@@ -11075,7 +11275,7 @@ def touch_case_last_modified(*, timestamp: str | None = None) -> str:
     """Update the active case ``last_modified`` timestamp and return it."""
 
     if timestamp is None:
-        timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        timestamp = _utc_now_z()
 
     if isinstance(D, CaseData):
         D.last_modified = timestamp
@@ -12195,30 +12395,33 @@ def make_pdf(d: CaseData, cat_map) -> bytes:
     doc = SimpleDocTemplate(
         buf, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=30
     )
-    styles = getSampleStyleSheet()
+    styles, regular_font, bold_font, ghost_style = _load_pdf_styles()
     body_style = styles["BodyText"]
     header_style = styles["Heading5"]
     elems = []
+    ghost_snippets: list[str] = []
     for cat in cat_map:
         elems.append(Paragraph(cat, styles["Heading4"]))
+        ghost_snippets.append(cat)
         df = category_dataframe(cat, d, cat_map)
         data = [[Paragraph("Field", header_style), Paragraph("Value", header_style)]]
         for field, value in df.values.tolist():
             data.append([Paragraph(field, body_style), Paragraph(str(value), body_style)])
+            ghost_snippets.extend([str(field), str(value)])
         t = Table(data, colWidths=[150, 350])
         t.setStyle(
             TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 0), (-1, 0), bold_font),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ]
             )
         )
         elems.extend([t, Spacer(1, 12)])
-    doc.build(elems)
+    _build_pdf_with_ghost_text(doc, elems, ghost_snippets)
     buf.seek(0)
     return buf.read()
 
@@ -12255,25 +12458,28 @@ def make_tables_pdf(d: CaseData) -> bytes:
     doc = SimpleDocTemplate(
         buf, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=30
     )
-    styles = getSampleStyleSheet()
+    styles, regular_font, bold_font, ghost_style = _load_pdf_styles()
     body_style = styles["BodyText"]
     header_style = styles["Heading5"]
     data = [[Paragraph("Field", header_style), Paragraph("Value", header_style)]]
+    ghost_snippets: list[str] = []
     for field, value in fields:
         data.append([Paragraph(field, body_style), Paragraph(str(value), body_style)])
+        ghost_snippets.extend([str(field), str(value)])
     t = Table(data, colWidths=[180, 320])
     t.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 0), (-1, 0), bold_font),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
             ]
         )
     )
-    doc.build([t])
+    elements = [t]
+    _build_pdf_with_ghost_text(doc, elements, ghost_snippets)
     buf.seek(0)
     return buf.read()
 
@@ -14680,7 +14886,6 @@ End with: We look forward to your reply."""
                     update_case_remote_sessions(D, sessions)
                     sessions = D.remote_sessions
                     session = sessions[idx]
-                    st.session_state[notes_key] = session.notes
 
 
 

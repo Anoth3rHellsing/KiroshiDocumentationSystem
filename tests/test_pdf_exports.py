@@ -5,7 +5,7 @@ import base64
 import io
 import sys
 import types
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import importlib.util
 
@@ -385,7 +385,7 @@ def test_incident_report_pdf_includes_metadata(app_module):
 
 
 def test_ai_educate_pdf_handles_rich_and_sparse_inputs(app_module):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     timeline = pd.DataFrame(
         {
             "timestamp": [now - timedelta(days=i) for i in range(3)],
