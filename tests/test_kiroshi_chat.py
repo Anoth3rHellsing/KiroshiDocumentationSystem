@@ -136,6 +136,19 @@ def test_save_memory_round_trip(fake_streamlit_state):
     assert fake_streamlit_state["kiroshi_sarcasm_mode"] is True
 
 
+def test_persist_sarcasm_preference_writes_to_disk(fake_streamlit_state):
+    fake_streamlit_state["system_prompt"] = "Prompt {personality_mode}"
+    fake_streamlit_state["personality_mode"] = "utility"
+    fake_streamlit_state["kiroshi_sarcasm_mode"] = True
+    fake_streamlit_state["assistant_notes"] = []
+    fake_streamlit_state["kiroshi_chat_history"] = []
+
+    kiroshi_chat._persist_sarcasm_preference()
+
+    stored = json.loads(Path(kiroshi_chat.MEMORY_FILE).read_text(encoding="utf-8"))
+    assert stored["kiroshi_sarcasm_mode"] is True
+
+
 def test_load_manual_docs_and_search(tmp_path: Path, fake_streamlit_state):
     manual_payload = [
         {"title": "Alpha", "content": "Manual guidance"},
