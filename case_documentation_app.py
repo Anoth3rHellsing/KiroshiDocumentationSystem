@@ -5591,6 +5591,31 @@ def update_case_remote_sessions(
     autosave()
 
 
+def ensure_single_remote_session(case: CaseData) -> RemoteSessionEntry:
+    """Return the primary remote session entry, collapsing legacy multiples."""
+
+    ensure_remote_session_entries(case)
+    sessions = list(case.remote_sessions)
+    if not sessions:
+        ensure_remote_session_entries(case)
+        sessions = list(case.remote_sessions)
+
+    if len(sessions) == 1:
+        return sessions[0]
+
+    timeline = format_remote_sessions_summary(sessions, include_timestamps=True)
+    primary = sessions[0]
+    merged = RemoteSessionEntry(
+        session_id=primary.session_id or uuid.uuid4().hex,
+        title=(primary.title or "Session 1"),
+        notes=timeline,
+        created_at=(primary.created_at or _utc_now_z()),
+        updated_at=_utc_now_z(),
+    )
+    update_case_remote_sessions(case, [merged])
+    return case.remote_sessions[0]
+
+
 @dataclass
 class InMemoryUploadedFile:
     """Simple file-like container for generated screenshots."""
@@ -14770,139 +14795,327 @@ End with: We look forward to your reply."""
             render_autohotkey_panel(cat_map, case_idx)
 
     # ================== REMOTE SESSION TAB =================
+    REMOTE_DESKTOP_STYLE = """
+    <style>
+    .remote-hub-card {
+        background: linear-gradient(135deg, rgba(29,41,81,0.92), rgba(58,96,115,0.88));
+        border-radius: 16px;
+        padding: 1.5rem;
+        color: #f7fbff;
+        box-shadow: 0 18px 45px rgba(23, 37, 61, 0.25);
+        margin-bottom: 1.5rem;
+    }
+    .remote-hub-card__header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+    .remote-hub-card__title {
+        font-size: 1.45rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+    .remote-hub-card__badge {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        background: rgba(255, 255, 255, 0.18);
+        padding: 0.25rem 0.75rem;
+        border-radius: 999px;
+    }
+    .remote-hub-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 0.9rem;
+        margin-top: 1.25rem;
+    }
+    .remote-hub-grid__item {
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+        backdrop-filter: blur(5px);
+    }
+    .remote-hub-grid__label {
+        font-size: 0.75rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.75;
+        margin-bottom: 0.35rem;
+    }
+    .remote-hub-grid__value {
+        font-size: 1rem;
+        font-weight: 600;
+        word-break: break-word;
+    }
+    .remote-hub-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        margin-top: 1.25rem;
+    }
+    .remote-hub-actions button {
+        padding: 0.6rem 1.1rem;
+        border-radius: 999px;
+        border: none;
+        background: rgba(255, 255, 255, 0.18);
+        color: #f7fbff;
+        cursor: pointer;
+        font-weight: 600;
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
+    .remote-hub-actions button:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.28);
+    }
+    .remote-hub-note-preview {
+        font-size: 0.9rem;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.85);
+        margin-top: 1rem;
+        border-left: 3px solid rgba(255, 255, 255, 0.25);
+        padding-left: 0.75rem;
+        max-height: 180px;
+        overflow-y: auto;
+    }
+    .remote-hub-history {
+        background: rgba(18, 30, 45, 0.75);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        color: #d6e4f5;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .remote-hub-history h4 {
+        margin-top: 0;
+    }
+    </style>
+    """
     with tab_remote:
         remote_tab_key = partial(
             case_widget_key, CASE_TAB_SLUGS["Remote Session"], case_idx=case_idx
         )
-        st.subheader("Remote sessions")
-        ensure_remote_session_entries(D)
-        sessions = D.remote_sessions
+        remote_style_flag = "remote_style_injected"
+        if not st.session_state.get(remote_style_flag, False):
+            st.markdown(REMOTE_DESKTOP_STYLE, unsafe_allow_html=True)
+            st.session_state[remote_style_flag] = True
 
-        action_cols = st.columns([1, 5])
-        with action_cols[0]:
-            if st.button(
-                "Add session",
-                key=remote_tab_key("remote_session_add"),
-            ):
-                new_session = RemoteSessionEntry(
-                    title=f"Session {len(sessions) + 1}",
-                    notes="",
-                )
-                sessions.append(new_session)
-                update_case_remote_sessions(D, sessions)
-                st.session_state[
-                    remote_tab_key(
-                        f"remote_session_title_{new_session.session_id}"
-                    )
-                ] = new_session.title
-                st.session_state[
-                    remote_tab_key(
-                        f"remote_session_notes_{new_session.session_id}"
-                    )
-                ] = new_session.notes
-                st.rerun()
-        with action_cols[1]:
-            st.caption(
-                "Document each remote control session separately. Rename, reorder, or "
-                "remove panels as needed."
+        st.subheader("Remote desktop control center")
+        st.caption(
+            "A single timeline for every remote engagement. Legacy multi-session "
+            "notes are merged automatically to keep the JSON payload compatible."
+        )
+
+        primary_session = ensure_single_remote_session(D)
+
+        title_key = remote_tab_key("single_session_title")
+        if title_key not in st.session_state:
+            st.session_state[title_key] = primary_session.title
+
+        notes_key = remote_tab_key("single_session_notes")
+        if notes_key not in st.session_state:
+            st.session_state[notes_key] = primary_session.notes
+
+        incoming_title = st.session_state.get(title_key, primary_session.title)
+        incoming_notes = st.session_state.get(notes_key, primary_session.notes)
+
+        if incoming_title != primary_session.title or incoming_notes != primary_session.notes:
+            updated_entry = RemoteSessionEntry(
+                session_id=primary_session.session_id,
+                title=incoming_title,
+                notes=incoming_notes,
+                created_at=primary_session.created_at,
+                updated_at=_utc_now_z(),
+            )
+            update_case_remote_sessions(D, [updated_entry])
+            primary_session = D.remote_sessions[0]
+            st.session_state[title_key] = primary_session.title
+            st.session_state[notes_key] = primary_session.notes
+
+        history_summary = (D.remote_steps or "")
+
+        uploads_count = len(st.session_state.get("uploads", []))
+        logs_count = len(st.session_state.get("log_uploads", []))
+        screenshots_count = len(st.session_state.get("screenshots", []))
+
+        grid_rows = [
+            ("TeamViewer ID", (D.teamviewer_id or "").strip() or "—"),
+            ("TeamViewer password", (D.teamviewer_password or "").strip() or "—"),
+            ("Remote contact", (D.caller_name or "").strip() or "—"),
+            ("Contact phone", (D.phone_number or "").strip() or "—"),
+            ("Contact email", (D.email or "").strip() or "—"),
+            ("Started", (primary_session.created_at or "").strip() or "—"),
+            ("Last update", (primary_session.updated_at or "").strip() or "—"),
+            (
+                "Uploads queued",
+                f"{uploads_count} file{'s' if uploads_count != 1 else ''}",
+            ),
+            (
+                "Logs queued",
+                f"{logs_count} file{'s' if logs_count != 1 else ''}",
+            ),
+            (
+                "Screenshots queued",
+                f"{screenshots_count} capture{'s' if screenshots_count != 1 else ''}",
+            ),
+        ]
+        grid_html = "".join(
+            f"<div class='remote-hub-grid__item'>"
+            f"<div class='remote-hub-grid__label'>{escape(str(label))}</div>"
+            f"<div class='remote-hub-grid__value'>{escape(str(value))}</div>"
+            "</div>"
+            for label, value in grid_rows
+        )
+
+        note_preview = (primary_session.notes or "").strip()
+        note_preview_html = (
+            "<span style='opacity:0.65;'>No notes recorded yet.</span>"
+            if not note_preview
+            else escape(note_preview).replace("\n", "<br>")
+        )
+
+        credential_pairs = [
+            ("TeamViewer ID", (D.teamviewer_id or "").strip()),
+            ("TeamViewer password", (D.teamviewer_password or "").strip()),
+            ("Third-line TV ID", (D.third_line_tv_id or "").strip()),
+            ("Third-line TV password", (D.third_line_tv_password or "").strip()),
+            ("Unite PIN", (D.third_line_unite_pin or "").strip()),
+        ]
+        credential_lines = [
+            f"{label}: {value}"
+            for label, value in credential_pairs
+            if value
+        ]
+        credentials_payload = script_safe_json(
+            "\n".join(credential_lines)
+            if credential_lines
+            else "No remote credentials recorded."
+        )
+        notes_payload = script_safe_json(
+            (primary_session.notes or "").strip() or "No remote notes captured yet."
+        )
+        timeline_payload = script_safe_json(
+            history_summary.strip() or "No remote timeline available yet."
+        )
+        title_display = primary_session.display_title(1)
+        badge_text = (
+            primary_session.updated_at or primary_session.created_at or "Session ready"
+        ).strip()
+
+        overview_tab, notes_tab, history_tab, attachments_tab = st.tabs(
+            ["Overview", "Notes & Timeline", "History", "Attachments"]
+        )
+
+        with overview_tab:
+            remote_card_html = f"""
+{REMOTE_DESKTOP_STYLE}
+<div class='remote-hub-card'>
+  <div class='remote-hub-card__header'>
+    <span class='remote-hub-card__title'>{escape(title_display)}</span>
+    <span class='remote-hub-card__badge'>{escape(badge_text)}</span>
+  </div>
+  <div class='remote-hub-grid'>
+    {grid_html}
+  </div>
+  <div class='remote-hub-actions'>
+    <button onclick=\"copyRemotePayload(credentialsPayload, 'Credentials copied')\">Copy credentials</button>
+    <button onclick=\"copyRemotePayload(notesPayload, 'Notes copied')\">Copy live notes</button>
+    <button onclick=\"copyRemotePayload(timelinePayload, 'Timeline copied')\">Copy timeline</button>
+  </div>
+  <div id='remote-action-feedback' style='font-size:0.75rem;margin-top:0.35rem;'></div>
+  <div class='remote-hub-note-preview'>{note_preview_html}</div>
+</div>
+<script>
+  const credentialsPayload = {credentials_payload};
+  const notesPayload = {notes_payload};
+  const timelinePayload = {timeline_payload};
+  function copyRemotePayload(payload, label) {{
+    navigator.clipboard.writeText(payload).then(() => {{
+      const feedback = document.getElementById('remote-action-feedback');
+      if (feedback) {{
+        feedback.textContent = label;
+        setTimeout(() => {{
+          if (feedback.textContent === label) {{
+            feedback.textContent = '';
+          }}
+        }}, 2000);
+      }}
+    }});
+  }}
+</script>
+"""
+            components.html(remote_card_html, height=420)
+
+        with notes_tab:
+            st.markdown("#### Update session context")
+            st.text_input(
+                "Session title",
+                key=title_key,
+                help="Saved to the case JSON and reused by exports and quick actions.",
             )
 
-        for idx in range(len(sessions)):
-            session = sessions[idx]
-            if idx:
-                st.markdown("---")
-            container = st.container()
-            with container:
-                header_cols = st.columns([6, 1, 1, 1])
-                title_key = remote_tab_key(
-                    f"remote_session_title_{session.session_id}"
+            cols = st.columns([1, 1, 1])
+            if cols[0].button(
+                "Insert timestamp",
+                key=remote_tab_key("notes_add_timestamp"),
+            ):
+                stamp = _utc_now_z()
+                existing = st.session_state.get(notes_key, "")
+                updated = (
+                    f"{existing.rstrip()}\n[{stamp}] "
+                    if existing.strip()
+                    else f"[{stamp}] "
                 )
-                if title_key not in st.session_state:
-                    st.session_state[title_key] = session.title
-                new_title = header_cols[0].text_input(
-                    "Title",
-                    key=title_key,
+                st.session_state[notes_key] = updated
+                st.rerun()
+            if cols[1].button(
+                "Mark session complete",
+                key=remote_tab_key("notes_mark_complete"),
+            ):
+                completion_stamp = _utc_now_z()
+                existing = st.session_state.get(notes_key, "")
+                completion_text = (
+                    f"{existing.rstrip()}\n\n✔ Session closed at {completion_stamp}"
+                    if existing.strip()
+                    else f"✔ Session closed at {completion_stamp}"
                 )
-                move_up_key = remote_tab_key(
-                    f"remote_session_up_{session.session_id}"
-                )
-                move_down_key = remote_tab_key(
-                    f"remote_session_down_{session.session_id}"
-                )
-                remove_key = remote_tab_key(
-                    f"remote_session_remove_{session.session_id}"
-                )
-                with header_cols[1]:
-                    if st.button(
-                        "↑",
-                        disabled=idx == 0,
-                        key=move_up_key,
-                        help="Move session up",
-                    ):
-                        sessions.insert(idx - 1, sessions.pop(idx))
-                        update_case_remote_sessions(D, sessions)
-                        st.rerun()
-                with header_cols[2]:
-                    if st.button(
-                        "↓",
-                        disabled=idx == len(sessions) - 1,
-                        key=move_down_key,
-                        help="Move session down",
-                    ):
-                        sessions.insert(idx + 1, sessions.pop(idx))
-                        update_case_remote_sessions(D, sessions)
-                        st.rerun()
-                with header_cols[3]:
-                    if st.button(
-                        "Remove",
-                        disabled=len(sessions) == 1,
-                        key=remove_key,
-                        help="Delete this session panel",
-                    ):
-                        sessions.pop(idx)
-                        if not sessions:
-                            default_session = RemoteSessionEntry(
-                                title="Session 1",
-                                notes="",
-                            )
-                            sessions.append(default_session)
-                        update_case_remote_sessions(D, sessions)
-                        st.rerun()
+                st.session_state[notes_key] = completion_text
+                st.rerun()
+            if cols[2].button(
+                "Clear notes",
+                key=remote_tab_key("notes_clear"),
+            ):
+                st.session_state[notes_key] = ""
+                st.rerun()
 
-                if new_title != session.title:
-                    session.title = new_title
-                    session.touch()
-                    update_case_remote_sessions(D, sessions)
-                    sessions = D.remote_sessions
-                    session = sessions[idx]
-                    st.session_state[title_key] = session.title
+            st.text_area(
+                "Remote troubleshooting notes",
+                key=notes_key,
+                height=420,
+                help="Everything written here is persisted back to the case JSON.",
+            )
 
-                timestamp_parts: list[str] = []
-                created_value = (session.created_at or "").strip()
-                updated_value = (session.updated_at or "").strip()
-                if created_value:
-                    timestamp_parts.append(f"Created: {created_value}")
-                if updated_value and updated_value != created_value:
-                    timestamp_parts.append(f"Updated: {updated_value}")
-                if timestamp_parts:
-                    st.caption(" · ".join(timestamp_parts))
+        with history_tab:
+            st.markdown("#### Timeline preview")
+            if history_summary.strip():
+                history_html = escape(history_summary).replace("\n", "<br>")
+                st.markdown(
+                    f"<div class='remote-hub-history'>{history_html}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info("Timeline will populate once remote notes are captured.")
 
-                notes_key = remote_tab_key(
-                    f"remote_session_notes_{session.session_id}"
-                )
-                if notes_key not in st.session_state:
-                    st.session_state[notes_key] = session.notes
-                new_notes = st.text_area(
-                    "Session notes",
-                    height=800,
-                    key=notes_key,
-                )
-                if new_notes != session.notes:
-                    session.notes = new_notes
-                    session.touch()
-                    update_case_remote_sessions(D, sessions)
-                    sessions = D.remote_sessions
-                    session = sessions[idx]
+            st.markdown("#### Raw session payload")
+            st.json(asdict(primary_session))
+
+        with attachments_tab:
+            st.markdown("#### Logs & screenshots")
+            render_case_attachments_panel(
+                D,
+                case_idx=case_idx,
+                tab_slug="remote_attachments",
+            )
 
 
 
@@ -15221,12 +15434,6 @@ End with: We look forward to your reply."""
             if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
-
-    render_case_attachments_panel(
-        D,
-        case_idx=case_idx,
-        tab_slug="attachments",
-    )
 
     autosave()
 
