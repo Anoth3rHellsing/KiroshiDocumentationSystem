@@ -5,6 +5,8 @@ Run:
     streamlit run case_documentation_app.py
 """
 
+from __future__ import annotations
+
 import io
 import json
 import os
@@ -31,7 +33,7 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import partial
-from typing import Dict, List
+from typing import Dict, List, Literal
 from html import escape
 import textwrap
 import inspect
@@ -5627,6 +5629,139 @@ class InMemoryUploadedFile:
         return self.data
 
 
+@dataclass
+class ScreenshotAsset(InMemoryUploadedFile):
+    """Rich metadata container for captured screenshots."""
+
+    label: str = ""
+    capture_mode: str = "full"
+    captured_at: str = field(default_factory=_utc_now_z)
+    origin: str = "capture"
+    content_type: str = "image/png"
+
+    def __post_init__(self) -> None:
+        safe_name = sanitize_filename(self.name)
+        if not safe_name.lower().endswith(".png"):
+            safe_name = f"{safe_name}.png"
+        object.__setattr__(self, "name", safe_name)
+        object.__setattr__(self, "label", (self.label or Path(safe_name).stem).strip())
+        if not self.label:
+            object.__setattr__(self, "label", Path(safe_name).stem)
+        mode = (self.capture_mode or "capture").strip().lower()
+        object.__setattr__(self, "capture_mode", mode or "capture")
+        object.__setattr__(self, "origin", (self.origin or "capture").strip() or "capture")
+        if not self.captured_at:
+            object.__setattr__(self, "captured_at", _utc_now_z())
+
+    def metadata(self, *, path: str) -> dict[str, str]:
+        record = {
+            "name": self.name,
+            "path": path,
+            "label": self.label,
+            "captured_at": self.captured_at,
+            "capture_mode": self.capture_mode,
+            "origin": self.origin,
+        }
+        if self.content_type:
+            record["content_type"] = self.content_type
+        return record
+
+
+def _ensure_screenshot_asset(item: object) -> ScreenshotAsset | None:
+    """Coerce legacy screenshot payloads into :class:`ScreenshotAsset`."""
+
+    if isinstance(item, ScreenshotAsset):
+        return item
+    if isinstance(item, InMemoryUploadedFile):
+        label = getattr(item, "label", "") or getattr(item, "name", "")
+        return ScreenshotAsset(
+            name=getattr(item, "name", "screenshot"),
+            data=getattr(item, "data", b""),
+            label=str(label),
+            capture_mode=getattr(item, "capture_mode", "imported"),
+            origin=getattr(item, "origin", "legacy"),
+        )
+    return None
+
+
+def get_active_screenshots() -> list[ScreenshotAsset]:
+    """Return the active screenshot list coerced to :class:`ScreenshotAsset`."""
+
+    existing = st.session_state.get("screenshots", [])
+    normalised: list[ScreenshotAsset] = []
+    if isinstance(existing, list):
+        for item in existing:
+            asset = _ensure_screenshot_asset(item)
+            if asset is not None:
+                normalised.append(asset)
+    st.session_state["screenshots"] = normalised
+    return normalised
+
+
+def _generate_screenshot_basename(
+    label: str,
+    *,
+    auto_stamp: bool,
+    existing: Sequence[ScreenshotAsset],
+) -> tuple[str, str]:
+    """Return a sanitized filename stem and display label for the next capture."""
+
+    raw_label = label.strip()
+    display_label = raw_label or f"Capture {len(existing) + 1}"
+    safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", raw_label).strip("_").lower()
+    if not safe_stem:
+        safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", display_label).strip("_").lower()
+    if not safe_stem:
+        safe_stem = "capture"
+    if auto_stamp:
+        safe_stem = f"{safe_stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    existing_stems = {Path(item.name).stem for item in existing}
+    candidate = safe_stem
+    suffix = 2
+    while candidate in existing_stems:
+        candidate = f"{safe_stem}_{suffix}"
+        suffix += 1
+    return candidate, display_label
+
+
+def _capture_screenshot_from_ui(
+    mode: Literal["full", "region"],
+    *,
+    label: str,
+    auto_stamp: bool,
+    label_state_key: str,
+) -> None:
+    """Capture a screenshot using the configured UI preferences."""
+
+    existing = get_active_screenshots()
+    safe_stem, display_label = _generate_screenshot_basename(
+        label, auto_stamp=auto_stamp, existing=existing
+    )
+    capture_fn = capture_full_screenshot if mode == "full" else capture_region_screenshot
+    shot, error = capture_fn(safe_stem, label=display_label)
+    if shot:
+        shot.capture_mode = mode
+        shot.origin = "capture"
+        existing.append(shot)
+        st.session_state["screenshots"] = existing
+        get_active_screenshots()
+        st.success(f"Captured {mode} screenshot: {shot.label}")
+        st.session_state[label_state_key] = ""
+        return
+
+    if not error:
+        st.warning("Screenshot capture is unavailable in this environment.")
+        return
+
+    message = error.strip()
+    if "cancel" in message.lower():
+        st.info("Screenshot capture cancelled.")
+    elif "environment" in message.lower():
+        st.warning(message)
+    else:
+        st.error(message)
+
+
 def select_screen_region() -> tuple[tuple[int, int, int, int] | None, str | None]:
     """Launch a temporary overlay that lets the user select a screen region."""
 
@@ -5737,7 +5872,9 @@ def select_screen_region() -> tuple[tuple[int, int, int, int] | None, str | None
 
 def capture_region_screenshot(
     safe_name: str,
-) -> tuple[InMemoryUploadedFile | None, str | None]:
+    *,
+    label: str | None = None,
+) -> tuple[ScreenshotAsset | None, str | None]:
     """Capture a cropped screenshot using the interactive region selector."""
 
     if tk is None or not TK_AVAILABLE:
@@ -5797,12 +5934,22 @@ def capture_region_screenshot(
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()), None
+    return (
+        ScreenshotAsset(
+            name=f"{safe_name}.png",
+            data=buf.getvalue(),
+            label=label or safe_name,
+            capture_mode="region",
+        ),
+        None,
+    )
 
 
 def capture_full_screenshot(
     safe_name: str,
-) -> tuple[InMemoryUploadedFile | None, str | None]:
+    *,
+    label: str | None = None,
+) -> tuple[ScreenshotAsset | None, str | None]:
     """Capture a full screen screenshot with multiple fallbacks."""
 
     img = None
@@ -5838,7 +5985,15 @@ def capture_full_screenshot(
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()), None
+    return (
+        ScreenshotAsset(
+            name=f"{safe_name}.png",
+            data=buf.getvalue(),
+            label=label or safe_name,
+            capture_mode="full",
+        ),
+        None,
+    )
 
 
 def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
@@ -5850,7 +6005,7 @@ def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
 
 
 def _handle_incident_screenshot_result(
-    screenshot: "InMemoryUploadedFile | None", error: str | None
+    screenshot: "ScreenshotAsset | None", error: str | None
 ) -> None:
     """Persist screenshot capture outcomes and surface user-facing warnings."""
 
@@ -5890,6 +6045,7 @@ def _set_active_session_attachments_index(
 
     normalised = _normalise_attachments_index(attachments_index)
     st.session_state["attachments_index"] = normalised
+    current_shots = get_active_screenshots()
 
     sessions = st.session_state.get("case_sessions")
     if isinstance(sessions, list) and CURRENT_CASE_IDX < len(sessions):
@@ -5898,7 +6054,7 @@ def _set_active_session_attachments_index(
             session.attachments_index = normalised  # type: ignore[attr-defined]
             session.uploads = st.session_state.get("uploads", [])
             session.log_uploads = st.session_state.get("log_uploads", [])
-            session.screenshots = st.session_state.get("screenshots", [])
+            session.screenshots = current_shots
         except AttributeError:
             pass
     _sync_case_memory_from_sessions()
@@ -5910,6 +6066,15 @@ def _normalise_attachments_index(
     normalised = _default_attachments_index()
     if not isinstance(data, Mapping):
         return normalised
+    allowed_fields = {
+        "name",
+        "path",
+        "label",
+        "captured_at",
+        "capture_mode",
+        "origin",
+        "content_type",
+    }
     for key in normalised:
         items = data.get(key, [])
         cleaned: list[dict[str, str]] = []
@@ -5919,8 +6084,14 @@ def _normalise_attachments_index(
                     continue
                 name = item.get("name")
                 path = item.get("path")
-                if isinstance(name, str) and isinstance(path, str):
-                    cleaned.append({"name": name, "path": path})
+                if not (isinstance(name, str) and isinstance(path, str)):
+                    continue
+                record: dict[str, str] = {"name": name, "path": path}
+                for field in allowed_fields - {"name", "path"}:
+                    value = item.get(field)
+                    if isinstance(value, str) and value:
+                        record[field] = value
+                cleaned.append(record)
         normalised[key] = cleaned
     return normalised
 
@@ -5933,7 +6104,7 @@ class CaseSession:
     scratch: str = ""
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
-    screenshots: list = field(default_factory=list)
+    screenshots: list[ScreenshotAsset] = field(default_factory=list)
     source_path: str = ""
     attachments_index: dict[str, list[dict[str, str]]] = field(
         default_factory=_default_attachments_index
@@ -5971,7 +6142,7 @@ def build_incident_report_pdf(
     user_notes: str,
     case_snapshot: list[Mapping[str, str]],
     *,
-    screenshot: InMemoryUploadedFile | None = None,
+    screenshot: "ScreenshotAsset | None" = None,
 ) -> bytes:
     """Generate a PDF summarising a captured incident."""
 
@@ -6268,6 +6439,7 @@ if "case_sessions" not in st.session_state:
         st.session_state.uploads = primary_session.uploads
         st.session_state.log_uploads = primary_session.log_uploads
         st.session_state.screenshots = primary_session.screenshots
+        get_active_screenshots()
         st.session_state.scratch = primary_session.scratch
         st.session_state["attachments_index"] = _normalise_attachments_index(
             getattr(primary_session, "attachments_index", {})
@@ -6296,6 +6468,7 @@ def load_case_state(idx: int) -> None:
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
     st.session_state.screenshots = cs.screenshots
+    get_active_screenshots()
     st.session_state["attachments_index"] = _normalise_attachments_index(
         getattr(cs, "attachments_index", {})
     )
@@ -6352,6 +6525,7 @@ def clear_case_state(idx: int) -> None:
         st.session_state.uploads = []
         st.session_state.log_uploads = []
         st.session_state.screenshots = []
+        get_active_screenshots()
         st.session_state["attachments_index"] = _default_attachments_index()
         st.session_state.scratch = ""
         st.session_state[widget_state_key("scratch", idx)] = ""
@@ -6582,10 +6756,11 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
         st.warning(f"Unable to persist attachments: {exc}")
         return attachments_index
 
+    screenshots_state = get_active_screenshots()
     mapping = [
         ("uploads", st.session_state.get("uploads", []), "uploads"),
         ("log_uploads", st.session_state.get("log_uploads", []), "logs"),
-        ("screenshots", st.session_state.get("screenshots", []), "screenshots"),
+        ("screenshots", screenshots_state, "screenshots"),
     ]
 
     for key, items, subdir in mapping:
@@ -6617,7 +6792,10 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
             if rel_path in seen:
                 continue
             seen.add(rel_path)
-            attachments_index[key].append({"name": sanitized, "path": rel_path})
+            if isinstance(item, ScreenshotAsset):
+                attachments_index[key].append(item.metadata(path=rel_path))
+            else:
+                attachments_index[key].append({"name": sanitized, "path": rel_path})
 
     _set_active_session_attachments_index(attachments_index)
     return attachments_index
@@ -6625,12 +6803,16 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
 
 def load_case_attachments(
     case_id: str, attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
-) -> tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[InMemoryUploadedFile]]:
+) -> tuple[
+    list[InMemoryUploadedFile],
+    list[InMemoryUploadedFile],
+    list[ScreenshotAsset],
+]:
     """Load persisted attachments for a case based on stored metadata."""
 
     uploads: list[InMemoryUploadedFile] = []
     log_uploads: list[InMemoryUploadedFile] = []
-    screenshots: list[InMemoryUploadedFile] = []
+    screenshots: list[ScreenshotAsset] = []
 
     if not case_id or not attachments_data:
         return uploads, log_uploads, screenshots
@@ -6674,7 +6856,25 @@ def load_case_attachments(
                 logging.warning("Failed to read attachment %s: %s", file_path, exc)
                 continue
             display_name = sanitize_filename(name) if isinstance(name, str) else file_path.name
-            target.append(InMemoryUploadedFile(display_name, data))
+            if key == "screenshots":
+                label = str(entry.get("label") or display_name)
+                captured_at = str(entry.get("captured_at") or _utc_now_z())
+                capture_mode = str(entry.get("capture_mode") or "imported")
+                origin = str(entry.get("origin") or "restored")
+                content_type = str(entry.get("content_type") or "image/png")
+                target.append(
+                    ScreenshotAsset(
+                        name=display_name,
+                        data=data,
+                        label=label,
+                        capture_mode=capture_mode,
+                        captured_at=captured_at,
+                        origin=origin,
+                        content_type=content_type,
+                    )
+                )
+            else:
+                target.append(InMemoryUploadedFile(display_name, data))
 
     return uploads, log_uploads, screenshots
 
@@ -8887,36 +9087,26 @@ def show_incident_report_modal() -> None:
                 "Capture region",
                 key=global_widget_key("incident_capture"),
             ):
-                safe_name = shot_name.strip() or f"incident_{int(time.time())}"
+                shot_label = (shot_name or "").strip()
+                safe_name = shot_label or f"incident_{int(time.time())}"
                 safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
-                shot, error = capture_region_screenshot(safe_name)
+                shot, error = capture_region_screenshot(
+                    safe_name,
+                    label=shot_label or safe_name,
+                )
                 _handle_incident_screenshot_result(shot, error)
             if capture_cols[1].button(
                 "Use full screenshot",
                 key=global_widget_key("incident_full_capture"),
             ):
-                if not PYAUTOGUI_AVAILABLE or pyautogui is None:
-                    _handle_incident_screenshot_result(
-                        None,
-                        "Full-screen capture is unavailable in this environment.",
-                    )
-                else:
-                    safe_name = shot_name.strip() or f"incident_{int(time.time())}"
-                    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
-                    try:
-                        img = pyautogui.screenshot()  # type: ignore[union-attr]
-                    except Exception as exc:  # pragma: no cover - GUI dependent
-                        _handle_incident_screenshot_result(
-                            None, f"Unable to capture screenshot: {exc}"
-                        )
-                    else:
-                        buf = io.BytesIO()
-                        img.save(buf, format="PNG")
-                        buf.seek(0)
-                        _handle_incident_screenshot_result(
-                            InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()),
-                            None,
-                        )
+                shot_label = (shot_name or "").strip()
+                safe_name = shot_label or f"incident_{int(time.time())}"
+                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
+                shot, error = capture_full_screenshot(
+                    safe_name,
+                    label=shot_label or safe_name,
+                )
+                _handle_incident_screenshot_result(shot, error)
             if capture_cols[2].button(
                 "Clear screenshot",
                 key=global_widget_key("incident_clear_capture"),
@@ -12590,154 +12780,215 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
 def render_case_attachments_panel(
     case: CaseData, *, case_idx: int, tab_slug: str
 ) -> None:
-    """Render the exports and attachments controls for a case tab."""
+    """Render the redesigned evidence workflow for a case tab."""
 
     attachments_key = partial(case_widget_key, tab_slug, case_idx=case_idx)
+    screenshots = get_active_screenshots()
 
     st.markdown("---")
-    st.subheader("Exports & attachments")
+    st.subheader("Evidence locker")
 
-    new_files = st.file_uploader(
-        "Upload screenshots / videos",
-        accept_multiple_files=True,
-        key=attachments_key("attachments_new_files"),
+    st.markdown("##### Quick capture")
+    st.caption(
+        "Capture annotated screenshots that stay linked to the case JSON, quick actions, "
+        "and the remote desktop timeline."
     )
-    if new_files:
-        existing_names = {f.name for f in st.session_state.uploads}
-        for nf in new_files:
-            if nf.name not in existing_names:
-                st.session_state.uploads.append(nf)
-                existing_names.add(nf.name)
 
-    log_files = st.file_uploader(
-        "Upload case logs",
-        accept_multiple_files=True,
-        key=attachments_key("attachments_log_files"),
+    label_state_key = attachments_key("shot_label")
+    if label_state_key not in st.session_state:
+        st.session_state[label_state_key] = ""
+    auto_stamp_key = attachments_key("shot_auto_stamp")
+    if auto_stamp_key not in st.session_state:
+        st.session_state[auto_stamp_key] = True
+
+    label_value = st.text_input(
+        "Label for next capture",
+        key=label_state_key,
+        placeholder="e.g. Checkout terminal error dialog",
+        help="Stored alongside the screenshot metadata so exports and remote menus stay descriptive.",
     )
-    if log_files:
-        existing_log_names = {f.name for f in st.session_state.log_uploads}
-        for lf in log_files:
-            if lf.name not in existing_log_names:
-                st.session_state.log_uploads.append(lf)
-                existing_log_names.add(lf.name)
-
-    screenshot_state_key = f"attachments_screenshot_name_{case_idx}"
-    shared_screenshot_name = st.session_state.setdefault(screenshot_state_key, "")
-
-    screenshot_widget_key = attachments_key("attachments_screenshot_name")
-    if (
-        screenshot_widget_key not in st.session_state
-        or st.session_state[screenshot_widget_key] != shared_screenshot_name
-    ):
-        st.session_state[screenshot_widget_key] = shared_screenshot_name
-
-    screenshot_name_input = st.text_input(
-        "Screenshot name",
-        key=screenshot_widget_key,
+    auto_stamp = st.checkbox(
+        "Append timestamp to filenames",
+        key=auto_stamp_key,
+        help="Keeps filenames unique when multiple captures are added to the same case.",
     )
-    st.session_state[screenshot_state_key] = screenshot_name_input
 
-    screenshot_name_value = st.session_state[screenshot_state_key]
-
-    full_btn_col, region_btn_col = st.columns(2)
-    if full_btn_col.button(
-        "Take Screenshot",
-        key=attachments_key("attachments_take_screenshot"),
+    capture_cols = st.columns([1, 1, 1])
+    if capture_cols[0].button(
+        "Capture full desktop",
+        key=attachments_key("shot_full"),
     ):
-        if screenshot_name_value:
-            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name_value)
-            shot, error = capture_full_screenshot(safe_name)
-            if shot:
-                st.session_state.screenshots.append(shot)
-                st.success(f"Captured screenshot: {safe_name}")
-            else:
-                st.error(error or "Screenshot capture is unavailable in this environment.")
-        else:
-            st.error("Please provide a screenshot name before capturing.")
-
-    if region_btn_col.button(
-        "Advanced Screenshot (select area)",
-        key=attachments_key("attachments_take_region_screenshot"),
+        _capture_screenshot_from_ui(
+            "full",
+            label=label_value,
+            auto_stamp=auto_stamp,
+            label_state_key=label_state_key,
+        )
+        screenshots = get_active_screenshots()
+    if capture_cols[1].button(
+        "Capture selected area",
+        key=attachments_key("shot_region"),
     ):
-        if not screenshot_name_value:
-            st.error("Please provide a screenshot name before capturing.")
-        else:
-            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name_value)
-            shot, error = capture_region_screenshot(safe_name)
-            if shot:
-                st.session_state.screenshots.append(shot)
-                st.success(
-                    "Captured targeted screenshot. Confirm it excludes unnecessary PHI before sharing."
-                )
-            else:
-                message = error or "Unable to capture the selected region."
-                if "cancel" in message.lower():
-                    st.warning("Region capture cancelled—no image was saved.")
-                elif "environment" in message.lower() or "available" in message.lower():
-                    st.warning(message)
-                else:
-                    st.error(message)
-
-    if (
-        st.session_state.uploads
-        or st.session_state.log_uploads
-        or st.session_state.screenshots
+        _capture_screenshot_from_ui(
+            "region",
+            label=label_value,
+            auto_stamp=auto_stamp,
+            label_state_key=label_state_key,
+        )
+        screenshots = get_active_screenshots()
+    if capture_cols[2].button(
+        "Reset label",
+        key=attachments_key("shot_label_reset"),
     ):
-        if st.session_state.uploads:
-            st.markdown("Files queued:")
-            for i, f in enumerate(st.session_state.uploads):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button(
+        st.session_state[label_state_key] = ""
+
+    st.markdown("##### Upload additional evidence")
+    upload_cols = st.columns(2)
+    with upload_cols[0]:
+        new_files = st.file_uploader(
+            "Add screenshots / videos",
+            accept_multiple_files=True,
+            key=attachments_key("attachments_new_files"),
+            help="Imported files are bundled with captured screenshots when exporting.",
+        )
+        if new_files:
+            existing_names = {f.name for f in st.session_state.uploads}
+            for nf in new_files:
+                if nf.name not in existing_names:
+                    st.session_state.uploads.append(nf)
+                    existing_names.add(nf.name)
+    with upload_cols[1]:
+        log_files = st.file_uploader(
+            "Upload troubleshooting logs",
+            accept_multiple_files=True,
+            key=attachments_key("attachments_log_files"),
+            help="Logs appear beside screenshots inside the remote desktop attachments tab.",
+        )
+        if log_files:
+            existing_log_names = {f.name for f in st.session_state.log_uploads}
+            for lf in log_files:
+                if lf.name not in existing_log_names:
+                    st.session_state.log_uploads.append(lf)
+                    existing_log_names.add(lf.name)
+
+    st.markdown("##### Evidence queue")
+    uploads = st.session_state.uploads
+    log_uploads = st.session_state.log_uploads
+    screenshots = get_active_screenshots()
+
+    if not (uploads or log_uploads or screenshots):
+        st.info("No evidence queued yet. Capture a screenshot or upload supporting files to begin.")
+    else:
+        if uploads:
+            st.markdown("###### Uploaded files")
+            for i, f in enumerate(list(uploads)):
+                cols = st.columns([6, 2, 1])
+                cols[0].markdown(f"**{f.name}**")
+                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
+                if cols[2].button(
                     "Remove",
                     key=attachments_key(f"attachments_rem_upload_{i}"),
                 ):
-                    st.session_state.uploads.pop(i)
+                    uploads.pop(i)
                     st.rerun()
-        if st.session_state.log_uploads:
-            st.markdown("Logs queued:")
-            for i, f in enumerate(st.session_state.log_uploads):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button(
+        if log_uploads:
+            st.markdown("###### Log bundles")
+            for i, f in enumerate(list(log_uploads)):
+                cols = st.columns([6, 2, 1])
+                cols[0].markdown(f"**{f.name}**")
+                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
+                if cols[2].button(
                     "Remove",
                     key=attachments_key(f"attachments_rem_log_{i}"),
                 ):
-                    st.session_state.log_uploads.pop(i)
+                    log_uploads.pop(i)
                     st.rerun()
-        if st.session_state.screenshots:
-            st.markdown("Screenshots captured:")
-            for i, s in enumerate(st.session_state.screenshots):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
-                if cols[1].button(
-                    "Remove",
-                    key=attachments_key(f"attachments_rem_shot_{i}"),
-                ):
-                    st.session_state.screenshots.pop(i)
-                    st.rerun()
-        if st.button(
-            "Create ZIP",
-            key=attachments_key("attachments_create_zip"),
-        ):
-            zbuf = io.BytesIO()
-            with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-                for f in st.session_state.uploads:
-                    z.writestr(f"Screenshots/{f.name}", f.getvalue())
-                for f in st.session_state.log_uploads:
-                    z.writestr(f"logs/{f.name}", f.getvalue())
-                for s in st.session_state.screenshots:
-                    z.writestr(f"Screenshots/{s.name}", s.getvalue())
-                if st.session_state.get("attachments_include_case_json", True):
-                    z.writestr("case.json", json.dumps(asdict(case), indent=2))
-            zbuf.seek(0)
-            st.download_button(
-                "Download attachments.zip",
-                zbuf,
-                file_name=f"{case.case_id or 'case'}_attachments.zip",
-                mime="application/zip",
-                key=attachments_key("attachments_download_zip"),
-            )
+        if screenshots:
+            st.markdown("###### Captured screenshots")
+            for i, shot in enumerate(list(screenshots)):
+                edit_cols = st.columns([3, 3, 1])
+                label_edit_key = attachments_key(f"shot_label_edit_{i}")
+                if label_edit_key not in st.session_state:
+                    st.session_state[label_edit_key] = shot.label
+                new_label = edit_cols[0].text_input(
+                    "Label",
+                    key=label_edit_key,
+                    help="Shown in remote menus and exported summaries.",
+                )
+                if new_label.strip() and new_label.strip() != shot.label:
+                    shot.label = new_label.strip()
+
+                filename_edit_key = attachments_key(f"shot_filename_{i}")
+                if filename_edit_key not in st.session_state:
+                    st.session_state[filename_edit_key] = shot.name
+                new_filename = edit_cols[1].text_input(
+                    "Filename",
+                    key=filename_edit_key,
+                    help="Used when evidence is written to disk or bundled into zips.",
+                )
+                if new_filename.strip() and new_filename.strip() != shot.name:
+                    sanitized = sanitize_filename(new_filename.strip())
+                    if not sanitized.lower().endswith(".png"):
+                        sanitized = f"{sanitized}.png"
+                    shot.name = sanitized
+                    st.session_state[filename_edit_key] = sanitized
+
+                with edit_cols[2]:
+                    if st.button(
+                        "Remove",
+                        key=attachments_key(f"attachments_rem_shot_{i}"),
+                    ):
+                        screenshots.pop(i)
+                        st.session_state["screenshots"] = screenshots
+                        get_active_screenshots()
+                        st.rerun()
+                    st.download_button(
+                        "Download",
+                        shot.getvalue(),
+                        file_name=shot.name,
+                        mime=shot.content_type,
+                        key=attachments_key(f"attachments_dl_shot_{i}"),
+                    )
+
+                st.caption(
+                    f"Captured {shot.captured_at} · Mode: {shot.capture_mode.title()} · Stored as {shot.name}"
+                )
+                with st.expander("Preview", expanded=False):
+                    st.image(shot.data, caption=shot.label, use_column_width=True)
+
+    include_case_json_key = attachments_key("attachments_include_case_json")
+    if include_case_json_key not in st.session_state:
+        st.session_state[include_case_json_key] = True
+
+    st.markdown("##### Package evidence")
+    st.checkbox(
+        "Include case.json snapshot",
+        key=include_case_json_key,
+        help="Adds the full case payload next to the evidence in the exported archive.",
+    )
+    if st.button(
+        "Create evidence bundle",
+        key=attachments_key("attachments_create_zip"),
+        help="Writes uploads, logs, and screenshots to a single ZIP ready to attach to incidents.",
+    ):
+        zbuf = io.BytesIO()
+        with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in uploads:
+                z.writestr(f"uploads/{f.name}", f.getvalue())
+            for f in log_uploads:
+                z.writestr(f"logs/{f.name}", f.getvalue())
+            for shot in screenshots:
+                z.writestr(f"screenshots/{shot.name}", shot.getvalue())
+            if st.session_state.get(include_case_json_key, True):
+                z.writestr("case.json", json.dumps(asdict(case), indent=2))
+        zbuf.seek(0)
+        st.download_button(
+            "Download evidence.zip",
+            zbuf,
+            file_name=f"{case.case_id or 'case'}_evidence.zip",
+            mime="application/zip",
+            key=attachments_key("attachments_download_zip"),
+        )
 
 
 CASE_TAB_SLUGS = {
