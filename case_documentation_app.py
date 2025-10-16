@@ -15098,8 +15098,9 @@ End with: We look forward to your reply."""
         with history_tab:
             st.markdown("#### Timeline preview")
             if history_summary.strip():
+                history_html = escape(history_summary).replace("\n", "<br>")
                 st.markdown(
-                    f"<div class='remote-hub-history'>{escape(history_summary).replace('\n', '<br>')}</div>",
+                    f"<div class='remote-hub-history'>{history_html}</div>",
                     unsafe_allow_html=True,
                 )
             else:
