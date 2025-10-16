@@ -41,7 +41,15 @@ def test_persist_case_attachments_writes_files_and_skips_duplicates(
         app.InMemoryUploadedFile("report.txt", b"duplicate"),
     ]
     log_uploads = [app.InMemoryUploadedFile("logs.log", b"log-bytes")]
-    screenshots = [app.InMemoryUploadedFile("screen.png", b"png-bytes")]
+    screenshots = [
+        app.ScreenshotAsset(
+            name="screen.png",
+            data=b"png-bytes",
+            label="Crash dialog",
+            capture_mode="full",
+            captured_at="2024-01-01T00:00:00Z",
+        )
+    ]
     session_state.update(
         {
             "uploads": uploads,
@@ -70,6 +78,9 @@ def test_persist_case_attachments_writes_files_and_skips_duplicates(
     screenshot_entries = metadata["screenshots"]
     assert len(screenshot_entries) == 1
     assert screenshot_entries[0]["path"] == "screenshots/screen.png"
+    assert screenshot_entries[0]["label"] == "Crash dialog"
+    assert screenshot_entries[0]["capture_mode"] == "full"
+    assert screenshot_entries[0]["captured_at"] == "2024-01-01T00:00:00Z"
 
 
 def test_persist_case_attachments_handles_read_and_write_failures(
@@ -134,7 +145,13 @@ def test_load_case_attachments_reconstructs_files(attachments_root):
             {"name": "diag.log", "path": "logs/diag.log"},
         ],
         "screenshots": [
-            {"name": "shot.png", "path": "screenshots/shot.png"},
+            {
+                "name": "shot.png",
+                "path": "screenshots/shot.png",
+                "label": "Primary",
+                "capture_mode": "full",
+                "captured_at": "2024-01-01T00:00:00Z",
+            },
             {"name": "fallback.png"},
         ],
     }
@@ -151,9 +168,12 @@ def test_load_case_attachments_reconstructs_files(attachments_root):
     assert logs[0].data == b"log"
 
     assert len(screenshots) == 2
+    assert all(isinstance(item, app.ScreenshotAsset) for item in screenshots)
     screenshot_names = {item.name for item in screenshots}
     assert screenshot_names == {"shot.png", "fallback.png"}
     screenshot_payloads = {item.name: item.data for item in screenshots}
     assert screenshot_payloads["shot.png"] == b"img1"
     assert screenshot_payloads["fallback.png"] == b"img2"
+    labels = {item.name: item.label for item in screenshots}
+    assert labels["shot.png"] == "Primary"
 

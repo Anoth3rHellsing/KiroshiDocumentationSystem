@@ -5,6 +5,8 @@ Run:
     streamlit run case_documentation_app.py
 """
 
+from __future__ import annotations
+
 import io
 import json
 import os
@@ -31,7 +33,7 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import partial
-from typing import Dict, List
+from typing import Dict, List, Literal
 from html import escape
 import textwrap
 import inspect
@@ -5591,6 +5593,31 @@ def update_case_remote_sessions(
     autosave()
 
 
+def ensure_single_remote_session(case: CaseData) -> RemoteSessionEntry:
+    """Return the primary remote session entry, collapsing legacy multiples."""
+
+    ensure_remote_session_entries(case)
+    sessions = list(case.remote_sessions)
+    if not sessions:
+        ensure_remote_session_entries(case)
+        sessions = list(case.remote_sessions)
+
+    if len(sessions) == 1:
+        return sessions[0]
+
+    timeline = format_remote_sessions_summary(sessions, include_timestamps=True)
+    primary = sessions[0]
+    merged = RemoteSessionEntry(
+        session_id=primary.session_id or uuid.uuid4().hex,
+        title=(primary.title or "Session 1"),
+        notes=timeline,
+        created_at=(primary.created_at or _utc_now_z()),
+        updated_at=_utc_now_z(),
+    )
+    update_case_remote_sessions(case, [merged])
+    return case.remote_sessions[0]
+
+
 @dataclass
 class InMemoryUploadedFile:
     """Simple file-like container for generated screenshots."""
@@ -5600,6 +5627,139 @@ class InMemoryUploadedFile:
 
     def getvalue(self) -> bytes:
         return self.data
+
+
+@dataclass
+class ScreenshotAsset(InMemoryUploadedFile):
+    """Rich metadata container for captured screenshots."""
+
+    label: str = ""
+    capture_mode: str = "full"
+    captured_at: str = field(default_factory=_utc_now_z)
+    origin: str = "capture"
+    content_type: str = "image/png"
+
+    def __post_init__(self) -> None:
+        safe_name = sanitize_filename(self.name)
+        if not safe_name.lower().endswith(".png"):
+            safe_name = f"{safe_name}.png"
+        object.__setattr__(self, "name", safe_name)
+        object.__setattr__(self, "label", (self.label or Path(safe_name).stem).strip())
+        if not self.label:
+            object.__setattr__(self, "label", Path(safe_name).stem)
+        mode = (self.capture_mode or "capture").strip().lower()
+        object.__setattr__(self, "capture_mode", mode or "capture")
+        object.__setattr__(self, "origin", (self.origin or "capture").strip() or "capture")
+        if not self.captured_at:
+            object.__setattr__(self, "captured_at", _utc_now_z())
+
+    def metadata(self, *, path: str) -> dict[str, str]:
+        record = {
+            "name": self.name,
+            "path": path,
+            "label": self.label,
+            "captured_at": self.captured_at,
+            "capture_mode": self.capture_mode,
+            "origin": self.origin,
+        }
+        if self.content_type:
+            record["content_type"] = self.content_type
+        return record
+
+
+def _ensure_screenshot_asset(item: object) -> ScreenshotAsset | None:
+    """Coerce legacy screenshot payloads into :class:`ScreenshotAsset`."""
+
+    if isinstance(item, ScreenshotAsset):
+        return item
+    if isinstance(item, InMemoryUploadedFile):
+        label = getattr(item, "label", "") or getattr(item, "name", "")
+        return ScreenshotAsset(
+            name=getattr(item, "name", "screenshot"),
+            data=getattr(item, "data", b""),
+            label=str(label),
+            capture_mode=getattr(item, "capture_mode", "imported"),
+            origin=getattr(item, "origin", "legacy"),
+        )
+    return None
+
+
+def get_active_screenshots() -> list[ScreenshotAsset]:
+    """Return the active screenshot list coerced to :class:`ScreenshotAsset`."""
+
+    existing = st.session_state.get("screenshots", [])
+    normalised: list[ScreenshotAsset] = []
+    if isinstance(existing, list):
+        for item in existing:
+            asset = _ensure_screenshot_asset(item)
+            if asset is not None:
+                normalised.append(asset)
+    st.session_state["screenshots"] = normalised
+    return normalised
+
+
+def _generate_screenshot_basename(
+    label: str,
+    *,
+    auto_stamp: bool,
+    existing: Sequence[ScreenshotAsset],
+) -> tuple[str, str]:
+    """Return a sanitized filename stem and display label for the next capture."""
+
+    raw_label = label.strip()
+    display_label = raw_label or f"Capture {len(existing) + 1}"
+    safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", raw_label).strip("_").lower()
+    if not safe_stem:
+        safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", display_label).strip("_").lower()
+    if not safe_stem:
+        safe_stem = "capture"
+    if auto_stamp:
+        safe_stem = f"{safe_stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    existing_stems = {Path(item.name).stem for item in existing}
+    candidate = safe_stem
+    suffix = 2
+    while candidate in existing_stems:
+        candidate = f"{safe_stem}_{suffix}"
+        suffix += 1
+    return candidate, display_label
+
+
+def _capture_screenshot_from_ui(
+    mode: Literal["full", "region"],
+    *,
+    label: str,
+    auto_stamp: bool,
+    label_state_key: str,
+) -> None:
+    """Capture a screenshot using the configured UI preferences."""
+
+    existing = get_active_screenshots()
+    safe_stem, display_label = _generate_screenshot_basename(
+        label, auto_stamp=auto_stamp, existing=existing
+    )
+    capture_fn = capture_full_screenshot if mode == "full" else capture_region_screenshot
+    shot, error = capture_fn(safe_stem, label=display_label)
+    if shot:
+        shot.capture_mode = mode
+        shot.origin = "capture"
+        existing.append(shot)
+        st.session_state["screenshots"] = existing
+        get_active_screenshots()
+        st.success(f"Captured {mode} screenshot: {shot.label}")
+        st.session_state[label_state_key] = ""
+        return
+
+    if not error:
+        st.warning("Screenshot capture is unavailable in this environment.")
+        return
+
+    message = error.strip()
+    if "cancel" in message.lower():
+        st.info("Screenshot capture cancelled.")
+    elif "environment" in message.lower():
+        st.warning(message)
+    else:
+        st.error(message)
 
 
 def select_screen_region() -> tuple[tuple[int, int, int, int] | None, str | None]:
@@ -5712,7 +5872,9 @@ def select_screen_region() -> tuple[tuple[int, int, int, int] | None, str | None
 
 def capture_region_screenshot(
     safe_name: str,
-) -> tuple[InMemoryUploadedFile | None, str | None]:
+    *,
+    label: str | None = None,
+) -> tuple[ScreenshotAsset | None, str | None]:
     """Capture a cropped screenshot using the interactive region selector."""
 
     if tk is None or not TK_AVAILABLE:
@@ -5772,12 +5934,22 @@ def capture_region_screenshot(
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()), None
+    return (
+        ScreenshotAsset(
+            name=f"{safe_name}.png",
+            data=buf.getvalue(),
+            label=label or safe_name,
+            capture_mode="region",
+        ),
+        None,
+    )
 
 
 def capture_full_screenshot(
     safe_name: str,
-) -> tuple[InMemoryUploadedFile | None, str | None]:
+    *,
+    label: str | None = None,
+) -> tuple[ScreenshotAsset | None, str | None]:
     """Capture a full screen screenshot with multiple fallbacks."""
 
     img = None
@@ -5813,7 +5985,15 @@ def capture_full_screenshot(
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()), None
+    return (
+        ScreenshotAsset(
+            name=f"{safe_name}.png",
+            data=buf.getvalue(),
+            label=label or safe_name,
+            capture_mode="full",
+        ),
+        None,
+    )
 
 
 def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
@@ -5825,7 +6005,7 @@ def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
 
 
 def _handle_incident_screenshot_result(
-    screenshot: "InMemoryUploadedFile | None", error: str | None
+    screenshot: "ScreenshotAsset | None", error: str | None
 ) -> None:
     """Persist screenshot capture outcomes and surface user-facing warnings."""
 
@@ -5865,6 +6045,7 @@ def _set_active_session_attachments_index(
 
     normalised = _normalise_attachments_index(attachments_index)
     st.session_state["attachments_index"] = normalised
+    current_shots = get_active_screenshots()
 
     sessions = st.session_state.get("case_sessions")
     if isinstance(sessions, list) and CURRENT_CASE_IDX < len(sessions):
@@ -5873,7 +6054,7 @@ def _set_active_session_attachments_index(
             session.attachments_index = normalised  # type: ignore[attr-defined]
             session.uploads = st.session_state.get("uploads", [])
             session.log_uploads = st.session_state.get("log_uploads", [])
-            session.screenshots = st.session_state.get("screenshots", [])
+            session.screenshots = current_shots
         except AttributeError:
             pass
     _sync_case_memory_from_sessions()
@@ -5885,6 +6066,15 @@ def _normalise_attachments_index(
     normalised = _default_attachments_index()
     if not isinstance(data, Mapping):
         return normalised
+    allowed_fields = {
+        "name",
+        "path",
+        "label",
+        "captured_at",
+        "capture_mode",
+        "origin",
+        "content_type",
+    }
     for key in normalised:
         items = data.get(key, [])
         cleaned: list[dict[str, str]] = []
@@ -5894,8 +6084,14 @@ def _normalise_attachments_index(
                     continue
                 name = item.get("name")
                 path = item.get("path")
-                if isinstance(name, str) and isinstance(path, str):
-                    cleaned.append({"name": name, "path": path})
+                if not (isinstance(name, str) and isinstance(path, str)):
+                    continue
+                record: dict[str, str] = {"name": name, "path": path}
+                for field in allowed_fields - {"name", "path"}:
+                    value = item.get(field)
+                    if isinstance(value, str) and value:
+                        record[field] = value
+                cleaned.append(record)
         normalised[key] = cleaned
     return normalised
 
@@ -5908,7 +6104,7 @@ class CaseSession:
     scratch: str = ""
     uploads: list = field(default_factory=list)
     log_uploads: list = field(default_factory=list)
-    screenshots: list = field(default_factory=list)
+    screenshots: list[ScreenshotAsset] = field(default_factory=list)
     source_path: str = ""
     attachments_index: dict[str, list[dict[str, str]]] = field(
         default_factory=_default_attachments_index
@@ -5946,7 +6142,7 @@ def build_incident_report_pdf(
     user_notes: str,
     case_snapshot: list[Mapping[str, str]],
     *,
-    screenshot: InMemoryUploadedFile | None = None,
+    screenshot: "ScreenshotAsset | None" = None,
 ) -> bytes:
     """Generate a PDF summarising a captured incident."""
 
@@ -6243,6 +6439,7 @@ if "case_sessions" not in st.session_state:
         st.session_state.uploads = primary_session.uploads
         st.session_state.log_uploads = primary_session.log_uploads
         st.session_state.screenshots = primary_session.screenshots
+        get_active_screenshots()
         st.session_state.scratch = primary_session.scratch
         st.session_state["attachments_index"] = _normalise_attachments_index(
             getattr(primary_session, "attachments_index", {})
@@ -6271,6 +6468,7 @@ def load_case_state(idx: int) -> None:
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
     st.session_state.screenshots = cs.screenshots
+    get_active_screenshots()
     st.session_state["attachments_index"] = _normalise_attachments_index(
         getattr(cs, "attachments_index", {})
     )
@@ -6327,6 +6525,7 @@ def clear_case_state(idx: int) -> None:
         st.session_state.uploads = []
         st.session_state.log_uploads = []
         st.session_state.screenshots = []
+        get_active_screenshots()
         st.session_state["attachments_index"] = _default_attachments_index()
         st.session_state.scratch = ""
         st.session_state[widget_state_key("scratch", idx)] = ""
@@ -6557,10 +6756,11 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
         st.warning(f"Unable to persist attachments: {exc}")
         return attachments_index
 
+    screenshots_state = get_active_screenshots()
     mapping = [
         ("uploads", st.session_state.get("uploads", []), "uploads"),
         ("log_uploads", st.session_state.get("log_uploads", []), "logs"),
-        ("screenshots", st.session_state.get("screenshots", []), "screenshots"),
+        ("screenshots", screenshots_state, "screenshots"),
     ]
 
     for key, items, subdir in mapping:
@@ -6592,7 +6792,10 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
             if rel_path in seen:
                 continue
             seen.add(rel_path)
-            attachments_index[key].append({"name": sanitized, "path": rel_path})
+            if isinstance(item, ScreenshotAsset):
+                attachments_index[key].append(item.metadata(path=rel_path))
+            else:
+                attachments_index[key].append({"name": sanitized, "path": rel_path})
 
     _set_active_session_attachments_index(attachments_index)
     return attachments_index
@@ -6600,12 +6803,16 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
 
 def load_case_attachments(
     case_id: str, attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
-) -> tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[InMemoryUploadedFile]]:
+) -> tuple[
+    list[InMemoryUploadedFile],
+    list[InMemoryUploadedFile],
+    list[ScreenshotAsset],
+]:
     """Load persisted attachments for a case based on stored metadata."""
 
     uploads: list[InMemoryUploadedFile] = []
     log_uploads: list[InMemoryUploadedFile] = []
-    screenshots: list[InMemoryUploadedFile] = []
+    screenshots: list[ScreenshotAsset] = []
 
     if not case_id or not attachments_data:
         return uploads, log_uploads, screenshots
@@ -6649,7 +6856,25 @@ def load_case_attachments(
                 logging.warning("Failed to read attachment %s: %s", file_path, exc)
                 continue
             display_name = sanitize_filename(name) if isinstance(name, str) else file_path.name
-            target.append(InMemoryUploadedFile(display_name, data))
+            if key == "screenshots":
+                label = str(entry.get("label") or display_name)
+                captured_at = str(entry.get("captured_at") or _utc_now_z())
+                capture_mode = str(entry.get("capture_mode") or "imported")
+                origin = str(entry.get("origin") or "restored")
+                content_type = str(entry.get("content_type") or "image/png")
+                target.append(
+                    ScreenshotAsset(
+                        name=display_name,
+                        data=data,
+                        label=label,
+                        capture_mode=capture_mode,
+                        captured_at=captured_at,
+                        origin=origin,
+                        content_type=content_type,
+                    )
+                )
+            else:
+                target.append(InMemoryUploadedFile(display_name, data))
 
     return uploads, log_uploads, screenshots
 
@@ -8862,36 +9087,26 @@ def show_incident_report_modal() -> None:
                 "Capture region",
                 key=global_widget_key("incident_capture"),
             ):
-                safe_name = shot_name.strip() or f"incident_{int(time.time())}"
+                shot_label = (shot_name or "").strip()
+                safe_name = shot_label or f"incident_{int(time.time())}"
                 safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
-                shot, error = capture_region_screenshot(safe_name)
+                shot, error = capture_region_screenshot(
+                    safe_name,
+                    label=shot_label or safe_name,
+                )
                 _handle_incident_screenshot_result(shot, error)
             if capture_cols[1].button(
                 "Use full screenshot",
                 key=global_widget_key("incident_full_capture"),
             ):
-                if not PYAUTOGUI_AVAILABLE or pyautogui is None:
-                    _handle_incident_screenshot_result(
-                        None,
-                        "Full-screen capture is unavailable in this environment.",
-                    )
-                else:
-                    safe_name = shot_name.strip() or f"incident_{int(time.time())}"
-                    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
-                    try:
-                        img = pyautogui.screenshot()  # type: ignore[union-attr]
-                    except Exception as exc:  # pragma: no cover - GUI dependent
-                        _handle_incident_screenshot_result(
-                            None, f"Unable to capture screenshot: {exc}"
-                        )
-                    else:
-                        buf = io.BytesIO()
-                        img.save(buf, format="PNG")
-                        buf.seek(0)
-                        _handle_incident_screenshot_result(
-                            InMemoryUploadedFile(f"{safe_name}.png", buf.getvalue()),
-                            None,
-                        )
+                shot_label = (shot_name or "").strip()
+                safe_name = shot_label or f"incident_{int(time.time())}"
+                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name)
+                shot, error = capture_full_screenshot(
+                    safe_name,
+                    label=shot_label or safe_name,
+                )
+                _handle_incident_screenshot_result(shot, error)
             if capture_cols[2].button(
                 "Clear screenshot",
                 key=global_widget_key("incident_clear_capture"),
@@ -12565,154 +12780,215 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
 def render_case_attachments_panel(
     case: CaseData, *, case_idx: int, tab_slug: str
 ) -> None:
-    """Render the exports and attachments controls for a case tab."""
+    """Render the redesigned evidence workflow for a case tab."""
 
     attachments_key = partial(case_widget_key, tab_slug, case_idx=case_idx)
+    screenshots = get_active_screenshots()
 
     st.markdown("---")
-    st.subheader("Exports & attachments")
+    st.subheader("Evidence locker")
 
-    new_files = st.file_uploader(
-        "Upload screenshots / videos",
-        accept_multiple_files=True,
-        key=attachments_key("attachments_new_files"),
+    st.markdown("##### Quick capture")
+    st.caption(
+        "Capture annotated screenshots that stay linked to the case JSON, quick actions, "
+        "and the remote desktop timeline."
     )
-    if new_files:
-        existing_names = {f.name for f in st.session_state.uploads}
-        for nf in new_files:
-            if nf.name not in existing_names:
-                st.session_state.uploads.append(nf)
-                existing_names.add(nf.name)
 
-    log_files = st.file_uploader(
-        "Upload case logs",
-        accept_multiple_files=True,
-        key=attachments_key("attachments_log_files"),
+    label_state_key = attachments_key("shot_label")
+    if label_state_key not in st.session_state:
+        st.session_state[label_state_key] = ""
+    auto_stamp_key = attachments_key("shot_auto_stamp")
+    if auto_stamp_key not in st.session_state:
+        st.session_state[auto_stamp_key] = True
+
+    label_value = st.text_input(
+        "Label for next capture",
+        key=label_state_key,
+        placeholder="e.g. Checkout terminal error dialog",
+        help="Stored alongside the screenshot metadata so exports and remote menus stay descriptive.",
     )
-    if log_files:
-        existing_log_names = {f.name for f in st.session_state.log_uploads}
-        for lf in log_files:
-            if lf.name not in existing_log_names:
-                st.session_state.log_uploads.append(lf)
-                existing_log_names.add(lf.name)
-
-    screenshot_state_key = f"attachments_screenshot_name_{case_idx}"
-    shared_screenshot_name = st.session_state.setdefault(screenshot_state_key, "")
-
-    screenshot_widget_key = attachments_key("attachments_screenshot_name")
-    if (
-        screenshot_widget_key not in st.session_state
-        or st.session_state[screenshot_widget_key] != shared_screenshot_name
-    ):
-        st.session_state[screenshot_widget_key] = shared_screenshot_name
-
-    screenshot_name_input = st.text_input(
-        "Screenshot name",
-        key=screenshot_widget_key,
+    auto_stamp = st.checkbox(
+        "Append timestamp to filenames",
+        key=auto_stamp_key,
+        help="Keeps filenames unique when multiple captures are added to the same case.",
     )
-    st.session_state[screenshot_state_key] = screenshot_name_input
 
-    screenshot_name_value = st.session_state[screenshot_state_key]
-
-    full_btn_col, region_btn_col = st.columns(2)
-    if full_btn_col.button(
-        "Take Screenshot",
-        key=attachments_key("attachments_take_screenshot"),
+    capture_cols = st.columns([1, 1, 1])
+    if capture_cols[0].button(
+        "Capture full desktop",
+        key=attachments_key("shot_full"),
     ):
-        if screenshot_name_value:
-            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name_value)
-            shot, error = capture_full_screenshot(safe_name)
-            if shot:
-                st.session_state.screenshots.append(shot)
-                st.success(f"Captured screenshot: {safe_name}")
-            else:
-                st.error(error or "Screenshot capture is unavailable in this environment.")
-        else:
-            st.error("Please provide a screenshot name before capturing.")
-
-    if region_btn_col.button(
-        "Advanced Screenshot (select area)",
-        key=attachments_key("attachments_take_region_screenshot"),
+        _capture_screenshot_from_ui(
+            "full",
+            label=label_value,
+            auto_stamp=auto_stamp,
+            label_state_key=label_state_key,
+        )
+        screenshots = get_active_screenshots()
+    if capture_cols[1].button(
+        "Capture selected area",
+        key=attachments_key("shot_region"),
     ):
-        if not screenshot_name_value:
-            st.error("Please provide a screenshot name before capturing.")
-        else:
-            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", screenshot_name_value)
-            shot, error = capture_region_screenshot(safe_name)
-            if shot:
-                st.session_state.screenshots.append(shot)
-                st.success(
-                    "Captured targeted screenshot. Confirm it excludes unnecessary PHI before sharing."
-                )
-            else:
-                message = error or "Unable to capture the selected region."
-                if "cancel" in message.lower():
-                    st.warning("Region capture cancelled—no image was saved.")
-                elif "environment" in message.lower() or "available" in message.lower():
-                    st.warning(message)
-                else:
-                    st.error(message)
-
-    if (
-        st.session_state.uploads
-        or st.session_state.log_uploads
-        or st.session_state.screenshots
+        _capture_screenshot_from_ui(
+            "region",
+            label=label_value,
+            auto_stamp=auto_stamp,
+            label_state_key=label_state_key,
+        )
+        screenshots = get_active_screenshots()
+    if capture_cols[2].button(
+        "Reset label",
+        key=attachments_key("shot_label_reset"),
     ):
-        if st.session_state.uploads:
-            st.markdown("Files queued:")
-            for i, f in enumerate(st.session_state.uploads):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button(
+        st.session_state[label_state_key] = ""
+
+    st.markdown("##### Upload additional evidence")
+    upload_cols = st.columns(2)
+    with upload_cols[0]:
+        new_files = st.file_uploader(
+            "Add screenshots / videos",
+            accept_multiple_files=True,
+            key=attachments_key("attachments_new_files"),
+            help="Imported files are bundled with captured screenshots when exporting.",
+        )
+        if new_files:
+            existing_names = {f.name for f in st.session_state.uploads}
+            for nf in new_files:
+                if nf.name not in existing_names:
+                    st.session_state.uploads.append(nf)
+                    existing_names.add(nf.name)
+    with upload_cols[1]:
+        log_files = st.file_uploader(
+            "Upload troubleshooting logs",
+            accept_multiple_files=True,
+            key=attachments_key("attachments_log_files"),
+            help="Logs appear beside screenshots inside the remote desktop attachments tab.",
+        )
+        if log_files:
+            existing_log_names = {f.name for f in st.session_state.log_uploads}
+            for lf in log_files:
+                if lf.name not in existing_log_names:
+                    st.session_state.log_uploads.append(lf)
+                    existing_log_names.add(lf.name)
+
+    st.markdown("##### Evidence queue")
+    uploads = st.session_state.uploads
+    log_uploads = st.session_state.log_uploads
+    screenshots = get_active_screenshots()
+
+    if not (uploads or log_uploads or screenshots):
+        st.info("No evidence queued yet. Capture a screenshot or upload supporting files to begin.")
+    else:
+        if uploads:
+            st.markdown("###### Uploaded files")
+            for i, f in enumerate(list(uploads)):
+                cols = st.columns([6, 2, 1])
+                cols[0].markdown(f"**{f.name}**")
+                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
+                if cols[2].button(
                     "Remove",
                     key=attachments_key(f"attachments_rem_upload_{i}"),
                 ):
-                    st.session_state.uploads.pop(i)
+                    uploads.pop(i)
                     st.rerun()
-        if st.session_state.log_uploads:
-            st.markdown("Logs queued:")
-            for i, f in enumerate(st.session_state.log_uploads):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {f.name} ({len(f.getvalue())//1024} KB)")
-                if cols[1].button(
+        if log_uploads:
+            st.markdown("###### Log bundles")
+            for i, f in enumerate(list(log_uploads)):
+                cols = st.columns([6, 2, 1])
+                cols[0].markdown(f"**{f.name}**")
+                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
+                if cols[2].button(
                     "Remove",
                     key=attachments_key(f"attachments_rem_log_{i}"),
                 ):
-                    st.session_state.log_uploads.pop(i)
+                    log_uploads.pop(i)
                     st.rerun()
-        if st.session_state.screenshots:
-            st.markdown("Screenshots captured:")
-            for i, s in enumerate(st.session_state.screenshots):
-                cols = st.columns([8, 1])
-                cols[0].markdown(f"• {s.name} ({len(s.getvalue())//1024} KB)")
-                if cols[1].button(
-                    "Remove",
-                    key=attachments_key(f"attachments_rem_shot_{i}"),
-                ):
-                    st.session_state.screenshots.pop(i)
-                    st.rerun()
-        if st.button(
-            "Create ZIP",
-            key=attachments_key("attachments_create_zip"),
-        ):
-            zbuf = io.BytesIO()
-            with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-                for f in st.session_state.uploads:
-                    z.writestr(f"Screenshots/{f.name}", f.getvalue())
-                for f in st.session_state.log_uploads:
-                    z.writestr(f"logs/{f.name}", f.getvalue())
-                for s in st.session_state.screenshots:
-                    z.writestr(f"Screenshots/{s.name}", s.getvalue())
-                if st.session_state.get("attachments_include_case_json", True):
-                    z.writestr("case.json", json.dumps(asdict(case), indent=2))
-            zbuf.seek(0)
-            st.download_button(
-                "Download attachments.zip",
-                zbuf,
-                file_name=f"{case.case_id or 'case'}_attachments.zip",
-                mime="application/zip",
-                key=attachments_key("attachments_download_zip"),
-            )
+        if screenshots:
+            st.markdown("###### Captured screenshots")
+            for i, shot in enumerate(list(screenshots)):
+                edit_cols = st.columns([3, 3, 1])
+                label_edit_key = attachments_key(f"shot_label_edit_{i}")
+                if label_edit_key not in st.session_state:
+                    st.session_state[label_edit_key] = shot.label
+                new_label = edit_cols[0].text_input(
+                    "Label",
+                    key=label_edit_key,
+                    help="Shown in remote menus and exported summaries.",
+                )
+                if new_label.strip() and new_label.strip() != shot.label:
+                    shot.label = new_label.strip()
+
+                filename_edit_key = attachments_key(f"shot_filename_{i}")
+                if filename_edit_key not in st.session_state:
+                    st.session_state[filename_edit_key] = shot.name
+                new_filename = edit_cols[1].text_input(
+                    "Filename",
+                    key=filename_edit_key,
+                    help="Used when evidence is written to disk or bundled into zips.",
+                )
+                if new_filename.strip() and new_filename.strip() != shot.name:
+                    sanitized = sanitize_filename(new_filename.strip())
+                    if not sanitized.lower().endswith(".png"):
+                        sanitized = f"{sanitized}.png"
+                    shot.name = sanitized
+                    st.session_state[filename_edit_key] = sanitized
+
+                with edit_cols[2]:
+                    if st.button(
+                        "Remove",
+                        key=attachments_key(f"attachments_rem_shot_{i}"),
+                    ):
+                        screenshots.pop(i)
+                        st.session_state["screenshots"] = screenshots
+                        get_active_screenshots()
+                        st.rerun()
+                    st.download_button(
+                        "Download",
+                        shot.getvalue(),
+                        file_name=shot.name,
+                        mime=shot.content_type,
+                        key=attachments_key(f"attachments_dl_shot_{i}"),
+                    )
+
+                st.caption(
+                    f"Captured {shot.captured_at} · Mode: {shot.capture_mode.title()} · Stored as {shot.name}"
+                )
+                with st.expander("Preview", expanded=False):
+                    st.image(shot.data, caption=shot.label, use_column_width=True)
+
+    include_case_json_key = attachments_key("attachments_include_case_json")
+    if include_case_json_key not in st.session_state:
+        st.session_state[include_case_json_key] = True
+
+    st.markdown("##### Package evidence")
+    st.checkbox(
+        "Include case.json snapshot",
+        key=include_case_json_key,
+        help="Adds the full case payload next to the evidence in the exported archive.",
+    )
+    if st.button(
+        "Create evidence bundle",
+        key=attachments_key("attachments_create_zip"),
+        help="Writes uploads, logs, and screenshots to a single ZIP ready to attach to incidents.",
+    ):
+        zbuf = io.BytesIO()
+        with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in uploads:
+                z.writestr(f"uploads/{f.name}", f.getvalue())
+            for f in log_uploads:
+                z.writestr(f"logs/{f.name}", f.getvalue())
+            for shot in screenshots:
+                z.writestr(f"screenshots/{shot.name}", shot.getvalue())
+            if st.session_state.get(include_case_json_key, True):
+                z.writestr("case.json", json.dumps(asdict(case), indent=2))
+        zbuf.seek(0)
+        st.download_button(
+            "Download evidence.zip",
+            zbuf,
+            file_name=f"{case.case_id or 'case'}_evidence.zip",
+            mime="application/zip",
+            key=attachments_key("attachments_download_zip"),
+        )
 
 
 CASE_TAB_SLUGS = {
@@ -14770,139 +15046,327 @@ End with: We look forward to your reply."""
             render_autohotkey_panel(cat_map, case_idx)
 
     # ================== REMOTE SESSION TAB =================
+    REMOTE_DESKTOP_STYLE = """
+    <style>
+    .remote-hub-card {
+        background: linear-gradient(135deg, rgba(29,41,81,0.92), rgba(58,96,115,0.88));
+        border-radius: 16px;
+        padding: 1.5rem;
+        color: #f7fbff;
+        box-shadow: 0 18px 45px rgba(23, 37, 61, 0.25);
+        margin-bottom: 1.5rem;
+    }
+    .remote-hub-card__header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+    .remote-hub-card__title {
+        font-size: 1.45rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+    .remote-hub-card__badge {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        background: rgba(255, 255, 255, 0.18);
+        padding: 0.25rem 0.75rem;
+        border-radius: 999px;
+    }
+    .remote-hub-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 0.9rem;
+        margin-top: 1.25rem;
+    }
+    .remote-hub-grid__item {
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+        backdrop-filter: blur(5px);
+    }
+    .remote-hub-grid__label {
+        font-size: 0.75rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.75;
+        margin-bottom: 0.35rem;
+    }
+    .remote-hub-grid__value {
+        font-size: 1rem;
+        font-weight: 600;
+        word-break: break-word;
+    }
+    .remote-hub-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        margin-top: 1.25rem;
+    }
+    .remote-hub-actions button {
+        padding: 0.6rem 1.1rem;
+        border-radius: 999px;
+        border: none;
+        background: rgba(255, 255, 255, 0.18);
+        color: #f7fbff;
+        cursor: pointer;
+        font-weight: 600;
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
+    .remote-hub-actions button:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.28);
+    }
+    .remote-hub-note-preview {
+        font-size: 0.9rem;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.85);
+        margin-top: 1rem;
+        border-left: 3px solid rgba(255, 255, 255, 0.25);
+        padding-left: 0.75rem;
+        max-height: 180px;
+        overflow-y: auto;
+    }
+    .remote-hub-history {
+        background: rgba(18, 30, 45, 0.75);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        color: #d6e4f5;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .remote-hub-history h4 {
+        margin-top: 0;
+    }
+    </style>
+    """
     with tab_remote:
         remote_tab_key = partial(
             case_widget_key, CASE_TAB_SLUGS["Remote Session"], case_idx=case_idx
         )
-        st.subheader("Remote sessions")
-        ensure_remote_session_entries(D)
-        sessions = D.remote_sessions
+        remote_style_flag = "remote_style_injected"
+        if not st.session_state.get(remote_style_flag, False):
+            st.markdown(REMOTE_DESKTOP_STYLE, unsafe_allow_html=True)
+            st.session_state[remote_style_flag] = True
 
-        action_cols = st.columns([1, 5])
-        with action_cols[0]:
-            if st.button(
-                "Add session",
-                key=remote_tab_key("remote_session_add"),
-            ):
-                new_session = RemoteSessionEntry(
-                    title=f"Session {len(sessions) + 1}",
-                    notes="",
-                )
-                sessions.append(new_session)
-                update_case_remote_sessions(D, sessions)
-                st.session_state[
-                    remote_tab_key(
-                        f"remote_session_title_{new_session.session_id}"
-                    )
-                ] = new_session.title
-                st.session_state[
-                    remote_tab_key(
-                        f"remote_session_notes_{new_session.session_id}"
-                    )
-                ] = new_session.notes
-                st.rerun()
-        with action_cols[1]:
-            st.caption(
-                "Document each remote control session separately. Rename, reorder, or "
-                "remove panels as needed."
+        st.subheader("Remote desktop control center")
+        st.caption(
+            "A single timeline for every remote engagement. Legacy multi-session "
+            "notes are merged automatically to keep the JSON payload compatible."
+        )
+
+        primary_session = ensure_single_remote_session(D)
+
+        title_key = remote_tab_key("single_session_title")
+        if title_key not in st.session_state:
+            st.session_state[title_key] = primary_session.title
+
+        notes_key = remote_tab_key("single_session_notes")
+        if notes_key not in st.session_state:
+            st.session_state[notes_key] = primary_session.notes
+
+        incoming_title = st.session_state.get(title_key, primary_session.title)
+        incoming_notes = st.session_state.get(notes_key, primary_session.notes)
+
+        if incoming_title != primary_session.title or incoming_notes != primary_session.notes:
+            updated_entry = RemoteSessionEntry(
+                session_id=primary_session.session_id,
+                title=incoming_title,
+                notes=incoming_notes,
+                created_at=primary_session.created_at,
+                updated_at=_utc_now_z(),
+            )
+            update_case_remote_sessions(D, [updated_entry])
+            primary_session = D.remote_sessions[0]
+            st.session_state[title_key] = primary_session.title
+            st.session_state[notes_key] = primary_session.notes
+
+        history_summary = (D.remote_steps or "")
+
+        uploads_count = len(st.session_state.get("uploads", []))
+        logs_count = len(st.session_state.get("log_uploads", []))
+        screenshots_count = len(st.session_state.get("screenshots", []))
+
+        grid_rows = [
+            ("TeamViewer ID", (D.teamviewer_id or "").strip() or "—"),
+            ("TeamViewer password", (D.teamviewer_password or "").strip() or "—"),
+            ("Remote contact", (D.caller_name or "").strip() or "—"),
+            ("Contact phone", (D.phone_number or "").strip() or "—"),
+            ("Contact email", (D.email or "").strip() or "—"),
+            ("Started", (primary_session.created_at or "").strip() or "—"),
+            ("Last update", (primary_session.updated_at or "").strip() or "—"),
+            (
+                "Uploads queued",
+                f"{uploads_count} file{'s' if uploads_count != 1 else ''}",
+            ),
+            (
+                "Logs queued",
+                f"{logs_count} file{'s' if logs_count != 1 else ''}",
+            ),
+            (
+                "Screenshots queued",
+                f"{screenshots_count} capture{'s' if screenshots_count != 1 else ''}",
+            ),
+        ]
+        grid_html = "".join(
+            f"<div class='remote-hub-grid__item'>"
+            f"<div class='remote-hub-grid__label'>{escape(str(label))}</div>"
+            f"<div class='remote-hub-grid__value'>{escape(str(value))}</div>"
+            "</div>"
+            for label, value in grid_rows
+        )
+
+        note_preview = (primary_session.notes or "").strip()
+        note_preview_html = (
+            "<span style='opacity:0.65;'>No notes recorded yet.</span>"
+            if not note_preview
+            else escape(note_preview).replace("\n", "<br>")
+        )
+
+        credential_pairs = [
+            ("TeamViewer ID", (D.teamviewer_id or "").strip()),
+            ("TeamViewer password", (D.teamviewer_password or "").strip()),
+            ("Third-line TV ID", (D.third_line_tv_id or "").strip()),
+            ("Third-line TV password", (D.third_line_tv_password or "").strip()),
+            ("Unite PIN", (D.third_line_unite_pin or "").strip()),
+        ]
+        credential_lines = [
+            f"{label}: {value}"
+            for label, value in credential_pairs
+            if value
+        ]
+        credentials_payload = script_safe_json(
+            "\n".join(credential_lines)
+            if credential_lines
+            else "No remote credentials recorded."
+        )
+        notes_payload = script_safe_json(
+            (primary_session.notes or "").strip() or "No remote notes captured yet."
+        )
+        timeline_payload = script_safe_json(
+            history_summary.strip() or "No remote timeline available yet."
+        )
+        title_display = primary_session.display_title(1)
+        badge_text = (
+            primary_session.updated_at or primary_session.created_at or "Session ready"
+        ).strip()
+
+        overview_tab, notes_tab, history_tab, attachments_tab = st.tabs(
+            ["Overview", "Notes & Timeline", "History", "Attachments"]
+        )
+
+        with overview_tab:
+            remote_card_html = f"""
+{REMOTE_DESKTOP_STYLE}
+<div class='remote-hub-card'>
+  <div class='remote-hub-card__header'>
+    <span class='remote-hub-card__title'>{escape(title_display)}</span>
+    <span class='remote-hub-card__badge'>{escape(badge_text)}</span>
+  </div>
+  <div class='remote-hub-grid'>
+    {grid_html}
+  </div>
+  <div class='remote-hub-actions'>
+    <button onclick=\"copyRemotePayload(credentialsPayload, 'Credentials copied')\">Copy credentials</button>
+    <button onclick=\"copyRemotePayload(notesPayload, 'Notes copied')\">Copy live notes</button>
+    <button onclick=\"copyRemotePayload(timelinePayload, 'Timeline copied')\">Copy timeline</button>
+  </div>
+  <div id='remote-action-feedback' style='font-size:0.75rem;margin-top:0.35rem;'></div>
+  <div class='remote-hub-note-preview'>{note_preview_html}</div>
+</div>
+<script>
+  const credentialsPayload = {credentials_payload};
+  const notesPayload = {notes_payload};
+  const timelinePayload = {timeline_payload};
+  function copyRemotePayload(payload, label) {{
+    navigator.clipboard.writeText(payload).then(() => {{
+      const feedback = document.getElementById('remote-action-feedback');
+      if (feedback) {{
+        feedback.textContent = label;
+        setTimeout(() => {{
+          if (feedback.textContent === label) {{
+            feedback.textContent = '';
+          }}
+        }}, 2000);
+      }}
+    }});
+  }}
+</script>
+"""
+            components.html(remote_card_html, height=420)
+
+        with notes_tab:
+            st.markdown("#### Update session context")
+            st.text_input(
+                "Session title",
+                key=title_key,
+                help="Saved to the case JSON and reused by exports and quick actions.",
             )
 
-        for idx in range(len(sessions)):
-            session = sessions[idx]
-            if idx:
-                st.markdown("---")
-            container = st.container()
-            with container:
-                header_cols = st.columns([6, 1, 1, 1])
-                title_key = remote_tab_key(
-                    f"remote_session_title_{session.session_id}"
+            cols = st.columns([1, 1, 1])
+            if cols[0].button(
+                "Insert timestamp",
+                key=remote_tab_key("notes_add_timestamp"),
+            ):
+                stamp = _utc_now_z()
+                existing = st.session_state.get(notes_key, "")
+                updated = (
+                    f"{existing.rstrip()}\n[{stamp}] "
+                    if existing.strip()
+                    else f"[{stamp}] "
                 )
-                if title_key not in st.session_state:
-                    st.session_state[title_key] = session.title
-                new_title = header_cols[0].text_input(
-                    "Title",
-                    key=title_key,
+                st.session_state[notes_key] = updated
+                st.rerun()
+            if cols[1].button(
+                "Mark session complete",
+                key=remote_tab_key("notes_mark_complete"),
+            ):
+                completion_stamp = _utc_now_z()
+                existing = st.session_state.get(notes_key, "")
+                completion_text = (
+                    f"{existing.rstrip()}\n\n✔ Session closed at {completion_stamp}"
+                    if existing.strip()
+                    else f"✔ Session closed at {completion_stamp}"
                 )
-                move_up_key = remote_tab_key(
-                    f"remote_session_up_{session.session_id}"
-                )
-                move_down_key = remote_tab_key(
-                    f"remote_session_down_{session.session_id}"
-                )
-                remove_key = remote_tab_key(
-                    f"remote_session_remove_{session.session_id}"
-                )
-                with header_cols[1]:
-                    if st.button(
-                        "↑",
-                        disabled=idx == 0,
-                        key=move_up_key,
-                        help="Move session up",
-                    ):
-                        sessions.insert(idx - 1, sessions.pop(idx))
-                        update_case_remote_sessions(D, sessions)
-                        st.rerun()
-                with header_cols[2]:
-                    if st.button(
-                        "↓",
-                        disabled=idx == len(sessions) - 1,
-                        key=move_down_key,
-                        help="Move session down",
-                    ):
-                        sessions.insert(idx + 1, sessions.pop(idx))
-                        update_case_remote_sessions(D, sessions)
-                        st.rerun()
-                with header_cols[3]:
-                    if st.button(
-                        "Remove",
-                        disabled=len(sessions) == 1,
-                        key=remove_key,
-                        help="Delete this session panel",
-                    ):
-                        sessions.pop(idx)
-                        if not sessions:
-                            default_session = RemoteSessionEntry(
-                                title="Session 1",
-                                notes="",
-                            )
-                            sessions.append(default_session)
-                        update_case_remote_sessions(D, sessions)
-                        st.rerun()
+                st.session_state[notes_key] = completion_text
+                st.rerun()
+            if cols[2].button(
+                "Clear notes",
+                key=remote_tab_key("notes_clear"),
+            ):
+                st.session_state[notes_key] = ""
+                st.rerun()
 
-                if new_title != session.title:
-                    session.title = new_title
-                    session.touch()
-                    update_case_remote_sessions(D, sessions)
-                    sessions = D.remote_sessions
-                    session = sessions[idx]
-                    st.session_state[title_key] = session.title
+            st.text_area(
+                "Remote troubleshooting notes",
+                key=notes_key,
+                height=420,
+                help="Everything written here is persisted back to the case JSON.",
+            )
 
-                timestamp_parts: list[str] = []
-                created_value = (session.created_at or "").strip()
-                updated_value = (session.updated_at or "").strip()
-                if created_value:
-                    timestamp_parts.append(f"Created: {created_value}")
-                if updated_value and updated_value != created_value:
-                    timestamp_parts.append(f"Updated: {updated_value}")
-                if timestamp_parts:
-                    st.caption(" · ".join(timestamp_parts))
+        with history_tab:
+            st.markdown("#### Timeline preview")
+            if history_summary.strip():
+                history_html = escape(history_summary).replace("\n", "<br>")
+                st.markdown(
+                    f"<div class='remote-hub-history'>{history_html}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info("Timeline will populate once remote notes are captured.")
 
-                notes_key = remote_tab_key(
-                    f"remote_session_notes_{session.session_id}"
-                )
-                if notes_key not in st.session_state:
-                    st.session_state[notes_key] = session.notes
-                new_notes = st.text_area(
-                    "Session notes",
-                    height=800,
-                    key=notes_key,
-                )
-                if new_notes != session.notes:
-                    session.notes = new_notes
-                    session.touch()
-                    update_case_remote_sessions(D, sessions)
-                    sessions = D.remote_sessions
-                    session = sessions[idx]
+            st.markdown("#### Raw session payload")
+            st.json(asdict(primary_session))
+
+        with attachments_tab:
+            st.markdown("#### Logs & screenshots")
+            render_case_attachments_panel(
+                D,
+                case_idx=case_idx,
+                tab_slug="remote_attachments",
+            )
 
 
 
@@ -15221,12 +15685,6 @@ End with: We look forward to your reply."""
             if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
-
-    render_case_attachments_panel(
-        D,
-        case_idx=case_idx,
-        tab_slug="attachments",
-    )
 
     autosave()
 
