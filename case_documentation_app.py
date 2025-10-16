@@ -6462,6 +6462,18 @@ if "case_sessions" not in st.session_state:
     _sync_case_memory_from_sessions()
 
 
+def _prime_case_widget_state(idx: int, case: CaseData) -> None:
+    """Seed widget-specific state values for the active case index."""
+
+    for field in fields(CaseData):
+        state_key = widget_state_key(field.name, idx)
+        try:
+            st.session_state[state_key] = getattr(case, field.name)
+        except AttributeError:
+            # ``CaseData`` can evolve over time; ignore fields missing on legacy payloads.
+            continue
+
+
 def load_case_state(idx: int) -> None:
     cs = st.session_state.case_sessions[idx]
     st.session_state.case = cs.case
@@ -6479,6 +6491,7 @@ def load_case_state(idx: int) -> None:
     D = st.session_state.case
     for key, value in asdict(D).items():
         st.session_state[key] = value
+    _prime_case_widget_state(idx, D)
 
 
 def save_case_state(idx: int) -> None:
@@ -6499,6 +6512,15 @@ def save_case_state(idx: int) -> None:
     _sync_case_memory_from_sessions()
 
 
+def _clear_case_widget_state(idx: int) -> None:
+    """Remove Streamlit widget state entries associated with a case index."""
+
+    suffix = f"_{idx}"
+    for key in list(st.session_state.keys()):
+        if key.endswith(suffix):
+            st.session_state.pop(key)
+
+
 def clear_case_state(idx: int) -> None:
     """Reset the stored data for the case at the given index."""
 
@@ -6511,10 +6533,7 @@ def clear_case_state(idx: int) -> None:
         screenshots=[],
     )
 
-    suffix = f"_{idx}"
-    for key in list(st.session_state.keys()):
-        if key.endswith(suffix):
-            st.session_state.pop(key)
+    _clear_case_widget_state(idx)
 
     st.session_state.case_sessions[idx] = new_session
 
@@ -6547,6 +6566,31 @@ def clear_case_state(idx: int) -> None:
         st.session_state.ai_learning_matches = []
 
     ensure_tracking_session_defaults(idx, new_case.tracking, force=True)
+
+    st.session_state.track_case = any(
+        session.case.tracking.active for session in st.session_state.case_sessions
+    )
+
+    touch_case_last_modified()
+    autosave()
+    _sync_case_memory_from_sessions()
+
+
+def close_case_tab(idx: int) -> None:
+    """Remove the case session at the given index and clean up widget state."""
+
+    sessions: list[CaseSession] | None = st.session_state.get("case_sessions")
+    if not sessions:
+        return
+    if idx <= 0 or idx >= len(sessions):
+        return
+
+    # Clear widget state for the closing case and any cases that will be re-indexed.
+    for target_idx in range(idx, len(sessions)):
+        _clear_case_widget_state(target_idx)
+
+    sessions.pop(idx)
+    st.session_state.case_sessions = sessions
 
     st.session_state.track_case = any(
         session.case.tracking.active for session in st.session_state.case_sessions
@@ -9288,6 +9332,26 @@ def _render_case_tab(idx: int) -> None:
     """Render a single case tab inside the failure monitor."""
 
     load_case_state(idx)
+
+    case_label = st.session_state.case.case_id or f"Case {idx + 1}"
+    if idx > 0:
+        col_label, col_close = st.columns([10, 1])
+        with col_label:
+            st.markdown(
+                f"<h3 style='margin-bottom: 0.25rem'>Case: {escape(case_label)}</h3>",
+                unsafe_allow_html=True,
+            )
+        with col_close:
+            close_key = case_widget_key("close_case", idx=idx)
+            if st.button("✕", key=close_key, help="Close this case tab"):
+                close_case_tab(idx)
+                st.rerun()
+    elif idx == 0:
+        st.markdown(
+            f"<h3 style='margin-bottom: 0.25rem'>Case: {escape(case_label)}</h3>",
+            unsafe_allow_html=True,
+        )
+
     render_case_ui(idx)
     save_case_state(idx)
 
