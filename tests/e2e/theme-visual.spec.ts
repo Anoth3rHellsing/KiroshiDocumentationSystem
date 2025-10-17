@@ -29,8 +29,8 @@ const THEMES: ThemeConfig[] = [
   {
     name: 'dark',
     query: {
-      enable_holiday_theme: 'true',
-      theme_preview: 'halloween',
+      dark_mode: 'true',
+      enable_holiday_theme: 'false',
     },
   },
 ];
