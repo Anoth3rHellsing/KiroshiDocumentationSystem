@@ -15328,6 +15328,7 @@ End with: We look forward to your reply."""
                 "Damage classification",
                 "scanner_accidental_damage",
                 container=col_sc2,
+                state_labels={True: "Accidental damage", False: "Internal damage"},
             )
             auto_toggle(
                 "Hardware test completed?",
