@@ -6736,6 +6736,7 @@ def _prime_case_widget_state(idx: int, case: CaseData) -> None:
             setattr(case, field.name, normalised)
             value = normalised
         st.session_state[state_key] = value
+        st.session_state[f"{state_key}__persisted"] = value
 
 
 def load_case_state(idx: int) -> None:
@@ -6784,7 +6785,7 @@ def _clear_case_widget_state(idx: int) -> None:
 
     suffix = f"_{idx}"
     for key in list(st.session_state.keys()):
-        if key.endswith(suffix):
+        if key.endswith(suffix) or key.endswith(f"{suffix}__persisted"):
             st.session_state.pop(key)
 
 
@@ -11889,10 +11890,13 @@ def _update_field(
     previous = getattr(D, field)
     if new_value != previous:
         setattr(D, field, new_value)
+        st.session_state[persisted_key] = new_value
         touch_case_last_modified()
         autosave()
     else:
         setattr(D, field, new_value)
+        if persisted_key not in st.session_state:
+            st.session_state[persisted_key] = new_value
 
 
 def auto_text_input(
