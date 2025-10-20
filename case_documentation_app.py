@@ -12477,16 +12477,13 @@ def _normalize_value_column(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     original = df["Value"].copy()
     df["Value"] = pd.to_numeric(df["Value"], errors="coerce").fillna("").astype(str)
+    numeric = pd.to_numeric(original, errors="coerce")
+    numeric_mask = numeric.notna()
+    if numeric_mask.any():
+        df.loc[numeric_mask, "Value"] = numeric.loc[numeric_mask].map(lambda v: f"{v:g}")
     empty_mask = df["Value"] == ""
     if empty_mask.any():
         df.loc[empty_mask, "Value"] = original.loc[empty_mask].fillna("").astype(str)
-    numeric_mask = ~empty_mask
-    if numeric_mask.any():
-        df.loc[numeric_mask, "Value"] = (
-            original.loc[numeric_mask]
-            .map(lambda value: "" if value is None else str(value))
-            .astype(str)
-        )
     return df
 
 
