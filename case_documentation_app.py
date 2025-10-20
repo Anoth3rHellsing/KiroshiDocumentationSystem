@@ -11805,20 +11805,21 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
     kwargs.setdefault("key", key)
     default_value = bool(getattr(D, field))
     alias_key = f"{field}_on"
+    state_value: bool
     if key in st.session_state:
-        current_value = bool(st.session_state.get(key))
+        state_value = bool(st.session_state.get(key))
     elif alias_key in st.session_state:
-        current_value = bool(st.session_state.get(alias_key))
+        state_value = bool(st.session_state.get(alias_key))
+        st.session_state[key] = state_value
     else:
-        current_value = default_value
-    if alias_key not in st.session_state:
-        st.session_state[alias_key] = current_value
+        state_value = default_value
+        st.session_state[key] = state_value
 
-    def _render_toggle(initial: bool) -> bool:
-        return container.toggle(label, value=initial, **kwargs)
+    if alias_key not in st.session_state:
+        st.session_state[alias_key] = state_value
 
     try:
-        value = _render_toggle(current_value)
+        value = container.toggle(label, value=state_value, **kwargs)
     except StreamlitAPIException as exc:
         match = re.search(
             r"st\\.session_state\\.([^.\\s]+) does not exist", str(exc)
@@ -11826,18 +11827,19 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
         if match:
             missing_key = match.group(1)
             if missing_key not in st.session_state:
-                st.session_state[missing_key] = current_value
-            value = _render_toggle(current_value)
+                st.session_state[missing_key] = state_value
+            value = container.toggle(label, value=state_value, **kwargs)
         else:
             raise
 
     previous_value = getattr(D, field)
-    st.session_state[key] = value
     st.session_state[alias_key] = value
     if value != previous_value:
         setattr(D, field, value)
         touch_case_last_modified()
         autosave()
+    else:
+        setattr(D, field, value)
 
 DELL_ESCALATION_OVERVIEW_FIELDS = [
     ("dell_issue_start_date", "Issue start date"),
