@@ -12468,6 +12468,28 @@ Finally, you can remind the person to add on an attached notepad or over Teams t
 """
 
 
+def _normalize_value_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure the Value column is Arrow-friendly while preserving text entries."""
+
+    if "Value" not in df.columns:
+        return df
+
+    df = df.copy()
+    original = df["Value"].copy()
+    df["Value"] = pd.to_numeric(df["Value"], errors="coerce").fillna("").astype(str)
+    empty_mask = df["Value"] == ""
+    if empty_mask.any():
+        df.loc[empty_mask, "Value"] = original.loc[empty_mask].fillna("").astype(str)
+    numeric_mask = ~empty_mask
+    if numeric_mask.any():
+        df.loc[numeric_mask, "Value"] = (
+            original.loc[numeric_mask]
+            .map(lambda value: "" if value is None else str(value))
+            .astype(str)
+        )
+    return df
+
+
 def category_dataframe(
     cat: str, d: CaseData, cat_map: Mapping[str, Iterable[str]] | None
 ) -> pd.DataFrame:
@@ -12488,7 +12510,7 @@ def category_dataframe(
         elif isinstance(value, bool):
             value = "Yes" if value else "No"
         rows.append({"Field": label, "Value": value})
-    return pd.DataFrame(rows)
+    return _normalize_value_column(pd.DataFrame(rows))
 
 
 def table_title(cat: str) -> str:
@@ -12545,7 +12567,7 @@ def dell_escalation_rows(d: CaseData) -> list[dict[str, str]]:
 
 
 def dell_escalation_dataframe(d: CaseData) -> pd.DataFrame:
-    return pd.DataFrame(dell_escalation_rows(d))
+    return _normalize_value_column(pd.DataFrame(dell_escalation_rows(d)))
 
 
 def dell_escalation_plain_text(d: CaseData) -> str:
