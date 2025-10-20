@@ -11899,10 +11899,20 @@ def auto_text_input(
         current_value = ""
     elif not isinstance(current_value, str):
         current_value = str(current_value)
+
+    if state_key not in st.session_state:
+        st.session_state[state_key] = current_value
+
     value = container.text_input(
-        label, current_value, on_change=_update_field, args=(field,), **kwargs
+        label, on_change=_update_field, args=(field,), **kwargs
     )
-    setattr(D, field, value)
+
+    session_value = st.session_state.get(state_key, value)
+    if session_value is None:
+        session_value = ""
+    elif not isinstance(session_value, str):
+        session_value = str(session_value)
+    setattr(D, field, session_value)
 
 
 def auto_text_area(label: str, field: str, container=st, **kwargs):
