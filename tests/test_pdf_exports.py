@@ -68,6 +68,12 @@ def _install_streamlit_stubs() -> None:
         return
 
     streamlit_stub = types.ModuleType("streamlit")
+
+    class _QueryParams(dict):
+        def to_dict(self):  # pragma: no cover - convenience helper
+            return dict(self)
+
+    streamlit_stub.query_params = _QueryParams()
     streamlit_stub.session_state = _SessionState()
     streamlit_stub.session_state.update(
         {
@@ -83,7 +89,9 @@ def _install_streamlit_stubs() -> None:
     streamlit_stub.runtime = _MagicStub()
     streamlit_stub.dialog = lambda *a, **k: _MagicStub()
     streamlit_stub.set_page_config = lambda *a, **k: None
-    streamlit_stub.experimental_get_query_params = lambda: {}
+    streamlit_stub.experimental_get_query_params = (
+        lambda: dict(streamlit_stub.query_params)
+    )
     streamlit_stub.experimental_set_query_params = lambda **_k: None
     streamlit_stub.experimental_rerun = lambda: None
     streamlit_stub.experimental_memo = lambda *a, **k: (lambda func: func)

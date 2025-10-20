@@ -513,25 +513,50 @@ _persistent_settings_cache: dict[str, object] = PERSISTENT_SETTINGS_DEFAULTS.cop
 def _extract_theme_query_overrides() -> dict[str, object]:
     """Return theme overrides sourced from the current URL query parameters."""
 
-    try:
-        params = st.experimental_get_query_params()
-    except AttributeError:  # pragma: no cover - legacy Streamlit versions
+    def _normalise_params(candidate: object) -> dict[str, object] | None:
+        if candidate is None:
+            return None
+        if callable(candidate):  # pragma: no cover - defensive fallback
+            try:
+                return _normalise_params(candidate())
+            except Exception:
+                return None
+        if hasattr(candidate, "to_dict"):
+            try:
+                return getattr(candidate, "to_dict")()
+            except Exception:
+                return None
+        if isinstance(candidate, dict):
+            return dict(candidate)
         try:
-            params_obj = getattr(st, "query_params")
+            items = getattr(candidate, "items")
         except AttributeError:
-            return {}
-        except StreamlitAPIException:
-            return {}
-        else:
-            if hasattr(params_obj, "to_dict"):
-                params = params_obj.to_dict()
-            else:
-                try:
-                    params = dict(params_obj.items())
-                except Exception:  # pragma: no cover - defensive fallback
-                    return {}
+            return None
+        try:
+            return dict(items())
+        except Exception:
+            return None
+
+    params: dict[str, object] | None = None
+
+    try:
+        params_obj = getattr(st, "query_params")
+    except AttributeError:
+        params_obj = None
     except StreamlitAPIException:
         return {}
+    else:
+        params = _normalise_params(params_obj)
+
+    if params is None:
+        try:
+            params = st.experimental_get_query_params()
+        except AttributeError:  # pragma: no cover - Streamlit >= 1.32
+            params = {}
+        except StreamlitAPIException:
+            return {}
+        except Exception:  # pragma: no cover - defensive fallback
+            return {}
 
     overrides: dict[str, object] = {}
 
