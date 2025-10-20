@@ -40,9 +40,26 @@ jobs:
           pip install -r requirements.txt
       - name: Build executable
         run: bash build.sh
+      - name: Diagnostic: list dist
+        run: |
+          if [ -d dist ]; then
+            echo "dist contents:"
+            ls -la dist || true
+            du -sh dist || true
+          else
+            echo "dist directory not found"
+            exit 1
+          fi
+      - name: Compress dist
+        run: |
+          tar -czf dist.tar.gz -C dist .
+          ls -lh dist.tar.gz
       - name: Upload artifact
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: pyinstaller-dist
-          path: dist
+          path: dist.tar.gz
           if-no-files-found: error
+          retention-days: 1
