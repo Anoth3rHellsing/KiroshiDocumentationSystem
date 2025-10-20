@@ -476,6 +476,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
         "furthest_step": 0,
     },
     "enable_holiday_theme": True,
+    "dark_mode_enabled": False,
     "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
     "kiroshi_sarcasm_mode": False,
 }
@@ -551,6 +552,11 @@ def _extract_theme_query_overrides() -> dict[str, object]:
     if raw_holiday is not None and raw_holiday != "":
         normalized = raw_holiday.lower()
         overrides["enable_holiday_theme"] = normalized not in {"0", "false", "off", "no"}
+
+    raw_dark = _pop_str_value(params.get("dark_mode")) if isinstance(params, dict) else None
+    if raw_dark is not None and raw_dark != "":
+        normalized = raw_dark.lower()
+        overrides["dark_mode_enabled"] = normalized not in {"0", "false", "off", "no"}
 
     return overrides
 
@@ -1127,6 +1133,10 @@ _persistent_settings_cache.update(_load_persistent_settings())
 if "enable_holiday_theme" in _THEME_QUERY_OVERRIDES:
     _persistent_settings_cache["enable_holiday_theme"] = bool(
         _THEME_QUERY_OVERRIDES["enable_holiday_theme"]
+    )
+if "dark_mode_enabled" in _THEME_QUERY_OVERRIDES:
+    _persistent_settings_cache["dark_mode_enabled"] = bool(
+        _THEME_QUERY_OVERRIDES["dark_mode_enabled"]
     )
 
 
@@ -2477,6 +2487,19 @@ DEFAULT_THEME = ThemePalette(
 )
 
 
+DARK_THEME = ThemePalette(
+    key="dark",
+    name="Midnight Ops",
+    primary="#8b5cf6",
+    accent="#22d3ee",
+    background="#0f172a",
+    surface="#17243b",
+    text="#e2e8f0",
+    muted_text="#94a3b8",
+    glados_messages=KIROSHI_MESSAGES,
+)
+
+
 HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "new_year": ThemePalette(
         key="new_year",
@@ -2772,6 +2795,9 @@ def determine_active_theme(today: date | None = None) -> ThemePalette:
     if preview_key and preview_key != "auto":
         return HOLIDAY_THEMES.get(preview_key, DEFAULT_THEME)
 
+    if st.session_state.get("dark_mode_enabled", False):
+        return DARK_THEME
+
     if not st.session_state.get("enable_holiday_theme", True):
         return DEFAULT_THEME
 
@@ -2799,7 +2825,8 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     button_shadow_color = _blend_hex_colors(theme.primary, "#000000", 0.55)
     text_on_surface = _preferred_text_for_background(theme.surface, theme.text)
     text_on_white = _preferred_text_for_background("#ffffff", theme.text)
-    is_holiday_theme = theme.key != DEFAULT_THEME.key
+    is_dark_theme = theme.key == DARK_THEME.key
+    is_holiday_theme = theme.key not in {DEFAULT_THEME.key, DARK_THEME.key}
     if is_holiday_theme:
         pastel_primary = _blend_hex_colors(theme.primary, "#ffffff", 0.75)
         pastel_accent = _blend_hex_colors(theme.accent, "#ffffff", 0.78)
@@ -2815,6 +2842,20 @@ def apply_theme_palette(theme: ThemePalette) -> None:
                 f"{pastel_overlay} 0%, {pastel_backdrop} 55%, {theme.background} 100%)",
             ]
         )
+    elif is_dark_theme:
+        dark_top = _blend_hex_colors(theme.background, "#1e293b", 0.4)
+        dark_mid = _blend_hex_colors(theme.surface, "#0b1120", 0.35)
+        dark_bottom = _blend_hex_colors(theme.background, "#020617", 0.65)
+        background_layers = "\n                ".join(
+            [
+                "radial-gradient(circle at 18% 20%, "
+                f"{_rgba(theme.primary, 0.32)} 0%, transparent 60%)",
+                "radial-gradient(circle at 82% 12%, "
+                f"{_rgba(theme.accent, 0.26)} 0%, transparent 62%)",
+                "linear-gradient(185deg, "
+                f"{dark_mid} 0%, {dark_top} 48%, {dark_bottom} 100%)",
+            ]
+        )
     else:
         background_layers = "\n                ".join(
             [
@@ -2823,6 +2864,86 @@ def apply_theme_palette(theme: ThemePalette) -> None:
                 f"linear-gradient(165deg, {background_soft} 0%, {theme.background} 100%)",
             ]
         )
+    dark_css = f"""
+        html[data-kiroshi-theme="dark"] .tutorial-wrapper {{
+            background: linear-gradient(160deg,
+                color-mix(in srgb, var(--kiroshi-surface) 88%, transparent) 0%,
+                color-mix(in srgb, var(--kiroshi-background) 85%, transparent) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            box-shadow: 0 24px 48px {_rgba('#020617', 0.55)};
+            color: var(--kiroshi-text);
+        }}
+        html[data-kiroshi-theme="dark"] .tutorial-step-badge {{
+            background: linear-gradient(140deg,
+                color-mix(in srgb, var(--kiroshi-background) 70%, transparent) 0%,
+                color-mix(in srgb, var(--kiroshi-surface) 80%, transparent) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            box-shadow: 0 12px 22px {_rgba('#020617', 0.45)};
+        }}
+        html[data-kiroshi-theme="dark"] .tutorial-step-badge__label {{
+            color: var(--kiroshi-text);
+        }}
+        html[data-kiroshi-theme="dark"] .tutorial-step-badge__label span {{
+            color: rgba(148, 163, 184, 0.85);
+        }}
+        html[data-kiroshi-theme="dark"] .tutorial-visual-card {{
+            background: linear-gradient(160deg,
+                color-mix(in srgb, var(--kiroshi-surface) 82%, transparent) 0%,
+                color-mix(in srgb, var(--kiroshi-background) 78%, transparent) 100%);
+            border: 1px solid rgba(100, 116, 139, 0.35);
+            color: var(--kiroshi-text);
+            box-shadow: 0 16px 32px {_rgba('#020617', 0.5)};
+        }}
+        html[data-kiroshi-theme="dark"] .tutorial-color-chip::after {{
+            color: rgba(226, 232, 240, 0.85);
+            background: rgba(15, 23, 42, 0.65);
+        }}
+        html[data-kiroshi-theme="dark"] .tutorial-insight-card {{
+            background: linear-gradient(155deg,
+                color-mix(in srgb, var(--kiroshi-surface) 82%, transparent) 0%,
+                color-mix(in srgb, var(--kiroshi-background) 90%, transparent) 100%);
+            box-shadow: 0 18px 36px {_rgba('#020617', 0.6)};
+        }}
+        html[data-kiroshi-theme="dark"] .case-card {{
+            background: linear-gradient(145deg,
+                color-mix(in srgb, var(--kiroshi-surface) 88%, transparent) 0%,
+                color-mix(in srgb, var(--kiroshi-background) 75%, transparent) 100%);
+            border: 1px solid rgba(71, 85, 105, 0.35);
+            color: var(--kiroshi-text);
+        }}
+        html[data-kiroshi-theme="dark"] .case-meta__label {{
+            color: rgba(148, 163, 184, 0.85);
+        }}
+        html[data-kiroshi-theme="dark"] .case-meta__value {{
+            color: var(--kiroshi-text);
+        }}
+        html[data-kiroshi-theme="dark"] .case-actions .crm-link {{
+            box-shadow: 0 16px 32px {_rgba('#020617', 0.5)};
+        }}
+        html[data-kiroshi-theme="dark"] .stApp [data-testid="stSidebar"] > div:first-child {{
+            box-shadow: inset -8px 0 28px {_rgba('#020617', 0.65)};
+        }}
+    """
+
+    theme_marker_script = f"""
+        <script>
+        (function() {{
+            const themeKey = {theme.key!r};
+            const applyThemeMarker = () => {{
+                document.documentElement.setAttribute('data-kiroshi-theme', themeKey);
+                if (document.body) {{
+                    document.body.setAttribute('data-kiroshi-theme', themeKey);
+                }}
+            }};
+            if (document.readyState !== 'loading') {{
+                applyThemeMarker();
+            }} else {{
+                document.addEventListener('DOMContentLoaded', applyThemeMarker, {{ once: true }});
+            }}
+        }})();
+        </script>
+    """
+
     st.markdown(
         f"""
         <style>
@@ -2994,7 +3115,9 @@ def apply_theme_palette(theme: ThemePalette) -> None:
         .stApp div[data-testid="stTable"] th {{
             border-color: color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
         }}
+{dark_css}
         </style>
+{theme_marker_script}
         """,
         unsafe_allow_html=True,
     )
@@ -3981,6 +4104,10 @@ if "enable_holiday_theme" not in st.session_state:
     st.session_state["enable_holiday_theme"] = _get_persistent_default(
         "enable_holiday_theme", True
     )
+if "dark_mode_enabled" not in st.session_state:
+    st.session_state["dark_mode_enabled"] = _get_persistent_default(
+        "dark_mode_enabled", False
+    )
 
 CURRENT_THEME = determine_active_theme()
 apply_theme_palette(CURRENT_THEME)
@@ -4347,21 +4474,42 @@ def render_logo():
     now = datetime.now()
     formatted_date = f"{now.strftime('%A')}, {now.month}/{now.day}/{now.year}"
     encoded_logo = base64.b64encode(KIROSHI_LOGO_PATH.read_bytes()).decode()
-    holiday_theme_active = CURRENT_THEME.key != DEFAULT_THEME.key
+    is_dark_theme = CURRENT_THEME.key == DARK_THEME.key
+    holiday_theme_active = CURRENT_THEME.key not in {DEFAULT_THEME.key, DARK_THEME.key}
     companion_card_background = (
         "#ffffff"
         if holiday_theme_active
-        else "linear-gradient(145deg, color-mix(in srgb, var(--kiroshi-primary) 18%, transparent), color-mix(in srgb, var(--kiroshi-accent) 12%, transparent))"
+        else (
+            "linear-gradient(160deg, color-mix(in srgb, var(--kiroshi-surface) 88%, transparent), "
+            "color-mix(in srgb, var(--kiroshi-background) 92%, transparent))"
+            if is_dark_theme
+            else "linear-gradient(145deg, color-mix(in srgb, var(--kiroshi-primary) 18%, transparent), "
+            "color-mix(in srgb, var(--kiroshi-accent) 12%, transparent))"
+        )
     )
     companion_card_shadow = (
         "0 14px 34px rgba(15, 23, 42, 0.18)"
         if holiday_theme_active
-        else "0 10px 25px rgba(15, 23, 42, 0.12)"
+        else (
+            "0 18px 42px rgba(2, 6, 23, 0.55)"
+            if is_dark_theme
+            else "0 10px 25px rgba(15, 23, 42, 0.12)"
+        )
     )
     companion_card_border = (
-        "1px solid rgba(15, 23, 42, 0.08)" if holiday_theme_active else "1px solid transparent"
+        "1px solid rgba(15, 23, 42, 0.08)"
+        if holiday_theme_active
+        else (
+            "1px solid rgba(71, 85, 105, 0.35)"
+            if is_dark_theme
+            else "1px solid transparent"
+        )
     )
-    companion_title_color = "#111827" if holiday_theme_active else "var(--kiroshi-primary)"
+    companion_title_color = (
+        "#111827"
+        if holiday_theme_active
+        else ("var(--kiroshi-accent)" if is_dark_theme else "var(--kiroshi-primary)")
+    )
     companion_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
     header_html = f"""
     <style>
@@ -5055,6 +5203,7 @@ _init_state("ai_mode", DEFAULT_AI_MODE)
 _init_state(
     "enable_holiday_theme", _get_persistent_default("enable_holiday_theme", True)
 )
+_init_state("dark_mode_enabled", _get_persistent_default("dark_mode_enabled", False))
 _init_state("theme_preview", "auto")
 _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
@@ -5164,6 +5313,10 @@ _init_state(
 if "enable_holiday_theme" in _THEME_QUERY_OVERRIDES:
     st.session_state.enable_holiday_theme = bool(
         _THEME_QUERY_OVERRIDES["enable_holiday_theme"]
+    )
+if "dark_mode_enabled" in _THEME_QUERY_OVERRIDES:
+    st.session_state.dark_mode_enabled = bool(
+        _THEME_QUERY_OVERRIDES["dark_mode_enabled"]
     )
 if "theme_preview" in _THEME_QUERY_OVERRIDES:
     st.session_state.theme_preview = str(_THEME_QUERY_OVERRIDES["theme_preview"])
@@ -8257,6 +8410,14 @@ def _render_settings_workspace_tab() -> None:
         unsafe_allow_html=True,
     )
     st.toggle(
+        "Enable dark mode",
+        key="dark_mode_enabled",
+        on_change=_on_setting_change("dark_mode_enabled"),
+        help="Switch to a high-contrast midnight palette across the workspace.",
+    )
+    if st.session_state.get("dark_mode_enabled"):
+        st.caption("Holiday palettes are temporarily disabled while dark mode is active.")
+    st.toggle(
         "Enable holiday themes",
         key="enable_holiday_theme",
         on_change=_on_setting_change("enable_holiday_theme"),
@@ -8284,6 +8445,7 @@ def _render_settings_workspace_tab() -> None:
                 "Force the interface to use a specific holiday palette while debugging. "
                 "Choose ‘Automatic’ to return to the calendar-driven schedule."
             ),
+            disabled=st.session_state.get("dark_mode_enabled", False),
         )
     st.toggle(
         "Compact case workspace",
