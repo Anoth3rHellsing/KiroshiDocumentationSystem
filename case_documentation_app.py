@@ -11900,7 +11900,10 @@ def auto_text_input(
     persisted verbatim as text.
     """
     key = widget_key(field, CURRENT_CASE_IDX)
-    state_key = kwargs.setdefault("key", key)
+    state_key = kwargs.get("key")
+    if state_key is None:
+        state_key = key
+    kwargs["key"] = state_key
     if state_key not in st.session_state:
         current_value = getattr(D, field)
         if state_labels and isinstance(current_value, bool):
@@ -11926,7 +11929,10 @@ def auto_text_input(
 def auto_text_area(label: str, field: str, container=st, **kwargs):
     """Text area that saves on every change."""
     key = widget_key(field, CURRENT_CASE_IDX)
-    state_key = kwargs.setdefault("key", key)
+    state_key = kwargs.get("key")
+    if state_key is None:
+        state_key = key
+    kwargs["key"] = state_key
 
     if state_key not in st.session_state:
         current_value = getattr(D, field)
