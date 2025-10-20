@@ -11817,12 +11817,30 @@ def _update_field(field: str):
         setattr(D, field, new_value)
 
 
-def auto_text_input(label: str, field: str, container=st, **kwargs):
-    """Text input that saves on every change."""
+def auto_text_input(
+    label: str,
+    field: str,
+    container=st,
+    *,
+    state_labels: Mapping[bool, str] | None = None,
+    **kwargs,
+):
+    """Text input that saves on every change.
+
+    ``state_labels`` is accepted for compatibility with previous toggle-based
+    callers. When provided and the current value is a boolean, the mapped label
+    is shown instead of the raw boolean literal. The submitted value is always
+    persisted verbatim as text.
+    """
     key = widget_key(field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
+    current_value = getattr(D, field)
+    if state_labels and isinstance(current_value, bool):
+        current_value = state_labels.get(current_value, str(current_value))
+    if current_value is None:
+        current_value = ""
     value = container.text_input(
-        label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
+        label, current_value, on_change=_update_field, args=(field,), **kwargs
     )
     setattr(D, field, value)
 
