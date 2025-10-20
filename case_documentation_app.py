@@ -11943,36 +11943,17 @@ def _update_field(
     if state_key is None:
         state_key = widget_state_key(field, CURRENT_CASE_IDX)
 
-    new_value_raw = st.session_state.get(state_key)
-    previous = getattr(D, field, None)
+    new_value = _normalize_text_value(st.session_state.get(state_key))
+    previous = getattr(D, field, "")
+    previous_normalized = _normalize_text_value(previous)
 
-    is_text_field = isinstance(previous, str) or isinstance(
-        new_value_raw, (str, bytes, type(None))
-    )
+    st.session_state[state_key] = new_value
+    st.session_state[f"{state_key}__seed"] = new_value
 
-    if is_text_field:
-        new_value = _normalize_text_value(new_value_raw)
-        previous_normalized = _normalize_text_value(previous)
+    if new_value != previous_normalized or not isinstance(previous, str):
+        setattr(D, field, new_value)
 
-        if st.session_state.get(state_key) != new_value:
-            st.session_state[state_key] = new_value
-        st.session_state[f"{state_key}__seed"] = new_value
-
-        if new_value != previous_normalized or not isinstance(previous, str):
-            setattr(D, field, new_value)
-
-        if new_value != previous_normalized:
-            touch_case_last_modified()
-            autosave()
-        return
-
-    # Non-text widgets (e.g., toggles) should preserve their native value types.
-    if new_value_raw is not None:
-        st.session_state[state_key] = new_value_raw
-    st.session_state[f"{state_key}__seed"] = new_value_raw
-
-    if new_value_raw != previous:
-        setattr(D, field, new_value_raw)
+    if new_value != previous_normalized:
         touch_case_last_modified()
         autosave()
 
