@@ -5426,6 +5426,19 @@ def _utc_now_z() -> str:
     return now.isoformat().replace("+00:00", "Z")
 
 
+def _normalize_hardware_test_text(value: object) -> str:
+    """Return a text representation for stored hardware test values."""
+
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text
+
+
 @dataclass
 class RemoteSessionEntry:
     """Structured representation of a remote troubleshooting session."""
@@ -5712,10 +5725,7 @@ class CaseData:
     last_modified: str = ""
 
     def __post_init__(self) -> None:
-        if isinstance(self.hardware_test, bool):
-            self.hardware_test = "Yes" if self.hardware_test else "No"
-        elif self.hardware_test is None:
-            self.hardware_test = ""
+        self.hardware_test = _normalize_hardware_test_text(self.hardware_test)
 
         if self.remote_steps is None:
             self.remote_steps = ""
@@ -6338,6 +6348,27 @@ class CaseSession:
     )
 
 
+def _ensure_case_hardware_test_text(case: CaseData | None) -> None:
+    if isinstance(case, CaseData):
+        case.hardware_test = _normalize_hardware_test_text(case.hardware_test)
+
+
+def _migrate_hardware_test_state() -> None:
+    """Coerce legacy boolean hardware test values into text form."""
+
+    case_obj = st.session_state.get("case")
+    _ensure_case_hardware_test_text(case_obj if isinstance(case_obj, CaseData) else None)
+
+    sessions = st.session_state.get("case_sessions")
+    if isinstance(sessions, list):
+        for session in sessions:
+            _ensure_case_hardware_test_text(getattr(session, "case", None))
+
+    for key in list(st.session_state.keys()):
+        if key == "hardware_test" or key.startswith("hardware_test_"):
+            st.session_state[key] = _normalize_hardware_test_text(st.session_state.get(key))
+
+
 def _case_metadata_snapshot(active_index: int | None = None) -> list[dict[str, str]]:
     """Return a serialised view of known cases for diagnostic exports."""
 
@@ -6654,6 +6685,7 @@ if isinstance(st.session_state.case, dict):
     filtered = {k: v for k, v in st.session_state.case.items() if k in allowed}
     st.session_state.case = CaseData(**filtered)
 D: CaseData = st.session_state.case
+_migrate_hardware_test_state()
 if D.tracking.active:
     st.session_state.track_case = True
 
