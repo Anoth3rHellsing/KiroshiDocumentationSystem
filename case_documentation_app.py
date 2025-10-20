@@ -11862,17 +11862,118 @@ def touch_case_last_modified(*, timestamp: str | None = None) -> str:
     return timestamp
 
 
-def _update_field(field: str):
-    """Update dataclass field from session state and persist."""
-    key = widget_state_key(field, CURRENT_CASE_IDX)
-    new_value = st.session_state.get(key)
-    previous = getattr(D, field)
-    if new_value != previous:
-        setattr(D, field, new_value)
+def _normalize_text_value(value: object) -> str:
+    """Return a safe string representation for widget-bound text fields."""
+
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.decode("utf-8", "ignore")
+    if isinstance(value, float) and math.isnan(value):  # type: ignore[arg-type]
+        return ""
+    return str(value)
+
+
+def _seed_text_widget_state(
+    field: str,
+    state_key: str,
+    *,
+    state_labels: Mapping[bool, str] | None = None,
+) -> tuple[str, bool]:
+    """Ensure session state mirrors the dataclass value for a text widget."""
+
+    marker_key = f"{state_key}__seed"
+    field_value = getattr(D, field, "")
+    if state_labels and isinstance(field_value, bool):
+        field_value = state_labels.get(field_value, str(field_value))
+    normalized_field = _normalize_text_value(field_value)
+
+    session_has_value = state_key in st.session_state
+    stored_marker = st.session_state.get(marker_key)
+
+    if (not session_has_value) or stored_marker != normalized_field:
+        st.session_state[state_key] = normalized_field
+        st.session_state[marker_key] = normalized_field
+        return normalized_field, True
+
+    session_value = _normalize_text_value(st.session_state.get(state_key))
+    if st.session_state.get(state_key) != session_value:
+        st.session_state[state_key] = session_value
+    st.session_state[marker_key] = normalized_field
+    return session_value, False
+
+
+def _commit_text_widget_state(field: str, state_key: str, fallback: object) -> str:
+    """Persist the widget's session value back to the dataclass field."""
+
+    marker_key = f"{state_key}__seed"
+    session_value = _normalize_text_value(st.session_state.get(state_key, fallback))
+    st.session_state[state_key] = session_value
+    st.session_state[marker_key] = session_value
+    setattr(D, field, session_value)
+    return session_value
+
+
+def _update_field(
+    field: str,
+    state_key: str | None = None,
+    *,
+    persisted_key: str | None = None,
+):
+    """Update dataclass field from session state and persist.
+
+    ``state_key`` allows callers that override the widget key to pass the
+    concrete Streamlit session key associated with the widget. When omitted, the
+    default widget key derived from the field name and current case index is
+    used.
+    """
+
+    # ``persisted_key`` existed in a previous signature. Accept it as a keyword-only
+    # argument for compatibility with any cached callbacks that may still pass it
+    # positionally or by name, and normalize to ``state_key`` for the new logic.
+    if state_key is None:
+        state_key = persisted_key
+
+    if state_key is None:
+        state_key = widget_state_key(field, CURRENT_CASE_IDX)
+
+    new_value_raw = st.session_state.get(state_key)
+    previous = getattr(D, field, None)
+
+    is_text_field = isinstance(previous, str) or isinstance(
+        new_value_raw, (str, bytes, type(None))
+    )
+
+    if is_text_field:
+        new_value = _normalize_text_value(new_value_raw)
+        previous_normalized = _normalize_text_value(previous)
+
+        if st.session_state.get(state_key) != new_value:
+            st.session_state[state_key] = new_value
+        st.session_state[f"{state_key}__seed"] = new_value
+
+        if new_value != previous_normalized or not isinstance(previous, str):
+            setattr(D, field, new_value)
+
+        if new_value != previous_normalized:
+            touch_case_last_modified()
+            autosave()
+        return
+
+    # Non-text widgets (e.g., toggles) should preserve their native value types.
+    if new_value_raw is not None:
+        st.session_state[state_key] = new_value_raw
+    st.session_state[f"{state_key}__seed"] = new_value_raw
+
+    if new_value_raw != previous:
+        setattr(D, field, new_value_raw)
         touch_case_last_modified()
         autosave()
-    else:
-        setattr(D, field, new_value)
 
 
 def auto_text_input(
@@ -11883,36 +11984,41 @@ def auto_text_input(
     state_labels: Mapping[bool, str] | None = None,
     **kwargs,
 ):
-    """Text input that saves on every change.
+    """Render a text input bound to a CaseData field with autosave semantics."""
 
-    ``state_labels`` is accepted for compatibility with previous toggle-based
-    callers. When provided and the current value is a boolean, the mapped label
-    is shown instead of the raw boolean literal. The submitted value is always
-    persisted verbatim as text.
-    """
-    key = widget_key(field, CURRENT_CASE_IDX)
-    kwargs.setdefault("key", key)
-    current_value = getattr(D, field)
-    if state_labels and isinstance(current_value, bool):
-        current_value = state_labels.get(current_value, str(current_value))
-    if current_value is None:
-        current_value = ""
-    elif not isinstance(current_value, str):
-        current_value = str(current_value)
-    value = container.text_input(
-        label, current_value, on_change=_update_field, args=(field,), **kwargs
+    widget_identifier = widget_key(field, CURRENT_CASE_IDX)
+    text_kwargs = dict(kwargs)
+    state_key = text_kwargs.get("key") or widget_identifier
+    text_kwargs["key"] = state_key
+    text_kwargs["on_change"] = _update_field
+    text_kwargs["args"] = (field, state_key)
+
+    current_value, seeded = _seed_text_widget_state(
+        field, state_key, state_labels=state_labels
     )
-    setattr(D, field, value)
+    if seeded and "value" not in text_kwargs:
+        text_kwargs["value"] = current_value
+
+    widget_value = container.text_input(label, **text_kwargs)
+    return _commit_text_widget_state(field, state_key, widget_value)
 
 
 def auto_text_area(label: str, field: str, container=st, **kwargs):
-    """Text area that saves on every change."""
-    key = widget_key(field, CURRENT_CASE_IDX)
-    kwargs.setdefault("key", key)
-    value = container.text_area(
-        label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
-    )
-    setattr(D, field, value)
+    """Render a text area bound to a CaseData field with autosave semantics."""
+
+    widget_identifier = widget_key(field, CURRENT_CASE_IDX)
+    area_kwargs = dict(kwargs)
+    state_key = area_kwargs.get("key") or widget_identifier
+    area_kwargs["key"] = state_key
+    area_kwargs["on_change"] = _update_field
+    area_kwargs["args"] = (field, state_key)
+
+    current_value, seeded = _seed_text_widget_state(field, state_key)
+    if seeded and "value" not in area_kwargs:
+        area_kwargs["value"] = current_value
+
+    widget_value = container.text_area(label, **area_kwargs)
+    return _commit_text_widget_state(field, state_key, widget_value)
 
 
 def auto_number_input(label: str, field: str, container=st, **kwargs):
