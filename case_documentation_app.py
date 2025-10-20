@@ -6727,14 +6727,21 @@ def _prime_case_widget_state(idx: int, case: CaseData) -> None:
     for field in fields(CaseData):
         state_key = widget_state_key(field.name, idx)
         try:
-            st.session_state[state_key] = getattr(case, field.name)
+            value = getattr(case, field.name)
         except AttributeError:
             # ``CaseData`` can evolve over time; ignore fields missing on legacy payloads.
             continue
+        if field.name == "hardware_test":
+            normalised = _normalize_hardware_test_text(value)
+            setattr(case, field.name, normalised)
+            value = normalised
+        st.session_state[state_key] = value
 
 
 def load_case_state(idx: int) -> None:
     cs = st.session_state.case_sessions[idx]
+    case_obj = getattr(cs, "case", None)
+    _ensure_case_hardware_test_text(case_obj if isinstance(case_obj, CaseData) else None)
     st.session_state.case = cs.case
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
@@ -6748,6 +6755,7 @@ def load_case_state(idx: int) -> None:
     st.session_state[widget_state_key("scratch", idx)] = scratch_value
     global D
     D = st.session_state.case
+    _ensure_case_hardware_test_text(D if isinstance(D, CaseData) else None)
     for key, value in asdict(D).items():
         st.session_state[key] = value
     _prime_case_widget_state(idx, D)

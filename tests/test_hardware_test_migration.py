@@ -41,3 +41,32 @@ def test_migrate_hardware_test_converts_existing_booleans():
     assert st.session_state["hardware_test_0"] == "Yes"
     assert st.session_state.case.hardware_test == "No"
     assert st.session_state.case_sessions[0].case.hardware_test == "No"
+
+
+def test_load_case_state_normalises_per_case_widget_state():
+    app = _load_app_module()
+    st = app.st
+
+    case_a = app.CaseData()
+    case_b = app.CaseData()
+
+    # Reintroduce legacy boolean payloads that may remain in session memory.
+    case_a.hardware_test = "Passed"
+    case_b.hardware_test = True  # type: ignore[assignment]
+
+    st.session_state.case_sessions = [
+        app.CaseSession(case=case_a),
+        app.CaseSession(case=case_b),
+    ]
+    st.session_state.case = case_a
+    st.session_state.uploads = []
+    st.session_state.log_uploads = []
+    st.session_state.screenshots = []
+    st.session_state.attachments_index = app._default_attachments_index()
+
+    app.load_case_state(1)
+
+    assert st.session_state.case.hardware_test == "Yes"
+    assert st.session_state.case_sessions[1].case.hardware_test == "Yes"
+    state_key = app.widget_state_key("hardware_test", 1)
+    assert st.session_state[state_key] == "Yes"
