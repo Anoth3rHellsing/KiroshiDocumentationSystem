@@ -11844,16 +11844,11 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
     kwargs.setdefault("key", key)
     default_value = bool(getattr(D, field))
     alias_key = f"{field}_on"
-    state_value: bool
-    if key in st.session_state:
-        state_value = bool(st.session_state.get(key))
-    elif alias_key in st.session_state:
-        state_value = bool(st.session_state.get(alias_key))
-        st.session_state[key] = state_value
-    else:
-        state_value = default_value
-        st.session_state[key] = state_value
+    stored_value = st.session_state.get(key)
+    if stored_value is None:
+        stored_value = st.session_state.get(alias_key, default_value)
 
+    state_value = bool(stored_value)
     if alias_key not in st.session_state:
         st.session_state[alias_key] = state_value
 
@@ -11872,8 +11867,7 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
             raise
 
     previous_value = getattr(D, field)
-    st.session_state[key] = value
-    st.session_state[alias_key] = value
+    st.session_state[alias_key] = bool(value)
     if value != previous_value:
         setattr(D, field, value)
         touch_case_last_modified()
