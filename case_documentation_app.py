@@ -11862,10 +11862,30 @@ def touch_case_last_modified(*, timestamp: str | None = None) -> str:
     return timestamp
 
 
-def _update_field(field: str):
-    """Update dataclass field from session state and persist."""
-    key = widget_state_key(field, CURRENT_CASE_IDX)
-    new_value = st.session_state.get(key)
+def _update_field(
+    field: str,
+    state_key: str | None = None,
+    *,
+    persisted_key: str | None = None,
+):
+    """Update dataclass field from session state and persist.
+
+    ``state_key`` allows callers that override the widget key to pass the
+    concrete Streamlit session key associated with the widget. When omitted, the
+    default widget key derived from the field name and current case index is
+    used.
+    """
+
+    # ``persisted_key`` existed in a previous signature. Accept it as a keyword-only
+    # argument for compatibility with any cached callbacks that may still pass it
+    # positionally or by name, and normalize to ``state_key`` for the new logic.
+    if state_key is None:
+        state_key = persisted_key
+
+    if state_key is None:
+        state_key = widget_state_key(field, CURRENT_CASE_IDX)
+
+    new_value = st.session_state.get(state_key)
     previous = getattr(D, field)
     if new_value != previous:
         setattr(D, field, new_value)
@@ -11891,28 +11911,53 @@ def auto_text_input(
     persisted verbatim as text.
     """
     key = widget_key(field, CURRENT_CASE_IDX)
-    kwargs.setdefault("key", key)
-    current_value = getattr(D, field)
-    if state_labels and isinstance(current_value, bool):
-        current_value = state_labels.get(current_value, str(current_value))
-    if current_value is None:
-        current_value = ""
-    elif not isinstance(current_value, str):
-        current_value = str(current_value)
+    state_key = kwargs.get("key")
+    if state_key is None:
+        state_key = key
+    kwargs["key"] = state_key
+    if state_key not in st.session_state:
+        current_value = getattr(D, field)
+        if state_labels and isinstance(current_value, bool):
+            current_value = state_labels.get(current_value, str(current_value))
+        if current_value is None:
+            current_value = ""
+        elif not isinstance(current_value, str):
+            current_value = str(current_value)
+        st.session_state[state_key] = current_value
+    else:
+        current_value = st.session_state[state_key]
     value = container.text_input(
-        label, current_value, on_change=_update_field, args=(field,), **kwargs
+        label,
+        current_value,
+        on_change=_update_field,
+        args=(field, state_key),
+        **kwargs,
     )
-    setattr(D, field, value)
+    session_value = st.session_state.get(state_key, value)
+    setattr(D, field, session_value)
 
 
 def auto_text_area(label: str, field: str, container=st, **kwargs):
     """Text area that saves on every change."""
     key = widget_key(field, CURRENT_CASE_IDX)
-    kwargs.setdefault("key", key)
+    state_key = kwargs.get("key")
+    if state_key is None:
+        state_key = key
+    kwargs["key"] = state_key
+
+    if state_key not in st.session_state:
+        current_value = getattr(D, field)
+        if current_value is None:
+            current_value = ""
+        elif not isinstance(current_value, str):
+            current_value = str(current_value)
+        st.session_state[state_key] = current_value
+
     value = container.text_area(
-        label, getattr(D, field), on_change=_update_field, args=(field,), **kwargs
+        label, on_change=_update_field, args=(field, state_key), **kwargs
     )
-    setattr(D, field, value)
+    session_value = st.session_state.get(state_key, value)
+    setattr(D, field, session_value)
 
 
 def auto_number_input(label: str, field: str, container=st, **kwargs):
