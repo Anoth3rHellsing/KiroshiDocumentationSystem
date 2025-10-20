@@ -216,6 +216,7 @@ def app_module():
     )
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 

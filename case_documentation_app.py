@@ -5546,6 +5546,41 @@ class TrackingData:
                 setattr(self, field_name, "")
 
 
+def _coerce_damage_flag(value: object) -> bool:
+    """Return a normalised boolean for the damage classification toggle."""
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if not normalized:
+            return False
+        mapping = {
+            "accidental": True,
+            "accidental damage": True,
+            "yes": True,
+            "y": True,
+            "true": True,
+            "1": True,
+            "internal": False,
+            "internal damage": False,
+            "no": False,
+            "n": False,
+            "false": False,
+            "0": False,
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+        # Preserve legacy behaviour for unexpected string payloads.
+        return bool(normalized)
+
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    return bool(value)
+
+
 @dataclass
 class CaseData:
     """Container for case details provided through the UI."""
@@ -5687,6 +5722,10 @@ class CaseData:
             self.last_modified = ""
         elif not isinstance(self.last_modified, str):
             self.last_modified = str(self.last_modified)
+
+        self.scanner_accidental_damage = _coerce_damage_flag(
+            getattr(self, "scanner_accidental_damage", False)
+        )
 
 
 def extract_remote_steps_from_mapping(record: object | None) -> str:
@@ -11805,16 +11844,11 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
     kwargs.setdefault("key", key)
     default_value = bool(getattr(D, field))
     alias_key = f"{field}_on"
-    state_value: bool
-    if key in st.session_state:
-        state_value = bool(st.session_state.get(key))
-    elif alias_key in st.session_state:
-        state_value = bool(st.session_state.get(alias_key))
-        st.session_state[key] = state_value
-    else:
-        state_value = default_value
-        st.session_state[key] = state_value
+    stored_value = st.session_state.get(key)
+    if stored_value is None:
+        stored_value = st.session_state.get(alias_key, default_value)
 
+    state_value = bool(stored_value)
     if alias_key not in st.session_state:
         st.session_state[alias_key] = state_value
 
@@ -11833,7 +11867,7 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
             raise
 
     previous_value = getattr(D, field)
-    st.session_state[alias_key] = value
+    st.session_state[alias_key] = bool(value)
     if value != previous_value:
         setattr(D, field, value)
         touch_case_last_modified()
