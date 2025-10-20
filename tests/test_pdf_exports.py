@@ -294,7 +294,7 @@ def dense_case(app_module):
         trios_module_version="5.6.7",
         dongle_deployment_date="2023-08-15",
         scanner_previous_replacements=3,
-        scanner_accidental_damage=False,
+        scanner_accidental_damage="Accidental damage",
         tracking=tracking,
     )
     return case

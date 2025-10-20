@@ -5571,39 +5571,31 @@ class TrackingData:
                 setattr(self, field_name, "")
 
 
-def _coerce_damage_flag(value: object) -> bool:
-    """Return a normalised boolean for the damage classification toggle."""
+def _normalize_damage_classification(value: object) -> str:
+    """Return a human readable scanner damage classification."""
 
-    if isinstance(value, bool):
-        return value
+    if value is None:
+        return ""
 
     if isinstance(value, str):
-        normalized = value.strip().lower()
-        if not normalized:
-            return False
-        mapping = {
-            "accidental": True,
-            "accidental damage": True,
-            "yes": True,
-            "y": True,
-            "true": True,
-            "1": True,
-            "internal": False,
-            "internal damage": False,
-            "no": False,
-            "n": False,
-            "false": False,
-            "0": False,
-        }
-        if normalized in mapping:
-            return mapping[normalized]
-        # Preserve legacy behaviour for unexpected string payloads.
-        return bool(normalized)
+        text = value.strip()
+        if not text:
+            return ""
+        normalized = text.lower()
+        if normalized in {"accidental", "accidental damage", "y", "yes", "true", "1"}:
+            return "Accidental damage"
+        if normalized in {"internal", "internal damage", "n", "no", "false", "0", "none"}:
+            return "Internal damage"
+        return text
+
+    if isinstance(value, bool):
+        return "Accidental damage" if value else "Internal damage"
 
     if isinstance(value, (int, float)):
-        return bool(value)
+        return "Accidental damage" if value else "Internal damage"
 
-    return bool(value)
+    text = str(value).strip()
+    return text if text else ""
 
 
 @dataclass
@@ -5676,7 +5668,7 @@ class CaseData:
     trios_module_version: str = ""
     dongle_deployment_date: str = ""
     scanner_previous_replacements: int = 0
-    scanner_accidental_damage: bool = False
+    scanner_accidental_damage: str = ""
     # Dell escalation specifics
     dell_issue_start_date: str = ""
     dell_command_updates_status: str = ""
@@ -5748,8 +5740,8 @@ class CaseData:
         elif not isinstance(self.last_modified, str):
             self.last_modified = str(self.last_modified)
 
-        self.scanner_accidental_damage = _coerce_damage_flag(
-            getattr(self, "scanner_accidental_damage", False)
+        self.scanner_accidental_damage = _normalize_damage_classification(
+            getattr(self, "scanner_accidental_damage", "")
         )
 
 
@@ -12411,7 +12403,10 @@ def category_dataframe(
             label = label_overrides.get(fld, label)
         if fld == "scanner_accidental_damage":
             label = "Damage Classification"
-            value = "Accidental Damage" if getattr(d, fld) else "Internal Damage"
+            raw = getattr(d, fld, "")
+            value = _normalize_damage_classification(raw)
+            if not value:
+                value = "Not specified"
         elif isinstance(value, bool):
             value = "Yes" if value else "No"
         rows.append({"Field": label, "Value": value})
@@ -15329,7 +15324,7 @@ End with: We look forward to your reply."""
                 "scanner_previous_replacements",
                 container=col_sc1,
             )
-            auto_toggle(
+            auto_text_input(
                 "Damage classification",
                 "scanner_accidental_damage",
                 container=col_sc2,
