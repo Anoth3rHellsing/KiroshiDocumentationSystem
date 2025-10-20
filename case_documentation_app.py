@@ -11864,7 +11864,14 @@ def auto_number_input(label: str, field: str, container=st, **kwargs):
         autosave()
 
 
-def auto_toggle(label: str, field: str, container=st, **kwargs):
+def auto_toggle(
+    label: str,
+    field: str,
+    container=st,
+    *,
+    state_labels: Mapping[bool, str] | None = None,
+    **kwargs,
+):
     key = widget_key(field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
     default_value = bool(getattr(D, field))
@@ -11877,8 +11884,18 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
     if alias_key not in st.session_state:
         st.session_state[alias_key] = state_value
 
+    label_text = label
+    if state_labels:
+        on_label = state_labels.get(True)
+        off_label = state_labels.get(False)
+        if on_label is None or off_label is None:
+            raise ValueError("state_labels must define both True and False labels")
+        normalized_label = label.rstrip("?").strip()
+        prefix = normalized_label or label
+        label_text = f"{prefix}: {on_label if state_value else off_label}"
+
     try:
-        value = container.toggle(label, value=state_value, **kwargs)
+        value = container.toggle(label_text, value=state_value, **kwargs)
     except StreamlitAPIException as exc:
         match = re.search(
             r"st\\.session_state\\.([^.\\s]+) does not exist", str(exc)
@@ -11887,7 +11904,7 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
             missing_key = match.group(1)
             if missing_key not in st.session_state:
                 st.session_state[missing_key] = state_value
-            value = container.toggle(label, value=state_value, **kwargs)
+            value = container.toggle(label_text, value=state_value, **kwargs)
         else:
             raise
 
@@ -15313,9 +15330,10 @@ End with: We look forward to your reply."""
                 container=col_sc1,
             )
             auto_toggle(
-                "Accidental damage?",
+                "Damage classification",
                 "scanner_accidental_damage",
                 container=col_sc2,
+                state_labels={True: "Accidental damage", False: "Internal damage"},
             )
             auto_toggle(
                 "Hardware test completed?",
