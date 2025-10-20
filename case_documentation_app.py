@@ -11863,7 +11863,12 @@ def touch_case_last_modified(*, timestamp: str | None = None) -> str:
     return timestamp
 
 
-def _update_field(field: str, state_key: str | None = None):
+def _update_field(
+    field: str,
+    state_key: str | None = None,
+    *,
+    persisted_key: str | None = None,
+):
     """Update dataclass field from session state and persist.
 
     ``state_key`` allows callers that override the widget key to pass the
@@ -11871,6 +11876,12 @@ def _update_field(field: str, state_key: str | None = None):
     default widget key derived from the field name and current case index is
     used.
     """
+
+    # ``persisted_key`` existed in a previous signature. Accept it as a keyword-only
+    # argument for compatibility with any cached callbacks that may still pass it
+    # positionally or by name, and normalize to ``state_key`` for the new logic.
+    if state_key is None:
+        state_key = persisted_key
 
     if state_key is None:
         state_key = widget_state_key(field, CURRENT_CASE_IDX)
