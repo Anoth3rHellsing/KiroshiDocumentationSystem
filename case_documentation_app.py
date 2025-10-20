@@ -8,6 +8,7 @@ Run:
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import os
 import zipfile
@@ -1318,21 +1319,33 @@ def _iter_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     """
 
     env_paths = os.environ.get("KIROSHI_UPDATE_APP_PATHS", "").strip()
+    env_candidates: list[str] = []
     if env_paths:
         for path in env_paths.split(","):
             normalized = path.strip().lstrip("/")
             if normalized:
-                yield normalized
+                env_candidates.append(normalized)
 
-    yield from _discover_remote_app_paths(repo, branch)
+    discover_fn = getattr(sys.modules.get(__name__), "_discover_remote_app_paths", None)
+    if not callable(discover_fn):
+        discover_fn = _discover_remote_app_paths
+
+    discovered_candidates = list(discover_fn(repo, branch) or [])
+
+    logging.debug(
+        "Resolved update app paths: env=%s discovered=%s", env_candidates, discovered_candidates
+    )
 
     # Built-in defaults that cover the most common layouts.
-    yield from (
+    default_candidates = [
         "case_documentation_app.py",
         "KiroshiDocumentationSystem/case_documentation_app.py",
         "src/case_documentation_app.py",
         "app/case_documentation_app.py",
-    )
+    ]
+
+    for candidate in itertools.chain(env_candidates, discovered_candidates, default_candidates):
+        yield candidate
 
 
 def _download_remote_app_source(repo: str, branch: str, path: str) -> str:
@@ -5413,6 +5426,19 @@ def _utc_now_z() -> str:
     return now.isoformat().replace("+00:00", "Z")
 
 
+def _normalize_hardware_test_text(value: object) -> str:
+    """Return a text representation for stored hardware test values."""
+
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text
+
+
 @dataclass
 class RemoteSessionEntry:
     """Structured representation of a remote troubleshooting session."""
@@ -5653,7 +5679,7 @@ class CaseData:
     additional_info: str = ""
     customer_trios_only: bool = False
     support_fee_accepted: bool = False
-    hardware_test: bool = False
+    hardware_test: str = ""
     # PC hardware
     service_tag: str = ""
     pc_model: str = ""
@@ -5699,6 +5725,8 @@ class CaseData:
     last_modified: str = ""
 
     def __post_init__(self) -> None:
+        self.hardware_test = _normalize_hardware_test_text(self.hardware_test)
+
         if self.remote_steps is None:
             self.remote_steps = ""
         else:
@@ -6320,6 +6348,27 @@ class CaseSession:
     )
 
 
+def _ensure_case_hardware_test_text(case: CaseData | None) -> None:
+    if isinstance(case, CaseData):
+        case.hardware_test = _normalize_hardware_test_text(case.hardware_test)
+
+
+def _migrate_hardware_test_state() -> None:
+    """Coerce legacy boolean hardware test values into text form."""
+
+    case_obj = st.session_state.get("case")
+    _ensure_case_hardware_test_text(case_obj if isinstance(case_obj, CaseData) else None)
+
+    sessions = st.session_state.get("case_sessions")
+    if isinstance(sessions, list):
+        for session in sessions:
+            _ensure_case_hardware_test_text(getattr(session, "case", None))
+
+    for key in list(st.session_state.keys()):
+        if key == "hardware_test" or key.startswith("hardware_test_"):
+            st.session_state[key] = _normalize_hardware_test_text(st.session_state.get(key))
+
+
 def _case_metadata_snapshot(active_index: int | None = None) -> list[dict[str, str]]:
     """Return a serialised view of known cases for diagnostic exports."""
 
@@ -6636,6 +6685,7 @@ if isinstance(st.session_state.case, dict):
     filtered = {k: v for k, v in st.session_state.case.items() if k in allowed}
     st.session_state.case = CaseData(**filtered)
 D: CaseData = st.session_state.case
+_migrate_hardware_test_state()
 if D.tracking.active:
     st.session_state.track_case = True
 
@@ -11839,6 +11889,8 @@ def auto_text_input(
         current_value = state_labels.get(current_value, str(current_value))
     if current_value is None:
         current_value = ""
+    elif not isinstance(current_value, str):
+        current_value = str(current_value)
     value = container.text_input(
         label, current_value, on_change=_update_field, args=(field,), **kwargs
     )
@@ -12986,12 +13038,20 @@ def make_tables_pdf(d: CaseData) -> bytes:
     product = summary.get("product", "")
     topic = summary.get("topic", "")
     subtopic = summary.get("subtopic", "") or ""
+    hardware_test_value = ""
+    if isinstance(d.hardware_test, str):
+        hardware_test_value = d.hardware_test.strip()
+    elif isinstance(d.hardware_test, bool):
+        hardware_test_value = "Yes" if d.hardware_test else "No"
+    elif d.hardware_test is not None:
+        hardware_test_value = str(d.hardware_test)
+
     fields = [
         ("Reportable", "No"),
         ("Product Family", product),
         ("Product", topic),
         ("Sub-product", subtopic),
-        ("Hardware test", "Yes" if d.hardware_test else "No"),
+        ("Hardware test", hardware_test_value or "Not recorded"),
         ("Customer is TRIOS Only", "Yes" if d.customer_trios_only else "No"),
         (
             "Support fee price accepted",
@@ -15348,8 +15408,8 @@ End with: We look forward to your reply."""
                 container=col_sc2,
                 state_labels={True: "Accidental damage", False: "Internal damage"},
             )
-            auto_toggle(
-                "Hardware test completed?",
+            auto_text_input(
+                "Hardware test performed?",
                 "hardware_test",
                 container=col_sc1,
             )

@@ -281,7 +281,7 @@ def dense_case(app_module):
         additional_info=long_text,
         customer_trios_only=True,
         support_fee_accepted=True,
-        hardware_test=True,
+        hardware_test="Completed - Diagnostics passed",
         service_tag="SRV-112233",
         pc_model="Alienware Aurora",
         windows_version="Windows 11 Pro",
