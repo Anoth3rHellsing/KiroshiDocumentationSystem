@@ -513,25 +513,50 @@ _persistent_settings_cache: dict[str, object] = PERSISTENT_SETTINGS_DEFAULTS.cop
 def _extract_theme_query_overrides() -> dict[str, object]:
     """Return theme overrides sourced from the current URL query parameters."""
 
-    try:
-        params = st.experimental_get_query_params()
-    except AttributeError:  # pragma: no cover - legacy Streamlit versions
+    def _normalise_params(candidate: object) -> dict[str, object] | None:
+        if candidate is None:
+            return None
+        if callable(candidate):  # pragma: no cover - defensive fallback
+            try:
+                return _normalise_params(candidate())
+            except Exception:
+                return None
+        if hasattr(candidate, "to_dict"):
+            try:
+                return getattr(candidate, "to_dict")()
+            except Exception:
+                return None
+        if isinstance(candidate, dict):
+            return dict(candidate)
         try:
-            params_obj = getattr(st, "query_params")
+            items = getattr(candidate, "items")
         except AttributeError:
-            return {}
-        except StreamlitAPIException:
-            return {}
-        else:
-            if hasattr(params_obj, "to_dict"):
-                params = params_obj.to_dict()
-            else:
-                try:
-                    params = dict(params_obj.items())
-                except Exception:  # pragma: no cover - defensive fallback
-                    return {}
+            return None
+        try:
+            return dict(items())
+        except Exception:
+            return None
+
+    params: dict[str, object] | None = None
+
+    try:
+        params_obj = getattr(st, "query_params")
+    except AttributeError:
+        params_obj = None
     except StreamlitAPIException:
         return {}
+    else:
+        params = _normalise_params(params_obj)
+
+    if params is None:
+        try:
+            params = st.experimental_get_query_params()
+        except AttributeError:  # pragma: no cover - Streamlit >= 1.32
+            params = {}
+        except StreamlitAPIException:
+            return {}
+        except Exception:  # pragma: no cover - defensive fallback
+            return {}
 
     overrides: dict[str, object] = {}
 
@@ -5546,6 +5571,33 @@ class TrackingData:
                 setattr(self, field_name, "")
 
 
+def _normalize_damage_classification(value: object) -> str:
+    """Return a human readable scanner damage classification."""
+
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        normalized = text.lower()
+        if normalized in {"accidental", "accidental damage", "y", "yes", "true", "1"}:
+            return "Accidental damage"
+        if normalized in {"internal", "internal damage", "n", "no", "false", "0", "none"}:
+            return "Internal damage"
+        return text
+
+    if isinstance(value, bool):
+        return "Accidental damage" if value else "Internal damage"
+
+    if isinstance(value, (int, float)):
+        return "Accidental damage" if value else "Internal damage"
+
+    text = str(value).strip()
+    return text if text else ""
+
+
 @dataclass
 class CaseData:
     """Container for case details provided through the UI."""
@@ -5616,7 +5668,7 @@ class CaseData:
     trios_module_version: str = ""
     dongle_deployment_date: str = ""
     scanner_previous_replacements: int = 0
-    scanner_accidental_damage: bool = False
+    scanner_accidental_damage: str = ""
     # Dell escalation specifics
     dell_issue_start_date: str = ""
     dell_command_updates_status: str = ""
@@ -5687,6 +5739,10 @@ class CaseData:
             self.last_modified = ""
         elif not isinstance(self.last_modified, str):
             self.last_modified = str(self.last_modified)
+
+        self.scanner_accidental_damage = _normalize_damage_classification(
+            getattr(self, "scanner_accidental_damage", "")
+        )
 
 
 def extract_remote_steps_from_mapping(record: object | None) -> str:
@@ -11800,26 +11856,38 @@ def auto_number_input(label: str, field: str, container=st, **kwargs):
         autosave()
 
 
-def auto_toggle(label: str, field: str, container=st, **kwargs):
+def auto_toggle(
+    label: str,
+    field: str,
+    container=st,
+    *,
+    state_labels: Mapping[bool, str] | None = None,
+    **kwargs,
+):
     key = widget_key(field, CURRENT_CASE_IDX)
     kwargs.setdefault("key", key)
     default_value = bool(getattr(D, field))
     alias_key = f"{field}_on"
-    state_value: bool
-    if key in st.session_state:
-        state_value = bool(st.session_state.get(key))
-    elif alias_key in st.session_state:
-        state_value = bool(st.session_state.get(alias_key))
-        st.session_state[key] = state_value
-    else:
-        state_value = default_value
-        st.session_state[key] = state_value
+    stored_value = st.session_state.get(key)
+    if stored_value is None:
+        stored_value = st.session_state.get(alias_key, default_value)
 
+    state_value = bool(stored_value)
     if alias_key not in st.session_state:
         st.session_state[alias_key] = state_value
 
+    label_text = label
+    if state_labels:
+        on_label = state_labels.get(True)
+        off_label = state_labels.get(False)
+        if on_label is None or off_label is None:
+            raise ValueError("state_labels must define both True and False labels")
+        normalized_label = label.rstrip("?").strip()
+        prefix = normalized_label or label
+        label_text = f"{prefix}: {on_label if state_value else off_label}"
+
     try:
-        value = container.toggle(label, value=state_value, **kwargs)
+        value = container.toggle(label_text, value=state_value, **kwargs)
     except StreamlitAPIException as exc:
         match = re.search(
             r"st\\.session_state\\.([^.\\s]+) does not exist", str(exc)
@@ -11828,12 +11896,12 @@ def auto_toggle(label: str, field: str, container=st, **kwargs):
             missing_key = match.group(1)
             if missing_key not in st.session_state:
                 st.session_state[missing_key] = state_value
-            value = container.toggle(label, value=state_value, **kwargs)
+            value = container.toggle(label_text, value=state_value, **kwargs)
         else:
             raise
 
     previous_value = getattr(D, field)
-    st.session_state[alias_key] = value
+    st.session_state[alias_key] = bool(value)
     if value != previous_value:
         setattr(D, field, value)
         touch_case_last_modified()
@@ -12335,7 +12403,10 @@ def category_dataframe(
             label = label_overrides.get(fld, label)
         if fld == "scanner_accidental_damage":
             label = "Damage Classification"
-            value = "Accidental Damage" if getattr(d, fld) else "Internal Damage"
+            raw = getattr(d, fld, "")
+            value = _normalize_damage_classification(raw)
+            if not value:
+                value = "Not specified"
         elif isinstance(value, bool):
             value = "Yes" if value else "No"
         rows.append({"Field": label, "Value": value})
@@ -15253,8 +15324,8 @@ End with: We look forward to your reply."""
                 "scanner_previous_replacements",
                 container=col_sc1,
             )
-            auto_toggle(
-                "Accidental damage?",
+            auto_text_input(
+                "Damage classification",
                 "scanner_accidental_damage",
                 container=col_sc2,
             )
