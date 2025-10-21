@@ -5967,6 +5967,7 @@ def _capture_screenshot_from_ui(
     label: str,
     auto_stamp: bool,
     label_state_key: str,
+    reset_flag_key: str | None = None,
 ) -> None:
     """Capture a screenshot using the configured UI preferences."""
 
@@ -5983,7 +5984,8 @@ def _capture_screenshot_from_ui(
         st.session_state["screenshots"] = existing
         get_active_screenshots()
         st.success(f"Captured {mode} screenshot: {shot.label}")
-        st.session_state[label_state_key] = ""
+        if reset_flag_key:
+            st.session_state[reset_flag_key] = True
         return
 
     if not error:
@@ -13389,6 +13391,12 @@ def render_case_attachments_panel(
     label_state_key = attachments_key("shot_label")
     if label_state_key not in st.session_state:
         st.session_state[label_state_key] = ""
+    reset_flag_key = attachments_key("shot_label_reset_pending")
+    if reset_flag_key not in st.session_state:
+        st.session_state[reset_flag_key] = False
+    if st.session_state.get(reset_flag_key):
+        st.session_state[label_state_key] = ""
+        st.session_state[reset_flag_key] = False
     auto_stamp_key = attachments_key("shot_auto_stamp")
     if auto_stamp_key not in st.session_state:
         st.session_state[auto_stamp_key] = True
@@ -13415,6 +13423,7 @@ def render_case_attachments_panel(
             label=label_value,
             auto_stamp=auto_stamp,
             label_state_key=label_state_key,
+            reset_flag_key=reset_flag_key,
         )
         screenshots = get_active_screenshots()
     if capture_cols[1].button(
@@ -13426,13 +13435,14 @@ def render_case_attachments_panel(
             label=label_value,
             auto_stamp=auto_stamp,
             label_state_key=label_state_key,
+            reset_flag_key=reset_flag_key,
         )
         screenshots = get_active_screenshots()
     if capture_cols[2].button(
         "Reset label",
         key=attachments_key("shot_label_reset"),
     ):
-        st.session_state[label_state_key] = ""
+        st.session_state[reset_flag_key] = True
 
     st.markdown("##### Upload additional evidence")
     upload_cols = st.columns(2)
