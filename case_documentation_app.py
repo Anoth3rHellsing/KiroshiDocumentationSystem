@@ -5856,6 +5856,199 @@ class ScreenshotAsset(InMemoryUploadedFile):
         return record
 
 
+class ScreenshotService:
+    """State-aware manager that owns screenshot capture and hydration logic."""
+
+    def __init__(self, *, state_key: str = "screenshots") -> None:
+        self.state_key = state_key
+
+    def _coerce(self, items: Iterable[object]) -> list[ScreenshotAsset]:
+        normalised: list[ScreenshotAsset] = []
+        for item in items:
+            asset = _ensure_screenshot_asset(item)
+            if asset is not None:
+                normalised.append(asset)
+        return normalised
+
+    def replace(self, items: Iterable[object]) -> list[ScreenshotAsset]:
+        normalised = self._coerce(items)
+        st.session_state[self.state_key] = normalised
+        return normalised
+
+    def assets(self) -> list[ScreenshotAsset]:
+        existing = st.session_state.get(self.state_key, [])
+        if isinstance(existing, list):
+            return self.replace(existing)
+        return self.replace([])
+
+    def append(self, asset: ScreenshotAsset) -> list[ScreenshotAsset]:
+        assets = list(self.assets())
+        assets.append(asset)
+        st.session_state[self.state_key] = assets
+        return assets
+
+    def clear(self) -> None:
+        st.session_state[self.state_key] = []
+
+    def capture_from_ui(
+        self,
+        mode: Literal["full", "region"],
+        *,
+        label: str,
+        auto_stamp: bool,
+        label_state_key: str,
+        reset_flag_key: str | None = None,
+    ) -> None:
+        existing = self.assets()
+        safe_stem, display_label = _generate_screenshot_basename(
+            label, auto_stamp=auto_stamp, existing=existing
+        )
+        capture_fn = self.capture_full if mode == "full" else self.capture_region
+        shot, error = capture_fn(safe_stem, label=display_label)
+        if shot:
+            shot.capture_mode = mode
+            shot.origin = "capture"
+            self.append(shot)
+            st.success(f"Captured {mode} screenshot: {shot.label}")
+            if reset_flag_key:
+                st.session_state[reset_flag_key] = True
+            return
+
+        if not error:
+            st.warning("Screenshot capture is unavailable in this environment.")
+            return
+
+        message = error.strip()
+        if "cancel" in message.lower():
+            st.info("Screenshot capture cancelled.")
+        elif "environment" in message.lower():
+            st.warning(message)
+        else:
+            st.error(message)
+
+    def capture_region(
+        self,
+        safe_name: str,
+        *,
+        label: str | None = None,
+    ) -> tuple[ScreenshotAsset | None, str | None]:
+        if tk is None or not TK_AVAILABLE:
+            return None, (
+                "Advanced screenshot selection requires a local display with Tkinter support in this environment."
+            )
+
+        if not (PYAUTOGUI_AVAILABLE or IMAGEGRAB_AVAILABLE or MSS_AVAILABLE):
+            return None, "Screenshot capture is unavailable in this environment."
+
+        coords, error = select_screen_region()
+        if not coords:
+            return None, error
+
+        left, top, width, height = coords
+        if width <= 0 or height <= 0:
+            return None, "No region was selected."
+
+        img = None
+        if PYAUTOGUI_AVAILABLE and pyautogui is not None:
+            try:
+                img = pyautogui.screenshot(  # type: ignore[union-attr]
+                    region=(left, top, width, height)
+                )
+            except Exception as exc:  # pragma: no cover - depends on GUI stack
+                logging.warning("pyautogui region capture failed: %s", exc)
+
+        if img is None and IMAGEGRAB_AVAILABLE and ImageGrab is not None:
+            try:
+                img = ImageGrab.grab(bbox=(left, top, left + width, top + height))  # type: ignore[union-attr]
+            except Exception as exc:  # pragma: no cover - depends on GUI stack
+                logging.error("ImageGrab region capture failed: %s", exc)
+                return None, "Unable to capture the selected region."
+
+        if img is None and MSS_AVAILABLE and mss is not None:
+            try:
+                with mss.mss() as sct:
+                    monitor = sct.monitors[0]
+                    raw = sct.grab(monitor)
+                from PIL import Image as PILImage  # type: ignore
+
+                img = PILImage.frombytes("RGB", raw.size, raw.rgb)
+                crop_box = (
+                    left - monitor.get("left", 0),
+                    top - monitor.get("top", 0),
+                    left - monitor.get("left", 0) + width,
+                    top - monitor.get("top", 0) + height,
+                )
+                img = img.crop(crop_box)
+            except Exception as exc:  # pragma: no cover - depends on GUI stack
+                logging.error("mss region capture failed: %s", exc)
+                return None, "Unable to capture the selected region."
+
+        if img is None:
+            return None, "Unable to capture the selected region."
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return (
+            ScreenshotAsset(
+                name=f"{safe_name}.png",
+                data=buf.getvalue(),
+                label=label or safe_name,
+                capture_mode="region",
+            ),
+            None,
+        )
+
+    def capture_full(
+        self,
+        safe_name: str,
+        *,
+        label: str | None = None,
+    ) -> tuple[ScreenshotAsset | None, str | None]:
+        img = None
+        if PYAUTOGUI_AVAILABLE and pyautogui is not None:
+            try:
+                img = pyautogui.screenshot()  # type: ignore[union-attr]
+            except Exception as exc:  # pragma: no cover - depends on GUI stack
+                logging.warning("pyautogui full capture failed: %s", exc)
+
+        if img is None and IMAGEGRAB_AVAILABLE and ImageGrab is not None:
+            try:
+                img = ImageGrab.grab()  # type: ignore[union-attr]
+            except Exception as exc:  # pragma: no cover - depends on GUI stack
+                logging.warning("ImageGrab full capture failed: %s", exc)
+
+        if img is None and MSS_AVAILABLE and mss is not None:
+            try:
+                with mss.mss() as sct:
+                    monitor = sct.monitors[0]
+                    raw = sct.grab(monitor)
+                from PIL import Image as PILImage  # type: ignore
+
+                img = PILImage.frombytes("RGB", raw.size, raw.rgb)
+            except Exception as exc:  # pragma: no cover - depends on GUI stack
+                logging.error("mss full capture failed: %s", exc)
+
+        if img is None:
+            return None, (
+                "Screenshot capture is unavailable in this environment. "
+                "For Windows deployments, ensure the exe includes Pillow, pyautogui, or mss."
+            )
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return (
+            ScreenshotAsset(
+                name=f"{safe_name}.png",
+                data=buf.getvalue(),
+                label=label or safe_name,
+                capture_mode="full",
+            ),
+            None,
+        )
+
+
 def _ensure_screenshot_asset(item: object) -> ScreenshotAsset | None:
     """Coerce legacy screenshot payloads into :class:`ScreenshotAsset`."""
 
@@ -5873,18 +6066,25 @@ def _ensure_screenshot_asset(item: object) -> ScreenshotAsset | None:
     return None
 
 
+_screenshot_service = ScreenshotService()
+
+
 def get_active_screenshots() -> list[ScreenshotAsset]:
     """Return the active screenshot list coerced to :class:`ScreenshotAsset`."""
 
-    existing = st.session_state.get("screenshots", [])
-    normalised: list[ScreenshotAsset] = []
-    if isinstance(existing, list):
-        for item in existing:
-            asset = _ensure_screenshot_asset(item)
-            if asset is not None:
-                normalised.append(asset)
-    st.session_state["screenshots"] = normalised
-    return normalised
+    return _screenshot_service.assets()
+
+
+def set_active_screenshots(items: Iterable[object]) -> list[ScreenshotAsset]:
+    """Replace the in-memory screenshot cache with ``items`` and normalise."""
+
+    return _screenshot_service.replace(items)
+
+
+def clear_active_screenshots() -> None:
+    """Remove all captured screenshots from the in-memory cache."""
+
+    _screenshot_service.clear()
 
 
 def _generate_screenshot_basename(
@@ -5923,34 +6123,13 @@ def _capture_screenshot_from_ui(
 ) -> None:
     """Capture a screenshot using the configured UI preferences."""
 
-    existing = get_active_screenshots()
-    safe_stem, display_label = _generate_screenshot_basename(
-        label, auto_stamp=auto_stamp, existing=existing
+    _screenshot_service.capture_from_ui(
+        mode,
+        label=label,
+        auto_stamp=auto_stamp,
+        label_state_key=label_state_key,
+        reset_flag_key=reset_flag_key,
     )
-    capture_fn = capture_full_screenshot if mode == "full" else capture_region_screenshot
-    shot, error = capture_fn(safe_stem, label=display_label)
-    if shot:
-        shot.capture_mode = mode
-        shot.origin = "capture"
-        existing.append(shot)
-        st.session_state["screenshots"] = existing
-        get_active_screenshots()
-        st.success(f"Captured {mode} screenshot: {shot.label}")
-        if reset_flag_key:
-            st.session_state[reset_flag_key] = True
-        return
-
-    if not error:
-        st.warning("Screenshot capture is unavailable in this environment.")
-        return
-
-    message = error.strip()
-    if "cancel" in message.lower():
-        st.info("Screenshot capture cancelled.")
-    elif "environment" in message.lower():
-        st.warning(message)
-    else:
-        st.error(message)
 
 
 def select_screen_region() -> tuple[tuple[int, int, int, int] | None, str | None]:
@@ -6068,72 +6247,7 @@ def capture_region_screenshot(
 ) -> tuple[ScreenshotAsset | None, str | None]:
     """Capture a cropped screenshot using the interactive region selector."""
 
-    if tk is None or not TK_AVAILABLE:
-        return None, (
-            "Advanced screenshot selection requires a local display with Tkinter support in this environment."
-        )
-
-    if not (PYAUTOGUI_AVAILABLE or IMAGEGRAB_AVAILABLE or MSS_AVAILABLE):
-        return None, "Screenshot capture is unavailable in this environment."
-
-    coords, error = select_screen_region()
-    if not coords:
-        return None, error
-
-    left, top, width, height = coords
-    if width <= 0 or height <= 0:
-        return None, "No region was selected."
-
-    img = None
-    if PYAUTOGUI_AVAILABLE and pyautogui is not None:
-        try:
-            img = pyautogui.screenshot(  # type: ignore[union-attr]
-                region=(left, top, width, height)
-            )
-        except Exception as exc:  # pragma: no cover - depends on GUI stack
-            logging.warning("pyautogui region capture failed: %s", exc)
-
-    if img is None and IMAGEGRAB_AVAILABLE and ImageGrab is not None:
-        try:
-            img = ImageGrab.grab(bbox=(left, top, left + width, top + height))  # type: ignore[union-attr]
-        except Exception as exc:  # pragma: no cover - depends on GUI stack
-            logging.error("ImageGrab region capture failed: %s", exc)
-            return None, "Unable to capture the selected region."
-
-    if img is None and MSS_AVAILABLE and mss is not None:
-        try:
-            with mss.mss() as sct:
-                monitor = sct.monitors[0]
-                raw = sct.grab(monitor)
-            from PIL import Image as PILImage  # type: ignore
-
-            img = PILImage.frombytes("RGB", raw.size, raw.rgb)
-            crop_box = (
-                left - monitor.get("left", 0),
-                top - monitor.get("top", 0),
-                left - monitor.get("left", 0) + width,
-                top - monitor.get("top", 0) + height,
-            )
-            img = img.crop(crop_box)
-        except Exception as exc:  # pragma: no cover - depends on GUI stack
-            logging.error("mss region capture failed: %s", exc)
-            return None, "Unable to capture the selected region."
-
-    if img is None:
-        return None, "Unable to capture the selected region."
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return (
-        ScreenshotAsset(
-            name=f"{safe_name}.png",
-            data=buf.getvalue(),
-            label=label or safe_name,
-            capture_mode="region",
-        ),
-        None,
-    )
+    return _screenshot_service.capture_region(safe_name, label=label)
 
 
 def capture_full_screenshot(
@@ -6143,48 +6257,7 @@ def capture_full_screenshot(
 ) -> tuple[ScreenshotAsset | None, str | None]:
     """Capture a full screen screenshot with multiple fallbacks."""
 
-    img = None
-    if PYAUTOGUI_AVAILABLE and pyautogui is not None:
-        try:
-            img = pyautogui.screenshot()  # type: ignore[union-attr]
-        except Exception as exc:  # pragma: no cover - depends on GUI stack
-            logging.warning("pyautogui full capture failed: %s", exc)
-
-    if img is None and IMAGEGRAB_AVAILABLE and ImageGrab is not None:
-        try:
-            img = ImageGrab.grab()  # type: ignore[union-attr]
-        except Exception as exc:  # pragma: no cover - depends on GUI stack
-            logging.warning("ImageGrab full capture failed: %s", exc)
-
-    if img is None and MSS_AVAILABLE and mss is not None:
-        try:
-            with mss.mss() as sct:
-                monitor = sct.monitors[0]
-                raw = sct.grab(monitor)
-            from PIL import Image as PILImage  # type: ignore
-
-            img = PILImage.frombytes("RGB", raw.size, raw.rgb)
-        except Exception as exc:  # pragma: no cover - depends on GUI stack
-            logging.error("mss full capture failed: %s", exc)
-
-    if img is None:
-        return None, (
-            "Screenshot capture is unavailable in this environment. "
-            "For Windows deployments, ensure the exe includes Pillow, pyautogui, or mss."
-        )
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return (
-        ScreenshotAsset(
-            name=f"{safe_name}.png",
-            data=buf.getvalue(),
-            label=label or safe_name,
-            capture_mode="full",
-        ),
-        None,
-    )
+    return _screenshot_service.capture_full(safe_name, label=label)
 
 
 def _default_attachments_index() -> dict[str, list[dict[str, str]]]:
@@ -6651,8 +6724,7 @@ if "case_sessions" not in st.session_state:
         st.session_state.case = primary_session.case
         st.session_state.uploads = primary_session.uploads
         st.session_state.log_uploads = primary_session.log_uploads
-        st.session_state.screenshots = primary_session.screenshots
-        get_active_screenshots()
+        set_active_screenshots(primary_session.screenshots)
         st.session_state.scratch = primary_session.scratch
         st.session_state["attachments_index"] = _normalise_attachments_index(
             getattr(primary_session, "attachments_index", {})
@@ -6700,8 +6772,7 @@ def load_case_state(idx: int) -> None:
     st.session_state.case = cs.case
     st.session_state.uploads = cs.uploads
     st.session_state.log_uploads = cs.log_uploads
-    st.session_state.screenshots = cs.screenshots
-    get_active_screenshots()
+    set_active_screenshots(cs.screenshots)
     st.session_state["attachments_index"] = _normalise_attachments_index(
         getattr(cs, "attachments_index", {})
     )
@@ -6765,8 +6836,7 @@ def clear_case_state(idx: int) -> None:
         D = new_case
         st.session_state.uploads = []
         st.session_state.log_uploads = []
-        st.session_state.screenshots = []
-        get_active_screenshots()
+        clear_active_screenshots()
         st.session_state["attachments_index"] = _default_attachments_index()
         st.session_state.scratch = ""
         st.session_state[widget_state_key("scratch", idx)] = ""
@@ -9391,7 +9461,7 @@ def show_incident_report_modal() -> None:
 
             screenshot = st.session_state.get("incident_reporter_screenshot")
             if screenshot:
-                st.image(screenshot.data, caption=screenshot.name, use_column_width=True)
+                st.image(screenshot.data, caption=screenshot.name, use_container_width=True)
         else:
             st.info(
                 "Manual reports skip screenshots. Logs and your notes will still be packaged into the PDF."
@@ -11593,7 +11663,7 @@ def _apply_case_payload(
     D = case_obj
     st.session_state.uploads = uploads
     st.session_state.log_uploads = log_uploads
-    st.session_state.screenshots = screenshots
+    set_active_screenshots(screenshots)
 
     scratch_key = widget_state_key("scratch", CURRENT_CASE_IDX)
     scratch_default = st.session_state.get("scratch", "")
@@ -13502,8 +13572,7 @@ def render_case_attachments_panel(
                         key=attachments_key(f"attachments_rem_shot_{i}"),
                     ):
                         screenshots.pop(i)
-                        st.session_state["screenshots"] = screenshots
-                        get_active_screenshots()
+                        set_active_screenshots(screenshots)
                         st.rerun()
                     st.download_button(
                         "Download",
@@ -13517,7 +13586,7 @@ def render_case_attachments_panel(
                     f"Captured {shot.captured_at} · Mode: {shot.capture_mode.title()} · Stored as {shot.name}"
                 )
                 with st.expander("Preview", expanded=False):
-                    st.image(shot.data, caption=shot.label, use_column_width=True)
+                    st.image(shot.data, caption=shot.label, use_container_width=True)
 
     include_case_json_key = attachments_key("attachments_include_case_json")
     if include_case_json_key not in st.session_state:
