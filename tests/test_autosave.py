@@ -148,3 +148,123 @@ def test_update_case_remote_sessions_triggers_autosave(fake_state, monkeypatch):
     app.update_case_remote_sessions(case, sessions)
 
     assert called is True
+
+
+def test_auto_text_input_syncs_session_state_across_runs(fake_state, monkeypatch):
+    state, _ = fake_state
+    state.debug_mode = False
+    app.CURRENT_CASE_IDX = 1
+    app.D = app.CaseData()
+
+    def fake_text_input(label, **kwargs):
+        key = kwargs["key"]
+        return state.get(key, kwargs.get("value", ""))
+
+    monkeypatch.setattr(app.st, "text_input", fake_text_input)
+
+    result = app.auto_text_input("Hardware test", "hardware_test")
+    assert result == ""
+    state_key = app.widget_state_key("hardware_test", app.CURRENT_CASE_IDX)
+    assert state[state_key] == ""
+    assert state[f"{state_key}__seed"] == ""
+    assert app.D.hardware_test == ""
+
+    state[state_key] = "Fan replaced"
+
+    result = app.auto_text_input("Hardware test", "hardware_test")
+    assert result == "Fan replaced"
+    assert app.D.hardware_test == "Fan replaced"
+    assert state[state_key] == "Fan replaced"
+    assert state[f"{state_key}__seed"] == "Fan replaced"
+
+
+def test_auto_text_area_refreshes_from_dataclass(fake_state, monkeypatch):
+    state, _ = fake_state
+    state.debug_mode = False
+    app.CURRENT_CASE_IDX = 2
+    app.D = app.CaseData()
+    app.D.dell_benchmark_results = "Initial results"
+
+    def fake_text_area(label, **kwargs):
+        key = kwargs["key"]
+        return state.get(key, kwargs.get("value", ""))
+
+    monkeypatch.setattr(app.st, "text_area", fake_text_area)
+
+    initial = app.auto_text_area("Benchmark", "dell_benchmark_results")
+    state_key = app.widget_state_key("dell_benchmark_results", app.CURRENT_CASE_IDX)
+    assert initial == "Initial results"
+    assert state[state_key] == "Initial results"
+    assert state[f"{state_key}__seed"] == "Initial results"
+
+    app.D.dell_benchmark_results = "Updated diagnostics"
+
+    refreshed = app.auto_text_area("Benchmark", "dell_benchmark_results")
+    assert refreshed == "Updated diagnostics"
+    assert state[state_key] == "Updated diagnostics"
+    assert state[f"{state_key}__seed"] == "Updated diagnostics"
+
+
+def test_auto_text_input_honors_state_labels_for_booleans(fake_state, monkeypatch):
+    state, _ = fake_state
+    state.debug_mode = False
+    app.CURRENT_CASE_IDX = 3
+    app.D = app.CaseData()
+    app.D.scanner_accidental_damage = True  # legacy boolean payload
+
+    def fake_text_input(label, **kwargs):
+        key = kwargs["key"]
+        return state.get(key, kwargs.get("value", ""))
+
+    monkeypatch.setattr(app.st, "text_input", fake_text_input)
+
+    value = app.auto_text_input(
+        "Damage classification",
+        "scanner_accidental_damage",
+        state_labels={True: "Accidental damage", False: "Internal damage"},
+    )
+
+    state_key = app.widget_state_key("scanner_accidental_damage", app.CURRENT_CASE_IDX)
+    assert value == "Accidental damage"
+    assert state[state_key] == "Accidental damage"
+    assert state[f"{state_key}__seed"] == "Accidental damage"
+    assert app.D.scanner_accidental_damage == "Accidental damage"
+
+
+def test_sync_case_text_state_updates_hidden_widgets(fake_state, monkeypatch):
+    state, _ = fake_state
+    state.debug_mode = False
+    app.CURRENT_CASE_IDX = 0
+    case = app.CaseData(company_name="Initial")
+    session = app.CaseSession(case=case)
+    state.case_sessions = [session]
+    state.case = case
+    app.D = case
+
+    state_key = app.widget_key("company_name", app.CURRENT_CASE_IDX)
+    app._register_text_widget_binding("company_name", state_key, app.CURRENT_CASE_IDX)
+    state[state_key] = "Updated name"
+
+    touched = False
+
+    def fake_touch():
+        nonlocal touched
+        touched = True
+        return "timestamp"
+
+    autosaved = False
+
+    def fake_autosave():
+        nonlocal autosaved
+        autosaved = True
+
+    monkeypatch.setattr(app, "touch_case_last_modified", fake_touch)
+    monkeypatch.setattr(app, "autosave", fake_autosave)
+
+    app._sync_case_text_state(app.CURRENT_CASE_IDX)
+
+    assert touched is True
+    assert autosaved is True
+    assert app.D.company_name == "Updated name"
+    assert state.case_sessions[0].case.company_name == "Updated name"
+    assert state[f"{state_key}__seed"] == "Updated name"
