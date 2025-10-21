@@ -212,6 +212,9 @@ PDF_FONT_REGULAR_NAME = "KiroshiSans-Regular"
 PDF_FONT_BOLD_NAME = "KiroshiSans-Bold"
 PDF_FONT_FAMILY_NAME = "KiroshiSans"
 
+STREAMLIT_FONT_STACK_CSS = "var(--font, 'Segoe UI', system-ui, -apple-system, sans-serif)"
+STREAMLIT_FONT_FALLBACK = "sans-serif"
+
 
 def _ensure_pdf_fonts() -> tuple[str, str]:
     """Register custom fonts for PDF generation if available."""
@@ -3002,6 +3005,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             --kiroshi-input-background: {input_background};
             --kiroshi-text-on-surface: {text_on_surface};
             --kiroshi-text-on-white: {text_on_white};
+            --kiroshi-font-family: {STREAMLIT_FONT_STACK_CSS};
         }}
         @keyframes kiroshiFadeIn {{
             from {{
@@ -3022,7 +3026,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             background:
                 {background_layers};
             color: var(--kiroshi-text);
-            font-family: 'Source Sans Pro', sans-serif;
+            font-family: var(--kiroshi-font-family);
             min-height: 100vh;
         }}
         body {{
@@ -3240,7 +3244,7 @@ def _enable_altair_theme(theme: ThemePalette) -> None:
         "legend": {"labelColor": theme.text, "titleColor": theme.text},
         "title": {
             "color": theme.text,
-            "font": "Source Sans Pro",
+            "font": STREAMLIT_FONT_FALLBACK,
             "fontSize": 18,
             "fontWeight": 600,
         },
@@ -4155,8 +4159,6 @@ def inject_base_styles() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
-
         .dashboard-title {
             font-size: 2.25rem;
             font-weight: 700;
@@ -4551,8 +4553,6 @@ def render_logo():
     companion_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
     header_html = f"""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
-
         #kiroshi-header {{
             display: grid;
             grid-template-columns: minmax(180px, 0.85fr) minmax(320px, 1.5fr) minmax(200px, 0.85fr);
@@ -4566,7 +4566,7 @@ def render_logo():
         }}
 
         #kiroshi-header, #kiroshi-header * {{
-            font-family: 'Source Sans Pro', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+            font-family: var(--kiroshi-font-family) !important;
             color: var(--kiroshi-text);
         }}
 
