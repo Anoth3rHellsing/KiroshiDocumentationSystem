@@ -13521,10 +13521,18 @@ def render_case_attachments_panel(
                     shot.label = new_label.strip()
 
                 filename_edit_key = attachments_key(f"shot_filename_{i}")
-                if filename_edit_key not in st.session_state:
-                    st.session_state[filename_edit_key] = shot.name
+                filename_pending_key = attachments_key(f"shot_filename_pending_{i}")
+
+                pending_value = st.session_state.pop(filename_pending_key, None)
+                if pending_value is not None:
+                    st.session_state.pop(filename_edit_key, None)
+                    default_filename = pending_value
+                else:
+                    default_filename = st.session_state.get(filename_edit_key, shot.name)
+
                 new_filename = edit_cols[1].text_input(
                     "Filename",
+                    value=default_filename,
                     key=filename_edit_key,
                     help="Used when evidence is written to disk or bundled into zips.",
                 )
@@ -13533,7 +13541,8 @@ def render_case_attachments_panel(
                     if not sanitized.lower().endswith(".png"):
                         sanitized = f"{sanitized}.png"
                     shot.name = sanitized
-                    st.session_state[filename_edit_key] = sanitized
+                    st.session_state[filename_pending_key] = sanitized
+                    st.rerun()
 
                 with edit_cols[2]:
                     if st.button(
