@@ -11917,10 +11917,89 @@ def _commit_text_widget_state(field: str, state_key: str, fallback: object) -> s
     st.session_state[marker_key] = session_value
 
     previous_value = getattr(D, field, "")
-    if session_value != previous_value:
+    previous_normalized = _normalize_text_value(previous_value)
+    if session_value != previous_normalized:
         setattr(D, field, session_value)
+        st.session_state[field] = session_value
+
+        sessions = st.session_state.get("case_sessions")
+        if (
+            isinstance(sessions, list)
+            and 0 <= CURRENT_CASE_IDX < len(sessions)
+            and isinstance(sessions[CURRENT_CASE_IDX], CaseSession)
+        ):
+            sessions[CURRENT_CASE_IDX].case = D
+
+        st.session_state.case = D
+        touch_case_last_modified()
+        autosave()
     return session_value
 
+
+def _text_widget_registry() -> dict[str, dict[str, int | str]]:
+    """Return the persistent registry of text widget bindings."""
+
+    registry = st.session_state.get("_text_widget_registry")
+    if not isinstance(registry, dict):
+        registry = {}
+        st.session_state["_text_widget_registry"] = registry
+    return registry
+
+
+def _register_text_widget_binding(field: str, state_key: str, case_idx: int) -> None:
+    """Record the relationship between a widget state key and case field."""
+
+    registry = _text_widget_registry()
+    registry[state_key] = {"field": field, "case_idx": case_idx}
+    st.session_state["_text_widget_registry"] = registry
+
+
+def _sync_case_text_state(case_idx: int) -> None:
+    """Mirror session-state text widget values back into the case dataclass."""
+
+    registry = st.session_state.get("_text_widget_registry")
+    sessions = st.session_state.get("case_sessions")
+    if not isinstance(registry, Mapping) or not isinstance(sessions, list):
+        return
+
+    if not (0 <= case_idx < len(sessions)):
+        return
+
+    session = sessions[case_idx]
+    case = getattr(session, "case", None)
+    if not isinstance(case, CaseData):
+        return
+
+    updated = False
+    for state_key, binding in registry.items():
+        if not isinstance(binding, Mapping):
+            continue
+        if binding.get("case_idx") != case_idx:
+            continue
+        field = binding.get("field")
+        if not field or not hasattr(case, field):
+            continue
+        if state_key not in st.session_state:
+            continue
+
+        normalized = _normalize_text_value(st.session_state.get(state_key))
+        if getattr(case, field, "") != normalized:
+            setattr(case, field, normalized)
+            marker_key = f"{state_key}__seed"
+            st.session_state[marker_key] = normalized
+            st.session_state[field] = normalized
+            updated = True
+
+    if not updated:
+        return
+
+    sessions[case_idx].case = case
+    if case_idx == CURRENT_CASE_IDX:
+        global D  # noqa: PLW0603 - keep global case reference aligned
+        D = case
+        st.session_state.case = case
+        touch_case_last_modified()
+        autosave()
 
 def _update_field(
     field: str,
@@ -11992,6 +12071,8 @@ def auto_text_input(
     text_kwargs["on_change"] = _update_field
     text_kwargs["args"] = (field, state_key)
 
+    _register_text_widget_binding(field, state_key, CURRENT_CASE_IDX)
+
     current_value, seeded = _seed_text_widget_state(
         field, state_key, state_labels=state_labels
     )
@@ -12011,6 +12092,8 @@ def auto_text_area(label: str, field: str, container=st, **kwargs):
     area_kwargs["key"] = state_key
     area_kwargs["on_change"] = _update_field
     area_kwargs["args"] = (field, state_key)
+
+    _register_text_widget_binding(field, state_key, CURRENT_CASE_IDX)
 
     current_value, seeded = _seed_text_widget_state(field, state_key)
     if seeded and "value" not in area_kwargs:
@@ -13519,6 +13602,7 @@ CASE_TAB_SLUGS = {
 def render_case_ui(case_idx: int):
     global CURRENT_CASE_IDX
     CURRENT_CASE_IDX = case_idx
+    _sync_case_text_state(case_idx)
     # ──────────── TABS ───────────
     if case_idx <= 1:
         col_escal, col_hw = st.columns(2)

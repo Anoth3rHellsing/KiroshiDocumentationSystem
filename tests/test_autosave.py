@@ -229,3 +229,42 @@ def test_auto_text_input_honors_state_labels_for_booleans(fake_state, monkeypatc
     assert state[state_key] == "Accidental damage"
     assert state[f"{state_key}__seed"] == "Accidental damage"
     assert app.D.scanner_accidental_damage == "Accidental damage"
+
+
+def test_sync_case_text_state_updates_hidden_widgets(fake_state, monkeypatch):
+    state, _ = fake_state
+    state.debug_mode = False
+    app.CURRENT_CASE_IDX = 0
+    case = app.CaseData(company_name="Initial")
+    session = app.CaseSession(case=case)
+    state.case_sessions = [session]
+    state.case = case
+    app.D = case
+
+    state_key = app.widget_key("company_name", app.CURRENT_CASE_IDX)
+    app._register_text_widget_binding("company_name", state_key, app.CURRENT_CASE_IDX)
+    state[state_key] = "Updated name"
+
+    touched = False
+
+    def fake_touch():
+        nonlocal touched
+        touched = True
+        return "timestamp"
+
+    autosaved = False
+
+    def fake_autosave():
+        nonlocal autosaved
+        autosaved = True
+
+    monkeypatch.setattr(app, "touch_case_last_modified", fake_touch)
+    monkeypatch.setattr(app, "autosave", fake_autosave)
+
+    app._sync_case_text_state(app.CURRENT_CASE_IDX)
+
+    assert touched is True
+    assert autosaved is True
+    assert app.D.company_name == "Updated name"
+    assert state.case_sessions[0].case.company_name == "Updated name"
+    assert state[f"{state_key}__seed"] == "Updated name"
