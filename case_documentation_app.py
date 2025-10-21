@@ -62,9 +62,6 @@ from reportlab.graphics.shapes import Drawing, String
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.charts.lineplots import LinePlot
 from reportlab.graphics.widgets.markers import makeMarker
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase.pdfmetrics import registerFontFamily
 import requests
 import urllib3
 
@@ -205,66 +202,21 @@ else:
 DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
 PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
 
-PDF_FONT_DIR = Path(__file__).resolve().parent / "fonts"
-PDF_FONT_REGULAR_PATH = PDF_FONT_DIR / "NotoSans-Regular.ttf"
-PDF_FONT_BOLD_PATH = PDF_FONT_DIR / "NotoSans-Bold.ttf"
-PDF_FONT_REGULAR_NAME = "KiroshiSans-Regular"
-PDF_FONT_BOLD_NAME = "KiroshiSans-Bold"
-PDF_FONT_FAMILY_NAME = "KiroshiSans"
+PDF_FONT_REGULAR_NAME = "Helvetica"
+PDF_FONT_BOLD_NAME = "Helvetica-Bold"
 
-STREAMLIT_FONT_STACK_CSS = "var(--font, 'Segoe UI', system-ui, -apple-system, sans-serif)"
-STREAMLIT_FONT_FALLBACK = "sans-serif"
+STREAMLIT_FONT_STACK_CSS = "var(--font, 'Helvetica', 'Helvetica Neue', Arial, sans-serif)"
+STREAMLIT_FONT_FALLBACK = "Helvetica"
 
 
 def _ensure_pdf_fonts() -> tuple[str, str]:
-    """Register custom fonts for PDF generation if available."""
+    """Return the Helvetica fonts used across generated PDFs."""
 
     cached_fonts = getattr(_ensure_pdf_fonts, "_fonts", None)
     if cached_fonts:
         return cached_fonts
 
-    fonts: tuple[str, str]
-
-    if PDF_FONT_REGULAR_PATH.exists() and PDF_FONT_BOLD_PATH.exists():
-        try:
-            pdfmetrics.registerFont(
-                TTFont(
-                    PDF_FONT_REGULAR_NAME,
-                    str(PDF_FONT_REGULAR_PATH),
-                    asciiReadable=True,
-                )
-            )
-            pdfmetrics.registerFont(
-                TTFont(
-                    PDF_FONT_BOLD_NAME,
-                    str(PDF_FONT_BOLD_PATH),
-                    asciiReadable=True,
-                )
-            )
-            registerFontFamily(
-                PDF_FONT_FAMILY_NAME,
-                normal=PDF_FONT_REGULAR_NAME,
-                bold=PDF_FONT_BOLD_NAME,
-                italic=PDF_FONT_REGULAR_NAME,
-                boldItalic=PDF_FONT_BOLD_NAME,
-            )
-            fonts = (PDF_FONT_REGULAR_NAME, PDF_FONT_BOLD_NAME)
-        except Exception as exc:  # pragma: no cover - filesystem or font issues
-            logging.warning(
-                "Unable to load custom PDF fonts from %s: %s. Falling back to Helvetica.",
-                PDF_FONT_DIR,
-                exc,
-            )
-            fonts = ("Helvetica", "Helvetica-Bold")
-    else:
-        if not hasattr(_ensure_pdf_fonts, "_fonts_warned"):
-            logging.info(
-                "Custom PDF fonts not found at %s. Using built-in Helvetica fonts instead.",
-                PDF_FONT_DIR,
-            )
-            setattr(_ensure_pdf_fonts, "_fonts_warned", True)
-        fonts = ("Helvetica", "Helvetica-Bold")
-
+    fonts: tuple[str, str] = (PDF_FONT_REGULAR_NAME, PDF_FONT_BOLD_NAME)
     setattr(_ensure_pdf_fonts, "_fonts", fonts)
     return fonts
 
