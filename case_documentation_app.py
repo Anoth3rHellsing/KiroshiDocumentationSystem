@@ -13737,8 +13737,19 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 if (!targetBlock.classList.contains('floating-menu-block')) {
                     targetBlock.classList.add('floating-menu-block');
                 }
-                if (targetBlock.dataset.dragInitialised === '1') {
+                const existingBubble = targetBlock.querySelector(':scope > .floating-menu-bubble');
+                const existingPanel = targetBlock.querySelector(':scope > .floating-menu-panel');
+                if (targetBlock.dataset.dragInitialised === '1' && existingBubble && existingPanel) {
                     return;
+                }
+                if (existingBubble) {
+                    existingBubble.remove();
+                }
+                if (existingPanel) {
+                    while (existingPanel.firstChild) {
+                        targetBlock.insertBefore(existingPanel.firstChild, existingPanel);
+                    }
+                    existingPanel.remove();
                 }
                 targetBlock.dataset.dragInitialised = '1';
 
