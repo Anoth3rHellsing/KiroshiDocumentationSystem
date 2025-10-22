@@ -13724,8 +13724,17 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
         """
         <script>
         (function() {
-            const doc = window.parent?.document || window.document;
-            if (!doc) { return; }
+            let doc = window.document;
+            try {
+                const parentDoc =
+                    window.parent && window.parent !== window ? window.parent.document : null;
+                if (parentDoc) {
+                    doc = parentDoc;
+                }
+            } catch (err) {
+                doc = window.document;
+            }
+            if (!doc || !doc.body) { return; }
 
             const storageKey = 'kiroshi-floating-menu-position';
 
@@ -13903,11 +13912,11 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                             const applied = applyPosition(savedPosition);
                             savePosition(applied);
                         } else {
-                            const defaultLeft = Math.max(
-                                16,
-                                (window.innerWidth || document.documentElement.clientWidth || 0) - targetBlock.offsetWidth - 24
-                            );
-                            const applied = applyPosition({ top: 24, left: defaultLeft });
+                            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                            const defaultLeft = Math.max(16, viewportWidth - targetBlock.offsetWidth - 24);
+                            const defaultTop = Math.max(16, viewportHeight - targetBlock.offsetHeight - 24);
+                            const applied = applyPosition({ top: defaultTop, left: defaultLeft });
                             savePosition(applied);
                         }
                     });
