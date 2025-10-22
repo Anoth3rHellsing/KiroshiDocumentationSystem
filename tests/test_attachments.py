@@ -177,3 +177,18 @@ def test_load_case_attachments_reconstructs_files(attachments_root):
     labels = {item.name: item.label for item in screenshots}
     assert labels["shot.png"] == "Primary"
 
+
+def test_queueing_screenshot_upload_creates_upload_entry(session_state):
+    shot = app.ScreenshotAsset(name="capture.png", data=b"image-bytes", label="Dialog")
+
+    app.ScreenshotService._queue_screenshot_upload(shot)
+
+    uploads = session_state.get("uploads")
+    assert isinstance(uploads, list)
+    assert len(uploads) == 1
+    queued = uploads[0]
+    assert isinstance(queued, app.InMemoryUploadedFile)
+    assert queued.name == "capture.png"
+    assert queued.getvalue() == b"image-bytes"
+    assert queued is not shot
+

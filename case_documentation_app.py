@@ -5862,6 +5862,20 @@ class ScreenshotService:
     def __init__(self, *, state_key: str = "screenshots") -> None:
         self.state_key = state_key
 
+    @staticmethod
+    def _queue_screenshot_upload(asset: ScreenshotAsset) -> None:
+        """Create an upload entry for ``asset`` so evidence queues stay in sync."""
+
+        uploads = st.session_state.get("uploads")
+        if isinstance(uploads, list):
+            target = uploads
+        else:  # pragma: no cover - defensive path for unexpected state
+            target = []
+
+        staged = InMemoryUploadedFile(asset.name, asset.getvalue())
+        target.append(staged)
+        st.session_state["uploads"] = target
+
     def _coerce(self, items: Iterable[object]) -> list[ScreenshotAsset]:
         normalised: list[ScreenshotAsset] = []
         for item in items:
@@ -5909,6 +5923,7 @@ class ScreenshotService:
             shot.capture_mode = mode
             shot.origin = "capture"
             self.append(shot)
+            self._queue_screenshot_upload(shot)
             st.success(f"Captured {mode} screenshot: {shot.label}")
             if reset_flag_key:
                 st.session_state[reset_flag_key] = True
