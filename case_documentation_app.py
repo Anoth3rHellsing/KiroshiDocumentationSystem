@@ -4573,12 +4573,15 @@ def render_logo():
             text-transform: uppercase;
             color: {companion_title_color};
             margin-bottom: 0.5rem;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         }}
 
         #kiroshi-header__companion-text {{
             font-size: 1.1rem;
             line-height: 1.6;
             color: {companion_text_color};
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-weight: 400;
         }}
 
         #kiroshi-header__date {{
