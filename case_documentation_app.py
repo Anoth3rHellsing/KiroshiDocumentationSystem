@@ -13659,10 +13659,16 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             "<div id='floating-screenshot-menu-anchor'></div>",
             unsafe_allow_html=True,
         )
-        st.markdown("#### Screenshot capture")
+        st.markdown(
+            "<div class='floating-menu-title' role='heading' aria-level='3'>"
+            "📸 Screenshot capture"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         st.caption(
             "Capture evidence without leaving your current tab. Files stay linked to the case."
         )
+        st.caption("Drag the title bar to reposition this window anywhere on your screen.")
         st.text_input(
             "Label for next capture",
             key=label_state_key,
@@ -13730,6 +13736,165 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 if (!targetBlock.classList.contains('floating-menu-block')) {
                     targetBlock.classList.add('floating-menu-block');
                 }
+
+                if (targetBlock.dataset.dragInitialised === '1') {
+                    return;
+                }
+                targetBlock.dataset.dragInitialised = '1';
+
+                const storageKey = 'kiroshi-floating-menu-position';
+                const getLocalStorage = () => {
+                    try {
+                        return window.localStorage;
+                    } catch (err) {
+                        return null;
+                    }
+                };
+                const storage = getLocalStorage();
+
+                const ensureInBounds = (pos) => {
+                    const safe = { ...pos };
+                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+                    const maxLeft = Math.max(8, viewportWidth - targetBlock.offsetWidth - 8);
+                    const maxTop = Math.max(8, viewportHeight - targetBlock.offsetHeight - 8);
+                    if (!Number.isFinite(safe.left)) {
+                        safe.left = maxLeft;
+                    }
+                    if (!Number.isFinite(safe.top)) {
+                        safe.top = 24;
+                    }
+                    safe.left = Math.min(Math.max(safe.left, 8), maxLeft);
+                    safe.top = Math.min(Math.max(safe.top, 8), maxTop);
+                    return safe;
+                };
+
+                const applyPosition = (pos) => {
+                    const safe = ensureInBounds(pos || {});
+                    targetBlock.style.top = `${safe.top}px`;
+                    targetBlock.style.left = `${safe.left}px`;
+                    targetBlock.style.right = 'auto';
+                    targetBlock.style.bottom = 'auto';
+                    currentPosition = safe;
+                    return safe;
+                };
+
+                let currentPosition = null;
+
+                const savedPosition = (() => {
+                    if (!storage) { return null; }
+                    const raw = storage.getItem(storageKey);
+                    if (!raw) { return null; }
+                    try {
+                        const parsed = JSON.parse(raw);
+                        if (parsed && typeof parsed === 'object') {
+                            return {
+                                top: Number(parsed.top),
+                                left: Number(parsed.left),
+                            };
+                        }
+                    } catch (err) {
+                        console.warn('Unable to parse saved floating menu position', err);
+                    }
+                    return null;
+                })();
+
+                requestAnimationFrame(() => {
+                    if (savedPosition) {
+                        applyPosition(savedPosition);
+                    } else {
+                        const defaultLeft = window.innerWidth - targetBlock.offsetWidth - 24;
+                        applyPosition({ top: 24, left: defaultLeft });
+                    }
+                });
+
+                const handle = targetBlock.querySelector('.floating-menu-title') || targetBlock;
+                handle.classList.add('floating-drag-handle');
+
+                let activePointerId = null;
+                let dragStart = null;
+
+                const savePosition = (pos) => {
+                    if (!storage || !pos) { return; }
+                    try {
+                        storage.setItem(storageKey, JSON.stringify(pos));
+                    } catch (err) {
+                        console.warn('Unable to persist floating menu position', err);
+                    }
+                };
+
+                const onPointerMove = (event) => {
+                    if (event.pointerId !== activePointerId || !dragStart) {
+                        return;
+                    }
+                    const deltaX = event.clientX - dragStart.x;
+                    const deltaY = event.clientY - dragStart.y;
+                    const next = {
+                        left: dragStart.left + deltaX,
+                        top: dragStart.top + deltaY,
+                    };
+                    const applied = applyPosition(next);
+                    savePosition(applied);
+                };
+
+                const endDrag = (event) => {
+                    if (event.pointerId !== activePointerId) {
+                        return;
+                    }
+                    document.removeEventListener('pointermove', onPointerMove);
+                    document.removeEventListener('pointerup', endDrag);
+                    document.removeEventListener('pointercancel', endDrag);
+                    activePointerId = null;
+                    dragStart = null;
+                    try {
+                        handle.releasePointerCapture(event.pointerId);
+                    } catch (captureErr) {
+                        // Ignore browsers that do not support pointer capture.
+                    }
+                    if (currentPosition) {
+                        savePosition(currentPosition);
+                    }
+                    targetBlock.classList.remove('is-dragging');
+                };
+
+                const startDrag = (event) => {
+                    if (event.button !== 0 || activePointerId !== null) {
+                        return;
+                    }
+                    const interactive = event.target.closest('button, input, textarea, select, a, label, [role="slider"], [contenteditable="true"]');
+                    if (interactive) {
+                        return;
+                    }
+                    activePointerId = event.pointerId;
+                    const computed = window.getComputedStyle(targetBlock);
+                    const top = parseFloat(computed.top);
+                    const left = parseFloat(computed.left);
+                    dragStart = {
+                        x: event.clientX,
+                        y: event.clientY,
+                        top: Number.isFinite(top) ? top : targetBlock.getBoundingClientRect().top,
+                        left: Number.isFinite(left) ? left : targetBlock.getBoundingClientRect().left,
+                    };
+                    document.addEventListener('pointermove', onPointerMove);
+                    document.addEventListener('pointerup', endDrag);
+                    document.addEventListener('pointercancel', endDrag);
+                    targetBlock.classList.add('is-dragging');
+                    try {
+                        handle.setPointerCapture(activePointerId);
+                    } catch (captureErr) {
+                        // Ignore browsers that do not support pointer capture.
+                    }
+                    event.preventDefault();
+                };
+
+                handle.addEventListener('pointerdown', startDrag);
+
+                window.addEventListener('resize', () => {
+                    if (currentPosition) {
+                        applyPosition(currentPosition);
+                        savePosition(currentPosition);
+                    }
+                });
             } catch (err) {
                 console.error('floating menu bootstrap failed', err);
             }
@@ -13745,8 +13910,8 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
         <style>
             div[data-testid="stVerticalBlock"].floating-menu-block {
                 position: fixed;
+                top: 1.5rem;
                 right: 1.5rem;
-                bottom: 1.5rem;
                 width: min(360px, 90vw);
                 padding: 1.1rem 1.25rem 1.35rem;
                 border-radius: 0.9rem;
@@ -13799,6 +13964,22 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 display: none;
             }
 
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-title {
+                font-size: 1.05rem;
+                font-weight: 700;
+                margin-bottom: 0.25rem;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                cursor: grab;
+                user-select: none;
+                touch-action: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-dragging .floating-menu-title {
+                cursor: grabbing;
+            }
+
             @media (prefers-color-scheme: dark) {
                 div[data-testid="stVerticalBlock"].floating-menu-block {
                     background: var(--floating-menu-bg-dark, rgba(15, 23, 42, 0.92));
@@ -13828,8 +14009,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
             @media (max-width: 768px) {
                 div[data-testid="stVerticalBlock"].floating-menu-block {
+                    top: 0.75rem;
                     right: 0.75rem;
-                    bottom: 0.75rem;
+                    bottom: auto;
                     width: min(320px, 92vw);
                 }
             }
@@ -13852,7 +14034,7 @@ def render_case_attachments_panel(
 
     st.markdown("##### Quick capture")
     st.caption(
-        "Use the floating capture menu in the bottom corner to grab screenshots from any tab."
+        "Use the floating capture menu that travels with you to grab screenshots from any tab."
     )
     st.caption(
         "Captured screenshots sync automatically with uploads so the export ZIP contains everything."
