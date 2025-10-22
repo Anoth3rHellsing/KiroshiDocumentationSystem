@@ -14307,6 +14307,22 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 display: none;
             }
 
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-title {
+                font-size: 1.05rem;
+                font-weight: 700;
+                margin-bottom: 0.25rem;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                cursor: grab;
+                user-select: none;
+                touch-action: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-dragging .floating-menu-title {
+                cursor: grabbing;
+            }
+
             @media (prefers-color-scheme: dark) {
                 div[data-testid="stVerticalBlock"].floating-menu-block {
                     background: var(--floating-menu-bg-dark, rgba(15, 23, 42, 0.92));
