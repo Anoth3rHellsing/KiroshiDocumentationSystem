@@ -13494,28 +13494,91 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 right: 1.5rem;
                 bottom: 1.5rem;
                 width: min(360px, 90vw);
-                padding: 1rem 1.1rem 1.25rem;
-                border-radius: 0.75rem;
-                box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28);
+                padding: 1.1rem 1.25rem 1.35rem;
+                border-radius: 0.9rem;
+                box-shadow: 0 18px 42px rgba(15, 23, 42, 0.35);
                 background: var(--floating-menu-bg, rgba(255, 255, 255, 0.98));
                 z-index: 1000;
                 border: 1px solid rgba(148, 163, 184, 0.35);
-                backdrop-filter: blur(6px);
+                backdrop-filter: blur(10px);
+                color: var(--floating-menu-fg, inherit);
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) label,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) p,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) span,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) h4,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) small {
+                color: inherit !important;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-baseweb="input"] input,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-baseweb="textarea"] textarea {
+                background-color: rgba(248, 250, 252, 0.9);
+                color: inherit;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-testid="stMarkdown"] p {
+                margin-bottom: 0.35rem;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button {
+                border-radius: 999px;
+                padding: 0.55rem 0.9rem;
+                border: 1px solid rgba(148, 163, 184, 0.45);
+                font-weight: 600;
+                background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+                color: inherit;
+                transition: transform 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
             }
 
             [data-testid="stAppViewContainer"] {
-                padding-bottom: 8rem;
+                padding-bottom: 9rem;
             }
 
             #floating-screenshot-menu-anchor {
                 display: none;
             }
 
+            @media (prefers-color-scheme: dark) {
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
+                    background: var(--floating-menu-bg-dark, rgba(15, 23, 42, 0.92));
+                    border-color: rgba(226, 232, 240, 0.25);
+                    color: var(--floating-menu-fg-dark, #f8fafc);
+                }
+
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor)
+                [data-baseweb="input"] input,
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor)
+                [data-baseweb="textarea"] textarea {
+                    background-color: rgba(30, 41, 59, 0.75);
+                    color: inherit;
+                    border-color: rgba(148, 163, 184, 0.45);
+                }
+
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button {
+                    background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.95));
+                    border: 1px solid rgba(125, 211, 252, 0.6);
+                    color: #0b1120;
+                    box-shadow: 0 14px 32px rgba(56, 189, 248, 0.35);
+                }
+
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button:hover {
+                    filter: brightness(1.05);
+                    transform: translateY(-1px);
+                }
+            }
+
             @media (max-width: 768px) {
                 div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
                     right: 0.75rem;
                     bottom: 0.75rem;
-                    width: min(320px, 90vw);
+                    width: min(320px, 92vw);
                 }
             }
         </style>
