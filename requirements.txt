@@ -10,3 +10,4 @@ pyautogui
 pillow
 mss
 pdfminer.six
+cryptography

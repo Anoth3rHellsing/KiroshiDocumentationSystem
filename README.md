@@ -33,6 +33,7 @@ Coverage is actively tracked and the project receives daily updates.
 - **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
 - **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
 - **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
+- **Kiroshi Cloud console** – register remote devices, enforce per-tenant credentials, and synchronise the AI Educate knowledge base across Windows and Windows Server workstations through an encrypted management plane.
 - **GPT-OSS integration (coming soon)** – send prompts directly to GPT-OSS and display the generated response.
 - **Kiroshi chat tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
   gentle reassurance when you're overwhelmed, and humorous escalation quips. Toggle Sarcasm Mode in Settings when you want the
@@ -40,6 +41,92 @@ Coverage is actively tracked and the project receives daily updates.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
 - **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
   sessions.
+
+## Kiroshi Cloud console
+
+The repository now ships with **KiroshiCloud**, a companion Streamlit client that
+acts as the management plane for remote Kiroshi workstations. The console keeps a
+live, encrypted registry of every authorised device, lets you approve or block
+connections in real time, and synchronises the AI Educate knowledge base across
+sites without opening ports on edge firewalls.
+
+### Quick start
+
+1. Install the Python requirements as described below (the list now includes
+   `cryptography` for the encryption layer).
+2. Launch the console with:
+
+   ```bash
+   streamlit run kiroshi_cloud_client.py
+   ```
+
+3. Sign in with the default credentials **admin / admin123!**. The first screen
+   will warn you that the defaults are active—change them immediately from the
+   *Security* tab so the database gains a unique password.
+4. Register each Windows or Windows Server host in the *Connections* tab. You
+   only need a friendly name, the overlay IP address, and optional notes such as
+   the physical site or rack number.
+
+### Overlay network and remote connectivity
+
+Kiroshi Cloud is designed to work through modern mesh VPNs (Tailscale, ZeroTier,
+WireGuard hubs, etc.). These tools create outbound peer-to-peer tunnels so you do
+not need to configure port forwarding on customer routers.
+
+1. Install the overlay agent on the cloud host and every workstation that runs
+   the classic Kiroshi desktop app.
+2. Sign in with the same organisation account (or join the same network ID) so
+   all machines appear in the shared overlay.
+3. Copy the private IP assigned by the overlay (for example 100.x.y.z on
+   Tailscale) and use it as the *Device IP* when adding a workstation inside the
+   console.
+4. After the agent connects, use the **Mark online** button or `ping <overlay-ip>`
+   from the cloud host to confirm that the tunnel is reachable.
+
+The **Setup Guide** tab in the Kiroshi Cloud console lets you tailor these
+instructions and the recommended overlay provider for your organisation. Any
+changes are written back to the encrypted configuration and surface inside the
+desktop client so technicians always see the current playbook before linking a
+new workstation.
+
+Each device entry exposes a **Generate connection token** action. The token
+encodes the device ID and its shared secret. Download or copy the token and paste
+it into the desktop app (see below) to pair the workstation with the cloud roster.
+
+### Synchronising with the desktop app
+
+1. Open **Settings → AI & Knowledge** inside Kiroshi.
+2. Enable the **Kiroshi Cloud** toggle, enter the updated username and password,
+   and paste the connection token generated for that workstation.
+3. Click **Validar conexión** to verify the credentials. The app reports the cloud
+   status, device count, and last saved timestamp.
+4. Use **Subir Educate al cloud** to push the current AI Educate dataset, or
+   **Descargar Educate del cloud** to pull the shared snapshot into the desktop
+   installation.
+
+The desktop and cloud clients now share the same analytics pipeline, letting
+team leads audit recurring causes or high-risk devices from either interface.
+
+### Encryption at rest
+
+All cloud artefacts live under `C:/ProgramFiles/KiroshiCloud` on Windows (or
+`~/KiroshiCloud` on other platforms). The console generates a random salt and
+derives a Fernet key from your password using PBKDF2, so both the device roster
+and the AI Educate dataset remain encrypted at rest. Updating the credentials
+from the console transparently re-encrypts the payloads with the new key.
+
+### Troubleshooting for new administrators
+
+* **Forgot to change the defaults:** Sign back in with `admin / admin123!`, open
+  the *Security* tab, and rotate the username/password pair. Every workstation
+  must then update its credentials in Settings.
+* **Overlay agent offline:** Verify the device is authorised in the overlay’s
+  admin portal and allow the service through Windows Defender Firewall.
+* **Token rejected in Kiroshi:** Regenerate the token in the console to ensure
+  you are using the latest shared secret, then paste it again in the desktop app.
+* **Dataset out of sync:** From either side, refresh the dataset from the cloud
+  and trigger a download so every workstation consumes the same encrypted
+  snapshot.
 
 ## Installation
 
