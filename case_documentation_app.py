@@ -13486,10 +13486,39 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             f"{len(screenshots)} capture{'s' if len(screenshots) != 1 else ''}."
         )
 
+    components.html(
+        """
+        <script>
+        (function() {
+            try {
+                const doc = window.parent?.document || window.document;
+                if (!doc) { return; }
+                const anchor = doc.querySelector('#floating-screenshot-menu-anchor');
+                if (!anchor) { return; }
+                const targetBlock = anchor.closest('div[data-testid="stVerticalBlock"]');
+                if (!targetBlock) { return; }
+                doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block').forEach((el) => {
+                    if (el !== targetBlock) {
+                        el.classList.remove('floating-menu-block');
+                    }
+                });
+                if (!targetBlock.classList.contains('floating-menu-block')) {
+                    targetBlock.classList.add('floating-menu-block');
+                }
+            } catch (err) {
+                console.error('floating menu bootstrap failed', err);
+            }
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
     st.markdown(
         """
         <style>
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
+            div[data-testid="stVerticalBlock"].floating-menu-block {
                 position: fixed;
                 right: 1.5rem;
                 bottom: 1.5rem;
@@ -13504,25 +13533,25 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 color: var(--floating-menu-fg, inherit);
             }
 
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) label,
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) p,
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) span,
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) h4,
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) small {
+            div[data-testid="stVerticalBlock"].floating-menu-block label,
+            div[data-testid="stVerticalBlock"].floating-menu-block p,
+            div[data-testid="stVerticalBlock"].floating-menu-block span,
+            div[data-testid="stVerticalBlock"].floating-menu-block h4,
+            div[data-testid="stVerticalBlock"].floating-menu-block small {
                 color: inherit !important;
             }
 
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-baseweb="input"] input,
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-baseweb="textarea"] textarea {
+            div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="input"] input,
+            div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="textarea"] textarea {
                 background-color: rgba(248, 250, 252, 0.9);
                 color: inherit;
             }
 
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-testid="stMarkdown"] p {
+            div[data-testid="stVerticalBlock"].floating-menu-block [data-testid="stMarkdown"] p {
                 margin-bottom: 0.35rem;
             }
 
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button {
+            div[data-testid="stVerticalBlock"].floating-menu-block .stButton button {
                 border-radius: 999px;
                 padding: 0.55rem 0.9rem;
                 border: 1px solid rgba(148, 163, 184, 0.45);
@@ -13532,7 +13561,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 transition: transform 0.15s ease, box-shadow 0.15s ease;
             }
 
-            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button:hover {
+            div[data-testid="stVerticalBlock"].floating-menu-block .stButton button:hover {
                 transform: translateY(-1px);
                 box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
             }
@@ -13546,36 +13575,34 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             }
 
             @media (prefers-color-scheme: dark) {
-                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
+                div[data-testid="stVerticalBlock"].floating-menu-block {
                     background: var(--floating-menu-bg-dark, rgba(15, 23, 42, 0.92));
                     border-color: rgba(226, 232, 240, 0.25);
                     color: var(--floating-menu-fg-dark, #f8fafc);
                 }
 
-                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor)
-                [data-baseweb="input"] input,
-                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor)
-                [data-baseweb="textarea"] textarea {
+                div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="input"] input,
+                div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="textarea"] textarea {
                     background-color: rgba(30, 41, 59, 0.75);
                     color: inherit;
                     border-color: rgba(148, 163, 184, 0.45);
                 }
 
-                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button {
+                div[data-testid="stVerticalBlock"].floating-menu-block .stButton button {
                     background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.95));
                     border: 1px solid rgba(125, 211, 252, 0.6);
                     color: #0b1120;
                     box-shadow: 0 14px 32px rgba(56, 189, 248, 0.35);
                 }
 
-                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button:hover {
+                div[data-testid="stVerticalBlock"].floating-menu-block .stButton button:hover {
                     filter: brightness(1.05);
                     transform: translateY(-1px);
                 }
             }
 
             @media (max-width: 768px) {
-                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
+                div[data-testid="stVerticalBlock"].floating-menu-block {
                     right: 0.75rem;
                     bottom: 0.75rem;
                     width: min(320px, 92vw);
