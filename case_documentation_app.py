@@ -13724,435 +13724,465 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
         """
         <script>
         (function() {
-            try {
-                const doc = window.parent?.document || window.document;
-                if (!doc) { return; }
-                const anchor = doc.querySelector('#floating-screenshot-menu-anchor');
-                if (!anchor) { return; }
-                const targetBlock = anchor.closest('div[data-testid="stVerticalBlock"]');
-                if (!targetBlock) { return; }
-                doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block').forEach((el) => {
-                    if (el !== targetBlock) {
-                        el.classList.remove('floating-menu-block');
-                        el.classList.remove('is-expanded');
-                    }
-                });
-                if (!targetBlock.classList.contains('floating-menu-block')) {
-                    targetBlock.classList.add('floating-menu-block');
-                }
-                const existingBubble = targetBlock.querySelector(':scope > .floating-menu-bubble');
-                const existingPanel = targetBlock.querySelector(':scope > .floating-menu-panel');
-                if (targetBlock.dataset.dragInitialised === '1' && existingBubble && existingPanel) {
-                    return;
-                }
-                if (existingBubble) {
-                    existingBubble.remove();
-                }
-                if (existingPanel) {
-                    while (existingPanel.firstChild) {
-                        targetBlock.insertBefore(existingPanel.firstChild, existingPanel);
-                    }
-                    existingPanel.remove();
-                }
-                targetBlock.dataset.dragInitialised = '1';
+            const doc = window.parent?.document || window.document;
+            if (!doc) { return; }
 
-                const storageKey = 'kiroshi-floating-menu-position';
-                const getLocalStorage = () => {
-                    try {
-                        return window.localStorage;
-                    } catch (err) {
+            const storageKey = 'kiroshi-floating-menu-position';
+
+            const bootstrapFloatingMenu = (targetBlock) => {
+                try {
+                    if (!targetBlock) { return; }
+
+                    doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block').forEach((el) => {
+                        if (el !== targetBlock) {
+                            el.classList.remove('floating-menu-block');
+                            el.classList.remove('is-expanded');
+                        }
+                    });
+
+                    if (!targetBlock.classList.contains('floating-menu-block')) {
+                        targetBlock.classList.add('floating-menu-block');
+                    }
+
+                    const existingBubble = targetBlock.querySelector(':scope > .floating-menu-bubble');
+                    const existingPanel = targetBlock.querySelector(':scope > .floating-menu-panel');
+                    if (targetBlock.dataset.dragInitialised === '1' && existingBubble && existingPanel) {
+                        return;
+                    }
+
+                    if (existingBubble) {
+                        existingBubble.remove();
+                    }
+                    if (existingPanel) {
+                        while (existingPanel.firstChild) {
+                            targetBlock.insertBefore(existingPanel.firstChild, existingPanel);
+                        }
+                        existingPanel.remove();
+                    }
+
+                    targetBlock.dataset.dragInitialised = '1';
+
+                    const getLocalStorage = () => {
+                        try {
+                            return window.localStorage;
+                        } catch (err) {
+                            return null;
+                        }
+                    };
+                    const storage = getLocalStorage();
+
+                    const bubble = doc.createElement('button');
+                    bubble.type = 'button';
+                    bubble.className = 'floating-menu-bubble';
+                    bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
+                    bubble.setAttribute('aria-expanded', 'false');
+                    bubble.setAttribute('aria-label', 'Open screenshot capture menu');
+                    bubble.dataset.suppressNextToggle = '0';
+
+                    const panel = doc.createElement('div');
+                    panel.className = 'floating-menu-panel';
+                    while (targetBlock.firstChild) {
+                        panel.appendChild(targetBlock.firstChild);
+                    }
+                    targetBlock.appendChild(panel);
+                    targetBlock.appendChild(bubble);
+
+                    const ensureInBounds = (pos) => {
+                        const safe = { ...pos };
+                        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                        const maxLeft = Math.max(8, viewportWidth - targetBlock.offsetWidth - 8);
+                        const maxTop = Math.max(8, viewportHeight - targetBlock.offsetHeight - 8);
+                        if (!Number.isFinite(safe.left)) {
+                            safe.left = maxLeft;
+                        }
+                        if (!Number.isFinite(safe.top)) {
+                            safe.top = 24;
+                        }
+                        safe.left = Math.min(Math.max(safe.left, 8), maxLeft);
+                        safe.top = Math.min(Math.max(safe.top, 8), maxTop);
+                        return safe;
+                    };
+
+                    let currentPosition = null;
+
+                    const applyPosition = (pos) => {
+                        const safe = ensureInBounds(pos || {});
+                        targetBlock.style.position = 'fixed';
+                        targetBlock.style.top = `${safe.top}px`;
+                        targetBlock.style.left = `${safe.left}px`;
+                        targetBlock.style.right = 'auto';
+                        targetBlock.style.bottom = 'auto';
+                        currentPosition = safe;
+                        return safe;
+                    };
+
+                    const savePosition = (pos) => {
+                        if (!storage || !pos) { return; }
+                        try {
+                            storage.setItem(storageKey, JSON.stringify(pos));
+                        } catch (err) {
+                            console.warn('Unable to persist floating menu position', err);
+                        }
+                    };
+
+                    const setBubbleContent = (expanded) => {
+                        if (expanded) {
+                            bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">&times;</span><span class="sr-only">Collapse screenshot capture menu</span>';
+                            bubble.setAttribute('aria-label', 'Collapse screenshot capture menu');
+                        } else {
+                            bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
+                            bubble.setAttribute('aria-label', 'Open screenshot capture menu');
+                        }
+                    };
+
+                    const setExpanded = (expanded, options = {}) => {
+                        const { skipFocus = false, skipReposition = false } = options;
+                        if (expanded) {
+                            targetBlock.classList.add('is-expanded');
+                            bubble.classList.add('is-expanded');
+                            bubble.setAttribute('aria-expanded', 'true');
+                            setBubbleContent(true);
+                            if (!skipReposition) {
+                                requestAnimationFrame(() => {
+                                    if (currentPosition) {
+                                        const adjusted = ensureInBounds(currentPosition);
+                                        if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
+                                            applyPosition(adjusted);
+                                            savePosition(adjusted);
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            targetBlock.classList.remove('is-expanded');
+                            bubble.classList.remove('is-expanded');
+                            bubble.setAttribute('aria-expanded', 'false');
+                            setBubbleContent(false);
+                            if (!skipFocus) {
+                                bubble.focus({ preventScroll: true });
+                            }
+                            if (!skipReposition) {
+                                requestAnimationFrame(() => {
+                                    if (currentPosition) {
+                                        const adjusted = ensureInBounds(currentPosition);
+                                        if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
+                                            applyPosition(adjusted);
+                                            savePosition(adjusted);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    };
+
+                    targetBlock.__setExpanded = (expanded, opts) => setExpanded(expanded, opts || {});
+
+                    setExpanded(false, { skipFocus: true, skipReposition: true });
+
+                    const savedPosition = (() => {
+                        if (!storage) { return null; }
+                        const raw = storage.getItem(storageKey);
+                        if (!raw) { return null; }
+                        try {
+                            const parsed = JSON.parse(raw);
+                            if (parsed && typeof parsed === 'object') {
+                                return {
+                                    top: Number(parsed.top),
+                                    left: Number(parsed.left),
+                                };
+                            }
+                        } catch (err) {
+                            console.warn('Unable to parse saved floating menu position', err);
+                        }
                         return null;
-                    }
-                };
-                const storage = getLocalStorage();
+                    })();
 
-                const bubble = doc.createElement('button');
-                bubble.type = 'button';
-                bubble.className = 'floating-menu-bubble';
-                bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
-                bubble.setAttribute('aria-expanded', 'false');
-                bubble.setAttribute('aria-label', 'Open screenshot capture menu');
-                bubble.dataset.suppressNextToggle = '0';
+                    requestAnimationFrame(() => {
+                        if (savedPosition) {
+                            const applied = applyPosition(savedPosition);
+                            savePosition(applied);
+                        } else {
+                            const defaultLeft = Math.max(
+                                16,
+                                (window.innerWidth || document.documentElement.clientWidth || 0) - targetBlock.offsetWidth - 24
+                            );
+                            const applied = applyPosition({ top: 24, left: defaultLeft });
+                            savePosition(applied);
+                        }
+                    });
 
-                const panel = doc.createElement('div');
-                panel.className = 'floating-menu-panel';
-                while (targetBlock.firstChild) {
-                    panel.appendChild(targetBlock.firstChild);
-                }
-                targetBlock.appendChild(panel);
-                targetBlock.appendChild(bubble);
-
-                const ensureInBounds = (pos) => {
-                    const safe = { ...pos };
-                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-                    const maxLeft = Math.max(8, viewportWidth - targetBlock.offsetWidth - 8);
-                    const maxTop = Math.max(8, viewportHeight - targetBlock.offsetHeight - 8);
-                    if (!Number.isFinite(safe.left)) {
-                        safe.left = maxLeft;
-                    }
-                    if (!Number.isFinite(safe.top)) {
-                        safe.top = 24;
-                    }
-                    safe.left = Math.min(Math.max(safe.left, 8), maxLeft);
-                    safe.top = Math.min(Math.max(safe.top, 8), maxTop);
-                    return safe;
-                };
-
-                let currentPosition = null;
-
-                const applyPosition = (pos) => {
-                    const safe = ensureInBounds(pos || {});
-                    targetBlock.style.position = 'fixed';
-                    targetBlock.style.top = `${safe.top}px`;
-                    targetBlock.style.left = `${safe.left}px`;
-                    targetBlock.style.right = 'auto';
-                    targetBlock.style.bottom = 'auto';
-                    currentPosition = safe;
-                    return safe;
-                };
-
-                const savePosition = (pos) => {
-                    if (!storage || !pos) { return; }
-                    try {
-                        storage.setItem(storageKey, JSON.stringify(pos));
-                    } catch (err) {
-                        console.warn('Unable to persist floating menu position', err);
-                    }
-                };
-
-                const setBubbleContent = (expanded) => {
-                    if (expanded) {
-                        bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">&times;</span><span class="sr-only">Collapse screenshot capture menu</span>';
-                        bubble.setAttribute('aria-label', 'Collapse screenshot capture menu');
-                    } else {
-                        bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
-                        bubble.setAttribute('aria-label', 'Open screenshot capture menu');
-                    }
-                };
-
-                const setExpanded = (expanded, options = {}) => {
-                    const { skipFocus = false, skipReposition = false } = options;
-                    if (expanded) {
-                        targetBlock.classList.add('is-expanded');
-                        bubble.classList.add('is-expanded');
-                        bubble.setAttribute('aria-expanded', 'true');
-                        setBubbleContent(true);
-                        if (!skipReposition) {
-                            requestAnimationFrame(() => {
-                                if (currentPosition) {
-                                    const adjusted = ensureInBounds(currentPosition);
-                                    if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
-                                        applyPosition(adjusted);
-                                        savePosition(adjusted);
+                    if (!doc.__floatingMenuOutsideHandler) {
+                        doc.__floatingMenuOutsideHandler = true;
+                        doc.addEventListener('pointerdown', (event) => {
+                            doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
+                                if (!block.contains(event.target)) {
+                                    if (typeof block.__setExpanded === 'function') {
+                                        block.__setExpanded(false, { skipFocus: true });
                                     }
                                 }
                             });
-                        }
-                    } else {
-                        targetBlock.classList.remove('is-expanded');
-                        bubble.classList.remove('is-expanded');
-                        bubble.setAttribute('aria-expanded', 'false');
-                        setBubbleContent(false);
-                        if (!skipFocus) {
-                            bubble.focus({ preventScroll: true });
-                        }
-                        if (!skipReposition) {
-                            requestAnimationFrame(() => {
-                                if (currentPosition) {
-                                    const adjusted = ensureInBounds(currentPosition);
-                                    if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
-                                        applyPosition(adjusted);
-                                        savePosition(adjusted);
+                        });
+                        doc.addEventListener('keydown', (event) => {
+                            if (event.key === 'Escape') {
+                                doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
+                                    if (typeof block.__setExpanded === 'function') {
+                                        block.__setExpanded(false, { skipFocus: true });
                                     }
-                                }
-                            });
-                        }
-                    }
-                };
-
-                targetBlock.__setExpanded = (expanded, opts) => setExpanded(expanded, opts || {});
-
-                setExpanded(false, { skipFocus: true, skipReposition: true });
-
-                const savedPosition = (() => {
-                    if (!storage) { return null; }
-                    const raw = storage.getItem(storageKey);
-                    if (!raw) { return null; }
-                    try {
-                        const parsed = JSON.parse(raw);
-                        if (parsed && typeof parsed === 'object') {
-                            return {
-                                top: Number(parsed.top),
-                                left: Number(parsed.left),
-                            };
-                        }
-                    } catch (err) {
-                        console.warn('Unable to parse saved floating menu position', err);
-                    }
-                    return null;
-                })();
-
-                requestAnimationFrame(() => {
-                    if (savedPosition) {
-                        const applied = applyPosition(savedPosition);
-                        savePosition(applied);
-                    } else {
-                        const defaultLeft = Math.max(
-                            16,
-                            (window.innerWidth || document.documentElement.clientWidth || 0) - targetBlock.offsetWidth - 24
-                        );
-                        const applied = applyPosition({ top: 24, left: defaultLeft });
-                        savePosition(applied);
-                    }
-                });
-
-                if (!doc.__floatingMenuOutsideHandler) {
-                    doc.__floatingMenuOutsideHandler = true;
-                    doc.addEventListener('pointerdown', (event) => {
-                        doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
-                            if (!block.contains(event.target)) {
-                                if (typeof block.__setExpanded === 'function') {
-                                    block.__setExpanded(false, { skipFocus: true });
-                                }
+                                });
                             }
                         });
-                    });
-                    doc.addEventListener('keydown', (event) => {
-                        if (event.key === 'Escape') {
-                            doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
-                                if (typeof block.__setExpanded === 'function') {
-                                    block.__setExpanded(false, { skipFocus: true });
-                                }
+                    }
+
+                    let activePointerId = null;
+                    let dragStart = null;
+                    let mouseDragging = false;
+                    let touchDragging = false;
+                    let activeDragHandle = null;
+                    let suppressClickToggle = false;
+
+                    const beginDragFromPoint = (clientX, clientY) => {
+                        suppressClickToggle = false;
+                        const computed = window.getComputedStyle(targetBlock);
+                        const top = parseFloat(computed.top);
+                        const left = parseFloat(computed.left);
+                        dragStart = {
+                            x: clientX,
+                            y: clientY,
+                            top: Number.isFinite(top) ? top : 24,
+                            left: Number.isFinite(left) ? left : (window.innerWidth - targetBlock.offsetWidth - 24),
+                        };
+                        targetBlock.classList.add('is-dragging');
+                    };
+
+                    const applyDragFromDelta = (deltaX, deltaY) => {
+                        if (!dragStart) { return; }
+                        if (!suppressClickToggle && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
+                            suppressClickToggle = true;
+                        }
+                        const next = {
+                            left: dragStart.left + deltaX,
+                            top: dragStart.top + deltaY,
+                        };
+                        const applied = applyPosition(next);
+                        savePosition(applied);
+                    };
+
+                    const onPointerMove = (event) => {
+                        if (event.pointerId !== activePointerId || !dragStart) {
+                            return;
+                        }
+                        applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
+                        if (typeof event.preventDefault === 'function') {
+                            event.preventDefault();
+                        }
+                    };
+
+                    const onMouseMove = (event) => {
+                        if (!mouseDragging || !dragStart) {
+                            return;
+                        }
+                        applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
+                        if (typeof event.preventDefault === 'function') {
+                            event.preventDefault();
+                        }
+                    };
+
+                    const onTouchMove = (event) => {
+                        if (!touchDragging || !dragStart) {
+                            return;
+                        }
+                        const touch = event.touches[0];
+                        if (!touch) { return; }
+                        applyDragFromDelta(touch.clientX - dragStart.x, touch.clientY - dragStart.y);
+                        if (typeof event.preventDefault === 'function') {
+                            event.preventDefault();
+                        }
+                    };
+
+                    const endPointerDrag = (event) => {
+                        if (event.pointerId !== activePointerId) {
+                            return;
+                        }
+                        activePointerId = null;
+                        dragStart = null;
+                        targetBlock.classList.remove('is-dragging');
+                        document.removeEventListener('pointermove', onPointerMove);
+                        document.removeEventListener('pointerup', endPointerDrag);
+                        document.removeEventListener('pointercancel', endPointerDrag);
+                        if (activeDragHandle) {
+                            try {
+                                activeDragHandle.releasePointerCapture(event.pointerId);
+                            } catch (releaseErr) {
+                                // Ignore browsers without pointer capture support.
+                            }
+                        }
+                        if (suppressClickToggle) {
+                            bubble.dataset.suppressNextToggle = '1';
+                        }
+                    };
+
+                    const endMouseDrag = () => {
+                        if (!mouseDragging) {
+                            return;
+                        }
+                        mouseDragging = false;
+                        dragStart = null;
+                        targetBlock.classList.remove('is-dragging');
+                        document.removeEventListener('mousemove', onMouseMove);
+                        document.removeEventListener('mouseup', endMouseDrag);
+                        if (suppressClickToggle) {
+                            bubble.dataset.suppressNextToggle = '1';
+                        }
+                    };
+
+                    const endTouchDrag = () => {
+                        if (!touchDragging) {
+                            return;
+                        }
+                        touchDragging = false;
+                        dragStart = null;
+                        targetBlock.classList.remove('is-dragging');
+                        document.removeEventListener('touchmove', onTouchMove);
+                        document.removeEventListener('touchend', endTouchDrag);
+                        document.removeEventListener('touchcancel', endTouchDrag);
+                        if (suppressClickToggle) {
+                            bubble.dataset.suppressNextToggle = '1';
+                        }
+                    };
+
+                    const isInteractive = (node) => {
+                        if (!node) { return false; }
+                        if (node === bubble) { return false; }
+                        const interactiveSelectors = [
+                            'button',
+                            'a',
+                            'input',
+                            'textarea',
+                            'select',
+                            'label',
+                            '[role="button"]',
+                            '[role="checkbox"]',
+                            '[role="switch"]',
+                        ];
+                        const interactive = node.closest(interactiveSelectors.join(','));
+                        if (!interactive) { return false; }
+                        return !interactive.classList.contains('floating-menu-bubble');
+                    };
+
+                    const startPointerDrag = (event) => {
+                        if (activePointerId !== null) {
+                            return;
+                        }
+                        if (event.pointerType === 'mouse' && event.button !== 0) {
+                            return;
+                        }
+                        if (isInteractive(event.target)) {
+                            return;
+                        }
+                        activePointerId = event.pointerId;
+                        activeDragHandle = event.currentTarget;
+                        beginDragFromPoint(event.clientX, event.clientY);
+                        document.addEventListener('pointermove', onPointerMove);
+                        document.addEventListener('pointerup', endPointerDrag);
+                        document.addEventListener('pointercancel', endPointerDrag);
+                        try {
+                            activeDragHandle?.setPointerCapture(activePointerId);
+                        } catch (captureErr) {
+                            // Ignore browsers that do not support pointer capture.
+                        }
+                    };
+
+                    const startMouseDrag = (event) => {
+                        if (activePointerId !== null || event.button !== 0 || mouseDragging) {
+                            return;
+                        }
+                        if (isInteractive(event.target)) {
+                            return;
+                        }
+                        mouseDragging = true;
+                        activeDragHandle = event.currentTarget;
+                        beginDragFromPoint(event.clientX, event.clientY);
+                        document.addEventListener('mousemove', onMouseMove);
+                        document.addEventListener('mouseup', endMouseDrag);
+                    };
+
+                    const startTouchDrag = (event) => {
+                        if (activePointerId !== null || touchDragging) {
+                            return;
+                        }
+                        if (isInteractive(event.target)) {
+                            return;
+                        }
+                        const touch = event.touches[0];
+                        if (!touch) { return; }
+                        touchDragging = true;
+                        activeDragHandle = event.currentTarget;
+                        beginDragFromPoint(touch.clientX, touch.clientY);
+                        document.addEventListener('touchmove', onTouchMove, { passive: false });
+                        document.addEventListener('touchend', endTouchDrag);
+                        document.addEventListener('touchcancel', endTouchDrag);
+                    };
+
+                    const attachDragHandlers = (handleEl) => {
+                        handleEl.classList.add('floating-drag-handle');
+                        handleEl.addEventListener('pointerdown', startPointerDrag, { passive: false });
+                        handleEl.addEventListener('mousedown', startMouseDrag);
+                        handleEl.addEventListener('touchstart', startTouchDrag, { passive: false });
+                    };
+
+                    const titleHandle = panel.querySelector('.floating-menu-title');
+                    if (titleHandle) {
+                        attachDragHandlers(titleHandle);
+                    }
+                    attachDragHandlers(bubble);
+
+                    bubble.addEventListener('click', (event) => {
+                        if (bubble.dataset.suppressNextToggle === '1') {
+                            bubble.dataset.suppressNextToggle = '0';
+                            return;
+                        }
+                        event.stopPropagation();
+                        const expanded = targetBlock.classList.contains('is-expanded');
+                        setExpanded(!expanded, { skipFocus: expanded });
+                        if (!expanded) {
+                            requestAnimationFrame(() => {
+                                const focusTarget = panel.querySelector('input, button, textarea, select');
+                                focusTarget?.focus({ preventScroll: true });
                             });
                         }
                     });
+
+                    window.addEventListener('resize', () => {
+                        if (currentPosition) {
+                            const adjusted = ensureInBounds(currentPosition);
+                            applyPosition(adjusted);
+                            savePosition(adjusted);
+                        }
+                    });
+                } catch (err) {
+                    console.error('floating menu bootstrap failed', err);
                 }
+            };
 
-                let activePointerId = null;
-                let dragStart = null;
-                let mouseDragging = false;
-                let touchDragging = false;
-                let activeDragHandle = null;
-                let suppressClickToggle = false;
+            const initialiseFloatingMenu = () => {
+                const anchor = doc.querySelector('#floating-screenshot-menu-anchor');
+                if (!anchor) { return false; }
+                const targetBlock = anchor.closest('div[data-testid="stVerticalBlock"]');
+                if (!targetBlock) { return false; }
+                bootstrapFloatingMenu(targetBlock);
+                return true;
+            };
 
-                const beginDragFromPoint = (clientX, clientY) => {
-                    suppressClickToggle = false;
-                    const computed = window.getComputedStyle(targetBlock);
-                    const top = parseFloat(computed.top);
-                    const left = parseFloat(computed.left);
-                    dragStart = {
-                        x: clientX,
-                        y: clientY,
-                        top: Number.isFinite(top) ? top : 24,
-                        left: Number.isFinite(left) ? left : (window.innerWidth - targetBlock.offsetWidth - 24),
-                    };
-                    targetBlock.classList.add('is-dragging');
-                };
-
-                const applyDragFromDelta = (deltaX, deltaY) => {
-                    if (!dragStart) { return; }
-                    if (!suppressClickToggle && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
-                        suppressClickToggle = true;
-                    }
-                    const next = {
-                        left: dragStart.left + deltaX,
-                        top: dragStart.top + deltaY,
-                    };
-                    const applied = applyPosition(next);
-                    savePosition(applied);
-                };
-
-                const onPointerMove = (event) => {
-                    if (event.pointerId !== activePointerId || !dragStart) {
-                        return;
-                    }
-                    applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
-                    if (typeof event.preventDefault === 'function') {
-                        event.preventDefault();
-                    }
-                };
-
-                const onMouseMove = (event) => {
-                    if (!mouseDragging || !dragStart) {
-                        return;
-                    }
-                    applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
-                    if (typeof event.preventDefault === 'function') {
-                        event.preventDefault();
-                    }
-                };
-
-                const onTouchMove = (event) => {
-                    if (!touchDragging || !dragStart) {
-                        return;
-                    }
-                    const touch = event.touches[0];
-                    if (!touch) { return; }
-                    applyDragFromDelta(touch.clientX - dragStart.x, touch.clientY - dragStart.y);
-                    if (typeof event.preventDefault === 'function') {
-                        event.preventDefault();
-                    }
-                };
-
-                const endPointerDrag = (event) => {
-                    if (event.pointerId !== activePointerId) {
-                        return;
-                    }
-                    document.removeEventListener('pointermove', onPointerMove);
-                    document.removeEventListener('pointerup', endPointerDrag);
-                    document.removeEventListener('pointercancel', endPointerDrag);
-                    try {
-                        activeDragHandle?.releasePointerCapture(event.pointerId);
-                    } catch (captureErr) {
-                        // Ignore browsers without pointer capture.
-                    }
-                    activePointerId = null;
-                    activeDragHandle = null;
-                    dragStart = null;
-                    if (suppressClickToggle) {
-                        bubble.dataset.suppressNextToggle = '1';
-                    }
-                    suppressClickToggle = false;
-                    if (currentPosition) {
-                        savePosition(currentPosition);
-                    }
-                    targetBlock.classList.remove('is-dragging');
-                };
-
-                const endMouseDrag = () => {
-                    if (!mouseDragging) { return; }
-                    document.removeEventListener('mousemove', onMouseMove);
-                    document.removeEventListener('mouseup', endMouseDrag);
-                    mouseDragging = false;
-                    dragStart = null;
-                    activeDragHandle = null;
-                    if (suppressClickToggle) {
-                        bubble.dataset.suppressNextToggle = '1';
-                    }
-                    suppressClickToggle = false;
-                    if (currentPosition) {
-                        savePosition(currentPosition);
-                    }
-                    targetBlock.classList.remove('is-dragging');
-                };
-
-                const endTouchDrag = () => {
-                    if (!touchDragging) { return; }
-                    document.removeEventListener('touchmove', onTouchMove);
-                    document.removeEventListener('touchend', endTouchDrag);
-                    document.removeEventListener('touchcancel', endTouchDrag);
-                    touchDragging = false;
-                    dragStart = null;
-                    activeDragHandle = null;
-                    if (suppressClickToggle) {
-                        bubble.dataset.suppressNextToggle = '1';
-                    }
-                    suppressClickToggle = false;
-                    if (currentPosition) {
-                        savePosition(currentPosition);
-                    }
-                    targetBlock.classList.remove('is-dragging');
-                };
-
-                const isInteractive = (eventTarget) => {
-                    const interactive = eventTarget.closest('button, input, textarea, select, a, label, [role="slider"], [contenteditable="true"]');
-                    if (!interactive) { return false; }
-                    return !interactive.classList.contains('floating-menu-bubble');
-                };
-
-                const startPointerDrag = (event) => {
-                    if (activePointerId !== null) {
-                        return;
-                    }
-                    if (event.pointerType === 'mouse' && event.button !== 0) {
-                        return;
-                    }
-                    if (isInteractive(event.target)) {
-                        return;
-                    }
-                    activePointerId = event.pointerId;
-                    activeDragHandle = event.currentTarget;
-                    beginDragFromPoint(event.clientX, event.clientY);
-                    document.addEventListener('pointermove', onPointerMove);
-                    document.addEventListener('pointerup', endPointerDrag);
-                    document.addEventListener('pointercancel', endPointerDrag);
-                    try {
-                        activeDragHandle?.setPointerCapture(activePointerId);
-                    } catch (captureErr) {
-                        // Ignore browsers that do not support pointer capture.
-                    }
-                };
-
-                const startMouseDrag = (event) => {
-                    if (activePointerId !== null || event.button !== 0 || mouseDragging) {
-                        return;
-                    }
-                    if (isInteractive(event.target)) {
-                        return;
-                    }
-                    mouseDragging = true;
-                    activeDragHandle = event.currentTarget;
-                    beginDragFromPoint(event.clientX, event.clientY);
-                    document.addEventListener('mousemove', onMouseMove);
-                    document.addEventListener('mouseup', endMouseDrag);
-                };
-
-                const startTouchDrag = (event) => {
-                    if (activePointerId !== null || touchDragging) {
-                        return;
-                    }
-                    if (isInteractive(event.target)) {
-                        return;
-                    }
-                    const touch = event.touches[0];
-                    if (!touch) { return; }
-                    touchDragging = true;
-                    activeDragHandle = event.currentTarget;
-                    beginDragFromPoint(touch.clientX, touch.clientY);
-                    document.addEventListener('touchmove', onTouchMove, { passive: false });
-                    document.addEventListener('touchend', endTouchDrag);
-                    document.addEventListener('touchcancel', endTouchDrag);
-                };
-
-                const attachDragHandlers = (handleEl) => {
-                    handleEl.classList.add('floating-drag-handle');
-                    handleEl.addEventListener('pointerdown', startPointerDrag, { passive: false });
-                    handleEl.addEventListener('mousedown', startMouseDrag);
-                    handleEl.addEventListener('touchstart', startTouchDrag, { passive: false });
-                };
-
-                const titleHandle = panel.querySelector('.floating-menu-title');
-                if (titleHandle) {
-                    attachDragHandlers(titleHandle);
-                }
-                attachDragHandlers(bubble);
-
-                bubble.addEventListener('click', (event) => {
-                    if (bubble.dataset.suppressNextToggle === '1') {
-                        bubble.dataset.suppressNextToggle = '0';
-                        return;
-                    }
-                    event.stopPropagation();
-                    const expanded = targetBlock.classList.contains('is-expanded');
-                    setExpanded(!expanded, { skipFocus: expanded });
-                    if (!expanded) {
-                        requestAnimationFrame(() => {
-                            const focusTarget = panel.querySelector('input, button, textarea, select');
-                            focusTarget?.focus({ preventScroll: true });
-                        });
+            if (!initialiseFloatingMenu()) {
+                const observer = new MutationObserver(() => {
+                    if (initialiseFloatingMenu()) {
+                        observer.disconnect();
                     }
                 });
-
-                window.addEventListener('resize', () => {
-                    if (currentPosition) {
-                        const adjusted = ensureInBounds(currentPosition);
-                        applyPosition(adjusted);
-                        savePosition(adjusted);
-                    }
-                });
-            } catch (err) {
-                console.error('floating menu bootstrap failed', err);
+                observer.observe(doc.body, { childList: true, subtree: true });
+                window.addEventListener('beforeunload', () => observer.disconnect(), { once: true });
+                setTimeout(() => observer.disconnect(), 15000);
             }
         })();
         </script>
@@ -14160,6 +14190,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
         height=0,
         width=0,
     )
+
 
     st.markdown(
         """
