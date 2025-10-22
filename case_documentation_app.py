@@ -13408,6 +13408,185 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         st.code(hotkey_script, language="autohotkey")
 
 
+def render_floating_screenshot_menu(case_idx: int) -> None:
+    """Render floating screenshot capture controls that persist across tabs."""
+
+    menu_key = partial(case_widget_key, "floating_capture", case_idx=case_idx)
+
+    label_state_key = menu_key("shot_label")
+    if label_state_key not in st.session_state:
+        st.session_state[label_state_key] = ""
+    reset_flag_key = menu_key("shot_label_reset_pending")
+    if reset_flag_key not in st.session_state:
+        st.session_state[reset_flag_key] = False
+    if st.session_state.get(reset_flag_key):
+        st.session_state[label_state_key] = ""
+        st.session_state[reset_flag_key] = False
+    auto_stamp_key = menu_key("shot_auto_stamp")
+    if auto_stamp_key not in st.session_state:
+        st.session_state[auto_stamp_key] = True
+
+    screenshots = get_active_screenshots()
+
+    container = st.container()
+    with container:
+        st.markdown(
+            "<div id='floating-screenshot-menu-anchor'></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("#### Screenshot capture")
+        st.caption(
+            "Capture evidence without leaving your current tab. Files stay linked to the case."
+        )
+        st.text_input(
+            "Label for next capture",
+            key=label_state_key,
+            placeholder="e.g. Checkout terminal error dialog",
+            help="Shown alongside screenshots in exports and remote menus.",
+        )
+        st.checkbox(
+            "Append timestamp to filenames",
+            key=auto_stamp_key,
+            help="Keeps filenames unique when you capture multiple shots.",
+        )
+
+        capture_cols = st.columns([1, 1, 1])
+        if capture_cols[0].button(
+            "Capture full desktop",
+            key=menu_key("shot_full"),
+        ):
+            _capture_screenshot_from_ui(
+                "full",
+                label=st.session_state.get(label_state_key, ""),
+                auto_stamp=bool(st.session_state.get(auto_stamp_key, True)),
+                label_state_key=label_state_key,
+                reset_flag_key=reset_flag_key,
+            )
+            screenshots = get_active_screenshots()
+        if capture_cols[1].button(
+            "Capture selected area",
+            key=menu_key("shot_region"),
+        ):
+            _capture_screenshot_from_ui(
+                "region",
+                label=st.session_state.get(label_state_key, ""),
+                auto_stamp=bool(st.session_state.get(auto_stamp_key, True)),
+                label_state_key=label_state_key,
+                reset_flag_key=reset_flag_key,
+            )
+            screenshots = get_active_screenshots()
+        if capture_cols[2].button(
+            "Reset label",
+            key=menu_key("shot_label_reset"),
+        ):
+            st.session_state[reset_flag_key] = True
+
+        st.caption(
+            "Queued screenshots: "
+            f"{len(screenshots)} capture{'s' if len(screenshots) != 1 else ''}."
+        )
+
+    st.markdown(
+        """
+        <style>
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
+                position: fixed;
+                right: 1.5rem;
+                bottom: 1.5rem;
+                width: min(360px, 90vw);
+                padding: 1.1rem 1.25rem 1.35rem;
+                border-radius: 0.9rem;
+                box-shadow: 0 18px 42px rgba(15, 23, 42, 0.35);
+                background: var(--floating-menu-bg, rgba(255, 255, 255, 0.98));
+                z-index: 1000;
+                border: 1px solid rgba(148, 163, 184, 0.35);
+                backdrop-filter: blur(10px);
+                color: var(--floating-menu-fg, inherit);
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) label,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) p,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) span,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) h4,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) small {
+                color: inherit !important;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-baseweb="input"] input,
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-baseweb="textarea"] textarea {
+                background-color: rgba(248, 250, 252, 0.9);
+                color: inherit;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) [data-testid="stMarkdown"] p {
+                margin-bottom: 0.35rem;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button {
+                border-radius: 999px;
+                padding: 0.55rem 0.9rem;
+                border: 1px solid rgba(148, 163, 184, 0.45);
+                font-weight: 600;
+                background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+                color: inherit;
+                transition: transform 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+            }
+
+            [data-testid="stAppViewContainer"] {
+                padding-bottom: 9rem;
+            }
+
+            #floating-screenshot-menu-anchor {
+                display: none;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
+                    background: var(--floating-menu-bg-dark, rgba(15, 23, 42, 0.92));
+                    border-color: rgba(226, 232, 240, 0.25);
+                    color: var(--floating-menu-fg-dark, #f8fafc);
+                }
+
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor)
+                [data-baseweb="input"] input,
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor)
+                [data-baseweb="textarea"] textarea {
+                    background-color: rgba(30, 41, 59, 0.75);
+                    color: inherit;
+                    border-color: rgba(148, 163, 184, 0.45);
+                }
+
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button {
+                    background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.95));
+                    border: 1px solid rgba(125, 211, 252, 0.6);
+                    color: #0b1120;
+                    box-shadow: 0 14px 32px rgba(56, 189, 248, 0.35);
+                }
+
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) .stButton button:hover {
+                    filter: brightness(1.05);
+                    transform: translateY(-1px);
+                }
+            }
+
+            @media (max-width: 768px) {
+                div[data-testid="stVerticalBlock"]:has(#floating-screenshot-menu-anchor) {
+                    right: 0.75rem;
+                    bottom: 0.75rem;
+                    width: min(320px, 92vw);
+                }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_case_attachments_panel(
     case: CaseData, *, case_idx: int, tab_slug: str
 ) -> None:
@@ -13421,65 +13600,11 @@ def render_case_attachments_panel(
 
     st.markdown("##### Quick capture")
     st.caption(
-        "Capture annotated screenshots that stay linked to the case JSON, quick actions, "
-        "and the remote desktop timeline."
+        "Use the floating capture menu in the bottom corner to grab screenshots from any tab."
     )
-
-    label_state_key = attachments_key("shot_label")
-    if label_state_key not in st.session_state:
-        st.session_state[label_state_key] = ""
-    reset_flag_key = attachments_key("shot_label_reset_pending")
-    if reset_flag_key not in st.session_state:
-        st.session_state[reset_flag_key] = False
-    if st.session_state.get(reset_flag_key):
-        st.session_state[label_state_key] = ""
-        st.session_state[reset_flag_key] = False
-    auto_stamp_key = attachments_key("shot_auto_stamp")
-    if auto_stamp_key not in st.session_state:
-        st.session_state[auto_stamp_key] = True
-
-    label_value = st.text_input(
-        "Label for next capture",
-        key=label_state_key,
-        placeholder="e.g. Checkout terminal error dialog",
-        help="Stored alongside the screenshot metadata so exports and remote menus stay descriptive.",
+    st.caption(
+        "Captured screenshots sync automatically with uploads so the export ZIP contains everything."
     )
-    auto_stamp = st.checkbox(
-        "Append timestamp to filenames",
-        key=auto_stamp_key,
-        help="Keeps filenames unique when multiple captures are added to the same case.",
-    )
-
-    capture_cols = st.columns([1, 1, 1])
-    if capture_cols[0].button(
-        "Capture full desktop",
-        key=attachments_key("shot_full"),
-    ):
-        _capture_screenshot_from_ui(
-            "full",
-            label=label_value,
-            auto_stamp=auto_stamp,
-            label_state_key=label_state_key,
-            reset_flag_key=reset_flag_key,
-        )
-        screenshots = get_active_screenshots()
-    if capture_cols[1].button(
-        "Capture selected area",
-        key=attachments_key("shot_region"),
-    ):
-        _capture_screenshot_from_ui(
-            "region",
-            label=label_value,
-            auto_stamp=auto_stamp,
-            label_state_key=label_state_key,
-            reset_flag_key=reset_flag_key,
-        )
-        screenshots = get_active_screenshots()
-    if capture_cols[2].button(
-        "Reset label",
-        key=attachments_key("shot_label_reset"),
-    ):
-        st.session_state[reset_flag_key] = True
 
     st.markdown("##### Upload additional evidence")
     upload_cols = st.columns(2)
@@ -13691,6 +13816,7 @@ def render_case_ui(case_idx: int):
         tab_labels.append("Debug")
 
     tabs = st.tabs(tab_labels)
+    render_floating_screenshot_menu(case_idx)
     tab_iter = iter(tabs)
     tab_case = next(tab_iter)
     tab_tracking = next(tab_iter) if st.session_state.track_case else None
