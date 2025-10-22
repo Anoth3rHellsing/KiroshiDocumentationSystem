@@ -4573,12 +4573,15 @@ def render_logo():
             text-transform: uppercase;
             color: {companion_title_color};
             margin-bottom: 0.5rem;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         }}
 
         #kiroshi-header__companion-text {{
             font-size: 1.1rem;
             line-height: 1.6;
             color: {companion_text_color};
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-weight: 400;
         }}
 
         #kiroshi-header__date {{
@@ -14347,6 +14350,22 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
             #floating-screenshot-menu-anchor {
                 display: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-title {
+                font-size: 1.05rem;
+                font-weight: 700;
+                margin-bottom: 0.25rem;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                cursor: grab;
+                user-select: none;
+                touch-action: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-dragging .floating-menu-title {
+                cursor: grabbing;
             }
 
             @media (prefers-color-scheme: dark) {
