@@ -13668,7 +13668,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
         st.caption(
             "Capture evidence without leaving your current tab. Files stay linked to the case."
         )
-        st.caption("Drag the title bar to reposition this window anywhere on your screen.")
+        st.caption("Tap the floating capture bubble to expand these tools, then drag the header or bubble to park them anywhere on your screen.")
         st.text_input(
             "Label for next capture",
             key=label_state_key,
@@ -13731,12 +13731,12 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block').forEach((el) => {
                     if (el !== targetBlock) {
                         el.classList.remove('floating-menu-block');
+                        el.classList.remove('is-expanded');
                     }
                 });
                 if (!targetBlock.classList.contains('floating-menu-block')) {
                     targetBlock.classList.add('floating-menu-block');
                 }
-
                 if (targetBlock.dataset.dragInitialised === '1') {
                     return;
                 }
@@ -13752,10 +13752,26 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 };
                 const storage = getLocalStorage();
 
+                const bubble = doc.createElement('button');
+                bubble.type = 'button';
+                bubble.className = 'floating-menu-bubble';
+                bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
+                bubble.setAttribute('aria-expanded', 'false');
+                bubble.setAttribute('aria-label', 'Open screenshot capture menu');
+                bubble.dataset.suppressNextToggle = '0';
+
+                const panel = doc.createElement('div');
+                panel.className = 'floating-menu-panel';
+                while (targetBlock.firstChild) {
+                    panel.appendChild(targetBlock.firstChild);
+                }
+                targetBlock.appendChild(panel);
+                targetBlock.appendChild(bubble);
+
                 const ensureInBounds = (pos) => {
                     const safe = { ...pos };
-                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
                     const maxLeft = Math.max(8, viewportWidth - targetBlock.offsetWidth - 8);
                     const maxTop = Math.max(8, viewportHeight - targetBlock.offsetHeight - 8);
                     if (!Number.isFinite(safe.left)) {
@@ -13769,8 +13785,11 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                     return safe;
                 };
 
+                let currentPosition = null;
+
                 const applyPosition = (pos) => {
                     const safe = ensureInBounds(pos || {});
+                    targetBlock.style.position = 'fixed';
                     targetBlock.style.top = `${safe.top}px`;
                     targetBlock.style.left = `${safe.left}px`;
                     targetBlock.style.right = 'auto';
@@ -13779,7 +13798,68 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                     return safe;
                 };
 
-                let currentPosition = null;
+                const savePosition = (pos) => {
+                    if (!storage || !pos) { return; }
+                    try {
+                        storage.setItem(storageKey, JSON.stringify(pos));
+                    } catch (err) {
+                        console.warn('Unable to persist floating menu position', err);
+                    }
+                };
+
+                const setBubbleContent = (expanded) => {
+                    if (expanded) {
+                        bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">&times;</span><span class="sr-only">Collapse screenshot capture menu</span>';
+                        bubble.setAttribute('aria-label', 'Collapse screenshot capture menu');
+                    } else {
+                        bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
+                        bubble.setAttribute('aria-label', 'Open screenshot capture menu');
+                    }
+                };
+
+                const setExpanded = (expanded, options = {}) => {
+                    const { skipFocus = false, skipReposition = false } = options;
+                    if (expanded) {
+                        targetBlock.classList.add('is-expanded');
+                        bubble.classList.add('is-expanded');
+                        bubble.setAttribute('aria-expanded', 'true');
+                        setBubbleContent(true);
+                        if (!skipReposition) {
+                            requestAnimationFrame(() => {
+                                if (currentPosition) {
+                                    const adjusted = ensureInBounds(currentPosition);
+                                    if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
+                                        applyPosition(adjusted);
+                                        savePosition(adjusted);
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        targetBlock.classList.remove('is-expanded');
+                        bubble.classList.remove('is-expanded');
+                        bubble.setAttribute('aria-expanded', 'false');
+                        setBubbleContent(false);
+                        if (!skipFocus) {
+                            bubble.focus({ preventScroll: true });
+                        }
+                        if (!skipReposition) {
+                            requestAnimationFrame(() => {
+                                if (currentPosition) {
+                                    const adjusted = ensureInBounds(currentPosition);
+                                    if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
+                                        applyPosition(adjusted);
+                                        savePosition(adjusted);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                };
+
+                targetBlock.__setExpanded = (expanded, opts) => setExpanded(expanded, opts || {});
+
+                setExpanded(false, { skipFocus: true, skipReposition: true });
 
                 const savedPosition = (() => {
                     if (!storage) { return null; }
@@ -13801,34 +13881,66 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
                 requestAnimationFrame(() => {
                     if (savedPosition) {
-                        applyPosition(savedPosition);
+                        const applied = applyPosition(savedPosition);
+                        savePosition(applied);
                     } else {
-                        const defaultLeft = window.innerWidth - targetBlock.offsetWidth - 24;
-                        applyPosition({ top: 24, left: defaultLeft });
+                        const defaultLeft = Math.max(
+                            16,
+                            (window.innerWidth || document.documentElement.clientWidth || 0) - targetBlock.offsetWidth - 24
+                        );
+                        const applied = applyPosition({ top: 24, left: defaultLeft });
+                        savePosition(applied);
                     }
                 });
 
-                const handle = targetBlock.querySelector('.floating-menu-title') || targetBlock;
-                handle.classList.add('floating-drag-handle');
+                if (!doc.__floatingMenuOutsideHandler) {
+                    doc.__floatingMenuOutsideHandler = true;
+                    doc.addEventListener('pointerdown', (event) => {
+                        doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
+                            if (!block.contains(event.target)) {
+                                if (typeof block.__setExpanded === 'function') {
+                                    block.__setExpanded(false, { skipFocus: true });
+                                }
+                            }
+                        });
+                    });
+                    doc.addEventListener('keydown', (event) => {
+                        if (event.key === 'Escape') {
+                            doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
+                                if (typeof block.__setExpanded === 'function') {
+                                    block.__setExpanded(false, { skipFocus: true });
+                                }
+                            });
+                        }
+                    });
+                }
 
                 let activePointerId = null;
                 let dragStart = null;
+                let mouseDragging = false;
+                let touchDragging = false;
+                let activeDragHandle = null;
+                let suppressClickToggle = false;
 
-                const savePosition = (pos) => {
-                    if (!storage || !pos) { return; }
-                    try {
-                        storage.setItem(storageKey, JSON.stringify(pos));
-                    } catch (err) {
-                        console.warn('Unable to persist floating menu position', err);
-                    }
+                const beginDragFromPoint = (clientX, clientY) => {
+                    suppressClickToggle = false;
+                    const computed = window.getComputedStyle(targetBlock);
+                    const top = parseFloat(computed.top);
+                    const left = parseFloat(computed.left);
+                    dragStart = {
+                        x: clientX,
+                        y: clientY,
+                        top: Number.isFinite(top) ? top : 24,
+                        left: Number.isFinite(left) ? left : (window.innerWidth - targetBlock.offsetWidth - 24),
+                    };
+                    targetBlock.classList.add('is-dragging');
                 };
 
-                const onPointerMove = (event) => {
-                    if (event.pointerId !== activePointerId || !dragStart) {
-                        return;
+                const applyDragFromDelta = (deltaX, deltaY) => {
+                    if (!dragStart) { return; }
+                    if (!suppressClickToggle && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
+                        suppressClickToggle = true;
                     }
-                    const deltaX = event.clientX - dragStart.x;
-                    const deltaY = event.clientY - dragStart.y;
                     const next = {
                         left: dragStart.left + deltaX,
                         top: dragStart.top + deltaY,
@@ -13837,62 +13949,192 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                     savePosition(applied);
                 };
 
-                const endDrag = (event) => {
+                const onPointerMove = (event) => {
+                    if (event.pointerId !== activePointerId || !dragStart) {
+                        return;
+                    }
+                    applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
+                    if (typeof event.preventDefault === 'function') {
+                        event.preventDefault();
+                    }
+                };
+
+                const onMouseMove = (event) => {
+                    if (!mouseDragging || !dragStart) {
+                        return;
+                    }
+                    applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
+                    if (typeof event.preventDefault === 'function') {
+                        event.preventDefault();
+                    }
+                };
+
+                const onTouchMove = (event) => {
+                    if (!touchDragging || !dragStart) {
+                        return;
+                    }
+                    const touch = event.touches[0];
+                    if (!touch) { return; }
+                    applyDragFromDelta(touch.clientX - dragStart.x, touch.clientY - dragStart.y);
+                    if (typeof event.preventDefault === 'function') {
+                        event.preventDefault();
+                    }
+                };
+
+                const endPointerDrag = (event) => {
                     if (event.pointerId !== activePointerId) {
                         return;
                     }
                     document.removeEventListener('pointermove', onPointerMove);
-                    document.removeEventListener('pointerup', endDrag);
-                    document.removeEventListener('pointercancel', endDrag);
-                    activePointerId = null;
-                    dragStart = null;
+                    document.removeEventListener('pointerup', endPointerDrag);
+                    document.removeEventListener('pointercancel', endPointerDrag);
                     try {
-                        handle.releasePointerCapture(event.pointerId);
+                        activeDragHandle?.releasePointerCapture(event.pointerId);
                     } catch (captureErr) {
-                        // Ignore browsers that do not support pointer capture.
+                        // Ignore browsers without pointer capture.
                     }
+                    activePointerId = null;
+                    activeDragHandle = null;
+                    dragStart = null;
+                    if (suppressClickToggle) {
+                        bubble.dataset.suppressNextToggle = '1';
+                    }
+                    suppressClickToggle = false;
                     if (currentPosition) {
                         savePosition(currentPosition);
                     }
                     targetBlock.classList.remove('is-dragging');
                 };
 
-                const startDrag = (event) => {
-                    if (event.button !== 0 || activePointerId !== null) {
+                const endMouseDrag = () => {
+                    if (!mouseDragging) { return; }
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', endMouseDrag);
+                    mouseDragging = false;
+                    dragStart = null;
+                    activeDragHandle = null;
+                    if (suppressClickToggle) {
+                        bubble.dataset.suppressNextToggle = '1';
+                    }
+                    suppressClickToggle = false;
+                    if (currentPosition) {
+                        savePosition(currentPosition);
+                    }
+                    targetBlock.classList.remove('is-dragging');
+                };
+
+                const endTouchDrag = () => {
+                    if (!touchDragging) { return; }
+                    document.removeEventListener('touchmove', onTouchMove);
+                    document.removeEventListener('touchend', endTouchDrag);
+                    document.removeEventListener('touchcancel', endTouchDrag);
+                    touchDragging = false;
+                    dragStart = null;
+                    activeDragHandle = null;
+                    if (suppressClickToggle) {
+                        bubble.dataset.suppressNextToggle = '1';
+                    }
+                    suppressClickToggle = false;
+                    if (currentPosition) {
+                        savePosition(currentPosition);
+                    }
+                    targetBlock.classList.remove('is-dragging');
+                };
+
+                const isInteractive = (eventTarget) => {
+                    const interactive = eventTarget.closest('button, input, textarea, select, a, label, [role="slider"], [contenteditable="true"]');
+                    if (!interactive) { return false; }
+                    return !interactive.classList.contains('floating-menu-bubble');
+                };
+
+                const startPointerDrag = (event) => {
+                    if (activePointerId !== null) {
                         return;
                     }
-                    const interactive = event.target.closest('button, input, textarea, select, a, label, [role="slider"], [contenteditable="true"]');
-                    if (interactive) {
+                    if (event.pointerType === 'mouse' && event.button !== 0) {
+                        return;
+                    }
+                    if (isInteractive(event.target)) {
                         return;
                     }
                     activePointerId = event.pointerId;
-                    const computed = window.getComputedStyle(targetBlock);
-                    const top = parseFloat(computed.top);
-                    const left = parseFloat(computed.left);
-                    dragStart = {
-                        x: event.clientX,
-                        y: event.clientY,
-                        top: Number.isFinite(top) ? top : targetBlock.getBoundingClientRect().top,
-                        left: Number.isFinite(left) ? left : targetBlock.getBoundingClientRect().left,
-                    };
+                    activeDragHandle = event.currentTarget;
+                    beginDragFromPoint(event.clientX, event.clientY);
                     document.addEventListener('pointermove', onPointerMove);
-                    document.addEventListener('pointerup', endDrag);
-                    document.addEventListener('pointercancel', endDrag);
-                    targetBlock.classList.add('is-dragging');
+                    document.addEventListener('pointerup', endPointerDrag);
+                    document.addEventListener('pointercancel', endPointerDrag);
                     try {
-                        handle.setPointerCapture(activePointerId);
+                        activeDragHandle?.setPointerCapture(activePointerId);
                     } catch (captureErr) {
                         // Ignore browsers that do not support pointer capture.
                     }
-                    event.preventDefault();
                 };
 
-                handle.addEventListener('pointerdown', startDrag);
+                const startMouseDrag = (event) => {
+                    if (activePointerId !== null || event.button !== 0 || mouseDragging) {
+                        return;
+                    }
+                    if (isInteractive(event.target)) {
+                        return;
+                    }
+                    mouseDragging = true;
+                    activeDragHandle = event.currentTarget;
+                    beginDragFromPoint(event.clientX, event.clientY);
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.addEventListener('mouseup', endMouseDrag);
+                };
+
+                const startTouchDrag = (event) => {
+                    if (activePointerId !== null || touchDragging) {
+                        return;
+                    }
+                    if (isInteractive(event.target)) {
+                        return;
+                    }
+                    const touch = event.touches[0];
+                    if (!touch) { return; }
+                    touchDragging = true;
+                    activeDragHandle = event.currentTarget;
+                    beginDragFromPoint(touch.clientX, touch.clientY);
+                    document.addEventListener('touchmove', onTouchMove, { passive: false });
+                    document.addEventListener('touchend', endTouchDrag);
+                    document.addEventListener('touchcancel', endTouchDrag);
+                };
+
+                const attachDragHandlers = (handleEl) => {
+                    handleEl.classList.add('floating-drag-handle');
+                    handleEl.addEventListener('pointerdown', startPointerDrag, { passive: false });
+                    handleEl.addEventListener('mousedown', startMouseDrag);
+                    handleEl.addEventListener('touchstart', startTouchDrag, { passive: false });
+                };
+
+                const titleHandle = panel.querySelector('.floating-menu-title');
+                if (titleHandle) {
+                    attachDragHandlers(titleHandle);
+                }
+                attachDragHandlers(bubble);
+
+                bubble.addEventListener('click', (event) => {
+                    if (bubble.dataset.suppressNextToggle === '1') {
+                        bubble.dataset.suppressNextToggle = '0';
+                        return;
+                    }
+                    event.stopPropagation();
+                    const expanded = targetBlock.classList.contains('is-expanded');
+                    setExpanded(!expanded, { skipFocus: expanded });
+                    if (!expanded) {
+                        requestAnimationFrame(() => {
+                            const focusTarget = panel.querySelector('input, button, textarea, select');
+                            focusTarget?.focus({ preventScroll: true });
+                        });
+                    }
+                });
 
                 window.addEventListener('resize', () => {
                     if (currentPosition) {
-                        applyPosition(currentPosition);
-                        savePosition(currentPosition);
+                        const adjusted = ensureInBounds(currentPosition);
+                        applyPosition(adjusted);
+                        savePosition(adjusted);
                     }
                 });
             } catch (err) {
@@ -13921,6 +14163,80 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 border: 1px solid rgba(148, 163, 184, 0.35);
                 backdrop-filter: blur(10px);
                 color: var(--floating-menu-fg, inherit);
+                overflow: visible;
+                transition: box-shadow 0.2s ease, padding 0.2s ease, width 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block:not(.is-expanded) {
+                width: auto;
+                padding: 0;
+                border: none;
+                box-shadow: none;
+                background: transparent;
+                backdrop-filter: none;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 0;
+                min-height: 0;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-panel {
+                display: none;
+                width: 100%;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-panel {
+                display: block;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 3.25rem;
+                height: 3.25rem;
+                border-radius: 999px;
+                background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+                color: #0b1120;
+                border: none;
+                cursor: pointer;
+                box-shadow: 0 12px 30px rgba(14, 165, 233, 0.45);
+                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, width 0.2s ease, height 0.2s ease;
+                padding: 0;
+                user-select: none;
+                -webkit-user-select: none;
+                touch-action: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble:hover {
+                transform: translateY(-1px);
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble:focus-visible {
+                outline: 3px solid rgba(59, 130, 246, 0.65);
+                outline-offset: 2px;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble .floating-menu-bubble-icon {
+                font-size: 1.55rem;
+                line-height: 1;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-bubble {
+                position: absolute;
+                top: -0.75rem;
+                right: -0.75rem;
+                width: 2.5rem;
+                height: 2.5rem;
+                background: linear-gradient(135deg, rgba(248, 250, 252, 0.9), rgba(226, 232, 240, 0.95));
+                color: inherit;
+                box-shadow: 0 14px 28px rgba(15, 23, 42, 0.25);
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-bubble .floating-menu-bubble-icon {
+                font-size: 1.2rem;
             }
 
             div[data-testid="stVerticalBlock"].floating-menu-block label,
@@ -13941,6 +14257,22 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 margin-bottom: 0.35rem;
             }
 
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-title {
+                font-size: 1.05rem;
+                font-weight: 700;
+                margin-bottom: 0.25rem;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                cursor: grab;
+                user-select: none;
+                touch-action: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-dragging .floating-menu-title {
+                cursor: grabbing;
+            }
+
             div[data-testid="stVerticalBlock"].floating-menu-block .stButton button {
                 border-radius: 999px;
                 padding: 0.55rem 0.9rem;
@@ -13954,6 +14286,17 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             div[data-testid="stVerticalBlock"].floating-menu-block .stButton button:hover {
                 transform: translateY(-1px);
                 box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .sr-only {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                border: 0;
             }
 
             [data-testid="stAppViewContainer"] {
@@ -14004,6 +14347,16 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                 div[data-testid="stVerticalBlock"].floating-menu-block .stButton button:hover {
                     filter: brightness(1.05);
                     transform: translateY(-1px);
+                }
+
+                div[data-testid="stVerticalBlock"].floating-menu-block:not(.is-expanded) .floating-menu-bubble {
+                    background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.95));
+                    color: #0b1120;
+                }
+
+                div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-bubble {
+                    background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+                    color: var(--floating-menu-fg-dark, #f8fafc);
                 }
             }
 
