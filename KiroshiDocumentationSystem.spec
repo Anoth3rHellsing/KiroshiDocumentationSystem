@@ -59,7 +59,20 @@ datas = [
 binaries = []
 hiddenimports = ['kiroshi_chat']
 tmp_ret = collect_all('streamlit')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+datas += tmp_ret[0]
+binaries += tmp_ret[1]
+
+# ``streamlit.external.langchain`` is an optional extra that is not installed
+# in the standard runtime environment.  Importing it during the PyInstaller
+# analysis phase therefore raises ``ModuleNotFoundError`` and triggers a noisy
+# warning.  PyInstaller only warns about missing hidden imports, so filter it
+# out of the collected list to keep the build output clean while still
+# bundling the rest of Streamlit correctly.
+hiddenimports += [
+    module
+    for module in tmp_ret[2]
+    if module != 'streamlit.external.langchain'
+]
 
 # ReportLab ships fonts, ICC profiles, and other assets that PyInstaller does
 # not automatically discover when only collecting Python modules.  Pull in the
