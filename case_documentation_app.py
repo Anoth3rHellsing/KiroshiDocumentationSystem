@@ -213,7 +213,12 @@ PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
 PDF_FONT_REGULAR_NAME = "Helvetica"
 PDF_FONT_BOLD_NAME = "Helvetica-Bold"
 
-STREAMLIT_FONT_STACK_CSS = "var(--font, 'Helvetica', 'Helvetica Neue', Arial, sans-serif)"
+STREAMLIT_FONT_STACK_CSS = (
+    "var(--font, 'Nunito Sans', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif)"
+)
+STREAMLIT_HEADING_FONT_STACK = (
+    "'Poppins', 'Nunito Sans', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+)
 STREAMLIT_FONT_FALLBACK = "Helvetica"
 
 
@@ -2948,6 +2953,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     st.markdown(
         f"""
         <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&family=Poppins:wght@600;700&display=swap');
         :root {{
             --kiroshi-primary: {theme.primary};
             --kiroshi-accent: {theme.accent};
@@ -2966,6 +2972,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             --kiroshi-text-on-surface: {text_on_surface};
             --kiroshi-text-on-white: {text_on_white};
             --kiroshi-font-family: {STREAMLIT_FONT_STACK_CSS};
+            --kiroshi-heading-font-family: {STREAMLIT_HEADING_FONT_STACK};
         }}
         @keyframes kiroshiFadeIn {{
             from {{
@@ -2994,6 +3001,13 @@ def apply_theme_palette(theme: ThemePalette) -> None:
         }}
         .stApp {{
             color: var(--kiroshi-text);
+        }}
+
+        h1, h2, h3, h4, h5, h6,
+        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+        .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {{
+            font-family: var(--kiroshi-heading-font-family);
+            letter-spacing: 0.01em;
         }}
         .stApp > header {{
             background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
@@ -4525,9 +4539,13 @@ def render_logo():
             row-gap: 1.25rem;
         }}
 
-        #kiroshi-header, #kiroshi-header * {{
-            font-family: var(--kiroshi-font-family) !important;
+        #kiroshi-header {{
+            font-family: var(--kiroshi-font-family);
             color: var(--kiroshi-text);
+        }}
+
+        #kiroshi-header * {{
+            color: inherit;
         }}
 
         #kiroshi-header__version {{
@@ -4573,12 +4591,15 @@ def render_logo():
             text-transform: uppercase;
             color: {companion_title_color};
             margin-bottom: 0.5rem;
+            font-family: var(--kiroshi-heading-font-family);
         }}
 
         #kiroshi-header__companion-text {{
             font-size: 1.1rem;
             line-height: 1.6;
             color: {companion_text_color};
+            font-family: var(--kiroshi-font-family);
+            font-weight: 400;
         }}
 
         #kiroshi-header__date {{
@@ -14395,6 +14416,22 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
             #floating-screenshot-menu-anchor {
                 display: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-title {
+                font-size: 1.05rem;
+                font-weight: 700;
+                margin-bottom: 0.25rem;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                cursor: grab;
+                user-select: none;
+                touch-action: none;
+            }
+
+            div[data-testid="stVerticalBlock"].floating-menu-block.is-dragging .floating-menu-title {
+                cursor: grabbing;
             }
 
             @media (prefers-color-scheme: dark) {
