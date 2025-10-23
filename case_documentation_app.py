@@ -13743,17 +13743,47 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
         <script>
         (function() {
             let doc = window.document;
+            let rootWindow = window;
             try {
-                const parentDoc =
-                    window.parent && window.parent !== window ? window.parent.document : null;
-                if (parentDoc) {
-                    doc = parentDoc;
+                if (window.parent && window.parent !== window) {
+                    const candidate = window.parent.document;
+                    if (candidate) {
+                        doc = candidate;
+                        rootWindow = window.parent;
+                    }
                 }
             } catch (err) {
                 doc = window.document;
+                rootWindow = window;
             }
-            if (!doc || !doc.body) { return; }
 
+            const scheduleFrame = (callback) => {
+                if (typeof rootWindow.requestAnimationFrame === 'function') {
+                    return rootWindow.requestAnimationFrame(callback);
+                }
+                if (typeof window.requestAnimationFrame === 'function') {
+                    return window.requestAnimationFrame(callback);
+                }
+                return setTimeout(callback, 16);
+            };
+
+            const runLater = (callback, delay = 0) => {
+                if (typeof rootWindow.setTimeout === 'function') {
+                    return rootWindow.setTimeout(callback, delay);
+                }
+                return setTimeout(callback, delay);
+            };
+
+            const ensureDocReady = (callback, retries = 20) => {
+                if (doc && doc.body) {
+                    callback();
+                    return;
+                }
+                if (retries <= 0) { return; }
+                runLater(() => ensureDocReady(callback, retries - 1), 50);
+            };
+
+            ensureDocReady(() => {
             const storageKey = 'kiroshi-floating-menu-position';
 
             const bootstrapFloatingMenu = (targetBlock) => {
@@ -13791,7 +13821,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
                     const getLocalStorage = () => {
                         try {
-                            return window.localStorage;
+                            return rootWindow.localStorage;
                         } catch (err) {
                             return null;
                         }
@@ -13816,8 +13846,8 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
                     const ensureInBounds = (pos) => {
                         const safe = { ...pos };
-                        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-                        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                        const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
+                        const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
                         const maxLeft = Math.max(8, viewportWidth - targetBlock.offsetWidth - 8);
                         const maxTop = Math.max(8, viewportHeight - targetBlock.offsetHeight - 8);
                         if (!Number.isFinite(safe.left)) {
@@ -13871,7 +13901,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                             bubble.setAttribute('aria-expanded', 'true');
                             setBubbleContent(true);
                             if (!skipReposition) {
-                                requestAnimationFrame(() => {
+                                scheduleFrame(() => {
                                     if (currentPosition) {
                                         const adjusted = ensureInBounds(currentPosition);
                                         if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
@@ -13890,7 +13920,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                                 bubble.focus({ preventScroll: true });
                             }
                             if (!skipReposition) {
-                                requestAnimationFrame(() => {
+                                scheduleFrame(() => {
                                     if (currentPosition) {
                                         const adjusted = ensureInBounds(currentPosition);
                                         if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
@@ -13925,13 +13955,13 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         return null;
                     })();
 
-                    requestAnimationFrame(() => {
+                    scheduleFrame(() => {
                         if (savedPosition) {
                             const applied = applyPosition(savedPosition);
                             savePosition(applied);
                         } else {
-                            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-                            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                            const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
+                            const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
                             const defaultLeft = Math.max(16, viewportWidth - targetBlock.offsetWidth - 24);
                             const defaultTop = Math.max(16, viewportHeight - targetBlock.offsetHeight - 24);
                             const applied = applyPosition({ top: defaultTop, left: defaultLeft });
@@ -13970,14 +14000,16 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
                     const beginDragFromPoint = (clientX, clientY) => {
                         suppressClickToggle = false;
-                        const computed = window.getComputedStyle(targetBlock);
+                        const computed = rootWindow.getComputedStyle
+                            ? rootWindow.getComputedStyle(targetBlock)
+                            : window.getComputedStyle(targetBlock);
                         const top = parseFloat(computed.top);
                         const left = parseFloat(computed.left);
                         dragStart = {
                             x: clientX,
                             y: clientY,
                             top: Number.isFinite(top) ? top : 24,
-                            left: Number.isFinite(left) ? left : (window.innerWidth - targetBlock.offsetWidth - 24),
+                            left: Number.isFinite(left) ? left : (rootWindow.innerWidth - targetBlock.offsetWidth - 24),
                         };
                         targetBlock.classList.add('is-dragging');
                     };
@@ -14034,9 +14066,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         activePointerId = null;
                         dragStart = null;
                         targetBlock.classList.remove('is-dragging');
-                        document.removeEventListener('pointermove', onPointerMove);
-                        document.removeEventListener('pointerup', endPointerDrag);
-                        document.removeEventListener('pointercancel', endPointerDrag);
+                        doc.removeEventListener('pointermove', onPointerMove);
+                        doc.removeEventListener('pointerup', endPointerDrag);
+                        doc.removeEventListener('pointercancel', endPointerDrag);
                         if (activeDragHandle) {
                             try {
                                 activeDragHandle.releasePointerCapture(event.pointerId);
@@ -14044,6 +14076,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                                 // Ignore browsers without pointer capture support.
                             }
                         }
+                        activeDragHandle = null;
                         if (suppressClickToggle) {
                             bubble.dataset.suppressNextToggle = '1';
                         }
@@ -14056,11 +14089,12 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         mouseDragging = false;
                         dragStart = null;
                         targetBlock.classList.remove('is-dragging');
-                        document.removeEventListener('mousemove', onMouseMove);
-                        document.removeEventListener('mouseup', endMouseDrag);
+                        doc.removeEventListener('mousemove', onMouseMove);
+                        doc.removeEventListener('mouseup', endMouseDrag);
                         if (suppressClickToggle) {
                             bubble.dataset.suppressNextToggle = '1';
                         }
+                        activeDragHandle = null;
                     };
 
                     const endTouchDrag = () => {
@@ -14070,28 +14104,29 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         touchDragging = false;
                         dragStart = null;
                         targetBlock.classList.remove('is-dragging');
-                        document.removeEventListener('touchmove', onTouchMove);
-                        document.removeEventListener('touchend', endTouchDrag);
-                        document.removeEventListener('touchcancel', endTouchDrag);
+                        doc.removeEventListener('touchmove', onTouchMove);
+                        doc.removeEventListener('touchend', endTouchDrag);
+                        doc.removeEventListener('touchcancel', endTouchDrag);
                         if (suppressClickToggle) {
                             bubble.dataset.suppressNextToggle = '1';
                         }
+                        activeDragHandle = null;
                     };
 
                     const isInteractive = (node) => {
                         if (!node) { return false; }
                         if (node === bubble) { return false; }
-                        const interactiveSelectors = [
-                            'button',
-                            'a',
-                            'input',
-                            'textarea',
-                            'select',
-                            'label',
-                            '[role="button"]',
-                            '[role="checkbox"]',
-                            '[role="switch"]',
-                        ];
+                    const interactiveSelectors = [
+                        'button',
+                        'a',
+                        'input',
+                        'textarea',
+                        'select',
+                        'label',
+                        '[role="button"]',
+                        '[role="checkbox"]',
+                        '[role="switch"]',
+                    ];
                         const interactive = node.closest(interactiveSelectors.join(','));
                         if (!interactive) { return false; }
                         return !interactive.classList.contains('floating-menu-bubble');
@@ -14110,9 +14145,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         activePointerId = event.pointerId;
                         activeDragHandle = event.currentTarget;
                         beginDragFromPoint(event.clientX, event.clientY);
-                        document.addEventListener('pointermove', onPointerMove);
-                        document.addEventListener('pointerup', endPointerDrag);
-                        document.addEventListener('pointercancel', endPointerDrag);
+                        doc.addEventListener('pointermove', onPointerMove);
+                        doc.addEventListener('pointerup', endPointerDrag);
+                        doc.addEventListener('pointercancel', endPointerDrag);
                         try {
                             activeDragHandle?.setPointerCapture(activePointerId);
                         } catch (captureErr) {
@@ -14130,8 +14165,8 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         mouseDragging = true;
                         activeDragHandle = event.currentTarget;
                         beginDragFromPoint(event.clientX, event.clientY);
-                        document.addEventListener('mousemove', onMouseMove);
-                        document.addEventListener('mouseup', endMouseDrag);
+                        doc.addEventListener('mousemove', onMouseMove);
+                        doc.addEventListener('mouseup', endMouseDrag);
                     };
 
                     const startTouchDrag = (event) => {
@@ -14146,9 +14181,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         touchDragging = true;
                         activeDragHandle = event.currentTarget;
                         beginDragFromPoint(touch.clientX, touch.clientY);
-                        document.addEventListener('touchmove', onTouchMove, { passive: false });
-                        document.addEventListener('touchend', endTouchDrag);
-                        document.addEventListener('touchcancel', endTouchDrag);
+                        doc.addEventListener('touchmove', onTouchMove, { passive: false });
+                        doc.addEventListener('touchend', endTouchDrag);
+                        doc.addEventListener('touchcancel', endTouchDrag);
                     };
 
                     const attachDragHandlers = (handleEl) => {
@@ -14173,14 +14208,14 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         const expanded = targetBlock.classList.contains('is-expanded');
                         setExpanded(!expanded, { skipFocus: expanded });
                         if (!expanded) {
-                            requestAnimationFrame(() => {
+                            scheduleFrame(() => {
                                 const focusTarget = panel.querySelector('input, button, textarea, select');
                                 focusTarget?.focus({ preventScroll: true });
                             });
                         }
                     });
 
-                    window.addEventListener('resize', () => {
+                    rootWindow.addEventListener('resize', () => {
                         if (currentPosition) {
                             const adjusted = ensureInBounds(currentPosition);
                             applyPosition(adjusted);
@@ -14202,15 +14237,19 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             };
 
             if (!initialiseFloatingMenu()) {
-                const observer = new MutationObserver(() => {
+                const Observer = rootWindow.MutationObserver || window.MutationObserver;
+                if (!Observer) { return; }
+                const observer = new Observer(() => {
                     if (initialiseFloatingMenu()) {
                         observer.disconnect();
                     }
                 });
                 observer.observe(doc.body, { childList: true, subtree: true });
-                window.addEventListener('beforeunload', () => observer.disconnect(), { once: true });
-                setTimeout(() => observer.disconnect(), 15000);
+                rootWindow.addEventListener('beforeunload', () => observer.disconnect(), { once: true });
+                runLater(() => observer.disconnect(), 15000);
             }
+
+            });
         })();
         </script>
         """,
