@@ -14119,16 +14119,17 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         const safe = { ...pos };
                         const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
                         const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
-                        const maxLeft = Math.max(8, viewportWidth - targetBlock.offsetWidth - 8);
-                        const maxTop = Math.max(8, viewportHeight - targetBlock.offsetHeight - 8);
+                        const margin = 16;
+                        const maxLeft = Math.max(margin, viewportWidth - targetBlock.offsetWidth - margin);
+                        const maxTop = Math.max(margin, viewportHeight - targetBlock.offsetHeight - margin);
                         if (!Number.isFinite(safe.left)) {
-                            safe.left = maxLeft;
+                            safe.left = margin;
                         }
                         if (!Number.isFinite(safe.top)) {
-                            safe.top = 24;
+                            safe.top = maxTop;
                         }
-                        safe.left = Math.min(Math.max(safe.left, 8), maxLeft);
-                        safe.top = Math.min(Math.max(safe.top, 8), maxTop);
+                        safe.left = Math.min(Math.max(safe.left, margin), maxLeft);
+                        safe.top = Math.min(Math.max(safe.top, margin), maxTop);
                         return safe;
                     };
 
@@ -14233,8 +14234,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         } else {
                             const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
                             const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
-                            const defaultLeft = Math.max(16, viewportWidth - targetBlock.offsetWidth - 24);
-                            const defaultTop = Math.max(16, viewportHeight - targetBlock.offsetHeight - 24);
+                            const margin = 16;
+                            const defaultLeft = margin;
+                            const defaultTop = Math.max(margin, viewportHeight - targetBlock.offsetHeight - margin);
                             const applied = applyPosition({ top: defaultTop, left: defaultLeft });
                             savePosition(applied);
                         }
@@ -14276,11 +14278,12 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                             : window.getComputedStyle(targetBlock);
                         const top = parseFloat(computed.top);
                         const left = parseFloat(computed.left);
+                        const fallbackPosition = currentPosition || ensureInBounds({});
                         dragStart = {
                             x: clientX,
                             y: clientY,
-                            top: Number.isFinite(top) ? top : 24,
-                            left: Number.isFinite(left) ? left : (rootWindow.innerWidth - targetBlock.offsetWidth - 24),
+                            top: Number.isFinite(top) ? top : fallbackPosition.top,
+                            left: Number.isFinite(left) ? left : fallbackPosition.left,
                         };
                         targetBlock.classList.add('is-dragging');
                     };
