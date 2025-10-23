@@ -5229,6 +5229,8 @@ _init_state("api_restart", False)
 _init_state("api_scan_time", False)
 _init_state("generated_email", "")
 _init_state("kiroshi_chat_history", load_memory())
+_init_state("case_chat_histories", {})
+_init_state("case_chat_meta", {})
 _init_state("assistant_notes", get_assistant_notes())
 _init_state("manual_docs", load_manual_docs())
 _init_state("verify_result", "")
@@ -5238,7 +5240,6 @@ _init_state("categorizer_summary", {})
 _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
-_init_state("db_search_result", "")
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
 _init_state("dashboard_load_notice", None)
@@ -9918,32 +9919,136 @@ def _render_case_tab(idx: int) -> None:
     save_case_state(idx)
 
 
-def render_kiroshi_chat_panel() -> None:
-    st.image(str(KIROSHI_CHAT_LOGO_PATH), width=80)
-    st.subheader("Kiroshi Chat")
+def render_case_kiroshi_chat_panel(case_idx: int) -> None:
+    chat_tab_key = partial(case_widget_key, CASE_TAB_SLUGS["Kiroshi Chat"], case_idx=case_idx)
+    case_label = _case_display_name(case_idx)
     sarcasm_enabled = st.session_state.get("kiroshi_sarcasm_mode", False)
+    meta = _case_chat_meta(case_idx)
+
+    if not st.session_state.get("_case_chat_styles_injected", False):
+        st.markdown(
+            """
+            <style>
+                .kiroshi-chat-wrap {
+                    background: linear-gradient(140deg, rgba(15, 23, 42, 0.95), rgba(49, 46, 129, 0.92));
+                    border-radius: 24px;
+                    padding: 1.6rem 1.8rem;
+                    border: 1px solid rgba(148, 163, 184, 0.28);
+                    box-shadow: 0 26px 52px rgba(15, 23, 42, 0.45);
+                    backdrop-filter: blur(12px);
+                }
+                .kiroshi-chat-wrap [data-testid="stChatMessage"] {
+                    background: transparent;
+                }
+                .kiroshi-chat-wrap [data-testid="stChatMessage"] > div {
+                    border-radius: 18px;
+                    padding: 0.85rem 1rem;
+                    background: rgba(15, 23, 42, 0.7);
+                    border: 1px solid rgba(148, 163, 184, 0.32);
+                    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.45);
+                    color: #e2e8f0;
+                }
+                .kiroshi-chat-wrap [data-testid="stChatMessage"]:nth-child(even) > div {
+                    background: linear-gradient(120deg, #22d3ee, #818cf8);
+                    color: #0f172a;
+                }
+                .kiroshi-chat-wrap textarea {
+                    border-radius: 18px !important;
+                    background: rgba(15, 23, 42, 0.55);
+                    color: #e2e8f0 !important;
+                    border: 1px solid rgba(148, 163, 184, 0.35);
+                }
+                .kiroshi-chat-wrap textarea:focus {
+                    border-color: rgba(129, 140, 248, 0.9) !important;
+                    box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.65) !important;
+                }
+                .kiroshi-chat-actions button {
+                    border-radius: 999px !important;
+                    font-weight: 600;
+                    letter-spacing: 0.02em;
+                }
+                .kiroshi-chat-metric {
+                    background: rgba(15, 23, 42, 0.65);
+                    border: 1px solid rgba(148, 163, 184, 0.25);
+                    border-radius: 16px;
+                    padding: 0.9rem 1rem;
+                    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.4);
+                }
+                .kiroshi-chat-metric span.label {
+                    display: block;
+                    text-transform: uppercase;
+                    letter-spacing: 0.08em;
+                    font-size: 0.68rem;
+                    color: #c7d2fe;
+                }
+                .kiroshi-chat-metric strong {
+                    display: block;
+                    margin-top: 0.35rem;
+                    font-size: 1.05rem;
+                    color: #f8fafc;
+                }
+                .kiroshi-chat-insight {
+                    background: rgba(56, 189, 248, 0.12);
+                    border: 1px solid rgba(56, 189, 248, 0.35);
+                    border-radius: 16px;
+                    padding: 0.85rem 1rem;
+                    color: #e0f2fe;
+                    box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.15);
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.session_state["_case_chat_styles_injected"] = True
+
+    if meta.get("toast"):
+        st.success(str(meta.pop("toast")))
+
+    st.image(str(KIROSHI_CHAT_LOGO_PATH), width=70)
+    st.subheader(f"Kiroshi Chat — {case_label}")
     if sarcasm_enabled:
-        st.caption("Sarcasm Mode is enabled—Kiroshi will answer with extra dry wit.")
+        st.caption(
+            "Sarcasm Mode is enabled—Kiroshi will lean into dry wit while keeping the guidance sharp."
+        )
     else:
         st.caption(
-            "Want sharper banter? Toggle Sarcasm Mode in Settings to let Kiroshi lean into the snark."
+            "Kiroshi is answering in the standard helpful voice. Toggle Sarcasm Mode in Settings for extra banter."
         )
 
-    if "kiroshi_chat_history" not in st.session_state:
-        migrated_history = st.session_state.pop("atom_history", None)
-        if isinstance(migrated_history, list):
-            st.session_state.kiroshi_chat_history = migrated_history
-        else:
-            st.session_state.kiroshi_chat_history = load_memory()
+    sessions = st.session_state.get("case_sessions")
+    case_obj: CaseData | None = None
+    if isinstance(sessions, list) and 0 <= case_idx < len(sessions):
+        candidate = getattr(sessions[case_idx], "case", None)
+        if isinstance(candidate, CaseData):
+            case_obj = candidate
 
-    with st.expander("Personality Construct"):
+    metrics = [
+        ("Case ID", getattr(case_obj, "case_id", "") or f"Case {case_idx + 1}"),
+        ("Company", getattr(case_obj, "company_name", "") or "Not provided"),
+        (
+            "App Version",
+            getattr(case_obj, "application_version", "") or "Unknown build",
+        ),
+    ]
+    metric_cols = st.columns(len(metrics))
+    for col, (label, value) in zip(metric_cols, metrics):
+        col.markdown(
+            f"<div class='kiroshi-chat-metric'><span class='label'>{escape(label)}</span><strong>{escape(value)}</strong></div>",
+            unsafe_allow_html=True,
+        )
+
+    if case_obj and case_obj.brief_description:
+        st.markdown(
+            f"<div class='kiroshi-chat-insight'>📄 <strong>Snapshot:</strong> {escape(case_obj.brief_description)}</div>",
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("Personality & Memory Controls"):
         personality_mode = st.session_state.get("personality_mode", "utility")
-        personality_label = personality_mode.replace("_", " ").title()
         sarcasm_state = "On" if sarcasm_enabled else "Off"
         st.caption(
-            f"Active personality: {personality_label} · Sarcasm mode: {sarcasm_state}"
+            f"Active personality: {personality_mode.replace('_', ' ').title()} · Sarcasm mode: {sarcasm_state}"
         )
-
         base_prompt_key = global_widget_key("system_prompt_base")
         if base_prompt_key not in st.session_state:
             st.session_state[base_prompt_key] = st.session_state.get(
@@ -9954,8 +10059,8 @@ def render_kiroshi_chat_panel() -> None:
             height=220,
             key=base_prompt_key,
             help=(
-                "Adjust the underlying construct template. Personality and sarcasm settings "
-                "are layered on top of this base."
+                "Adjust the construct template that every chat request starts from. Personality and sarcasm settings "
+                "layer on top of this base."
             ),
         )
         if edited_prompt != st.session_state.get("system_prompt"):
@@ -9973,13 +10078,28 @@ def render_kiroshi_chat_panel() -> None:
             disabled=True,
         )
 
-    api_key = st.session_state.openai_api_key
-    model = st.session_state.openai_model
-    base_url = st.session_state.ai_base_url
-    if not api_key and base_url.startswith("https://api.openai.com"):
-        st.info("Set your OpenAI API key in the Debug tab.")
+        control_cols = st.columns(2)
+        if control_cols[0].button(
+            "Clear case chat history",
+            key=chat_tab_key("clear_case_history"),
+        ):
+            store = _case_chat_history_store()
+            store[_case_chat_state_key(case_idx)] = []
+            meta_store = st.session_state.get("case_chat_meta")
+            if isinstance(meta_store, dict):
+                meta_store.pop(_case_chat_state_key(case_idx), None)
+            meta["toast"] = "Case chat reset."
+            st.rerun()
+        if control_cols[1].button(
+            "Flush global assistant memory",
+            key=chat_tab_key("flush_global_memory"),
+        ):
+            st.session_state.kiroshi_chat_history = []
+            save_memory([])
+            meta["toast"] = "Global assistant memory cleared."
+            st.rerun()
 
-    with st.expander("Manual Documents Database"):
+    with st.expander("Manual Knowledge Base"):
         if st.session_state.manual_docs:
             st.markdown("**Stored documents:**")
             for doc in st.session_state.manual_docs:
@@ -9987,10 +10107,10 @@ def render_kiroshi_chat_panel() -> None:
         doc_file = st.file_uploader(
             "Add document",
             type=["txt"],
-            key=global_widget_key("doc_file"),
+            key=chat_tab_key("doc_file"),
         )
-        doc_title = st.text_input("Title", key=global_widget_key("doc_title"))
-        if st.button("Save document", key=global_widget_key("save_doc")):
+        doc_title = st.text_input("Title", key=chat_tab_key("doc_title"))
+        if st.button("Save document", key=chat_tab_key("save_doc")):
             if doc_file and doc_title:
                 content = doc_file.getvalue().decode("utf-8", errors="ignore")
                 st.session_state.manual_docs.append({"title": doc_title, "content": content})
@@ -9999,92 +10119,243 @@ def render_kiroshi_chat_panel() -> None:
             else:
                 st.error("Provide both title and document.")
 
-    st.subheader("Search manual database")
-    search_query = st.text_input("Search query", key=global_widget_key("db_query"))
-    if st.button("Search in database", key=global_widget_key("db_search_button")):
-        if not api_key and base_url.startswith("https://api.openai.com"):
-            st.error("Please set your OpenAI API key in the Debug tab.")
-        elif not search_query:
-            st.error("Enter a search query.")
-        else:
-            matches = search_manual_docs(search_query, st.session_state.manual_docs)
-            if matches:
-                context = "\n\n".join(f"{m['title']}:\n{m['content']}" for m in matches)
-                message = (
-                    "Use the following documents to answer the question. "
-                    "Cite document titles.\n\n"
-                    + context
-                    + f"\n\nQuestion: {search_query}"
-                )
-                try:
-                    reply = invoke_gpt(
-                        message,
-                        st.session_state.kiroshi_chat_history,
-                        api_key,
-                        model,
-                        base_url,
-                        source="manual_docs_search",
-                    )
-                except Exception as exc:
-                    logging.error("Manual docs GPT search failed: %s", exc)
-                    st.session_state.db_search_result = str(exc)
-                else:
-                    st.session_state.kiroshi_chat_history.append(
-                        {"role": "user", "content": f"[DB Search] {search_query}"}
-                    )
-                    st.session_state.kiroshi_chat_history.append(
-                        {"role": "assistant", "content": reply}
-                    )
-                    save_memory(st.session_state.kiroshi_chat_history)
-                    st.session_state.db_search_result = reply
-            else:
-                st.session_state.db_search_result = "No documents matched your query."
-    if st.session_state.db_search_result:
-        st.text_area(
-            "Search result",
-            st.session_state.db_search_result,
-            height=150,
-            key=global_widget_key("db_search_result"),
-        )
+        api_key = st.session_state.openai_api_key
+        model = st.session_state.openai_model
+        base_url = st.session_state.ai_base_url
 
-    for msg in st.session_state.kiroshi_chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-    if user_msg := st.chat_input("Message", key=global_widget_key("kiroshi_chat_input")):
-        if not api_key and base_url.startswith("https://api.openai.com"):
-            st.error("Please set your OpenAI API key in the Debug tab.")
-        else:
-            history = st.session_state.kiroshi_chat_history.copy()
+        def _chat_ready() -> bool:
+            if not api_key and base_url.startswith("https://api.openai.com"):
+                st.error("Set your OpenAI API key in the Debug tab to query Kiroshi.")
+                return False
+            return True
+
+        case_context_message = _build_case_context_prompt(case_idx)
+
+        def _execute_exchange(
+            prompt_payload: str,
+            display_prompt: str,
+            *,
+            source: str,
+            mode: str | None = None,
+        ) -> str:
+            history_for_model = [
+                {"role": "system", "content": case_context_message}
+            ] + _case_chat_history_for_model(case_idx)
+            _append_case_chat_message(
+                case_idx,
+                "user",
+                prompt_payload,
+                display_content=display_prompt,
+                mode=mode,
+            )
             try:
-                reply = invoke_gpt(
-                    user_msg,
-                    history,
+                reply_text = invoke_gpt(
+                    prompt_payload,
+                    history_for_model,
                     api_key,
                     model,
                     base_url,
-                    source="kiroshi_chat",
+                    source=source,
                 )
             except Exception as exc:
-                logging.error("Kiroshi chat request failed: %s", exc)
-                st.session_state.kiroshi_chat_history.append(
-                    {"role": "user", "content": user_msg}
-                )
-                st.session_state.kiroshi_chat_history.append(
-                    {"role": "assistant", "content": str(exc)}
-                )
+                logging.error("Case chat request failed: %s", exc)
+                reply_text = str(exc)
+            _append_case_chat_message(case_idx, "assistant", reply_text, mode=mode)
+            _record_global_chat_exchange(prompt_payload, reply_text)
+            return reply_text
+
+        search_query = st.text_input("Search query", key=chat_tab_key("db_query"))
+        if st.button("Search in database", key=chat_tab_key("db_search_button")):
+            if not search_query:
+                st.error("Enter a search query.")
+            elif not _chat_ready():
+                pass
             else:
-                st.session_state.kiroshi_chat_history.append(
-                    {"role": "user", "content": user_msg}
-                )
-                st.session_state.kiroshi_chat_history.append(
-                    {"role": "assistant", "content": reply}
-                )
-            save_memory(st.session_state.kiroshi_chat_history)
+                matches = search_manual_docs(search_query, st.session_state.manual_docs)
+                display_prompt = f"🔍 Manual docs search: {search_query}"
+                if matches:
+                    context = "\n\n".join(f"{m['title']}:\n{m['content']}" for m in matches)
+                    message = (
+                        "Use the following documents to answer the question. "
+                        "Cite document titles when drawing from them.\n\n"
+                        + context
+                        + f"\n\nQuestion: {search_query}"
+                    )
+                    reply = _execute_exchange(
+                        message,
+                        display_prompt,
+                        source="manual_docs_search",
+                        mode="manual_docs",
+                    )
+                    meta["last_manual_search"] = {"query": search_query, "answer": reply}
+                    st.rerun()
+                else:
+                    notice = "No documents matched your query."
+                    _append_case_chat_message(
+                        case_idx,
+                        "user",
+                        f"[Manual docs] {search_query}",
+                        display_content=display_prompt,
+                        mode="manual_docs",
+                    )
+                    _append_case_chat_message(
+                        case_idx,
+                        "assistant",
+                        notice,
+                        mode="manual_docs",
+                    )
+                    _record_global_chat_exchange(f"[Manual docs] {search_query}", notice)
+                    meta["last_manual_search"] = {"query": search_query, "answer": notice}
+                    st.rerun()
+
+        last_search = meta.get("last_manual_search")
+        if isinstance(last_search, dict):
+            query_label = last_search.get("query") or ""
+            answer_text = last_search.get("answer") or ""
+            if query_label and answer_text:
+                st.markdown("**Latest manual-search answer**")
+                st.caption(query_label)
+                st.markdown(answer_text)
+
+    st.markdown("<div class='kiroshi-chat-wrap'>", unsafe_allow_html=True)
+    chat_container = st.container()
+    with chat_container:
+        history = _case_chat_history(case_idx)
+        if history:
+            for entry in history:
+                role = entry.get("role")
+                content = entry.get("display_content") or entry.get("content")
+                if not content:
+                    continue
+                avatar = "🧑‍💻" if role == "user" else "🤖"
+                with st.chat_message("user" if role == "user" else "assistant", avatar=avatar):
+                    mode = entry.get("mode")
+                    if mode == "educate" and role == "assistant":
+                        st.markdown("🧠 **AI Educate Insight**\n\n" + str(content))
+                    elif mode == "educate" and role == "user":
+                        st.markdown("**Answer with Educate**\n\n" + str(content))
+                    elif mode == "manual_docs" and role == "user":
+                        st.markdown("**Manual docs search**\n\n" + str(content))
+                    else:
+                        st.markdown(str(content))
+        else:
+            st.markdown("_No chat history yet — ask Kiroshi about this case to get started._")
+
+        prompt_key = chat_tab_key("prompt")
+        user_prompt = st.text_area(
+            "Message",
+            key=prompt_key,
+            height=120,
+            placeholder="Ask Kiroshi for guidance, updates, or troubleshooting help about this case…",
+            label_visibility="collapsed",
+        )
+        action_cols = st.columns([3, 2], gap="small")
+        send_clicked = action_cols[0].button(
+            "Send to Kiroshi",
+            key=chat_tab_key("send_button"),
+            use_container_width=True,
+        )
+        educate_clicked = action_cols[1].button(
+            "Answer with Educate",
+            key=chat_tab_key("educate_button"),
+            use_container_width=True,
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    api_key = st.session_state.openai_api_key
+    model = st.session_state.openai_model
+    base_url = st.session_state.ai_base_url
+    case_context_message = _build_case_context_prompt(case_idx)
+
+    def _chat_ready_global() -> bool:
+        if not api_key and base_url.startswith("https://api.openai.com"):
+            st.error("Set your OpenAI API key in the Debug tab to chat with Kiroshi.")
+            return False
+        return True
+
+    def _execute_prompt(prompt_payload: str, display_prompt: str, *, source: str, mode: str | None = None) -> None:
+        history_for_model = [
+            {"role": "system", "content": case_context_message}
+        ] + _case_chat_history_for_model(case_idx)
+        _append_case_chat_message(
+            case_idx,
+            "user",
+            prompt_payload,
+            display_content=display_prompt,
+            mode=mode,
+        )
+        try:
+            reply_text = invoke_gpt(
+                prompt_payload,
+                history_for_model,
+                api_key,
+                model,
+                base_url,
+                source=source,
+            )
+        except Exception as exc:
+            logging.error("Case chat request failed: %s", exc)
+            reply_text = str(exc)
+        _append_case_chat_message(case_idx, "assistant", reply_text, mode=mode)
+        _record_global_chat_exchange(prompt_payload, reply_text)
+
+    if send_clicked:
+        message = (user_prompt or "").strip()
+        if not message:
+            st.warning("Type a message before sending.")
+        elif _chat_ready_global():
+            tone_directive = build_kiroshi_tone_directive()
+            prompt_payload = (
+                f"You are Kiroshi, the resident support expert assisting with {case_label}. {tone_directive} "
+                "Use the full case JSON provided in the system context to answer the user's question accurately and concisely.\n\n"
+                f"User question: {message}"
+            )
+            _execute_prompt(prompt_payload, message, source="case_chat")
+            st.session_state[prompt_key] = ""
             st.rerun()
-    if st.button("Clear memory", key=global_widget_key("kiroshi_clear")):
-        st.session_state.kiroshi_chat_history = []
-        save_memory([])
-        st.rerun()
+
+    if educate_clicked:
+        message = (user_prompt or "").strip()
+        if not message:
+            st.warning("Ask a question before using Answer with Educate.")
+        elif not st.session_state.get("ai_educate_enabled", False):
+            st.warning("Enable AI Educate in Settings to unlock this button.")
+        else:
+            dataset = ensure_ai_learning_dataset()
+            if not dataset:
+                st.warning("No AI Educate dataset available. Generate one from the Educate panel first.")
+            else:
+                matches = find_relevant_learning_cases(case_obj or CaseData(), dataset, max_results=6)
+                summary_payload = {
+                    "insight_summary": dataset.get("insight_summary", {}),
+                    "keyword_insights": dataset.get("keyword_insights", [])[:5],
+                    "repeated_solutions": dataset.get("repeated_solutions", [])[:3],
+                    "top_matches": matches,
+                }
+                knowledge_block = json.dumps(
+                    summary_payload,
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                )
+                tone_directive = build_kiroshi_tone_directive()
+                prompt_payload = (
+                    f"You are Kiroshi, the resident support expert assisting with {case_label}. {tone_directive} "
+                    "Answer using the AI Educate knowledge base below plus the active case JSON. "
+                    "Call out which historic cases, solutions, or patterns inform your advice.\n\n"
+                    f"AI EDUCATE KNOWLEDGE (abridged):\n{knowledge_block}\n\n"
+                    f"User question: {message}"
+                )
+                display_prompt = f"**Answer with Educate**\n\n{message}"
+                _execute_prompt(
+                    prompt_payload,
+                    display_prompt,
+                    source="case_chat_educate",
+                    mode="educate",
+                )
+                st.session_state[prompt_key] = ""
+                st.rerun()
 
 
 def render_smart_aid_panel() -> None:
@@ -14672,10 +14943,166 @@ CASE_TAB_SLUGS = {
     "Remote Session": "remote",
     "Tables": "tables",
     "Save/Load": "save_load",
+    "Kiroshi Chat": "kiroshi_chat",
     "I'm bored": "bored",
     "Debug": "debug",
 }
 
+
+def _case_chat_state_key(case_idx: int) -> str:
+    """Return a stable session key for storing chat history per case."""
+
+    base = f"case-{case_idx}"
+    sessions = st.session_state.get("case_sessions")
+    if isinstance(sessions, list) and 0 <= case_idx < len(sessions):
+        case_obj = getattr(sessions[case_idx], "case", None)
+        if isinstance(case_obj, CaseData):
+            for candidate in (
+                case_obj.case_id,
+                case_obj.company_name,
+                case_obj.brief_description,
+            ):
+                text = str(candidate or "").strip()
+                if not text:
+                    continue
+                safe = re.sub(r"[^0-9a-zA-Z]+", "-", text).strip("-")
+                if safe:
+                    base = f"case-{case_idx}-{safe[:40].lower()}"
+                    break
+    return base
+
+
+def _case_chat_history_store() -> dict[str, list[dict[str, object]]]:
+    """Return the mapping that stores per-case chat transcripts."""
+
+    store = st.session_state.get("case_chat_histories")
+    if not isinstance(store, dict):
+        store = {}
+        st.session_state["case_chat_histories"] = store
+    return store
+
+
+def _case_chat_history(case_idx: int) -> list[dict[str, object]]:
+    """Return the chat history list for ``case_idx``."""
+
+    store = _case_chat_history_store()
+    key = _case_chat_state_key(case_idx)
+    history = store.get(key)
+    if history is None:
+        history = []
+        store[key] = history
+    return history
+
+
+def _case_chat_meta(case_idx: int) -> dict[str, object]:
+    """Return auxiliary metadata storage for the case chat panel."""
+
+    meta_store = st.session_state.get("case_chat_meta")
+    if not isinstance(meta_store, dict):
+        meta_store = {}
+        st.session_state["case_chat_meta"] = meta_store
+    key = _case_chat_state_key(case_idx)
+    meta = meta_store.get(key)
+    if meta is None:
+        meta = {}
+        meta_store[key] = meta
+    return meta
+
+
+def _case_display_name(case_idx: int) -> str:
+    """Return a human-friendly label for the case."""
+
+    sessions = st.session_state.get("case_sessions")
+    if isinstance(sessions, list) and 0 <= case_idx < len(sessions):
+        case_obj = getattr(sessions[case_idx], "case", None)
+        if isinstance(case_obj, CaseData):
+            for candidate in (
+                case_obj.case_id,
+                case_obj.company_name,
+                case_obj.brief_description,
+            ):
+                text = str(candidate or "").strip()
+                if text:
+                    return text
+    return f"Case {case_idx + 1}"
+
+
+def _build_case_context_prompt(case_idx: int) -> str:
+    """Create a system message that enumerates the active case JSON."""
+
+    sessions = st.session_state.get("case_sessions")
+    case_obj: CaseData | None = None
+    if isinstance(sessions, list) and 0 <= case_idx < len(sessions):
+        candidate = getattr(sessions[case_idx], "case", None)
+        if isinstance(candidate, CaseData):
+            case_obj = candidate
+
+    if not isinstance(case_obj, CaseData):
+        fallback = st.session_state.get("case")
+        if isinstance(fallback, CaseData):
+            case_obj = fallback
+
+    case_label = _case_display_name(case_idx)
+    if isinstance(case_obj, CaseData):
+        case_payload = asdict(case_obj)
+    else:
+        case_payload = {}
+    case_json = json.dumps(case_payload, indent=2, ensure_ascii=False, default=str)
+    personality_mode = st.session_state.get("personality_mode", "utility")
+    sarcasm_enabled = st.session_state.get("kiroshi_sarcasm_mode", False)
+    return (
+        f"Active case context for {case_label}. Personality mode: {personality_mode}. "
+        f"Sarcasm enabled: {'yes' if sarcasm_enabled else 'no'}. "
+        "Use every field in the following JSON payload when answering questions about this case. "
+        "If information is missing or uncertain, call that out directly.\n\nCASE JSON:\n"
+        + case_json
+    )
+
+
+def _append_case_chat_message(
+    case_idx: int,
+    role: str,
+    content: str,
+    *,
+    display_content: str | None = None,
+    mode: str | None = None,
+) -> None:
+    """Store a chat message for the specified case."""
+
+    history = _case_chat_history(case_idx)
+    entry: dict[str, object] = {"role": role, "content": str(content)}
+    if display_content is not None and display_content != content:
+        entry["display_content"] = str(display_content)
+    if mode:
+        entry["mode"] = mode
+    history.append(entry)
+
+
+def _case_chat_history_for_model(case_idx: int) -> list[dict[str, str]]:
+    """Return the case chat history in OpenAI-compatible format."""
+
+    formatted: list[dict[str, str]] = []
+    for entry in _case_chat_history(case_idx):
+        role = entry.get("role")
+        content = entry.get("content")
+        if role not in {"user", "assistant", "system"}:
+            continue
+        if not isinstance(content, str):
+            continue
+        formatted.append({"role": role, "content": content})
+    return formatted
+
+
+def _record_global_chat_exchange(user_payload: str, assistant_reply: str) -> None:
+    """Append a user/assistant exchange to the persistent global memory."""
+
+    history = st.session_state.get("kiroshi_chat_history")
+    if not isinstance(history, list):
+        history = []
+    history.append({"role": "user", "content": user_payload})
+    history.append({"role": "assistant", "content": assistant_reply})
+    st.session_state["kiroshi_chat_history"] = history
+    save_memory(history)
 
 def render_case_ui(case_idx: int):
     global CURRENT_CASE_IDX
@@ -14708,6 +15135,9 @@ def render_case_ui(case_idx: int):
         "Tables",
         "Save/Load",
     ]
+    show_case_chat = st.session_state.get("show_kiroshi_chat", True)
+    if show_case_chat:
+        tab_labels.append("Kiroshi Chat")
     if st.session_state.show_bored:
         tab_labels.append("I'm bored")
     if st.session_state.debug_mode:
@@ -14724,6 +15154,7 @@ def render_case_ui(case_idx: int):
     tab_remote = next(tab_iter)
     tab_tables = next(tab_iter)
     tab_save_load = next(tab_iter)
+    tab_chat = next(tab_iter) if show_case_chat else None
     tab_bored = next(tab_iter) if st.session_state.show_bored else None
     tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
@@ -17193,6 +17624,10 @@ End with: We look forward to your reply."""
                 save_case_to_database(D)
 
 
+    if show_case_chat and tab_chat is not None:
+        with tab_chat:
+            render_case_kiroshi_chat_panel(case_idx)
+
     # ================== BORED TAB =================
     if tab_bored:
         with tab_bored:
@@ -17372,10 +17807,7 @@ case_labels = [
 tab_labels: list[str] = ["Dashboard", "Saved Cases", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
-show_kiroshi_chat = st.session_state.get("show_kiroshi_chat", True)
 tab_labels.append("Report")
-if show_kiroshi_chat:
-    tab_labels.append("Kiroshi Chat")
 tab_labels += case_labels
 all_tabs = st.tabs(tab_labels)
 
@@ -17398,12 +17830,6 @@ if st.session_state.debug_mode:
 with all_tabs[tab_index]:
     render_with_monitor("Report", render_report_panel, tab_label="Report")
 tab_index += 1
-if show_kiroshi_chat:
-    with all_tabs[tab_index]:
-        render_with_monitor(
-            "Kiroshi Chat", render_kiroshi_chat_panel, tab_label="Kiroshi Chat"
-        )
-    tab_index += 1
 
 case_tabs = all_tabs[tab_index:]
 for idx, tab in enumerate(case_tabs):
