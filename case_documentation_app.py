@@ -6572,6 +6572,26 @@ def active_category_map():
 
 
 CURRENT_CASE_IDX = 0
+HOTKEY_TARGET_SESSION_KEY = "hotkey_target_idx"
+
+
+def _resolve_hotkey_target_index(
+    sessions: Sequence[CaseSession] | None,
+    default_idx: int,
+) -> int:
+    """Return the case index that should feed the clipboard snapshot."""
+
+    target_idx = st.session_state.get(HOTKEY_TARGET_SESSION_KEY)
+    if (
+        isinstance(target_idx, int)
+        and isinstance(sessions, Sequence)
+        and 0 <= target_idx < len(sessions)
+    ):
+        return target_idx
+
+    if HOTKEY_TARGET_SESSION_KEY in st.session_state:
+        st.session_state[HOTKEY_TARGET_SESSION_KEY] = None
+    return default_idx
 
 
 def _refresh_hotkey_snapshot() -> None:
@@ -6581,7 +6601,8 @@ def _refresh_hotkey_snapshot() -> None:
     except Exception:
         logging.exception("Failed to build category map for hotkey snapshot")
         category_map = {}
-    update_hotkey_snapshot(sessions, CURRENT_CASE_IDX, category_map)
+    target_idx = _resolve_hotkey_target_index(sessions, CURRENT_CASE_IDX)
+    update_hotkey_snapshot(sessions, target_idx, category_map)
 
 
 def _ensure_case_hardware_test_text(case: CaseData | None) -> None:
@@ -7103,9 +7124,17 @@ def close_case_tab(idx: int) -> None:
         session.case.tracking.active for session in st.session_state.case_sessions
     )
 
+    target_idx = st.session_state.get(HOTKEY_TARGET_SESSION_KEY)
+    if isinstance(target_idx, int):
+        if target_idx == idx:
+            st.session_state[HOTKEY_TARGET_SESSION_KEY] = None
+        elif target_idx > idx:
+            st.session_state[HOTKEY_TARGET_SESSION_KEY] = target_idx - 1
+
     touch_case_last_modified()
     autosave()
     _sync_case_memory_from_sessions()
+    _refresh_hotkey_snapshot()
 
 
 class WidgetKeyCollisionError(RuntimeError):
@@ -16072,8 +16101,9 @@ def render_case_ui(case_idx: int):
                     st.caption(
                         "Hotkeys: Ctrl+Alt+1 copies the Title table, 2 copies Phonecall, 3 copies Remote Session, 4 copies "
                         "Internal Notes, 5 copies Additional Information, 6 copies Root Cause & Conclusion, and Ctrl+Alt+C "
-                        "still grabs every table. The listener keeps running even when Kiroshi is in the background so you "
-                        "can paste with Ctrl+V directly into your CRM or spreadsheet."
+                        "still grabs every table. Flip the “Use this case for global clipboard hotkeys” toggle in the Tables "
+                        "tab when you want these shortcuts to pull from a different case. The listener keeps running even "
+                        "when Kiroshi is in the background so you can paste with Ctrl+V directly into your CRM or spreadsheet."
                     )
                     for cat in cat_map:
                         title_text = table_title(cat)
@@ -17544,6 +17574,26 @@ End with: We look forward to your reply."""
             case_widget_key, CASE_TAB_SLUGS["Tables"], case_idx=case_idx
         )
         st.subheader("Copy all tables")
+        target_widget_key = tables_tab_key("hotkey_target_toggle")
+        desired_target_idx = st.session_state.get(HOTKEY_TARGET_SESSION_KEY)
+        desired_state = desired_target_idx == case_idx
+        if st.session_state.get(target_widget_key) != desired_state:
+            st.session_state[target_widget_key] = desired_state
+        toggle_state = st.checkbox(
+            "Use this case for global clipboard hotkeys",
+            value=desired_state,
+            key=target_widget_key,
+            help=(
+                "When enabled, Ctrl+Alt+C and the numeric shortcuts copy tables "
+                "from this case even if another tab is open."
+            ),
+        )
+        if toggle_state and desired_target_idx != case_idx:
+            st.session_state[HOTKEY_TARGET_SESSION_KEY] = case_idx
+            _refresh_hotkey_snapshot()
+        elif not toggle_state and desired_target_idx == case_idx:
+            st.session_state[HOTKEY_TARGET_SESSION_KEY] = None
+            _refresh_hotkey_snapshot()
         st.download_button(
             "Download Case Info PDF",
             make_tables_pdf(D),

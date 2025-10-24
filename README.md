@@ -25,7 +25,8 @@ Coverage is actively tracked and the project receives daily updates.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
   making it easy to copy into spreadsheets. A global listener also watches for **Ctrl+Alt+1…6** to copy the Title, Phonecall,
   Remote Session, Internal Notes, Additional Information, or Root Cause & Conclusion tables individually (use **Ctrl+Alt+C** if
-  you still need the full bundle) without switching back to the Streamlit window.
+  you still need the full bundle) without switching back to the Streamlit window. Pick which case feeds those shortcuts via the
+  “Use this case for global clipboard hotkeys” toggle at the top of the Tables tab.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
 - **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/`
   folder.
@@ -187,6 +188,11 @@ the Tables tab renders and sends it to the operating system clipboard with
 the shortcuts can be pressed while another window (for example, a CRM) has
 focus. Paste with the standard **Ctrl+V** to drop the selected table into the
 target field.
+
+Pick the case that powers these clipboard actions by enabling **Use this case
+for global clipboard hotkeys** in the relevant Tables tab. The active choice is
+stored in `st.session_state` so reruns keep the listener pointed at the same
+case until you toggle a different tab or turn the option off.
 
 #### Troubleshooting: `pyarrow` fails to install on Windows
 
