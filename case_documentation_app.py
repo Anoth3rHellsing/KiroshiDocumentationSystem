@@ -9135,263 +9135,236 @@ def _render_settings_ai_tab() -> None:
             elif imported_payload is not None:
                 st.warning("El archivo seleccionado no contiene un formato válido de Educate.")
 
-        if ai_dataset:
-            case_count = ai_dataset.get("case_count", 0)
-            generated_at = ai_dataset.get("generated_at")
-            status_message = (
-                f"Datos de aprendizaje generados a partir de {case_count} casos guardados el {generated_at}."
-            )
-            if dataset_updated:
-                st.success(status_message)
-            else:
-                st.caption(status_message)
-            summary = ai_dataset.get("insight_summary", {})
-            top_keywords = summary.get("top_keywords", [])
-            if top_keywords:
-                st.caption("Palabras clave más repetidas: " + ", ".join(top_keywords[:6]))
-            root_patterns = ai_dataset.get("root_cause_patterns", [])
-            if root_patterns:
-                st.markdown("**Principales patrones de causa raíz:**")
-                for pattern in root_patterns[:3]:
-                    st.markdown(f"- {pattern['root_cause']} ({pattern['count']} casos)")
+    if ai_dataset:
+        case_count = ai_dataset.get("case_count", 0)
+        generated_at = ai_dataset.get("generated_at")
+        status_message = (
+            f"Datos de aprendizaje generados a partir de {case_count} casos guardados el {generated_at}."
+        )
+        if dataset_updated:
+            st.success(status_message)
         else:
-            st.info(
-                "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
+            st.caption(status_message)
+        summary = ai_dataset.get("insight_summary", {})
+        top_keywords = summary.get("top_keywords", [])
+        if top_keywords:
+            st.caption("Palabras clave más repetidas: " + ", ".join(top_keywords[:6]))
+        root_patterns = ai_dataset.get("root_cause_patterns", [])
+        if root_patterns:
+            st.markdown("**Principales patrones de causa raíz:**")
+            for pattern in root_patterns[:3]:
+                st.markdown(f"- {pattern['root_cause']} ({pattern['count']} casos)")
+    else:
+        st.info(
+            "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
+        )
+
+
+def _render_settings_cloud_tab() -> None:
+    st.markdown("##### Kiroshi Cloud")
+    st.caption(
+        "Sincroniza la base de Educate con la nube cifrada de Kiroshi para compartir conocimiento entre sedes remotas."
+    )
+    if not st.session_state.ai_educate_enabled:
+        st.info("Activa AI Educate para habilitar la sincronización con Kiroshi Cloud.")
+        return
+
+    cloud_enabled = st.toggle(
+        "Habilitar conexión con Kiroshi Cloud",
+        key="kiroshi_cloud_enabled",
+        on_change=_on_setting_change("kiroshi_cloud_enabled"),
+    )
+    if not cloud_enabled:
+        st.session_state.kiroshi_cloud_authenticated = False
+        st.session_state.kiroshi_cloud_status = None
+        st.session_state.kiroshi_cloud_summary = None
+        st.session_state.kiroshi_cloud_saved_at = None
+        return
+
+    overlay_info: dict[str, str] | None = None
+    try:
+        overlay_info = overlay_guidance()
+    except KiroshiCloudError:
+        overlay_info = None
+    if overlay_info:
+        provider_hint = overlay_info.get("provider")
+        instructions_hint = overlay_info.get("instructions")
+        if provider_hint:
+            st.caption(
+                f"Red privada recomendada para los túneles de Kiroshi Cloud: {provider_hint}."
+            )
+        if instructions_hint:
+            with st.expander(
+                "Guía para enlazar la red privada (overlay)",
+                icon="🌐",
+            ):
+                st.markdown(instructions_hint)
+
+    st.text_input(
+        "Usuario del cloud",
+        key="kiroshi_cloud_username",
+        help="Credencial configurada en la consola de Kiroshi Cloud.",
+        on_change=_on_setting_change("kiroshi_cloud_username"),
+    )
+    st.text_input(
+        "Contraseña del cloud",
+        type="password",
+        key="kiroshi_cloud_password",
+        help="Se guarda únicamente durante esta sesión.",
+    )
+    token_value = st.text_area(
+        "Token de conexión del dispositivo",
+        key="kiroshi_cloud_token",
+        help=(
+            "Pega el token generado para esta estación en la consola de Kiroshi Cloud."
+            " El token vincula el ID del dispositivo y el secreto compartido."
+        ),
+        on_change=_on_setting_change("kiroshi_cloud_token"),
+    )
+    token_details = None
+    token_value_stripped = token_value.strip()
+    if token_value_stripped:
+        try:
+            token_details = decode_device_token(token_value_stripped)
+        except KiroshiCloudError as exc:
+            st.error(f"El token proporcionado no es válido: {exc}")
+        else:
+            issued_at = token_details.get("issued_at") or "desconocido"
+            st.caption(
+                f"Token válido para el dispositivo `{token_details.get('device_id')}` emitido el {issued_at}."
             )
 
-        st.markdown("##### Kiroshi Cloud")
-        st.caption(
-            "Sincroniza la base de Educate con la nube cifrada de Kiroshi para compartir conocimiento entre sedes remotas."
-        )
-        cloud_enabled = st.toggle(
-            "Habilitar conexión con Kiroshi Cloud",
-            key="kiroshi_cloud_enabled",
-            on_change=_on_setting_change("kiroshi_cloud_enabled"),
-        )
-        if not cloud_enabled:
+    status = st.session_state.get("kiroshi_cloud_status")
+    if isinstance(status, tuple) and len(status) == 2:
+        level, message = status
+        if level == "success":
+            st.success(message)
+        elif level == "warning":
+            st.warning(message)
+        else:
+            st.error(message)
+
+    def _obtain_cloud_session() -> object:
+        user = st.session_state.kiroshi_cloud_username.strip()
+        password_value = st.session_state.kiroshi_cloud_password
+        if not user or not password_value:
+            st.warning("Ingresa usuario y contraseña para conectarte al cloud.")
+            return None
+        try:
+            return open_kiroshi_cloud_session(user, password_value)
+        except CloudAuthenticationError as exc:
             st.session_state.kiroshi_cloud_authenticated = False
-            st.session_state.kiroshi_cloud_status = None
-            st.session_state.kiroshi_cloud_summary = None
-            st.session_state.kiroshi_cloud_saved_at = None
-        else:
-            overlay_info: dict[str, str] | None = None
-            try:
-                overlay_info = overlay_guidance()
-            except KiroshiCloudError:
-                overlay_info = None
-            if overlay_info:
-                provider_hint = overlay_info.get("provider")
-                instructions_hint = overlay_info.get("instructions")
-                if provider_hint:
-                    st.caption(
-                        f"Red privada recomendada para los túneles de Kiroshi Cloud: {provider_hint}."
-                    )
-                if instructions_hint:
-                    with st.expander(
-                        "Guía para enlazar la red privada (overlay)",
-                        icon="🌐",
-                    ):
-                        st.markdown(instructions_hint)
+            st.session_state.kiroshi_cloud_status = ("error", str(exc))
+            st.error(str(exc))
+        except KiroshiCloudError as exc:
+            st.session_state.kiroshi_cloud_authenticated = False
+            st.session_state.kiroshi_cloud_status = ("error", str(exc))
+            st.error(f"No se pudo abrir la instancia de Kiroshi Cloud: {exc}")
+        return None
 
-            st.text_input(
-                "Usuario del cloud",
-                key="kiroshi_cloud_username",
-                help="Credencial configurada en la consola de Kiroshi Cloud.",
-                on_change=_on_setting_change("kiroshi_cloud_username"),
+    if st.button("Validar conexión", key=global_widget_key("cloud_validate")):
+        session = _obtain_cloud_session()
+        if session:
+            cloud_payload = session.load_ai_dataset()
+            saved_at = None
+            if (
+                isinstance(cloud_payload, Mapping)
+                and cloud_payload
+                and "dataset" in cloud_payload
+            ):
+                cloud_dataset = cloud_payload.get("dataset")
+                saved_at = cloud_payload.get("saved_at")
+            else:
+                cloud_dataset = cloud_payload
+            st.session_state.kiroshi_cloud_authenticated = True
+            st.session_state.kiroshi_cloud_status = (
+                "success",
+                "Conexión con Kiroshi Cloud validada correctamente.",
             )
-            st.text_input(
-                "Contraseña del cloud",
-                type="password",
-                key="kiroshi_cloud_password",
-                help="Se guarda únicamente durante esta sesión.",
-            )
-            token_value = st.text_area(
-                "Token de conexión del dispositivo",
-                key="kiroshi_cloud_token",
-                help=(
-                    "Pega el token generado para esta estación en la consola de Kiroshi Cloud."
-                    " El token vincula el ID del dispositivo y el secreto compartido."
-                ),
-                on_change=_on_setting_change("kiroshi_cloud_token"),
-            )
-            token_details = None
-            st.session_state.kiroshi_cloud_agent_id = None
-            token_value_stripped = token_value.strip()
-            if token_value_stripped:
-                try:
-                    token_details = decode_device_token(token_value_stripped)
-                except KiroshiCloudError as exc:
-                    st.error(f"El token proporcionado no es válido: {exc}")
+            st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(cloud_dataset)
+            st.session_state.kiroshi_cloud_saved_at = saved_at
+            st.success("Conexión validada. Puedes sincronizar la base de Educate.")
+
+    if st.session_state.kiroshi_cloud_authenticated:
+        sync_cols = st.columns(2)
+        if sync_cols[0].button(
+            "Subir Educate al cloud", key=global_widget_key("cloud_push")
+        ):
+            session = _obtain_cloud_session()
+            if session:
+                dataset_to_push = ensure_ai_learning_dataset()
+                if not dataset_to_push:
+                    st.warning("Genera la base de Educate antes de sincronizar.")
                 else:
-                    issued_at = token_details.get("issued_at") or "desconocido"
-                    agent_id_value = token_details.get("device_id")
-                    if agent_id_value:
-                        st.session_state.kiroshi_cloud_agent_id = str(agent_id_value)
-                    st.caption(
-                        f"Token válido para el dispositivo `{token_details.get('device_id')}` emitido el {issued_at}."
-                    )
-
-            status = st.session_state.get("kiroshi_cloud_status")
-            if isinstance(status, tuple) and len(status) == 2:
-                level, message = status
-                if level == "success":
-                    st.success(message)
-                elif level == "warning":
-                    st.warning(message)
-                else:
-                    st.error(message)
-
-            def _obtain_cloud_session() -> object:
-                user = st.session_state.kiroshi_cloud_username.strip()
-                password_value = st.session_state.kiroshi_cloud_password
-                if not user or not password_value:
-                    st.warning("Ingresa usuario y contraseña para conectarte al cloud.")
-                    return None
-                try:
-                    return open_kiroshi_cloud_session(user, password_value)
-                except CloudAuthenticationError as exc:
-                    st.session_state.kiroshi_cloud_authenticated = False
-                    st.session_state.kiroshi_cloud_status = ("error", str(exc))
-                    st.error(str(exc))
-                except KiroshiCloudError as exc:
-                    st.session_state.kiroshi_cloud_authenticated = False
-                    st.session_state.kiroshi_cloud_status = ("error", str(exc))
-                    st.error(f"No se pudo abrir la instancia de Kiroshi Cloud: {exc}")
-                return None
-
-            if st.button("Validar conexión", key=global_widget_key("cloud_validate")):
-                session = _obtain_cloud_session()
-                if session:
-                    agent_id = st.session_state.get("kiroshi_cloud_agent_id")
-                    saved_at = None
-                    cloud_dataset = None
-                    status_level = "success"
-                    status_message = "Conexión con Kiroshi Cloud validada correctamente."
-
-                    if agent_id:
-                        try:
-                            agent_record = session.get_agent_record(agent_id)
-                        except KiroshiCloudError as exc:
-                            st.session_state.kiroshi_cloud_status = ("error", str(exc))
-                            st.error(f"No se pudo cargar la información del agente: {exc}")
-                            agent_record = None
-                        else:
-                            if agent_record and agent_record.get("blocked"):
-                                reason = agent_record.get("blocked_reason") or "Las cargas están suspendidas por el administrador."
-                                status_level = "warning"
-                                status_message = f"El agente está bloqueado: {reason}"
-                            saved_at = agent_record.get("saved_at") if agent_record else None
-                        try:
-                            cloud_dataset = session.load_agent_dataset(agent_id)
-                        except KiroshiCloudError as exc:
-                            st.session_state.kiroshi_cloud_status = ("error", str(exc))
-                            st.error(f"No se pudo obtener la base del agente: {exc}")
-                            cloud_dataset = None
+                    try:
+                        session.save_ai_dataset(dataset_to_push)
+                    except KiroshiCloudError as exc:
+                        st.error(f"No se pudo subir la base al cloud: {exc}")
                     else:
-                        status_level = "warning"
-                        status_message = "Conexión validada, pero falta el token del dispositivo para sincronizar la base."
-
-                    st.session_state.kiroshi_cloud_authenticated = True
-                    st.session_state.kiroshi_cloud_status = (status_level, status_message)
-                    st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(cloud_dataset)
+                        st.success("Base de Educate subida a Kiroshi Cloud.")
+                        st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(
+                            dataset_to_push
+                        )
+                        st.session_state.kiroshi_cloud_saved_at = (
+                            datetime.utcnow().isoformat() + "Z"
+                        )
+        if sync_cols[1].button(
+            "Descargar Educate del cloud", key=global_widget_key("cloud_pull")
+        ):
+            session = _obtain_cloud_session()
+            if session:
+                cloud_payload = session.load_ai_dataset()
+                saved_at = None
+                if (
+                    isinstance(cloud_payload, Mapping)
+                    and cloud_payload
+                    and "dataset" in cloud_payload
+                ):
+                    dataset_from_cloud = cloud_payload.get("dataset")
+                    saved_at = cloud_payload.get("saved_at")
+                else:
+                    dataset_from_cloud = cloud_payload
+                if not dataset_from_cloud:
+                    st.info(
+                        "El cloud todavía no tiene una base de Educate disponible."
+                    )
+                else:
+                    save_ai_learning_dataset(dataset_from_cloud)
+                    st.session_state.ai_learning_data = dataset_from_cloud
+                    _sync_ai_learning_signature_from_dataset(dataset_from_cloud)
+                    st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(
+                        dataset_from_cloud
+                    )
                     st.session_state.kiroshi_cloud_saved_at = saved_at
-                    if status_level == "success":
-                        st.success("Conexión validada. Puedes sincronizar la base de Educate.")
-                    elif status_level == "warning":
-                        st.warning(status_message)
-
-            if st.session_state.kiroshi_cloud_authenticated:
-                sync_cols = st.columns(2)
-                if sync_cols[0].button(
-                    "Subir Educate al cloud", key=global_widget_key("cloud_push")
-                ):
-                    session = _obtain_cloud_session()
-                    if session:
-                        agent_id = st.session_state.get("kiroshi_cloud_agent_id")
-                        if not agent_id:
-                            st.warning("Pega el token del dispositivo para asociar la carga con un agente específico.")
-                        else:
-                            dataset_to_push = ensure_ai_learning_dataset()
-                            if not dataset_to_push:
-                                st.warning("Genera la base de Educate antes de sincronizar.")
-                            else:
-                                try:
-                                    result = session.save_agent_dataset(
-                                        agent_id,
-                                        dataset_to_push,
-                                        justification="Carga manual desde el cliente de escritorio",
-                                    )
-                                except CloudAgentBlockedError as exc:
-                                    st.error(f"No se pudo subir la base porque el agente está bloqueado: {exc}")
-                                except KiroshiCloudError as exc:
-                                    st.error(f"No se pudo subir la base al cloud: {exc}")
-                                else:
-                                    st.success("Base de Educate subida a Kiroshi Cloud para este agente.")
-                                    st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(
-                                        dataset_to_push
-                                    )
-                                    st.session_state.kiroshi_cloud_saved_at = (
-                                        result.get("saved_at") if isinstance(result, Mapping) else None
-                                    )
-                if sync_cols[1].button(
-                    "Descargar Educate del cloud", key=global_widget_key("cloud_pull")
-                ):
-                    session = _obtain_cloud_session()
-                    if session:
-                        agent_id = st.session_state.get("kiroshi_cloud_agent_id")
-                        if not agent_id:
-                            st.warning("Ingresa el token del dispositivo para identificar qué base descargar.")
-                        else:
-                            try:
-                                dataset_from_cloud = session.load_agent_dataset(agent_id)
-                            except KiroshiCloudError as exc:
-                                st.error(f"No se pudo obtener la base del cloud: {exc}")
-                            else:
-                                agent_record = session.get_agent_record(agent_id)
-                                saved_at = (
-                                    agent_record.get("saved_at") if isinstance(agent_record, Mapping) else None
-                                )
-                                if not dataset_from_cloud:
-                                    st.info(
-                                        "El cloud todavía no tiene una base de Educate disponible."
-                                    )
-                                else:
-                                    save_ai_learning_dataset(dataset_from_cloud)
-                                    st.session_state.ai_learning_data = dataset_from_cloud
-                                    _sync_ai_learning_signature_from_dataset(dataset_from_cloud)
-                                    st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(
-                                        dataset_from_cloud
-                                    )
-                                    st.session_state.kiroshi_cloud_saved_at = saved_at
-                                    st.success(
-                                        "La base local se actualizó con la copia almacenada en el cloud."
-                                    )
-
-                summary_data = st.session_state.get("kiroshi_cloud_summary")
-                saved_at = st.session_state.get("kiroshi_cloud_saved_at")
-                if summary_data:
-                    st.caption("Resumen del cloud")
-                    summary_cols = st.columns(3)
-                    summary_cols[0].metric(
-                        "Casos sincronizados", summary_data.get("total_cases", 0)
+                    st.success(
+                        "La base local se actualizó con la copia almacenada en el cloud."
                     )
-                    summary_cols[1].metric(
-                        "Dispositivos únicos", summary_data.get("unique_devices", 0)
-                    )
-                    if saved_at:
-                        try:
-                            saved_dt = datetime.fromisoformat(str(saved_at).replace("Z", "+00:00"))
-                            saved_label = saved_dt.strftime("%Y-%m-%d %H:%M")
-                        except Exception:
-                            saved_label = str(saved_at)
-                    else:
-                        saved_label = "—"
-                    summary_cols[2].metric("Última actualización", saved_label)
-                    top_causes = summary_data.get("root_cause_counts") or []
-                    if top_causes:
-                        st.markdown("**Principales causas registradas en la nube:**")
-                        for label, count in top_causes[:3]:
-                            st.markdown(f"- {label}: {count} casos")
+
+        summary_data = st.session_state.get("kiroshi_cloud_summary")
+        saved_at = st.session_state.get("kiroshi_cloud_saved_at")
+        if summary_data:
+            st.caption("Resumen del cloud")
+            summary_cols = st.columns(3)
+            summary_cols[0].metric(
+                "Casos sincronizados", summary_data.get("total_cases", 0)
+            )
+            summary_cols[1].metric(
+                "Dispositivos únicos", summary_data.get("unique_devices", 0)
+            )
+            if saved_at:
+                try:
+                    saved_dt = datetime.fromisoformat(str(saved_at).replace("Z", "+00:00"))
+                    saved_label = saved_dt.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    saved_label = str(saved_at)
+            else:
+                saved_label = "—"
+            summary_cols[2].metric("Última actualización", saved_label)
+            top_causes = summary_data.get("root_cause_counts") or []
+            if top_causes:
+                st.markdown("**Principales causas registradas en la nube:**")
+                for label, count in top_causes[:3]:
+                    st.markdown(f"- {label}: {count} casos")
 
 
 def _render_settings_updates_tab() -> None:
@@ -9507,10 +9480,11 @@ def render_settings_panel() -> None:
     )
     with st.container():
         st.markdown("<div class='settings-tabs'>", unsafe_allow_html=True)
-        workspace_tab, ai_tab, updates_tab = st.tabs(
+        workspace_tab, ai_tab, cloud_tab, updates_tab = st.tabs(
             [
                 "Workspace",
                 "AI & Knowledge",
+                "Kiroshi Cloud",
                 "Updates",
             ]
         )
@@ -9518,6 +9492,8 @@ def render_settings_panel() -> None:
             _render_settings_workspace_tab()
         with ai_tab:
             _render_settings_ai_tab()
+        with cloud_tab:
+            _render_settings_cloud_tab()
         with updates_tab:
             _render_settings_updates_tab()
         st.markdown("</div>", unsafe_allow_html=True)
