@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from kiroshi_cloud_sync import (
+    AgentBlockedError,
     AuthenticationError,
     CloudError,
     CloudSession,
@@ -31,16 +32,16 @@ from kiroshi_cloud_sync import (
 )
 
 
-st.set_page_config(page_title="Kiroshi Cloud", layout="wide", page_icon="☁️")
+st.set_page_config(page_title="Kiroshi Control Tower", layout="wide", page_icon="🛰️")
 
 
 def _initialize_state() -> None:
     defaults: dict[str, Any] = {
         "cloud_session": None,
         "cloud_devices": {},
-        "cloud_dataset": None,
-        "cloud_dataset_meta": {},
-        "cloud_summary": None,
+        "cloud_agent_store": None,
+        "cloud_agent_summaries": {},
+        "cloud_overall_summary": None,
         "cloud_username": "",
     }
     for key, value in defaults.items():
@@ -58,29 +59,39 @@ def _refresh_devices() -> None:
     st.session_state.cloud_devices = session.load_devices()
 
 
-def _refresh_dataset() -> None:
+def _refresh_agent_store() -> None:
     session: CloudSession = st.session_state.cloud_session
     if not session:
         return
-    dataset_payload = session.load_ai_dataset()
-    dataset: dict[str, Any] | None
-    meta: dict[str, Any]
-    if dataset_payload and "dataset" in dataset_payload:
-        dataset = dataset_payload.get("dataset")
-        meta = {
-            key: dataset_payload.get(key)
-            for key in ("saved_at", "cloud_instance", "comment")
-        }
-    else:
-        dataset = dataset_payload
-        meta = {"saved_at": None}
-    st.session_state.cloud_dataset = dataset
-    st.session_state.cloud_dataset_meta = meta
-    st.session_state.cloud_summary = summarize_dataset(dataset)
+    store = session.load_all_agent_datasets()
+    st.session_state.cloud_agent_store = store
+    agents = store.get("agents", {}) if isinstance(store, dict) else {}
+    agent_summaries: dict[str, dict[str, Any]] = {}
+    combined_cases: list[dict[str, Any]] = []
+
+    for agent_id, record in agents.items():
+        dataset = record.get("dataset") if isinstance(record, dict) else None
+        if isinstance(dataset, dict):
+            agent_summaries[agent_id] = summarize_dataset(dataset)
+            cases = dataset.get("cases")
+            if isinstance(cases, list):
+                combined_cases.extend([case for case in cases if isinstance(case, dict)])
+        else:
+            agent_summaries[agent_id] = summarize_dataset(None)
+
+    combined_dataset = {"cases": combined_cases} if combined_cases else None
+    st.session_state.cloud_agent_summaries = agent_summaries
+    st.session_state.cloud_overall_summary = summarize_dataset(combined_dataset)
 
 
 def _disconnect() -> None:
-    for key in ("cloud_session", "cloud_devices", "cloud_dataset", "cloud_summary"):
+    for key in (
+        "cloud_session",
+        "cloud_devices",
+        "cloud_agent_store",
+        "cloud_agent_summaries",
+        "cloud_overall_summary",
+    ):
         st.session_state[key] = None
 
 
@@ -103,10 +114,10 @@ def _validate_ip(value: str) -> bool:
 
 
 def _render_login() -> None:
-    st.title("Kiroshi Cloud Console")
+    st.title("Kiroshi Control Tower")
     st.caption(
-        "Securely manage remote Kiroshi devices, credentials, and the shared "
-        "AI Educate dataset from a central cloud interface."
+        "Coordinate encrypted datasets, device access, and quality analytics for every field agent "
+        "from a single command interface."
     )
 
     config = load_cloud_config()
@@ -140,38 +151,83 @@ def _render_login() -> None:
     st.session_state.cloud_session = session
     st.session_state.cloud_username = username
     _refresh_devices()
-    _refresh_dataset()
+    _refresh_agent_store()
     st.success("Connected to Kiroshi Cloud. Use the tabs above to manage devices and data.")
 
 
 def _render_overview() -> None:
-    summary: dict[str, Any] | None = st.session_state.cloud_summary
+    agent_store: dict[str, Any] = st.session_state.cloud_agent_store or {"agents": {}}
+    overall_summary: dict[str, Any] = st.session_state.cloud_overall_summary or summarize_dataset(None)
+    agent_summaries: dict[str, dict[str, Any]] = st.session_state.cloud_agent_summaries or {}
     devices_payload: dict[str, Any] = st.session_state.cloud_devices or {"devices": []}
     devices = devices_payload.get("devices", [])
 
-    allowed = sum(1 for item in devices if item.get("allowed"))
-    blocked = sum(1 for item in devices if item.get("blocked"))
-    total = len(devices)
+    total_devices = len(devices)
+    allowed_devices = sum(1 for item in devices if item.get("allowed"))
+    blocked_devices = sum(1 for item in devices if item.get("blocked"))
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total devices", total)
-    col2.metric("Allowed", allowed)
-    col3.metric("Blocked", blocked)
+    agents = agent_store.get("agents", {}) if isinstance(agent_store, dict) else {}
+    total_agents = len(agents)
+    blocked_agents = sum(1 for record in agents.values() if isinstance(record, dict) and record.get("blocked"))
+    active_agents = total_agents - blocked_agents
 
-    if summary:
-        st.subheader("AI Educate snapshot")
-        saved_at = _format_timestamp(st.session_state.cloud_dataset_meta.get("saved_at"))
-        st.caption(f"Last sync stored in the cloud: {saved_at}")
-        metrics = st.columns(2)
-        metrics[0].metric("Cases analysed", summary.get("total_cases", 0))
-        metrics[1].metric("Unique devices", summary.get("unique_devices", 0))
+    st.subheader("Operational snapshot")
+    metric_row = st.columns(4)
+    metric_row[0].metric("Agents reporting", total_agents)
+    metric_row[1].metric("Active agents", max(active_agents, 0))
+    metric_row[2].metric("Blocked agents", blocked_agents)
+    metric_row[3].metric("Managed devices", total_devices)
 
-        root_frame = dataset_counts_to_frame(summary.get("root_cause_counts", []), label="Root cause")
-        device_frame = dataset_counts_to_frame(summary.get("device_counts", []), label="Device")
+    second_row = st.columns(3)
+    second_row[0].metric("Allowed devices", allowed_devices)
+    second_row[1].metric("Blocked devices", blocked_devices)
+    last_saved = None
+    if isinstance(agents, dict) and agents:
+        timestamps = [record.get("saved_at") for record in agents.values() if isinstance(record, dict) and record.get("saved_at")]
+        if timestamps:
+            timestamps.sort(reverse=True)
+            last_saved = timestamps[0]
+    second_row[2].metric("Latest dataset", _format_timestamp(last_saved))
 
-        chart_col1, chart_col2 = st.columns(2)
+    st.caption(
+        "High-level metrics based on encrypted agent datasets. Use the Agent Databases tab for granular control."
+    )
+
+    cases_total = overall_summary.get("total_cases", 0)
+    unique_devices = overall_summary.get("unique_devices", 0)
+    summary_row = st.columns(2)
+    summary_row[0].metric("Cases analysed", cases_total)
+    summary_row[1].metric("Unique devices", unique_devices)
+
+    agent_rows: list[dict[str, Any]] = []
+    for agent_id, record in agents.items():
+        summary = agent_summaries.get(agent_id, summarize_dataset(record.get("dataset")))
+        agent_rows.append(
+            {
+                "Agent": agent_id,
+                "Cases": summary.get("total_cases", 0),
+                "Unique devices": summary.get("unique_devices", 0),
+                "Blocked": "Yes" if record.get("blocked") else "No",
+                "Last upload": _format_timestamp(record.get("saved_at")),
+            }
+        )
+
+    if agent_rows:
+        agent_df = pd.DataFrame(agent_rows)
+        st.dataframe(agent_df, use_container_width=True, hide_index=True)
+
+        chart_cols = st.columns(2)
+        chart_cols[0].altair_chart(
+            alt.Chart(agent_df).mark_bar().encode(
+                x=alt.X("Cases", title="Cases"),
+                y=alt.Y("Agent", sort="-x"),
+                color=alt.Color("Blocked", legend=None),
+            ),
+            use_container_width=True,
+        )
+        root_frame = dataset_counts_to_frame(overall_summary.get("root_cause_counts", []), label="Root cause")
         if not root_frame.empty:
-            chart_col1.altair_chart(
+            chart_cols[1].altair_chart(
                 alt.Chart(root_frame).mark_bar().encode(
                     x=alt.X("cases", title="Cases"),
                     y=alt.Y("Root cause", sort="-x"),
@@ -180,36 +236,9 @@ def _render_overview() -> None:
                 use_container_width=True,
             )
         else:
-            chart_col1.info("No AI Educate cases uploaded yet.")
-
-        if not device_frame.empty:
-            chart_col2.altair_chart(
-                alt.Chart(device_frame).mark_bar().encode(
-                    x=alt.X("cases", title="Cases"),
-                    y=alt.Y("Device", sort="-x"),
-                    color=alt.Color("Device", legend=None),
-                ),
-                use_container_width=True,
-            )
-        else:
-            chart_col2.info("No device analytics available.")
-
-        recent = summary.get("recent_cases", [])
-        if recent:
-            table = pd.DataFrame(
-                [
-                    {
-                        "Case": item.get("case_id"),
-                        "Title": item.get("title"),
-                        "Root cause": item.get("root_cause"),
-                        "Device": item.get("device"),
-                        "Timestamp": item.get("timestamp").strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                    for item in recent
-                    if item.get("timestamp")
-                ]
-            )
-            st.dataframe(table, use_container_width=True, hide_index=True)
+            chart_cols[1].info("Upload datasets to view root cause trends.")
+    else:
+        st.info("No agent datasets have been uploaded yet. Use the Agent Databases tab to ingest data.")
 
 
 def _render_connections() -> None:
@@ -299,78 +328,297 @@ def _render_connections() -> None:
                 )
 
 
-def _render_ai_sync() -> None:
+def _render_agent_databases() -> None:
     session: CloudSession = st.session_state.cloud_session
+    agent_store: dict[str, Any] = st.session_state.cloud_agent_store or {"agents": {}}
+    agents = agent_store.get("agents", {}) if isinstance(agent_store, dict) else {}
 
-    st.subheader("AI Educate synchronisation")
-    cloud_dataset = st.session_state.cloud_dataset
+    st.subheader("Agent data vault")
+    st.caption("Review and orchestrate encrypted datasets per agent. Actions requiring justification are logged for audit trails.")
 
-    col_cloud, col_local = st.columns(2)
-    if col_cloud.button("Refresh dataset from cloud", key="refresh-cloud-dataset"):
-        _refresh_dataset()
-        cloud_dataset = st.session_state.cloud_dataset
-        st.success("Downloaded the latest dataset from Kiroshi Cloud.")
+    refresh_col, _ = st.columns([1, 3])
+    if refresh_col.button("Refresh from cloud", key="refresh-agent-store"):
+        _refresh_agent_store()
+        agents = (st.session_state.cloud_agent_store or {}).get("agents", {})
+        st.success("Reloaded datasets for all agents.")
 
-    if col_local.button("Upload local Kiroshi dataset", key="push-local-dataset"):
-        dataset = load_local_ai_dataset()
-        if not dataset:
-            st.error("No local AI Educate dataset was found. Save at least one case from Kiroshi first.")
-        else:
-            try:
-                session.save_ai_dataset(dataset)
-            except CloudError as exc:
-                st.error(f"Failed to upload dataset: {exc}")
+    agent_ids = sorted(agents.keys())
+    if len(agent_ids) >= 2:
+        st.markdown("### Merge datasets")
+        with st.form("merge-agents"):
+            target_agent = st.selectbox("Target agent", agent_ids, key="merge-target")
+            source_options = [agent for agent in agent_ids if agent != target_agent]
+            selected_sources = st.multiselect(
+                "Source agents", source_options, key="merge-sources", help="Selected sources will be cleared after merging into the target namespace."
+            )
+            merge_note = st.text_area(
+                "Justification", key="merge-justification", help="Explain why the datasets are being combined."
+            )
+            submitted = st.form_submit_button("Merge datasets", type="primary")
+            if submitted:
+                if not selected_sources:
+                    st.error("Select at least one source agent to merge.")
+                elif not merge_note.strip():
+                    st.error("Provide a justification for the merge.")
+                else:
+                    try:
+                        session.merge_agent_datasets(
+                            target_agent_id=target_agent,
+                            source_agent_ids=selected_sources,
+                            justification=merge_note.strip(),
+                        )
+                    except CloudError as exc:
+                        st.error(f"Unable to merge datasets: {exc}")
+                    else:
+                        st.success(
+                            f"Merged {len(selected_sources)} dataset(s) into `{target_agent}`. Source namespaces were cleared."
+                        )
+                        _refresh_agent_store()
+                        agents = (st.session_state.cloud_agent_store or {}).get("agents", {})
+
+    if not agents:
+        st.info("No agents found yet. Upload a dataset from a desktop client to create the first namespace.")
+        return
+
+    st.markdown("### Agent namespaces")
+    for agent_id in agent_ids:
+        record = agents.get(agent_id) or {}
+        summary = st.session_state.cloud_agent_summaries.get(agent_id, summarize_dataset(record.get("dataset")))
+        blocked = bool(record.get("blocked"))
+        saved_at = _format_timestamp(record.get("saved_at"))
+        header_status = "🚫 Blocked" if blocked else "✅ Active"
+        expander = st.expander(f"{agent_id} — {summary.get('total_cases', 0)} cases ({header_status})", expanded=False)
+        with expander:
+            metrics = st.columns(4)
+            metrics[0].metric("Cases", summary.get("total_cases", 0))
+            metrics[1].metric("Unique devices", summary.get("unique_devices", 0))
+            metrics[2].metric("Root causes tracked", len(summary.get("root_cause_counts", [])))
+            metrics[3].metric("Last upload", saved_at)
+
+            if blocked:
+                reason = record.get("blocked_reason") or "Uploads are suspended by an administrator."
+                st.warning(f"Uploads blocked: {reason}")
+
+            upload_note = st.text_input(
+                "Upload justification (optional)",
+                key=f"upload-note-{agent_id}",
+                help="Document why a manual upload is being performed from the Control Tower.",
+            )
+            admin_note = st.text_area(
+                "Administrative justification for block/delete",
+                key=f"admin-note-{agent_id}",
+                help="Required when deleting data or suspending uploads.",
+                height=90,
+            )
+
+            action_cols = st.columns(4)
+            if action_cols[0].button("Upload local dataset", key=f"upload-{agent_id}"):
+                dataset = load_local_ai_dataset()
+                if not dataset:
+                    st.error("No local AI Educate dataset found. Export data from a desktop client first.")
+                else:
+                    try:
+                        session.save_agent_dataset(
+                            agent_id,
+                            dataset,
+                            justification=(upload_note.strip() or "Uploaded from Control Tower"),
+                        )
+                    except AgentBlockedError as exc:
+                        st.error(str(exc))
+                    except CloudError as exc:
+                        st.error(f"Failed to upload dataset: {exc}")
+                    else:
+                        st.success("Dataset uploaded to the agent namespace.")
+                        _refresh_agent_store()
+
+            if action_cols[1].button("Download dataset", key=f"download-{agent_id}"):
+                dataset = session.load_agent_dataset(agent_id)
+                if not dataset:
+                    st.info("This agent does not have a dataset stored yet.")
+                else:
+                    save_local_ai_dataset(dataset)
+                    st.success("Saved the agent dataset to the local Kiroshi installation.")
+
+            if blocked:
+                if action_cols[2].button("Allow uploads", key=f"unblock-{agent_id}"):
+                    try:
+                        session.set_agent_block_status(agent_id, blocked=False, justification="Uploads re-enabled via Control Tower.")
+                    except CloudError as exc:
+                        st.error(f"Unable to allow uploads: {exc}")
+                    else:
+                        st.success("Agent uploads have been restored.")
+                        _refresh_agent_store()
             else:
-                st.success("Uploaded the local AI Educate knowledge base to the cloud.")
-                _refresh_dataset()
-                cloud_dataset = st.session_state.cloud_dataset
+                if action_cols[2].button("Block uploads", key=f"block-{agent_id}"):
+                    if not admin_note.strip():
+                        st.error("Provide a justification before suspending uploads.")
+                    else:
+                        try:
+                            session.set_agent_block_status(
+                                agent_id,
+                                blocked=True,
+                                justification=admin_note.strip(),
+                            )
+                        except CloudError as exc:
+                            st.error(f"Unable to block uploads: {exc}")
+                        else:
+                            st.warning("Agent uploads have been suspended.")
+                            _refresh_agent_store()
 
-    if st.button("Download cloud dataset into Kiroshi", key="pull-to-local"):
-        _refresh_dataset()
-        dataset = st.session_state.cloud_dataset
-        if not dataset:
-            st.info("The cloud does not yet contain an AI Educate dataset.")
-        else:
-            save_local_ai_dataset(dataset)
-            st.success("Local Kiroshi installation updated with the cloud dataset.")
+            if action_cols[3].button("Delete dataset", key=f"delete-{agent_id}"):
+                if not admin_note.strip():
+                    st.error("Provide a justification before deleting the dataset.")
+                else:
+                    try:
+                        session.delete_agent_dataset(agent_id, justification=admin_note.strip())
+                    except CloudError as exc:
+                        st.error(f"Unable to delete dataset: {exc}")
+                    else:
+                        st.info("Dataset removed from the agent namespace. Future uploads will recreate it.")
+                        _refresh_agent_store()
 
-    summary = summarize_dataset(cloud_dataset)
-    st.markdown("### Cloud analytics")
-    st.caption("Review high level insights before exporting the knowledge base.")
+            justifications = record.get("justifications") if isinstance(record, dict) else []
+            if justifications:
+                log_rows = [
+                    {
+                        "Timestamp": _format_timestamp(entry.get("timestamp")),
+                        "Action": entry.get("action"),
+                        "Justification": entry.get("note"),
+                    }
+                    for entry in justifications
+                    if isinstance(entry, dict)
+                ]
+                log_df = pd.DataFrame(log_rows)
+                st.markdown("**Justification log**")
+                st.dataframe(log_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption("No justification records have been captured for this agent yet.")
 
-    metrics = st.columns(3)
-    metrics[0].metric("Cases", summary.get("total_cases", 0))
-    metrics[1].metric("Unique devices", summary.get("unique_devices", 0))
-    saved_at = _format_timestamp(st.session_state.cloud_dataset_meta.get("saved_at"))
-    metrics[2].metric("Last cloud update", saved_at)
 
-    root_frame = dataset_counts_to_frame(summary.get("root_cause_counts", []), label="Root cause")
-    device_frame = dataset_counts_to_frame(summary.get("device_counts", []), label="Device")
+def _render_analytics() -> None:
+    agent_store: dict[str, Any] = st.session_state.cloud_agent_store or {"agents": {}}
+    agent_summaries: dict[str, dict[str, Any]] = st.session_state.cloud_agent_summaries or {}
+    agents = agent_store.get("agents", {}) if isinstance(agent_store, dict) else {}
 
-    chart_row = st.columns(2)
-    if not root_frame.empty:
-        chart_row[0].altair_chart(
-            alt.Chart(root_frame).mark_bar().encode(
-                x=alt.X("cases", title="Cases"),
-                y=alt.Y("Root cause", sort="-x"),
-                color=alt.Color("Root cause", legend=None),
-            ),
-            use_container_width=True,
+    st.subheader("Quality assurance analytics")
+    st.caption("Compare trends across field agents to identify recurring issues and training opportunities.")
+
+    if not agents:
+        st.info("No datasets available. Upload agent data before generating analytics.")
+        return
+
+    overview_rows: list[dict[str, Any]] = []
+    recurrence_rows: list[dict[str, Any]] = []
+    root_rows: list[dict[str, Any]] = []
+    timeline_rows: list[dict[str, Any]] = []
+
+    for agent_id, record in agents.items():
+        summary = agent_summaries.get(agent_id, summarize_dataset(record.get("dataset")))
+        total_cases = summary.get("total_cases", 0)
+        top_root, top_root_count = ("—", 0)
+        root_counts = summary.get("root_cause_counts", []) or []
+        if root_counts:
+            top_root, top_root_count = root_counts[0]
+
+        recurrence_rate = float(top_root_count) / float(total_cases) if total_cases else 0.0
+        overview_rows.append(
+            {
+                "Agent": agent_id,
+                "Cases": total_cases,
+                "Unique devices": summary.get("unique_devices", 0),
+                "Top root cause": top_root,
+                "Blocked": "Yes" if record.get("blocked") else "No",
+            }
         )
-    else:
-        chart_row[0].info("Upload a dataset to calculate root cause trends.")
-
-    if not device_frame.empty:
-        chart_row[1].altair_chart(
-            alt.Chart(device_frame).mark_bar().encode(
-                x=alt.X("cases", title="Cases"),
-                y=alt.Y("Device", sort="-x"),
-                color=alt.Color("Device", legend=None),
-            ),
-            use_container_width=True,
+        recurrence_rows.append(
+            {
+                "Agent": agent_id,
+                "Top root cause": top_root,
+                "Recurrence rate": recurrence_rate,
+            }
         )
+
+        for root_cause, count in root_counts:
+            root_rows.append({"Agent": agent_id, "Root cause": root_cause, "Cases": count})
+
+        dataset = record.get("dataset") if isinstance(record, dict) else None
+        cases = dataset.get("cases") if isinstance(dataset, dict) else []
+        if isinstance(cases, list):
+            for case in cases:
+                if not isinstance(case, dict):
+                    continue
+                timestamp = case.get("timestamp") or case.get("saved_at")
+                if not timestamp:
+                    continue
+                try:
+                    if isinstance(timestamp, (int, float)):
+                        dt = datetime.fromtimestamp(float(timestamp))
+                    else:
+                        dt = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                month_dt = dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                timeline_rows.append({"Agent": agent_id, "Month": month_dt})
+
+    overview_df = pd.DataFrame(overview_rows)
+    st.dataframe(overview_df, use_container_width=True, hide_index=True)
+
+    charts = st.columns(2)
+    charts[0].altair_chart(
+        alt.Chart(overview_df).mark_bar().encode(
+            x=alt.X("Cases", title="Cases"),
+            y=alt.Y("Agent", sort="-x"),
+            color=alt.Color("Blocked", legend=None),
+        ),
+        use_container_width=True,
+    )
+
+    recurrence_df = pd.DataFrame(recurrence_rows)
+    recurrence_df["Recurrence %"] = recurrence_df["Recurrence rate"] * 100
+    charts[1].altair_chart(
+        alt.Chart(recurrence_df).mark_line(point=True).encode(
+            x=alt.X("Agent", sort=None),
+            y=alt.Y("Recurrence %", title="Top root recurrence (%)"),
+            color=alt.value("#FF7B00"),
+        ),
+        use_container_width=True,
+    )
+
+    st.markdown("### Root cause distribution")
+    root_df = pd.DataFrame(root_rows)
+    if not root_df.empty:
+        stacked = (
+            alt.Chart(root_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("Cases", aggregate="sum", stack="normalize", title="Case share"),
+                y=alt.Y("Agent", sort="-x"),
+                color=alt.Color("Root cause"),
+                tooltip=["Agent", "Root cause", "Cases"],
+            )
+        )
+        st.altair_chart(stacked, use_container_width=True)
     else:
-        chart_row[1].info("Upload a dataset to calculate device trends.")
+        st.info("Root cause information is not available in the uploaded datasets.")
+
+    st.markdown("### Case velocity")
+    timeline_df = pd.DataFrame(timeline_rows)
+    if not timeline_df.empty:
+        timeline_counts = (
+            timeline_df.groupby(["Month", "Agent"]).size().reset_index(name="Cases")
+        )
+        timeline_chart = (
+            alt.Chart(timeline_counts)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("Month:T", title="Month"),
+                y=alt.Y("Cases", title="Cases per month"),
+                color=alt.Color("Agent"),
+            )
+        )
+        st.altair_chart(timeline_chart, use_container_width=True)
+    else:
+        st.caption("Case timestamps not found. Future uploads will populate velocity analytics.")
 
 
 def _render_security() -> None:
@@ -477,23 +725,28 @@ def _render_authenticated() -> None:
         _disconnect()
         st.rerun()
 
-    tabs = st.tabs([
-        "Overview",
-        "Connections",
-        "AI Educate Sync",
-        "Security",
-        "Setup Guide",
-    ])
+    tabs = st.tabs(
+        [
+            "Overview",
+            "Agent Databases",
+            "Analytics",
+            "Connections",
+            "Security",
+            "Setup Guide",
+        ]
+    )
 
     with tabs[0]:
         _render_overview()
     with tabs[1]:
-        _render_connections()
+        _render_agent_databases()
     with tabs[2]:
-        _render_ai_sync()
+        _render_analytics()
     with tabs[3]:
-        _render_security()
+        _render_connections()
     with tabs[4]:
+        _render_security()
+    with tabs[5]:
         _render_setup()
 
 
