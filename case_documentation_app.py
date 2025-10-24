@@ -112,6 +112,110 @@ from kiroshi_chat import (
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+def _cloud_base_url() -> str:
+    base = str(st.session_state.get("cloud_api_base") or DEFAULT_CLOUD_API_BASE).strip()
+    return base or DEFAULT_CLOUD_API_BASE
+
+
+def _cloud_auth() -> tuple[str, str] | None:
+    username = str(st.session_state.get("cloud_username") or DEFAULT_CLOUD_USERNAME).strip()
+    password = st.session_state.get("cloud_password") or DEFAULT_CLOUD_PASSWORD
+    password = str(password).strip()
+    if username and password:
+        return username, password
+    return None
+
+
+def _cloud_request(method: str, path: str, *, payload: dict | None = None) -> tuple[requests.Response | None, dict | None]:
+    url = _cloud_base_url().rstrip("/") + path
+    try:
+        response = requests.request(
+            method,
+            url,
+            json=payload,
+            auth=_cloud_auth(),
+            timeout=DEFAULT_CLOUD_TIMEOUT,
+            verify=False,
+        )
+    except requests.RequestException as exc:
+        return None, {"error": str(exc)}
+
+    data: dict | None
+    try:
+        if response.headers.get("Content-Type", "").startswith("application/json"):
+            data = response.json()
+        else:
+            data = None
+    except ValueError:
+        data = None
+    return response, data
+
+
+def _cloud_pull_manual_docs() -> tuple[bool, str]:
+    auth = _cloud_auth()
+    if auth is None:
+        return False, "Set the cloud username and password before pulling data."
+    response, data = _cloud_request("GET", "/educate")
+    if response is None:
+        return False, data.get("error", "Unable to reach Kiroshi Cloud.") if isinstance(data, dict) else "Unable to reach Kiroshi Cloud."
+    if response.status_code == 401:
+        return False, "Cloud credentials were rejected."
+    if response.status_code >= 400:
+        message = data.get("error") if isinstance(data, dict) else response.text
+        return False, message or f"Cloud responded with HTTP {response.status_code}."
+    documents = []
+    if isinstance(data, dict):
+        payload = data.get("documents")
+        if isinstance(payload, list):
+            documents = [doc for doc in payload if isinstance(doc, dict)]
+    save_manual_docs(documents)
+    st.session_state.manual_docs = documents
+    return True, f"Imported {len(documents)} documents from Kiroshi Cloud."
+
+
+def _cloud_push_manual_docs() -> tuple[bool, str]:
+    auth = _cloud_auth()
+    if auth is None:
+        return False, "Set the cloud username and password before pushing data."
+    payload = {"documents": [doc for doc in st.session_state.get("manual_docs") or [] if isinstance(doc, dict)]}
+    response, data = _cloud_request("POST", "/educate/sync", payload=payload)
+    if response is None:
+        return False, data.get("error", "Unable to reach Kiroshi Cloud.") if isinstance(data, dict) else "Unable to reach Kiroshi Cloud."
+    if response.status_code == 401:
+        return False, "Cloud credentials were rejected."
+    if response.status_code >= 400:
+        message = data.get("error") if isinstance(data, dict) else response.text
+        return False, message or f"Cloud responded with HTTP {response.status_code}."
+    stats = data.get("stats") if isinstance(data, dict) else None
+    if isinstance(stats, dict):
+        updated = stats.get("updated")
+        skipped = stats.get("skipped")
+        return True, f"Synced {updated or 0} documents (skipped {skipped or 0})."
+    return True, "Uploaded Educate dataset to Kiroshi Cloud."
+
+
+def _cloud_test_connection() -> tuple[bool, str]:
+    response, data = _cloud_request("GET", "/health")
+    if response is None:
+        return False, data.get("error", "Unable to reach Kiroshi Cloud.") if isinstance(data, dict) else "Unable to reach Kiroshi Cloud."
+    if response.status_code >= 400:
+        message = data.get("error") if isinstance(data, dict) else response.text
+        return False, message or f"Cloud responded with HTTP {response.status_code}."
+    return True, "Kiroshi Cloud API is reachable."
+
+
+def _cloud_auto_push_if_enabled() -> None:
+    if not st.session_state.get("cloud_sync_enabled"):
+        return
+    if not st.session_state.get("cloud_auto_push"):
+        return
+    success, message = _cloud_push_manual_docs()
+    if success:
+        st.success(message)
+    else:
+        st.warning(message)
+
+
 @contextmanager
 def safe_modal(title: str, key: str | None = None):
     """Provide a backwards-compatible context manager for Streamlit modals."""
@@ -132,6 +236,14 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     "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",
 )
+
+DEFAULT_CLOUD_API_BASE = os.environ.get("KIROSHI_CLOUD_API", "http://localhost:8050")
+DEFAULT_CLOUD_USERNAME = os.environ.get("KIROSHI_CLOUD_USERNAME", "")
+DEFAULT_CLOUD_PASSWORD = os.environ.get("KIROSHI_CLOUD_PASSWORD", "")
+try:
+    DEFAULT_CLOUD_TIMEOUT = int(os.environ.get("KIROSHI_CLOUD_TIMEOUT", "20"))
+except ValueError:
+    DEFAULT_CLOUD_TIMEOUT = 20
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 DEFAULT_AI_MODE = (
     "Local Model"
@@ -266,7 +378,12 @@ APP_ROOT = Path(__file__).resolve().parent
 # the repository's configured default branch so users no longer see the
 # "Unable to retrieve remote version" warning on startup.
 DEFAULT_UPDATE_REPO = "Anoth3rHellsing/KiroshiDocumentationSystem"
-DEFAULT_UPDATE_BRANCH = "main"
+# ``dev`` now hosts the integration builds that bundle KiroshiCloud updates,
+# so the desktop client should default to that branch when checking for
+# self-updates. Operators can still override the branch via the
+# ``KIROSHI_UPDATE_BRANCH`` environment variable if they need to pin to another
+# release line.
+DEFAULT_UPDATE_BRANCH = "dev"
 GITHUB_TOKEN_ENV_VAR = "KIROSHI_UPDATE_GITHUB_TOKEN"
 GITHUB_API_VERSION = "2022-11-28"
 try:
@@ -328,6 +445,10 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "enable_holiday_theme": True,
     "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
     "kiroshi_sarcasm_mode": False,
+    "cloud_sync_enabled": False,
+    "cloud_api_base": DEFAULT_CLOUD_API_BASE,
+    "cloud_username": DEFAULT_CLOUD_USERNAME,
+    "cloud_auto_push": False,
 }
 
 
@@ -4918,6 +5039,12 @@ _init_state("update_status", None)
 _init_state("update_status_checked_at", None)
 _init_state("update_apply_feedback", None)
 _init_state("render_failure_detected", False)
+_init_state("cloud_sync_enabled", _get_persistent_default("cloud_sync_enabled", False))
+_init_state("cloud_api_base", _get_persistent_default("cloud_api_base", DEFAULT_CLOUD_API_BASE))
+_init_state("cloud_username", _get_persistent_default("cloud_username", DEFAULT_CLOUD_USERNAME))
+_init_state("cloud_auto_push", _get_persistent_default("cloud_auto_push", False))
+_init_state("cloud_password", DEFAULT_CLOUD_PASSWORD)
+_init_state("cloud_status_message", None)
 _init_state("error_modal_open", False)
 _init_state("failure_modal_message", None)
 _init_state("incident_context", None)
@@ -7991,6 +8118,67 @@ def _render_settings_ai_tab() -> None:
             )
 
 
+        st.markdown("##### Kiroshi Cloud Sync")
+        st.caption(
+            "Mantén la base de Educate alineada con Kiroshi Cloud para que el equipo comparta el mismo conocimiento."
+        )
+        st.toggle(
+            "Enable cloud sync",
+            key="cloud_sync_enabled",
+            on_change=_on_setting_change("cloud_sync_enabled"),
+        )
+        if st.session_state.cloud_sync_enabled:
+            st.text_input(
+                "Cloud API base URL",
+                key="cloud_api_base",
+                on_change=_on_setting_change("cloud_api_base"),
+                help="Dirección HTTP del servicio `kiroshi_cloud_client` (por ejemplo http://servidor:8050)",
+            )
+            st.text_input(
+                "Cloud username",
+                key="cloud_username",
+                on_change=_on_setting_change("cloud_username"),
+            )
+            st.text_input(
+                "Cloud password",
+                key="cloud_password",
+                type="password",
+                help="La contraseña no se guarda en disco; introdúcela cuando abras la aplicación.",
+            )
+            st.toggle(
+                "Auto push changes after saving documents",
+                key="cloud_auto_push",
+                on_change=_on_setting_change("cloud_auto_push"),
+                help="Sincroniza automáticamente los documentos manuales con la nube después de cada guardado.",
+            )
+            controls = st.columns(3)
+            if controls[0].button("Test connection", key=global_widget_key("cloud_test")):
+                ok, message = _cloud_test_connection()
+                level = "success" if ok else "error"
+                st.session_state.cloud_status_message = (level, message)
+            if controls[1].button("Pull from cloud", key=global_widget_key("cloud_pull")):
+                ok, message = _cloud_pull_manual_docs()
+                level = "success" if ok else "error"
+                st.session_state.cloud_status_message = (level, message)
+            if controls[2].button("Push local dataset", key=global_widget_key("cloud_push")):
+                ok, message = _cloud_push_manual_docs()
+                level = "success" if ok else "error"
+                st.session_state.cloud_status_message = (level, message)
+        else:
+            st.caption("Activa la sincronización para configurar la conexión y usar los botones de sincronización.")
+            st.session_state.cloud_status_message = None
+
+        status = st.session_state.get("cloud_status_message")
+        if isinstance(status, tuple) and len(status) == 2:
+            level, message = status
+            if level == "success":
+                st.success(message)
+            elif level == "warning":
+                st.warning(message)
+            else:
+                st.error(message)
+
+
 def _render_settings_updates_tab() -> None:
     st.markdown(
         "<div class='settings-section-title'><span>⬆️</span>Updates & maintenance</div>",
@@ -8810,8 +8998,24 @@ def render_kiroshi_chat_panel() -> None:
                 st.session_state.manual_docs.append({"title": doc_title, "content": content})
                 save_manual_docs(st.session_state.manual_docs)
                 st.success("Document saved.")
+                _cloud_auto_push_if_enabled()
             else:
                 st.error("Provide both title and document.")
+
+        if st.session_state.cloud_sync_enabled:
+            sync_cols = st.columns(2)
+            if sync_cols[0].button("Pull from Kiroshi Cloud", key=global_widget_key("manual_cloud_pull")):
+                ok, message = _cloud_pull_manual_docs()
+                if ok:
+                    st.success(message)
+                else:
+                    st.error(message)
+            if sync_cols[1].button("Push local documents", key=global_widget_key("manual_cloud_push")):
+                ok, message = _cloud_push_manual_docs()
+                if ok:
+                    st.success(message)
+                else:
+                    st.error(message)
 
     st.subheader("Search manual database")
     search_query = st.text_input("Search query", key=global_widget_key("db_query"))
