@@ -109,6 +109,7 @@ from kiroshi_chat import (
     build_system_prompt,
 )
 from kiroshi_cloud_sync import (
+    AgentBlockedError as CloudAgentBlockedError,
     AuthenticationError as CloudAuthenticationError,
     CloudError as KiroshiCloudError,
     open_cloud_session as open_kiroshi_cloud_session,
