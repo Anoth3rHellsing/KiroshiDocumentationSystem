@@ -13736,6 +13736,14 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             }
             if (!doc || !doc.body) { return; }
 
+            const hostWindow = doc.defaultView || window;
+            const hostDocumentElement = doc.documentElement || document.documentElement;
+
+            const getViewportWidth = () =>
+                hostWindow.innerWidth || hostDocumentElement.clientWidth || 0;
+            const getViewportHeight = () =>
+                hostWindow.innerHeight || hostDocumentElement.clientHeight || 0;
+
             const storageKey = 'kiroshi-floating-menu-position';
 
             const bootstrapFloatingMenu = (targetBlock) => {
@@ -13798,8 +13806,8 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
                     const ensureInBounds = (pos) => {
                         const safe = { ...pos };
-                        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-                        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                        const viewportWidth = getViewportWidth();
+                        const viewportHeight = getViewportHeight();
                         const maxLeft = Math.max(8, viewportWidth - targetBlock.offsetWidth - 8);
                         const maxTop = Math.max(8, viewportHeight - targetBlock.offsetHeight - 8);
                         if (!Number.isFinite(safe.left)) {
@@ -13907,13 +13915,20 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         return null;
                     })();
 
-                    requestAnimationFrame(() => {
+                    const scheduleFrame = (cb) => {
+                        if (typeof hostWindow.requestAnimationFrame === 'function') {
+                            return hostWindow.requestAnimationFrame(cb);
+                        }
+                        return requestAnimationFrame(cb);
+                    };
+
+                    scheduleFrame(() => {
                         if (savedPosition) {
                             const applied = applyPosition(savedPosition);
                             savePosition(applied);
                         } else {
-                            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-                            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                            const viewportWidth = getViewportWidth();
+                            const viewportHeight = getViewportHeight();
                             const defaultLeft = Math.max(16, viewportWidth - targetBlock.offsetWidth - 24);
                             const defaultTop = Math.max(16, viewportHeight - targetBlock.offsetHeight - 24);
                             const applied = applyPosition({ top: defaultTop, left: defaultLeft });
@@ -13952,14 +13967,14 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
                     const beginDragFromPoint = (clientX, clientY) => {
                         suppressClickToggle = false;
-                        const computed = window.getComputedStyle(targetBlock);
+                        const computed = hostWindow.getComputedStyle(targetBlock);
                         const top = parseFloat(computed.top);
                         const left = parseFloat(computed.left);
                         dragStart = {
                             x: clientX,
                             y: clientY,
                             top: Number.isFinite(top) ? top : 24,
-                            left: Number.isFinite(left) ? left : (window.innerWidth - targetBlock.offsetWidth - 24),
+                            left: Number.isFinite(left) ? left : (getViewportWidth() - targetBlock.offsetWidth - 24),
                         };
                         targetBlock.classList.add('is-dragging');
                     };
@@ -14016,9 +14031,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         activePointerId = null;
                         dragStart = null;
                         targetBlock.classList.remove('is-dragging');
-                        document.removeEventListener('pointermove', onPointerMove);
-                        document.removeEventListener('pointerup', endPointerDrag);
-                        document.removeEventListener('pointercancel', endPointerDrag);
+                        doc.removeEventListener('pointermove', onPointerMove);
+                        doc.removeEventListener('pointerup', endPointerDrag);
+                        doc.removeEventListener('pointercancel', endPointerDrag);
                         if (activeDragHandle) {
                             try {
                                 activeDragHandle.releasePointerCapture(event.pointerId);
@@ -14038,8 +14053,8 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         mouseDragging = false;
                         dragStart = null;
                         targetBlock.classList.remove('is-dragging');
-                        document.removeEventListener('mousemove', onMouseMove);
-                        document.removeEventListener('mouseup', endMouseDrag);
+                        doc.removeEventListener('mousemove', onMouseMove);
+                        doc.removeEventListener('mouseup', endMouseDrag);
                         if (suppressClickToggle) {
                             bubble.dataset.suppressNextToggle = '1';
                         }
@@ -14052,9 +14067,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         touchDragging = false;
                         dragStart = null;
                         targetBlock.classList.remove('is-dragging');
-                        document.removeEventListener('touchmove', onTouchMove);
-                        document.removeEventListener('touchend', endTouchDrag);
-                        document.removeEventListener('touchcancel', endTouchDrag);
+                        doc.removeEventListener('touchmove', onTouchMove);
+                        doc.removeEventListener('touchend', endTouchDrag);
+                        doc.removeEventListener('touchcancel', endTouchDrag);
                         if (suppressClickToggle) {
                             bubble.dataset.suppressNextToggle = '1';
                         }
@@ -14092,9 +14107,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         activePointerId = event.pointerId;
                         activeDragHandle = event.currentTarget;
                         beginDragFromPoint(event.clientX, event.clientY);
-                        document.addEventListener('pointermove', onPointerMove);
-                        document.addEventListener('pointerup', endPointerDrag);
-                        document.addEventListener('pointercancel', endPointerDrag);
+                        doc.addEventListener('pointermove', onPointerMove);
+                        doc.addEventListener('pointerup', endPointerDrag);
+                        doc.addEventListener('pointercancel', endPointerDrag);
                         try {
                             activeDragHandle?.setPointerCapture(activePointerId);
                         } catch (captureErr) {
@@ -14112,8 +14127,8 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         mouseDragging = true;
                         activeDragHandle = event.currentTarget;
                         beginDragFromPoint(event.clientX, event.clientY);
-                        document.addEventListener('mousemove', onMouseMove);
-                        document.addEventListener('mouseup', endMouseDrag);
+                        doc.addEventListener('mousemove', onMouseMove);
+                        doc.addEventListener('mouseup', endMouseDrag);
                     };
 
                     const startTouchDrag = (event) => {
@@ -14128,9 +14143,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         touchDragging = true;
                         activeDragHandle = event.currentTarget;
                         beginDragFromPoint(touch.clientX, touch.clientY);
-                        document.addEventListener('touchmove', onTouchMove, { passive: false });
-                        document.addEventListener('touchend', endTouchDrag);
-                        document.addEventListener('touchcancel', endTouchDrag);
+                        doc.addEventListener('touchmove', onTouchMove, { passive: false });
+                        doc.addEventListener('touchend', endTouchDrag);
+                        doc.addEventListener('touchcancel', endTouchDrag);
                     };
 
                     const attachDragHandlers = (handleEl) => {
@@ -14162,7 +14177,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         }
                     });
 
-                    window.addEventListener('resize', () => {
+                    hostWindow.addEventListener('resize', () => {
                         if (currentPosition) {
                             const adjusted = ensureInBounds(currentPosition);
                             applyPosition(adjusted);
