@@ -3,6 +3,8 @@ import json
 import os
 import uuid
 
+import pytest
+
 import kiroshi_cloud_sync as cloud
 
 
@@ -11,6 +13,7 @@ def _configure_paths(tmp_path, monkeypatch):
     database_root = tmp_path / "db"
 
     monkeypatch.setattr(cloud, "CLOUD_ROOT", cloud_root, raising=False)
+    monkeypatch.setattr(cloud, "CLOUD_ROOT_DISPLAY", str(cloud_root), raising=False)
     monkeypatch.setattr(cloud, "CLOUD_CONFIG_PATH", cloud_root / "cloud_config.json", raising=False)
     monkeypatch.setattr(cloud, "CLOUD_DEVICES_PATH", cloud_root / "cloud_devices.enc", raising=False)
     monkeypatch.setattr(cloud, "CLOUD_EDUCATE_PATH", cloud_root / "cloud_educate.enc", raising=False)
@@ -80,3 +83,32 @@ def test_update_overlay_settings_persists(tmp_path, monkeypatch):
     refreshed = cloud.load_cloud_config()
     assert refreshed["overlay_provider"] == "ZeroTier corporate network"
     assert "network ID" in refreshed["overlay_instructions"]
+
+
+def test_cloud_share_status_reports_availability(tmp_path, monkeypatch):
+    _configure_paths(tmp_path, monkeypatch)
+
+    status = cloud.cloud_share_status(timeout=0.1)
+
+    assert status["available"] is True
+    assert status["path"] == str(tmp_path / "cloud")
+    assert (tmp_path / "cloud").exists()
+
+
+def test_cloud_session_reports_share_errors(tmp_path, monkeypatch):
+    _configure_paths(tmp_path, monkeypatch)
+
+    cloud.load_cloud_config()
+    session = cloud.open_cloud_session(cloud.DEFAULT_USERNAME, cloud.DEFAULT_PASSWORD)
+
+    def _fail_share(timeout=None):
+        raise cloud.CloudError("Could not connect to the Kiroshi Cloud share at TEST.")
+
+    monkeypatch.setattr(cloud, "ensure_cloud_share", _fail_share, raising=False)
+
+    with pytest.raises(cloud.CloudError) as excinfo:
+        session.load_devices()
+    assert "Could not connect" in str(excinfo.value)
+
+    with pytest.raises(cloud.CloudError):
+        session.save_ai_dataset({"cases": []})
