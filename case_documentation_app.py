@@ -10253,13 +10253,8 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
 
         preview_value = build_system_prompt()
         preview_key = chat_tab_key("system_prompt_preview")
-        preview_registry = st.session_state.get("_system_prompt_preview_keys")
-        if not isinstance(preview_registry, set):
-            preview_registry = set()
-        preview_registry.add(preview_key)
-        st.session_state["_system_prompt_preview_keys"] = preview_registry
-        for other_key in preview_registry:
-            st.session_state[other_key] = preview_value
+        if st.session_state.get(preview_key) != preview_value:
+            st.session_state[preview_key] = preview_value
         st.text_area(
             "Active construct preview",
             value=preview_value,
@@ -14180,7 +14175,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         const safe = { ...pos };
                         const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
                         const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
-                        const margin = 16;
+                        const margin = 24;
                         const maxLeft = Math.max(margin, viewportWidth - targetBlock.offsetWidth - margin);
                         const maxTop = Math.max(margin, viewportHeight - targetBlock.offsetHeight - margin);
                         if (!Number.isFinite(safe.left)) {
@@ -14295,9 +14290,36 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
                         } else {
                             const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
                             const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
-                            const margin = 16;
-                            const defaultLeft = margin;
-                            const defaultTop = Math.max(margin, viewportHeight - targetBlock.offsetHeight - margin);
+                            const margin = 24;
+                            const gap = 12;
+                            let defaultLeft = Math.max(margin, viewportWidth - targetBlock.offsetWidth - margin);
+                            let defaultTop = Math.max(
+                                margin,
+                                viewportHeight - targetBlock.offsetHeight - margin,
+                            );
+
+                            const quickActions = doc.querySelector('.quick-actions-floating');
+                            if (quickActions && typeof quickActions.getBoundingClientRect === 'function') {
+                                const rect = quickActions.getBoundingClientRect();
+                                if (rect && Number.isFinite(rect.left) && Number.isFinite(rect.bottom)) {
+                                    const candidateLeft = rect.left - targetBlock.offsetWidth - gap;
+                                    if (Number.isFinite(candidateLeft)) {
+                                        defaultLeft = Math.min(
+                                            Math.max(candidateLeft, margin),
+                                            Math.max(margin, viewportWidth - targetBlock.offsetWidth - margin),
+                                        );
+                                    }
+
+                                    const candidateTop = rect.bottom - targetBlock.offsetHeight;
+                                    if (Number.isFinite(candidateTop)) {
+                                        defaultTop = Math.min(
+                                            Math.max(candidateTop, margin),
+                                            Math.max(margin, viewportHeight - targetBlock.offsetHeight - margin),
+                                        );
+                                    }
+                                }
+                            }
+
                             const applied = applyPosition({ top: defaultTop, left: defaultLeft });
                             savePosition(applied);
                         }
@@ -14598,8 +14620,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
         <style>
             div[data-testid="stVerticalBlock"].floating-menu-block {
                 position: fixed;
-                top: 1.5rem;
-                right: 1.5rem;
+                top: auto;
+                bottom: 1.5rem;
+                right: calc(1.5rem + 3.75rem);
                 width: min(360px, 90vw);
                 padding: 1.1rem 1.25rem 1.35rem;
                 border-radius: 0.9rem;
@@ -14808,9 +14831,9 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
             @media (max-width: 768px) {
                 div[data-testid="stVerticalBlock"].floating-menu-block {
-                    top: 0.75rem;
-                    right: 0.75rem;
-                    bottom: auto;
+                    top: auto;
+                    right: calc(0.75rem + 3.25rem);
+                    bottom: 0.75rem;
                     width: min(320px, 92vw);
                 }
             }
