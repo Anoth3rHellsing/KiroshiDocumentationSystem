@@ -116,7 +116,7 @@ from kiroshi_cloud_sync import (
     decode_device_token,
     overlay_guidance,
 )
-from kiroshi_hotkeys import ensure_hotkey_listener
+from kiroshi_hotkeys import ensure_hotkey_listener, update_hotkey_snapshot
 
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
@@ -6438,6 +6438,152 @@ class CaseSession:
     )
 
 
+DELL_ESCALATION_OVERVIEW_FIELDS = [
+    ("dell_issue_start_date", "Issue start date"),
+    ("service_tag", "PC service tag"),
+    ("case_id", "Case ID"),
+]
+
+DELL_ESCALATION_PC_FIELDS = [
+    ("pc_model", "Type of PC"),
+    ("bios_version", "BIOS Version"),
+    ("windows_version", "Windows Version"),
+    ("graphics_card", "Graphics card"),
+    ("processor", "Processor"),
+    ("dell_command_updates_status", "Dell Command Updates"),
+    ("dell_power_options_setup", "Power Options setup"),
+    ("dell_optimizer_setup", "Dell Optimizer setup"),
+    (
+        "dell_intel_ppm_installed",
+        "Intel Processor Power Management Utility installed?",
+    ),
+    ("dell_cpu_speed_or_throttling", "CPU Speed / Is CPU throttling?"),
+    ("dell_gpu_usage_integrated", "GPU Usage % (Integrated)"),
+    ("dell_gpu_usage_dedicated", "GPU Usage % (Dedicated)"),
+    ("dell_cpu_utilization", "CPU Utilization %"),
+    ("dell_benchmark_results", "Benchmark used and results"),
+    (
+        "dell_ultra_resolution_support",
+        "Can it launch simulation on Ultra Resolution? (If needed)",
+    ),
+    ("dell_gpu_driver_versions", "Which GPU driver versions were tested?"),
+    (
+        "dell_reliability_monitor_results",
+        "Reliability Monitor and Event Viewer results",
+    ),
+    ("dell_diagnostics_results", "Dell Diagnosis test results (ePSA tests included)"),
+    ("dell_windows_reimaged", "Has Windows been reimaged?"),
+]
+
+DELL_ESCALATION_CONTACT_FIELDS = [
+    ("clinic_name", "Clinic name"),
+    (
+        "clinic_contact_name",
+        "Full name of person responsible for receiving the equipment",
+    ),
+    ("clinic_contact_phone", "Phone number"),
+    ("clinic_contact_email", "Email address"),
+    ("clinic_address_line_1", "Address 1"),
+    ("clinic_address_line_2", "Address 2 (Suite, etc.)"),
+    ("clinic_city", "City"),
+    ("clinic_state", "State"),
+    ("clinic_postal_code", "Zip Code"),
+]
+
+DELL_ESCALATION_FIELD_LABELS = (
+    DELL_ESCALATION_OVERVIEW_FIELDS
+    + DELL_ESCALATION_PC_FIELDS
+    + DELL_ESCALATION_CONTACT_FIELDS
+)
+
+DELL_ESCALATION_FIELDS = [field for field, _ in DELL_ESCALATION_FIELD_LABELS]
+
+BASE_CATEGORY_MAP = {
+    "HEADER": [
+        "company_name",
+        "subscription_id",
+        "brief_description",
+        "case_id",
+        "application_version",
+    ],
+    "DESCRIPTION": ["description"],
+    "PHONECALL": [
+        "caller_name",
+        "phone_description",
+        "email",
+        "dongle_number",
+        "phone_number",
+        "teamviewer_id",
+        "teamviewer_password",
+    ],
+    "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
+    "REMOTE SESSION": ["remote_steps", "repro_steps"],
+    "CONCLUSION": ["root_cause", "solution"],
+    "AX COORDINATORS": [
+        "request_issue",
+        "contact_name",
+        "office_ph",
+        "direct_ph",
+        "best_time",
+        "patterson",
+        "straumann",
+    ],
+    "ESCALATION 2ND LINE": ["esc_name", "esc_ph", "esc_email"],
+    "DELL ESCALATION": DELL_ESCALATION_FIELDS,
+    "ADDITIONAL INFORMATION": ["additional_info"],
+}
+
+HW_CATEGORY_MAP = {
+    "PC HARDWARE": [
+        "service_tag",
+        "pc_model",
+        "windows_version",
+        "bios_version",
+        "graphics_card",
+        "processor",
+        "warranty",
+    ],
+    "SCANNER HARDWARE": [
+        "scanner_sn",
+        "base_sn",
+        "trios_module_version",
+        "dongle_deployment_date",
+        "scanner_previous_replacements",
+        "scanner_accidental_damage",
+        "hardware_test",
+    ],
+}
+
+
+OPTIONAL_PROGRESS_CATEGORIES = {"DELL ESCALATION"}
+
+
+def active_category_map():
+    cm = BASE_CATEGORY_MAP.copy()
+    if st.session_state.get("second_line_mode"):
+        cm["HEADER"] = ["straumann"] + cm.get("HEADER", [])
+    if not st.session_state.get("include_escalations", True):
+        cm.pop("AX COORDINATORS", None)
+        cm.pop("ESCALATION 2ND LINE", None)
+        cm.pop("DELL ESCALATION", None)
+    if st.session_state.get("include_hardware"):
+        cm.update(HW_CATEGORY_MAP)
+    return cm
+
+
+CURRENT_CASE_IDX = 0
+
+
+def _refresh_hotkey_snapshot() -> None:
+    sessions = getattr(st.session_state, "case_sessions", None)
+    try:
+        category_map = active_category_map()
+    except Exception:
+        logging.exception("Failed to build category map for hotkey snapshot")
+        category_map = {}
+    update_hotkey_snapshot(sessions, CURRENT_CASE_IDX, category_map)
+
+
 def _ensure_case_hardware_test_text(case: CaseData | None) -> None:
     if isinstance(case, CaseData):
         case.hardware_test = _normalize_hardware_test_text(case.hardware_test)
@@ -6808,6 +6954,7 @@ if "case_sessions" not in st.session_state:
         ]
         st.session_state["attachments_index"] = current_index
     _sync_case_memory_from_sessions()
+    _refresh_hotkey_snapshot()
     ensure_hotkey_listener()
 
 
@@ -6850,6 +6997,7 @@ def load_case_state(idx: int) -> None:
         st.session_state[key] = value
     _prime_case_widget_state(idx, D)
     ensure_hotkey_listener()
+    _refresh_hotkey_snapshot()
 
 
 def save_case_state(idx: int) -> None:
@@ -6868,6 +7016,7 @@ def save_case_state(idx: int) -> None:
         ),
     )
     _sync_case_memory_from_sessions()
+    _refresh_hotkey_snapshot()
 
 
 def _clear_case_widget_state(idx: int) -> None:
@@ -6931,6 +7080,7 @@ def clear_case_state(idx: int) -> None:
     touch_case_last_modified()
     autosave()
     _sync_case_memory_from_sessions()
+    _refresh_hotkey_snapshot()
 
 
 def close_case_tab(idx: int) -> None:
@@ -7054,9 +7204,6 @@ def global_widget_key(base: str) -> str:
     """Return a Streamlit widget key reserved for global (non-case) widgets."""
     key = f"global_{base}"
     return _register_widget_key(key)
-
-
-CURRENT_CASE_IDX = 0
 
 if st.session_state.get("debug_mode"):
     st.session_state.debug_widget_key_registry = set()
@@ -12269,6 +12416,7 @@ def _apply_case_payload(
         st.session_state.track_case = bool(case_obj.tracking.active)
 
     _sync_case_memory_from_sessions()
+    _refresh_hotkey_snapshot()
 
 
 def load_case_from_path(path: str) -> None:
@@ -12358,6 +12506,7 @@ def _allocate_case_tab_for_loading() -> int:
             return idx
     st.session_state.case_sessions.append(CaseSession(case=CaseData()))
     _sync_case_memory_from_sessions()
+    _refresh_hotkey_snapshot()
     return len(st.session_state.case_sessions) - 1
 
 
@@ -12745,138 +12894,6 @@ def auto_toggle(
         autosave()
     else:
         setattr(D, field, value)
-
-DELL_ESCALATION_OVERVIEW_FIELDS = [
-    ("dell_issue_start_date", "Issue start date"),
-    ("service_tag", "PC service tag"),
-    ("case_id", "Case ID"),
-]
-
-DELL_ESCALATION_PC_FIELDS = [
-    ("pc_model", "Type of PC"),
-    ("bios_version", "BIOS Version"),
-    ("windows_version", "Windows Version"),
-    ("graphics_card", "Graphics card"),
-    ("processor", "Processor"),
-    ("dell_command_updates_status", "Dell Command Updates"),
-    ("dell_power_options_setup", "Power Options setup"),
-    ("dell_optimizer_setup", "Dell Optimizer setup"),
-    (
-        "dell_intel_ppm_installed",
-        "Intel Processor Power Management Utility installed?",
-    ),
-    ("dell_cpu_speed_or_throttling", "CPU Speed / Is CPU throttling?"),
-    ("dell_gpu_usage_integrated", "GPU Usage % (Integrated)"),
-    ("dell_gpu_usage_dedicated", "GPU Usage % (Dedicated)"),
-    ("dell_cpu_utilization", "CPU Utilization %"),
-    ("dell_benchmark_results", "Benchmark used and results"),
-    (
-        "dell_ultra_resolution_support",
-        "Can it launch simulation on Ultra Resolution? (If needed)",
-    ),
-    ("dell_gpu_driver_versions", "Which GPU driver versions were tested?"),
-    (
-        "dell_reliability_monitor_results",
-        "Reliability Monitor and Event Viewer results",
-    ),
-    ("dell_diagnostics_results", "Dell Diagnosis test results (ePSA tests included)"),
-    ("dell_windows_reimaged", "Has Windows been reimaged?"),
-]
-
-DELL_ESCALATION_CONTACT_FIELDS = [
-    ("clinic_name", "Clinic name"),
-    (
-        "clinic_contact_name",
-        "Full name of person responsible for receiving the equipment",
-    ),
-    ("clinic_contact_phone", "Phone number"),
-    ("clinic_contact_email", "Email address"),
-    ("clinic_address_line_1", "Address 1"),
-    ("clinic_address_line_2", "Address 2 (Suite, etc.)"),
-    ("clinic_city", "City"),
-    ("clinic_state", "State"),
-    ("clinic_postal_code", "Zip Code"),
-]
-
-DELL_ESCALATION_FIELD_LABELS = (
-    DELL_ESCALATION_OVERVIEW_FIELDS
-    + DELL_ESCALATION_PC_FIELDS
-    + DELL_ESCALATION_CONTACT_FIELDS
-)
-
-DELL_ESCALATION_FIELDS = [field for field, _ in DELL_ESCALATION_FIELD_LABELS]
-
-BASE_CATEGORY_MAP = {
-    "HEADER": [
-        "company_name",
-        "subscription_id",
-        "brief_description",
-        "case_id",
-        "application_version",
-    ],
-    "DESCRIPTION": ["description"],
-    "PHONECALL": [
-        "caller_name",
-        "phone_description",
-        "email",
-        "dongle_number",
-        "phone_number",
-        "teamviewer_id",
-        "teamviewer_password",
-    ],
-    "INTERNAL NOTES": ["internal_helpjuice", "internal_logs"],
-    "REMOTE SESSION": ["remote_steps", "repro_steps"],
-    "CONCLUSION": ["root_cause", "solution"],
-    "AX COORDINATORS": [
-        "request_issue",
-        "contact_name",
-        "office_ph",
-        "direct_ph",
-        "best_time",
-        "patterson",
-        "straumann",
-    ],
-    "ESCALATION 2ND LINE": ["esc_name", "esc_ph", "esc_email"],
-    "DELL ESCALATION": DELL_ESCALATION_FIELDS,
-    "ADDITIONAL INFORMATION": ["additional_info"],
-}
-
-HW_CATEGORY_MAP = {
-    "PC HARDWARE": [
-        "service_tag",
-        "pc_model",
-        "windows_version",
-        "bios_version",
-        "graphics_card",
-        "processor",
-        "warranty",
-    ],
-    "SCANNER HARDWARE": [
-        "scanner_sn",
-        "base_sn",
-        "trios_module_version",
-        "dongle_deployment_date",
-        "scanner_previous_replacements",
-        "scanner_accidental_damage",
-        "hardware_test",
-    ],
-}
-
-
-OPTIONAL_PROGRESS_CATEGORIES = {"DELL ESCALATION"}
-
-
-def active_category_map():
-    cm = BASE_CATEGORY_MAP.copy()
-    if st.session_state.get("second_line_mode"):
-        cm["HEADER"] = ["straumann"] + cm.get("HEADER", [])
-    if not st.session_state.get("include_escalations", True):
-        cm.pop("AX COORDINATORS", None)
-        cm.pop("ESCALATION 2ND LINE", None)
-        cm.pop("DELL ESCALATION", None)
-    if st.session_state.get("include_hardware"):
-        cm.update(HW_CATEGORY_MAP)
-    return cm
 
 
 def _inject_case_tab_theme() -> None:

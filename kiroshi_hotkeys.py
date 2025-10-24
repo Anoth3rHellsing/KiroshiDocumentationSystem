@@ -4,18 +4,46 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Iterable
+import time
+from copy import deepcopy
+from dataclasses import dataclass
+from typing import Iterable, Sequence
 
 import pyperclip
-import streamlit as st
 from pynput import keyboard
 
-__all__ = ["copy_active_case_tables", "ensure_hotkey_listener"]
+__all__ = [
+    "copy_active_case_tables",
+    "ensure_hotkey_listener",
+    "update_hotkey_snapshot",
+]
 
 
 _listener_lock = threading.Lock()
 _listener_thread: threading.Thread | None = None
 _listener_started = False
+
+
+@dataclass
+class HotkeySnapshot:
+    """Container for the clipboard payload built on the UI thread."""
+
+    session: object | None = None
+    category_map: dict[str, list[str]] | None = None
+    active_index: int = -1
+    updated_at: float | None = None
+
+    def clear(self) -> None:
+        self.session = None
+        self.category_map = None
+        self.active_index = -1
+        self.updated_at = None
+
+
+_snapshot_lock = threading.Lock()
+_snapshot_state = HotkeySnapshot()
+
+STALE_SNAPSHOT_WARNING_SECONDS = 30.0
 
 
 def _iter_category_tables(case_obj, cat_map) -> Iterable[str]:
@@ -28,31 +56,67 @@ def _iter_category_tables(case_obj, cat_map) -> Iterable[str]:
             logging.exception("Failed to build plain text for category %s", category)
 
 
+def update_hotkey_snapshot(
+    case_sessions: Sequence[object] | None,
+    active_idx: int,
+    category_map: dict[str, list[str]] | None,
+) -> None:
+    """Persist a deep copy of the active case session for use on the listener thread."""
+
+    with _snapshot_lock:
+        if not isinstance(case_sessions, Sequence) or not case_sessions:
+            _snapshot_state.clear()
+            return
+        if not isinstance(active_idx, int) or not (0 <= active_idx < len(case_sessions)):
+            _snapshot_state.clear()
+            return
+
+        try:
+            session_copy = deepcopy(case_sessions[active_idx])
+        except Exception:
+            logging.exception("Unable to capture case session snapshot for hotkey clipboard")
+            _snapshot_state.clear()
+            return
+
+        try:
+            category_map_copy = deepcopy(category_map or {})
+        except Exception:
+            logging.exception("Unable to clone category map for hotkey clipboard")
+            _snapshot_state.clear()
+            return
+
+        _snapshot_state.session = session_copy
+        _snapshot_state.category_map = category_map_copy
+        _snapshot_state.active_index = active_idx
+        _snapshot_state.updated_at = time.monotonic()
+
+
 def copy_active_case_tables() -> None:
     """Copy the active case's tables into the system clipboard."""
 
     try:
-        sessions = st.session_state.get("case_sessions")
-        if not sessions:
-            logging.info("Clipboard hotkey ignored: no case sessions available")
+        with _snapshot_lock:
+            session = _snapshot_state.session
+            cat_map = _snapshot_state.category_map
+            updated_at = _snapshot_state.updated_at
+
+        if session is None or cat_map is None:
+            logging.info("Clipboard hotkey ignored: hotkey snapshot is empty")
             return
 
-        from case_documentation_app import CURRENT_CASE_IDX, active_category_map
+        if updated_at is not None:
+            age = time.monotonic() - updated_at
+            if age > STALE_SNAPSHOT_WARNING_SECONDS:
+                logging.info(
+                    "Hotkey snapshot data may be stale (last updated %.1fs ago)",
+                    age,
+                )
 
-        if not isinstance(CURRENT_CASE_IDX, int) or CURRENT_CASE_IDX < 0:
-            logging.info("Clipboard hotkey ignored: invalid active case index")
-            return
-        if CURRENT_CASE_IDX >= len(sessions):
-            logging.info("Clipboard hotkey ignored: case index %s out of range", CURRENT_CASE_IDX)
-            return
-
-        session = sessions[CURRENT_CASE_IDX]
         case_obj = getattr(session, "case", None)
         if case_obj is None:
-            logging.info("Clipboard hotkey ignored: active session missing case data")
+            logging.info("Clipboard hotkey ignored: snapshot missing case data")
             return
 
-        cat_map = active_category_map()
         table_chunks = [chunk for chunk in _iter_category_tables(case_obj, cat_map) if chunk]
         if not table_chunks:
             logging.info("Clipboard hotkey ignored: no table content to copy")
