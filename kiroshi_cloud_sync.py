@@ -23,11 +23,12 @@ import base64
 import json
 import os
 import secrets
+import time
 import uuid
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Iterable
 
 import pandas as pd
@@ -69,12 +70,30 @@ DEFAULT_OVERLAY_INSTRUCTIONS = """
 """
 CONFIG_VERSION = 2
 KDF_ITERATIONS = 390_000
+_DEFAULT_CLOUD_SHARE = PureWindowsPath(r"K:/Nicolas M/KC")
+_CLOUD_ROOT_OVERRIDE_ENV = "KIROSHI_CLOUD_ROOT"
+_CLOUD_TIMEOUT_OVERRIDE_ENV = "KIROSHI_CLOUD_TIMEOUT"
 
 
-def _default_cloud_directory() -> Path:
+def _initialise_cloud_root() -> tuple[Path, str]:
+    override = os.environ.get(_CLOUD_ROOT_OVERRIDE_ENV)
+    if override:
+        return Path(override), override
+    share_str = str(_DEFAULT_CLOUD_SHARE)
     if os.name == "nt":
-        return Path("C:/ProgramFiles/KiroshiCloud")
-    return Path.home() / "KiroshiCloud"
+        return Path(share_str), share_str
+    return Path(share_str), share_str
+
+
+def _read_timeout_setting() -> float:
+    raw = os.environ.get(_CLOUD_TIMEOUT_OVERRIDE_ENV)
+    if not raw:
+        return 45.0
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):  # pragma: no cover - defensive parsing
+        return 45.0
+    return max(5.0, value)
 
 
 def _default_database_directory() -> Path:
@@ -83,7 +102,8 @@ def _default_database_directory() -> Path:
     return Path.home() / "KiroshiDatabase"
 
 
-CLOUD_ROOT = _default_cloud_directory()
+CLOUD_ROOT, CLOUD_ROOT_DISPLAY = _initialise_cloud_root()
+CLOUD_IO_TIMEOUT_SECONDS = _read_timeout_setting()
 CLOUD_CONFIG_PATH = CLOUD_ROOT / "cloud_config.json"
 CLOUD_DEVICES_PATH = CLOUD_ROOT / "cloud_devices.enc"
 CLOUD_EDUCATE_PATH = CLOUD_ROOT / "cloud_educate.enc"
@@ -92,9 +112,77 @@ DATABASE_ROOT = _default_database_directory()
 DATABASE_UTILITIES = DATABASE_ROOT / "utilities"
 AI_LEARNING_PATH = DATABASE_UTILITIES / "AILearning.json"
 
+def _normalize_timeout(timeout: float | None) -> float:
+    if timeout is None:
+        return CLOUD_IO_TIMEOUT_SECONDS
+    try:
+        value = float(timeout)
+    except (TypeError, ValueError):
+        return CLOUD_IO_TIMEOUT_SECONDS
+    return max(1.0, value)
+
+
+def _cloud_share_error_message(exc: Exception | None = None) -> str:
+    message = f"Could not connect to the Kiroshi Cloud share at {CLOUD_ROOT_DISPLAY}."
+    if exc:
+        return f"{message} {exc}"
+    return message
+
+
+def _wait_for_share(path: Path, timeout: float, *, create: bool) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: OSError | None = None
+    while True:
+        try:
+            if create:
+                path.mkdir(parents=True, exist_ok=True)
+            else:
+                if path.exists():
+                    path.stat()
+                else:
+                    parent = path.parent if path.parent != path else path
+                    parent.exists()
+            return
+        except FileExistsError:
+            return
+        except FileNotFoundError:
+            if not create:
+                return
+            last_error = None
+        except PermissionError as exc:  # pragma: no cover - permission guard
+            last_error = exc
+        except OSError as exc:
+            last_error = exc
+
+        if time.monotonic() >= deadline:
+            raise CloudError(_cloud_share_error_message(last_error)) from last_error
+        time.sleep(0.5)
+
+
+def ensure_cloud_share(timeout: float | None = None) -> Path:
+    wait_seconds = _normalize_timeout(timeout)
+    _wait_for_share(CLOUD_ROOT, wait_seconds, create=True)
+    return CLOUD_ROOT
+
+
+def cloud_share_status(timeout: float | None = None) -> dict[str, Any]:
+    try:
+        ensure_cloud_share(timeout=timeout)
+    except CloudError as exc:
+        return {
+            "available": False,
+            "path": CLOUD_ROOT_DISPLAY,
+            "message": str(exc),
+        }
+    return {
+        "available": True,
+        "path": CLOUD_ROOT_DISPLAY,
+        "message": f"Kiroshi Cloud share ready at {CLOUD_ROOT_DISPLAY}.",
+    }
+
 
 def _ensure_directories() -> None:
-    CLOUD_ROOT.mkdir(parents=True, exist_ok=True)
+    ensure_cloud_share()
     DATABASE_ROOT.mkdir(parents=True, exist_ok=True)
     DATABASE_UTILITIES.mkdir(parents=True, exist_ok=True)
 
@@ -123,12 +211,31 @@ def _build_fernet(password: str, salt: bytes) -> Fernet:
     return Fernet(key)
 
 
+def _path_is_in_cloud(path: Path) -> bool:
+    try:
+        path.relative_to(CLOUD_ROOT)
+    except ValueError:
+        return False
+    return True
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    try:
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        if _path_is_in_cloud(path):
+            raise CloudError(_cloud_share_error_message(exc)) from exc
+        raise
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        if _path_is_in_cloud(path):
+            raise CloudError(_cloud_share_error_message(exc)) from exc
+        raise
+    return json.loads(data)
 
 
 def _synchronise_default_flag(config: dict[str, Any]) -> bool:
@@ -228,7 +335,11 @@ def load_cloud_config(create_if_missing: bool = True) -> dict[str, Any]:
     """Load the persistent cloud configuration, creating a default one if needed."""
 
     _ensure_directories()
-    if CLOUD_CONFIG_PATH.exists():
+    try:
+        config_exists = CLOUD_CONFIG_PATH.exists()
+    except OSError as exc:
+        raise CloudError(_cloud_share_error_message(exc)) from exc
+    if config_exists:
         try:
             config = _read_json(CLOUD_CONFIG_PATH)
         except json.JSONDecodeError as exc:  # pragma: no cover - defensive guard
@@ -252,6 +363,7 @@ class CloudSession:
     config: dict[str, Any]
     config_path: Path
     _fernet: Fernet
+    share_timeout: float = field(default=CLOUD_IO_TIMEOUT_SECONDS)
 
     @property
     def encryption_salt(self) -> bytes:
@@ -261,9 +373,18 @@ class CloudSession:
         return _decode_salt(raw)
 
     def _decrypt_json(self, path: Path, *, default: dict[str, Any]) -> dict[str, Any]:
-        if not path.exists():
+        ensure_cloud_share(timeout=self.share_timeout)
+        try:
+            if not path.exists():
+                return json.loads(json.dumps(default))
+        except OSError as exc:
+            raise CloudError(_cloud_share_error_message(exc)) from exc
+        try:
+            token = path.read_bytes()
+        except FileNotFoundError:
             return json.loads(json.dumps(default))
-        token = path.read_bytes()
+        except OSError as exc:
+            raise CloudError(_cloud_share_error_message(exc)) from exc
         if not token:
             return json.loads(json.dumps(default))
         try:
@@ -275,7 +396,11 @@ class CloudSession:
     def _encrypt_json(self, path: Path, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, indent=2).encode("utf-8")
         token = self._fernet.encrypt(data)
-        path.write_bytes(token)
+        ensure_cloud_share(timeout=self.share_timeout)
+        try:
+            path.write_bytes(token)
+        except OSError as exc:
+            raise CloudError(_cloud_share_error_message(exc)) from exc
 
     def load_devices(self) -> dict[str, Any]:
         return self._decrypt_json(
@@ -617,12 +742,14 @@ __all__ = [
     "AuthenticationError",
     "CloudError",
     "CloudSession",
+    "cloud_share_status",
     "CLOUD_DEVICES_PATH",
     "CLOUD_EDUCATE_PATH",
     "DEFAULT_USERNAME",
     "DEFAULT_PASSWORD",
     "DEFAULT_OVERLAY_INSTRUCTIONS",
     "DEFAULT_OVERLAY_PROVIDER",
+    "ensure_cloud_share",
     "add_device",
     "dataset_counts_to_frame",
     "decode_device_token",

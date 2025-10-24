@@ -16,6 +16,7 @@ from kiroshi_cloud_sync import (
     CloudSession,
     DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
+    cloud_share_status,
     overlay_guidance,
     add_device,
     dataset_counts_to_frame,
@@ -108,6 +109,13 @@ def _render_login() -> None:
         "Securely manage remote Kiroshi devices, credentials, and the shared "
         "AI Educate dataset from a central cloud interface."
     )
+
+    share_status = cloud_share_status()
+    if share_status["available"]:
+        st.success(share_status["message"])
+    else:
+        st.error(share_status["message"])
+        st.stop()
 
     config = load_cloud_config()
     if config.get("uses_default_credentials"):
