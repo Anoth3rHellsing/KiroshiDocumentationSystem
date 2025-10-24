@@ -31,6 +31,7 @@ import sys
 import math
 import calendar
 import uuid
+from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import partial
@@ -643,6 +644,22 @@ _GENERIC_STOPWORDS = {
 }
 
 
+TITLE_SIMILARITY_STOPWORDS = {
+    "issue",
+    "issues",
+    "problem",
+    "problems",
+    "error",
+    "errors",
+    "case",
+    "cases",
+    "support",
+    "please",
+    "help",
+    "need",
+}
+
+
 _REPORT_CATEGORY_HINTS: dict[str, dict[str, object]] = {
     "3Shape Unite / Login": {
         "tokens": (
@@ -894,6 +911,106 @@ def _tokenize_issue_description(text: str) -> list[str]:
     return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
 
 
+def _normalize_title_similarity(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    lowered = value.lower()
+    cleaned = re.sub(r"[^0-9a-z]+", " ", lowered)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _title_similarity_tokens(title: object) -> set[str]:
+    if not isinstance(title, str):
+        return set()
+    return {
+        token
+        for token in _tokenize_issue_description(title)
+        if token not in TITLE_SIMILARITY_STOPWORDS
+    }
+
+
+def _title_similarity_score(
+    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+) -> float:
+    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if tokens_a and tokens_b:
+        intersection = len(tokens_a & tokens_b)
+        union = len(tokens_a | tokens_b)
+        jaccard = (intersection / union) if union else 0.0
+        return 0.6 * base + 0.4 * jaccard
+    return base
+
+
+def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
+    clusters: list[dict[str, object]] = []
+    assignments: list[int] = []
+
+    for title in titles:
+        normalized = _normalize_title_similarity(title)
+        tokens = _title_similarity_tokens(title)
+
+        if not normalized and not tokens:
+            blank_index = next(
+                (
+                    idx
+                    for idx, cluster in enumerate(clusters)
+                    if not cluster.get("tokens") and not cluster.get("normalized")
+                ),
+                None,
+            )
+            if blank_index is None:
+                clusters.append(
+                    {
+                        "normalized": "",
+                        "tokens": set(),
+                        "label": "Caso sin título",
+                    }
+                )
+                blank_index = len(clusters) - 1
+            assignments.append(blank_index)
+            continue
+
+        best_index = -1
+        best_score = 0.0
+        for idx, cluster in enumerate(clusters):
+            cluster_tokens = cluster.get("tokens") or set()
+            cluster_norm = str(cluster.get("normalized") or "")
+            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            if score > best_score:
+                best_score = score
+                best_index = idx
+
+        threshold = 0.68 if tokens else 0.8
+        if best_index == -1 or best_score < threshold:
+            label_source = title if isinstance(title, str) and title.strip() else normalized
+            label = (
+                _summarize_text(label_source, width=80)
+                if label_source
+                else "Caso sin título"
+            )
+            clusters.append(
+                {
+                    "normalized": normalized,
+                    "tokens": set(tokens),
+                    "label": label,
+                }
+            )
+            assignments.append(len(clusters) - 1)
+        else:
+            cluster = clusters[best_index]
+            cluster_tokens = cluster.setdefault("tokens", set())
+            cluster_tokens.update(tokens)
+            cluster["normalized"] = cluster.get("normalized") or normalized
+            if isinstance(title, str) and title.strip():
+                candidate_label = _summarize_text(title, width=80)
+                if len(candidate_label) > len(str(cluster.get("label") or "")):
+                    cluster["label"] = candidate_label
+            assignments.append(best_index)
+
+    label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
+    return assignments, label_map
+
+
 def _normalize_text_field(value: object) -> str:
     if not isinstance(value, str):
         return ""
@@ -1035,8 +1152,25 @@ def _derive_analysis_label(
     row: Mapping[str, object], context: Mapping[str, object] | None = None
 ) -> str:
     context = context or {}
+    recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
+
+    title_cluster_label = row.get("title_cluster_label")
+    if isinstance(title_cluster_label, str):
+        cluster_label = title_cluster_label.strip()
+        if cluster_label:
+            if recurrence_count >= 3 and "Recurring" not in cluster_label:
+                return f"{cluster_label} (Recurring)"
+            return cluster_label
+
     text_candidates: list[str] = []
-    for key in ("category", "classification", "topic", "root_cause", "title", "description_excerpt", "solution"):
+    for key in (
+        "category",
+        "classification",
+        "topic",
+        "root_cause",
+        "title",
+        "description_excerpt",
+    ):
         value = row.get(key)
         if isinstance(value, str) and value.strip():
             text_candidates.append(value)
@@ -1054,8 +1188,6 @@ def _derive_analysis_label(
     structured_match = _infer_structured_category(row, tokens, context)
     scanner_label_map: Mapping[str, str] = context.get("scanner_labels", {}) if context else {}
     root_cause_label_map: Mapping[str, str] = context.get("root_cause_labels", {}) if context else {}
-
-    recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     scanner_model = ""
     for candidate in (
         row.get("scanner_model"),
@@ -3613,6 +3745,148 @@ def _format_timedelta_compact(delta: timedelta) -> str:
     return " ".join(parts)
 
 
+
+
+def _calculate_lunch_midpoint(
+    settings: Mapping[str, object], *, reference: datetime | None = None
+) -> datetime | None:
+    schedule = settings.get("schedule") if isinstance(settings, Mapping) else None
+    if not isinstance(schedule, Mapping):
+        return None
+    lunch_time = schedule.get("lunch")
+    if not isinstance(lunch_time, str):
+        return None
+
+    reference = reference or datetime.now()
+    fallback_time = _time_str_to_time(
+        DEFAULT_WELLNESS_SETTINGS["schedule"].get("lunch", "12:30"),
+        fallback=datetime_time(hour=12, minute=30),
+    )
+    lunch_start = _time_str_to_time(lunch_time, fallback=fallback_time)
+    event_dt = datetime.combine(reference.date(), lunch_start)
+    duration_minutes = _coerce_int(
+        WELLNESS_EVENT_METADATA.get("lunch", {}).get("duration_minutes"), 60
+    )
+    midpoint_offset = timedelta(minutes=max(1, duration_minutes) / 2)
+    return event_dt + midpoint_offset
+
+
+def _resolve_automation_cloud_credentials() -> tuple[str, str]:
+    username = str(st.session_state.get("kiroshi_cloud_username", "") or "").strip()
+    password = st.session_state.get("kiroshi_cloud_password") or ""
+    if not password:
+        try:
+            secrets_obj = getattr(st, "secrets", {})
+            password = secrets_obj.get("KIROSHI_CLOUD_PASSWORD", "") or password
+        except Exception:  # pragma: no cover - guard for secrets access
+            password = password or ""
+        if not password:
+            password = os.environ.get("KIROSHI_CLOUD_PASSWORD", "")
+    return username, password or ""
+
+
+def _perform_midday_cloud_refresh(*, now: datetime | None = None) -> dict[str, object]:
+    now = now or datetime.now()
+    result: dict[str, object] = {
+        "timestamp": now.replace(microsecond=0).isoformat(),
+        "level": "info",
+        "dataset_refreshed": False,
+        "cloud_uploaded": False,
+        "message": "",
+    }
+    messages: list[str] = []
+    severity = "info"
+
+    try:
+        dataset = ensure_ai_learning_dataset(force=True)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logging.exception("Failed to regenerate AI Educate dataset: %s", exc)
+        result["error"] = str(exc)
+        messages.append("No se pudo regenerar la base de AI Educate.")
+        severity = "error"
+        dataset = None
+    else:
+        if dataset:
+            result["dataset_refreshed"] = True
+            messages.append("Base de AI Educate regenerada automáticamente.")
+            severity = "success"
+        else:
+            messages.append("No hay casos para actualizar la base de AI Educate.")
+
+    cloud_enabled = bool(st.session_state.get("kiroshi_cloud_enabled"))
+    if dataset and cloud_enabled:
+        username, password = _resolve_automation_cloud_credentials()
+        if username and password:
+            try:
+                session = open_kiroshi_cloud_session(username, password)
+                session.save_ai_dataset(dataset)
+            except CloudAgentBlockedError as exc:
+                messages.append(f"Sincronización detenida: {exc}")
+                severity = "error"
+            except CloudAuthenticationError as exc:
+                messages.append(f"Credenciales inválidas para Kiroshi Cloud: {exc}")
+                severity = "error"
+            except KiroshiCloudError as exc:
+                messages.append(f"Error al sincronizar con Kiroshi Cloud: {exc}")
+                severity = "error"
+            else:
+                result["cloud_uploaded"] = True
+                messages.append("Base sincronizada con Kiroshi Cloud.")
+                if severity != "error":
+                    severity = "success"
+                st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(dataset)
+                st.session_state.kiroshi_cloud_saved_at = (
+                    datetime.utcnow().isoformat() + "Z"
+                )
+                st.session_state.kiroshi_cloud_authenticated = True
+        else:
+            if severity == "success":
+                severity = "warning"
+            elif severity == "info":
+                severity = "warning"
+            messages.append(
+                "Sincronización con Kiroshi Cloud omitida: falta usuario o contraseña."
+            )
+    elif dataset and not cloud_enabled:
+        messages.append("Sincronización con Kiroshi Cloud desactivada.")
+
+    result["level"] = severity
+    result["message"] = " ".join(messages).strip()
+    logging.info("Midday cloud refresh: %s", result["message"])
+    return result
+
+
+def _maybe_trigger_midday_cloud_refresh(*, now: datetime | None = None) -> None:
+    now = now or datetime.now()
+    wellness_settings = _normalize_wellness_settings(
+        st.session_state.get("wellness_reminders", DEFAULT_WELLNESS_SETTINGS)
+    )
+    st.session_state.wellness_reminders = wellness_settings
+    midpoint = _calculate_lunch_midpoint(wellness_settings, reference=now)
+    if midpoint is None:
+        return
+    if now < midpoint:
+        return
+
+    today_key = midpoint.date().isoformat()
+    if st.session_state.get("_midday_cloud_sync_last_run_date") == today_key:
+        return
+
+    try:
+        status = _perform_midday_cloud_refresh(now=now)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logging.exception("Midday cloud refresh failed: %s", exc)
+        status = {
+            "timestamp": now.replace(microsecond=0).isoformat(),
+            "level": "error",
+            "dataset_refreshed": False,
+            "cloud_uploaded": False,
+            "message": f"Fallo en la actualización automática: {exc}",
+        }
+
+    st.session_state._midday_cloud_sync_last_run_date = today_key
+    st.session_state._midday_cloud_sync_status = status
+
 def _refresh_wellness_reminder_state(*, now: datetime | None = None) -> dict[str, object] | None:
     """Ensure the next wellness reminder state is cached in session state."""
 
@@ -5328,6 +5602,8 @@ _init_state("kiroshi_cloud_authenticated", False)
 _init_state("kiroshi_cloud_status", None)
 _init_state("kiroshi_cloud_summary", None)
 _init_state("kiroshi_cloud_saved_at", None)
+_init_state("_midday_cloud_sync_last_run_date", "")
+_init_state("_midday_cloud_sync_status", None)
 _init_state("kiroshi_cloud_peers", [])
 _init_state("kiroshi_cloud_selected_agents", [])
 _init_state("ai_learning_data", None)
@@ -9326,6 +9602,22 @@ def _render_settings_cloud_tab() -> None:
                 f"Token válido para el dispositivo `{token_details.get('device_id')}` emitido el {issued_at}."
             )
 
+    automation_status = st.session_state.get("_midday_cloud_sync_status")
+    if isinstance(automation_status, Mapping):
+        message = automation_status.get("message")
+        timestamp = automation_status.get("timestamp")
+        level = automation_status.get("level", "info")
+        if message:
+            formatted = message if not timestamp else f"{message} ({timestamp})"
+            if level == "success":
+                st.success(formatted)
+            elif level == "warning":
+                st.warning(formatted)
+            elif level == "error":
+                st.error(formatted)
+            else:
+                st.info(formatted)
+
     status = st.session_state.get("kiroshi_cloud_status")
     if isinstance(status, tuple) and len(status) == 2:
         level, message = status
@@ -11494,6 +11786,34 @@ def collect_ai_educate_report_data(
     df["saved_at_dt"] = pd.to_datetime(df.get("saved_at"), errors="coerce")
     df["event_time"] = df["timestamp"].where(df["timestamp"].notna(), df["saved_at_dt"])
 
+    title_series = df.get("title")
+    if isinstance(title_series, pd.Series):
+        title_values = title_series.fillna("").astype(str).tolist()
+    else:
+        title_values = ["" for _ in range(len(df))]
+    cluster_assignments, cluster_label_map = _cluster_case_titles(title_values)
+    df["title_cluster_id"] = cluster_assignments
+    cluster_labels: list[str] = []
+    for assignment, title in zip(cluster_assignments, title_values):
+        label = cluster_label_map.get(assignment)
+        if not label:
+            label = _summarize_text(title, width=80) if title else "Caso sin título"
+        cluster_labels.append(label)
+    df["title_cluster_label"] = cluster_labels
+    cluster_label_series = pd.Series(cluster_labels, dtype="object")
+    if cluster_label_series.empty:
+        df["title_cluster_recurrence"] = 1
+    else:
+        cluster_counts = (
+            cluster_label_series[cluster_label_series != ""].value_counts()
+        )
+        if cluster_counts.empty:
+            df["title_cluster_recurrence"] = 1
+        else:
+            df["title_cluster_recurrence"] = (
+                df["title_cluster_label"].map(cluster_counts).fillna(1).astype(int)
+            )
+
     root_cause_series = df.get("root_cause", pd.Series(dtype="object"))
     root_cause_norm = root_cause_series.apply(_normalize_text_field)
     root_cause_labels: dict[str, str] = {}
@@ -11512,7 +11832,9 @@ def collect_ai_educate_report_data(
     df["root_cause_norm"] = root_cause_norm
     df["root_cause_recurrence"] = df["root_cause_norm"].map(root_cause_counts).fillna(1).astype(int)
     df["recurrence_count"] = (
-        df[["recurrence_count", "root_cause_recurrence"]].max(axis=1).astype(int)
+        df[["recurrence_count", "root_cause_recurrence", "title_cluster_recurrence"]]
+        .max(axis=1)
+        .astype(int)
     )
 
     scanner_series = df.get("scanner_model")
@@ -11544,7 +11866,13 @@ def collect_ai_educate_report_data(
         df["analysis_label"].map(analysis_counts).fillna(1).astype(int)
     )
     df["recurrence_count"] = (
-        df[["recurrence_count", "analysis_recurrence"]].max(axis=1).astype(int)
+        df[[
+            "recurrence_count",
+            "analysis_recurrence",
+            "title_cluster_recurrence",
+        ]]
+        .max(axis=1)
+        .astype(int)
     )
 
     now = pd.Timestamp.utcnow().tz_localize(None)
@@ -18188,8 +18516,10 @@ End with: We look forward to your reply."""
 
     autosave()
 
-reminder_state = _refresh_wellness_reminder_state()
-render_wellness_alert(reminder_state)
+    _maybe_trigger_midday_cloud_refresh()
+
+    reminder_state = _refresh_wellness_reminder_state()
+    render_wellness_alert(reminder_state)
 
 visible_case_indices = list(range(1, len(st.session_state.case_sessions)))
 case_labels = [

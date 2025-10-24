@@ -29,7 +29,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 from cryptography.fernet import Fernet, InvalidToken
@@ -484,6 +484,21 @@ class CloudSession:
         else:  # pragma: no cover - defensive normalisation
             record["justifications"] = [entry]
 
+    def _empty_agent_record(self, agent_id: str) -> dict[str, Any]:
+        identifier = str(agent_id or "").strip().lower()
+        if not identifier:
+            fallback = str(self.config.get("instance_id") or self.username or "default")
+            identifier = fallback.strip().lower() or "default"
+        return {
+            "agent_id": identifier,
+            "dataset": None,
+            "saved_at": None,
+            "blocked": False,
+            "blocked_at": None,
+            "blocked_reason": "",
+            "justifications": [],
+        }
+
     def _normalize_agent_record(
         self, agent_id: str, record: dict[str, Any]
     ) -> tuple[dict[str, Any], bool]:
@@ -577,6 +592,31 @@ class CloudSession:
             self._persist_agent_store(store)
         return store
 
+    def _resolve_dataset_agent_id(
+        self,
+        dataset: Mapping[str, Any] | None,
+        *,
+        default: str | None = None,
+    ) -> str:
+        if isinstance(dataset, Mapping):
+            identity = dataset.get("agent_identity")
+            if isinstance(identity, Mapping):
+                candidate_identifier = identity.get("identifier")
+                if isinstance(candidate_identifier, str) and candidate_identifier.strip():
+                    return candidate_identifier.strip().lower()
+                fallback_parts: list[str] = []
+                for key in ("first_name", "last_name"):
+                    raw_value = identity.get(key)
+                    if isinstance(raw_value, str) and raw_value.strip():
+                        fallback_parts.append(raw_value.strip().lower().replace(" ", "-"))
+                if fallback_parts:
+                    return "-".join(fallback_parts)
+            dataset_agent = dataset.get("agent_id")
+            if isinstance(dataset_agent, str) and dataset_agent.strip():
+                return dataset_agent.strip().lower()
+        fallback = default or self.config.get("instance_id") or self.username or "default"
+        return str(fallback).strip().lower() or "default"
+
     def load_all_agent_datasets(self) -> dict[str, Any]:
         store = self._load_agent_store_raw()
         return json.loads(json.dumps(store))
@@ -637,6 +677,20 @@ class CloudSession:
         agents[agent_id] = record
         self._persist_agent_store(store)
         return json.loads(json.dumps(record))
+
+    def save_ai_dataset(
+        self,
+        dataset: dict[str, Any],
+        *,
+        agent_id: str | None = None,
+        justification: str | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(dataset, dict):
+            raise CloudError("AI datasets must be provided as dictionaries.")
+        target_agent = agent_id or self._resolve_dataset_agent_id(dataset, default=self.username)
+        if not target_agent:
+            raise CloudError("Agent identifier is required to store the dataset.")
+        return self.save_agent_dataset(target_agent, dataset, justification=justification)
 
     def delete_agent_dataset(self, agent_id: str, *, justification: str) -> dict[str, Any]:
         if not agent_id:
