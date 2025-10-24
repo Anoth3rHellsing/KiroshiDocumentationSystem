@@ -16046,7 +16046,11 @@ def render_case_ui(case_idx: int):
             if not compact_mode and left is not None:
                 with left:
                     st.subheader("Documentation Preview – Copy‑friendly Tables")
-                    st.caption("Press Ctrl+Alt+C to copy all tables for the active case to your clipboard.")
+                    st.caption(
+                        "Press Ctrl+Alt+C to copy every table for the active case to your clipboard. "
+                        "The listener keeps running even when Kiroshi is in the background, so you can paste with Ctrl+V "
+                        "directly into your CRM or spreadsheet."
+                    )
                     for cat in cat_map:
                         title_text = table_title(cat)
                         st.markdown(f"**{title_text}**")

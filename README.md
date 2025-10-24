@@ -23,7 +23,8 @@ Coverage is actively tracked and the project receives daily updates.
 - **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
-  making it easy to copy into spreadsheets.
+  making it easy to copy into spreadsheets. A global listener also watches for **Ctrl+Alt+C** so you can copy every table for
+  the active case without switching back to the Streamlit window.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
 - **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/`
   folder.
@@ -160,6 +161,18 @@ Linux desktops require the `xclip` or `xsel` command-line utilities; most
 distributions provide them through the package manager (for example,
 `sudo apt install xclip`). Document these prerequisites for field deployments so
 support teams can install the correct bridge ahead of time.
+
+#### Global table copy hotkey
+
+Kiroshi runs a background listener that watches for **Ctrl+Alt+C** as soon as a
+case is loaded. Every time the case state changes, the UI thread calls
+`update_hotkey_snapshot(...)` to deep copy the active `CaseSession` and category
+map into an isolated container. When the hotkey fires, the listener converts the
+snapshot into the same plain-text tables rendered in the Tables tab and sends
+the combined payload to the operating system clipboard with `pyperclip.copy`.
+Because the listener works outside the Streamlit event loop, the shortcut can be
+pressed while another window (for example, a CRM) has focus. Paste with the
+standard **Ctrl+V** to drop the table bundle into the target field.
 
 #### Troubleshooting: `pyarrow` fails to install on Windows
 
