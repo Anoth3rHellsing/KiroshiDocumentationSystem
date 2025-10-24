@@ -116,6 +116,7 @@ from kiroshi_cloud_sync import (
     decode_device_token,
     overlay_guidance,
 )
+from kiroshi_hotkeys import ensure_hotkey_listener
 
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
@@ -6807,6 +6808,7 @@ if "case_sessions" not in st.session_state:
         ]
         st.session_state["attachments_index"] = current_index
     _sync_case_memory_from_sessions()
+    ensure_hotkey_listener()
 
 
 def _prime_case_widget_state(idx: int, case: CaseData) -> None:
@@ -6847,6 +6849,7 @@ def load_case_state(idx: int) -> None:
     for key, value in asdict(D).items():
         st.session_state[key] = value
     _prime_case_widget_state(idx, D)
+    ensure_hotkey_listener()
 
 
 def save_case_state(idx: int) -> None:
@@ -16026,6 +16029,7 @@ def render_case_ui(case_idx: int):
             if not compact_mode and left is not None:
                 with left:
                     st.subheader("Documentation Preview – Copy‑friendly Tables")
+                    st.caption("Press Ctrl+Alt+C to copy all tables for the active case to your clipboard.")
                     for cat in cat_map:
                         title_text = table_title(cat)
                         st.markdown(f"**{title_text}**")
