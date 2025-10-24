@@ -289,9 +289,54 @@ class CloudSession:
         payload["last_synced"] = _utc_timestamp()
         self._encrypt_json(CLOUD_DEVICES_PATH, payload)
 
-    def load_ai_dataset(self) -> dict[str, Any] | None:
-        data = self._decrypt_json(CLOUD_EDUCATE_PATH, default={})
-        return data or None
+    def load_ai_dataset(
+        self, *, agent_ids: Iterable[str] | None = None
+    ) -> dict[str, Any] | None:
+        payload = self._decrypt_json(CLOUD_EDUCATE_PATH, default={})
+        if not payload:
+            return None
+
+        agent_filter = {
+            str(agent).strip().lower()
+            for agent in agent_ids or []
+            if str(agent).strip()
+        }
+
+        if not agent_filter:
+            return payload or None
+
+        def _apply_filter(dataset: dict[str, Any] | None) -> dict[str, Any] | None:
+            if not isinstance(dataset, dict):
+                return dataset
+
+            filtered = dict(dataset)
+            cases = dataset.get("cases")
+            if isinstance(cases, list):
+                filtered_cases = [
+                    entry
+                    for entry in cases
+                    if isinstance(entry, dict)
+                    and str(entry.get("agent_id") or "").strip().lower() in agent_filter
+                ]
+                filtered["cases"] = filtered_cases
+                filtered["case_count"] = len(filtered_cases)
+            filtered["filtered_agents"] = sorted(agent_filter)
+            return filtered
+
+        if isinstance(payload, dict) and "dataset" in payload:
+            dataset_obj = _apply_filter(payload.get("dataset"))
+            wrapped = dict(payload)
+            wrapped["dataset"] = dataset_obj
+            wrapped["requested_agents"] = sorted(agent_filter)
+            return wrapped or None
+
+        if isinstance(payload, dict):
+            filtered_dataset = _apply_filter(payload)
+            if isinstance(filtered_dataset, dict):
+                filtered_dataset.setdefault("requested_agents", sorted(agent_filter))
+            return filtered_dataset or None
+
+        return payload
 
     def save_ai_dataset(self, dataset: dict[str, Any]) -> None:
         payload = {

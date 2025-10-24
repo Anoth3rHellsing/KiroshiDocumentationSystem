@@ -432,6 +432,8 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
     "ai_educate_advanced": False,
+    "agent_first_name": "",
+    "agent_last_name": "",
     "tutorial_completed": False,
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
@@ -5137,6 +5139,7 @@ def render_onboarding_tutorial() -> None:
 
         interaction = step.get("interaction") if isinstance(step, dict) else None
         can_proceed = True
+        identity_ready = True
         if isinstance(interaction, dict):
             itype = (interaction.get("type") or "").lower()
             if itype == "radio":
@@ -5177,6 +5180,43 @@ def render_onboarding_tutorial() -> None:
                 else:
                     st.warning(interaction.get("failure", "Double-check the confirmation word."))
                     can_proceed = False
+
+        if step_idx == total_steps - 1:
+            st.markdown("#### Personalise your agent identity")
+            identity_cols = st.columns(2)
+            with identity_cols[0]:
+                first_input = st.text_input(
+                    "First name",
+                    key="agent_first_name",
+                    placeholder="e.g. Alex",
+                    help="This name personalises reports and cloud contributions.",
+                )
+            with identity_cols[1]:
+                last_input = st.text_input(
+                    "Last name",
+                    key="agent_last_name",
+                    placeholder="e.g. Johnson",
+                    help="Used to tag your datasets when collaborating with peers.",
+                )
+
+            first_value = _normalize_agent_name(first_input)
+            last_value = _normalize_agent_name(last_input)
+
+            if first_value != first_input:
+                st.session_state.agent_first_name = first_value
+            if last_value != last_input:
+                st.session_state.agent_last_name = last_value
+
+            if first_value != _persistent_settings_cache.get("agent_first_name", ""):
+                _persist_setting("agent_first_name")
+            if last_value != _persistent_settings_cache.get("agent_last_name", ""):
+                _persist_setting("agent_last_name")
+
+            identity_ready = bool(first_value and last_value)
+            if not identity_ready:
+                st.warning("Please provide both your first and last name to finish the tour.")
+
+        can_proceed = can_proceed and identity_ready
 
         nav_cols = st.columns([1.2, 1, 1, 1])
         with nav_cols[0]:
@@ -5262,6 +5302,14 @@ _init_state(
     _get_persistent_default("ai_educate_advanced", False),
 )
 _init_state(
+    "agent_first_name",
+    _get_persistent_default("agent_first_name", ""),
+)
+_init_state(
+    "agent_last_name",
+    _get_persistent_default("agent_last_name", ""),
+)
+_init_state(
     "kiroshi_cloud_enabled",
     _get_persistent_default("kiroshi_cloud_enabled", False),
 )
@@ -5278,6 +5326,8 @@ _init_state("kiroshi_cloud_authenticated", False)
 _init_state("kiroshi_cloud_status", None)
 _init_state("kiroshi_cloud_summary", None)
 _init_state("kiroshi_cloud_saved_at", None)
+_init_state("kiroshi_cloud_peers", [])
+_init_state("kiroshi_cloud_selected_agents", [])
 _init_state("ai_learning_data", None)
 _init_state("ai_learning_signature", None)
 _init_state("ai_learning_matches", [])
@@ -8730,6 +8780,47 @@ def _render_settings_workspace_tab() -> None:
         st.rerun()
 
     st.markdown(
+        "<div class='settings-section-title'><span>🪪</span>Agent identity</div>",
+        unsafe_allow_html=True,
+    )
+    identity_columns = st.columns(2)
+    with identity_columns[0]:
+        first_input = st.text_input(
+            "First name",
+            key="agent_first_name",
+            placeholder="e.g. Alex",
+            help="Used across reports, exports, and cloud sync metadata.",
+        )
+    with identity_columns[1]:
+        last_input = st.text_input(
+            "Last name",
+            key="agent_last_name",
+            placeholder="e.g. Johnson",
+            help="Peers will see this when merging your Kiroshi Cloud datasets.",
+        )
+
+    first_value = _normalize_agent_name(first_input)
+    last_value = _normalize_agent_name(last_input)
+
+    if first_value != first_input:
+        st.session_state.agent_first_name = first_value
+    if last_value != last_input:
+        st.session_state.agent_last_name = last_value
+
+    if first_value != _persistent_settings_cache.get("agent_first_name", ""):
+        _persist_setting("agent_first_name")
+    if last_value != _persistent_settings_cache.get("agent_last_name", ""):
+        _persist_setting("agent_last_name")
+
+    display_name = " ".join(part for part in (first_value, last_value) if part)
+    if display_name:
+        st.caption(
+            f"Shared datasets will be tagged as **{display_name}** so teammates recognise your contributions."
+        )
+    else:
+        st.caption("Add your name so shared datasets are clearly attributed to you.")
+
+    st.markdown(
         "<div class='settings-section-title'><span>🛠️</span>Workflow modes</div>",
         unsafe_allow_html=True,
     )
@@ -9275,9 +9366,49 @@ def _render_settings_ai_tab() -> None:
                     )
                     st.session_state.kiroshi_cloud_summary = summarize_cloud_dataset(cloud_dataset)
                     st.session_state.kiroshi_cloud_saved_at = saved_at
+                    try:
+                        devices_payload = session.load_devices()
+                    except KiroshiCloudError as exc:
+                        st.session_state.kiroshi_cloud_peers = []
+                        st.warning(f"No se pudo recuperar la lista de peers: {exc}")
+                    else:
+                        peers = devices_payload.get("devices", []) if isinstance(devices_payload, Mapping) else []
+                        st.session_state.kiroshi_cloud_peers = peers
+                        if peers and not st.session_state.kiroshi_cloud_selected_agents:
+                            st.session_state.kiroshi_cloud_selected_agents = [
+                                peer.get("device_id")
+                                for peer in peers
+                                if isinstance(peer, Mapping) and peer.get("device_id")
+                            ][:1]
                     st.success("Conexión validada. Puedes sincronizar la base de Educate.")
 
             if st.session_state.kiroshi_cloud_authenticated:
+                peers = st.session_state.get("kiroshi_cloud_peers") or []
+                peer_labels: dict[str, str] = {}
+                for peer in peers:
+                    if not isinstance(peer, Mapping):
+                        continue
+                    device_id = str(peer.get("device_id") or "").strip()
+                    if not device_id:
+                        continue
+                    name = str(peer.get("name") or "Unnamed device").strip()
+                    peer_labels[device_id] = f"{name} ({device_id[:8]})"
+
+                if peer_labels:
+                    default_selection = st.session_state.get("kiroshi_cloud_selected_agents") or []
+                    st.session_state.kiroshi_cloud_selected_agents = st.multiselect(
+                        "Peer datasets to merge",
+                        options=list(peer_labels.keys()),
+                        default=default_selection,
+                        format_func=lambda peer_id: peer_labels.get(peer_id, peer_id),
+                        key="kiroshi_cloud_selected_agents",
+                        help="Selecciona los peers cuyos datos quieres fusionar con tu copia local.",
+                    )
+                else:
+                    st.caption(
+                        "No hay peers registrados aún. Usa la consola de Kiroshi Cloud para autorizar estaciones."
+                    )
+
                 sync_cols = st.columns(2)
                 if sync_cols[0].button(
                     "Subir Educate al cloud", key=global_widget_key("cloud_push")
@@ -9305,7 +9436,14 @@ def _render_settings_ai_tab() -> None:
                 ):
                     session = _obtain_cloud_session()
                     if session:
-                        cloud_payload = session.load_ai_dataset()
+                        selected_agents = [
+                            str(agent).strip()
+                            for agent in st.session_state.get("kiroshi_cloud_selected_agents", [])
+                            if str(agent).strip()
+                        ]
+                        cloud_payload = session.load_ai_dataset(
+                            agent_ids=selected_agents or None
+                        )
                         saved_at = None
                         if (
                             isinstance(cloud_payload, Mapping)
@@ -10765,12 +10903,53 @@ def iter_saved_case_records() -> Iterable[tuple[Path, Mapping[str, object]]]:
         yield path, payload
 
 
+def _normalize_agent_name(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _agent_identity_snapshot() -> dict[str, str]:
+    try:
+        first = _normalize_agent_name(st.session_state.get("agent_first_name", ""))
+        last = _normalize_agent_name(st.session_state.get("agent_last_name", ""))
+    except AttributeError:
+        first = ""
+        last = ""
+
+    if not first:
+        first = _normalize_agent_name(
+            _persistent_settings_cache.get("agent_first_name", "")
+        )
+    if not last:
+        last = _normalize_agent_name(
+            _persistent_settings_cache.get("agent_last_name", "")
+        )
+
+    parts = [part for part in (first, last) if part]
+    display = " ".join(parts)
+    slug_parts = [
+        re.sub(r"[^a-z0-9]+", "-", part.lower()).strip("-")
+        for part in parts
+        if part
+    ]
+    identifier = "-".join([part for part in slug_parts if part])
+
+    return {
+        "first_name": first,
+        "last_name": last,
+        "display_name": display,
+        "identifier": identifier,
+    }
+
+
 def _create_ai_learning_dataset_from_cases(
     case_entries: Iterable[Mapping[str, object]],
     *,
     signature: Iterable[tuple[str, float]] | None = None,
     merged_sources: Iterable[str] | None = None,
     generated_at: str | None = None,
+    agent_identity: Mapping[str, str] | None = None,
 ) -> dict[str, object] | None:
     cases: list[dict[str, object]] = []
     keyword_counter: Counter[str] = Counter()
@@ -10845,6 +11024,13 @@ def _create_ai_learning_dataset_from_cases(
             "saved_at": saved_at,
             "source_path": entry.get("source_path"),
         }
+        if agent_identity:
+            agent_identifier = _normalize_agent_name(agent_identity.get("identifier"))
+            if agent_identifier:
+                case_entry["agent_id"] = agent_identifier
+            display_name = _normalize_agent_name(agent_identity.get("display_name"))
+            if display_name:
+                case_entry["agent_name"] = display_name
         cases.append(case_entry)
 
     if not cases:
@@ -10902,6 +11088,17 @@ def _create_ai_learning_dataset_from_cases(
         merged_labels.update(str(label) for label in merged_sources if label)
     if merged_labels:
         dataset["merged_sources"] = sorted(merged_labels)
+
+    if agent_identity:
+        identity_payload = {
+            "first_name": _normalize_agent_name(agent_identity.get("first_name")),
+            "last_name": _normalize_agent_name(agent_identity.get("last_name")),
+            "display_name": _normalize_agent_name(agent_identity.get("display_name")),
+            "identifier": _normalize_agent_name(agent_identity.get("identifier")),
+        }
+        dataset["agent_identity"] = identity_payload
+        if identity_payload.get("display_name") and not dataset.get("shared_by"):
+            dataset["shared_by"] = identity_payload["display_name"]
 
     return dataset
 
@@ -10997,10 +11194,21 @@ def merge_ai_learning_datasets(
         elif isinstance(base_signature, tuple):
             signature = base_signature
 
+    base_identity = None
+    if base_dataset:
+        candidate_identity = base_dataset.get("agent_identity")
+        if isinstance(candidate_identity, Mapping):
+            base_identity = dict(candidate_identity)
+    if base_identity is None:
+        candidate_identity = imported_dataset.get("agent_identity")
+        if isinstance(candidate_identity, Mapping):
+            base_identity = dict(candidate_identity)
+
     dataset = _create_ai_learning_dataset_from_cases(
         combined.values(),
         signature=signature,
         merged_sources=merged_sources,
+        agent_identity=base_identity,
     )
     return dataset
 
@@ -11053,7 +11261,12 @@ def build_ai_learning_dataset(
         }
         cases.append(case_entry)
 
-    return _create_ai_learning_dataset_from_cases(cases, signature=signature)
+    identity = _agent_identity_snapshot()
+    return _create_ai_learning_dataset_from_cases(
+        cases,
+        signature=signature,
+        agent_identity=identity,
+    )
 
 
 def save_ai_learning_dataset(dataset: Mapping[str, object]) -> None:
