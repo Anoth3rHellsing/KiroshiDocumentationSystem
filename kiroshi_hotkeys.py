@@ -7,13 +7,15 @@ import threading
 import time
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from functools import partial
+from typing import Iterable, Mapping, Sequence
 
 import pyperclip
 from pynput import keyboard
 
 __all__ = [
     "copy_active_case_tables",
+    "copy_active_case_category",
     "ensure_hotkey_listener",
     "update_hotkey_snapshot",
 ]
@@ -46,10 +48,23 @@ _snapshot_state = HotkeySnapshot()
 STALE_SNAPSHOT_WARNING_SECONDS = 30.0
 
 
-def _iter_category_tables(case_obj, cat_map) -> Iterable[str]:
+def _iter_category_tables(
+    case_obj,
+    cat_map: Mapping[str, list[str]] | None,
+    categories: Sequence[str] | None = None,
+) -> Iterable[str]:
     from case_documentation_app import table_plain_text  # Local import to avoid circular deps
 
-    for category in (cat_map or {}):
+    ordered_keys: Sequence[str]
+    if categories is not None:
+        ordered_keys = categories
+    else:
+        ordered_keys = list((cat_map or {}).keys())
+
+    for category in ordered_keys:
+        if cat_map is not None and category not in cat_map:
+            logging.info("Clipboard hotkey ignored: missing category %s in snapshot", category)
+            continue
         try:
             yield table_plain_text(category, case_obj, cat_map)
         except Exception:
@@ -91,9 +106,11 @@ def update_hotkey_snapshot(
         _snapshot_state.updated_at = time.monotonic()
 
 
-def copy_active_case_tables() -> None:
-    """Copy the active case's tables into the system clipboard."""
-
+def _copy_tables_from_snapshot(
+    *,
+    categories: Sequence[str] | None,
+    log_label: str,
+) -> None:
     try:
         with _snapshot_lock:
             session = _snapshot_state.session
@@ -117,23 +134,66 @@ def copy_active_case_tables() -> None:
             logging.info("Clipboard hotkey ignored: snapshot missing case data")
             return
 
-        table_chunks = [chunk for chunk in _iter_category_tables(case_obj, cat_map) if chunk]
+        table_chunks = [
+            chunk
+            for chunk in _iter_category_tables(case_obj, cat_map, categories)
+            if chunk
+        ]
         if not table_chunks:
-            logging.info("Clipboard hotkey ignored: no table content to copy")
+            logging.info(
+                "Clipboard hotkey ignored: no table content to copy for %s",
+                log_label,
+            )
             return
 
         payload = "\n\n".join(table_chunks)
         pyperclip.copy(payload)
-        logging.info("Copied case tables to clipboard")
+        logging.info("Copied case tables to clipboard for %s", log_label)
     except pyperclip.PyperclipException as exc:
-        logging.warning("Failed to copy case tables to clipboard: %s", exc)
+        logging.warning("Failed to copy case tables to clipboard for %s: %s", log_label, exc)
     except Exception:
-        logging.exception("Unexpected error while copying case tables to clipboard")
+        logging.exception(
+            "Unexpected error while copying case tables to clipboard for %s",
+            log_label,
+        )
+
+
+def copy_active_case_tables() -> None:
+    """Copy every table for the active case into the system clipboard."""
+
+    _copy_tables_from_snapshot(categories=None, log_label="all tables")
+
+
+def copy_active_case_category(category_key: str, *, display_name: str | None = None) -> None:
+    """Copy a single category table for the active case."""
+
+    label = display_name or category_key
+    _copy_tables_from_snapshot(categories=[category_key], log_label=label)
+
+
+_HOTKEY_CATEGORY_BINDINGS: dict[str, tuple[str, str]] = {
+    "<ctrl>+<alt>+1": ("HEADER", "Title"),
+    "<ctrl>+<alt>+2": ("PHONECALL", "Phonecall"),
+    "<ctrl>+<alt>+3": ("REMOTE SESSION", "Remote Session"),
+    "<ctrl>+<alt>+4": ("INTERNAL NOTES", "Internal Notes"),
+    "<ctrl>+<alt>+5": ("ADDITIONAL INFORMATION", "Additional Information"),
+    "<ctrl>+<alt>+6": ("CONCLUSION", "Root cause and Conclusion"),
+}
 
 
 def _run_hotkey_listener() -> None:
     try:
-        with keyboard.GlobalHotKeys({"<ctrl>+<alt>+c": copy_active_case_tables}) as listener:
+        bindings: dict[str, object] = {
+            "<ctrl>+<alt>+c": copy_active_case_tables,
+        }
+        for combo, (category, label) in _HOTKEY_CATEGORY_BINDINGS.items():
+            bindings[combo] = partial(
+                copy_active_case_category,
+                category,
+                display_name=label,
+            )
+
+        with keyboard.GlobalHotKeys(bindings) as listener:
             listener.join()
     except Exception:
         logging.exception("Hotkey listener terminated unexpectedly")
