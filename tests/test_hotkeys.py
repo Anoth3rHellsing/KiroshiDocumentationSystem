@@ -46,7 +46,7 @@ def test_copy_active_case_tables_logs_when_snapshot_empty(caplog):
 def test_copy_active_case_tables_uses_snapshot(monkeypatch, caplog):
     captured_payloads: list[str] = []
 
-    def fake_iter(case_obj, cat_map):
+    def fake_iter(case_obj, cat_map, categories=None):
         header = ", ".join(cat_map["HEADER"])
         return [f"{case_obj.value} | {header}"]
 
