@@ -215,10 +215,10 @@ PDF_FONT_REGULAR_NAME = "Helvetica"
 PDF_FONT_BOLD_NAME = "Helvetica-Bold"
 
 STREAMLIT_FONT_STACK_CSS = (
-    "var(--font, 'Nunito Sans', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif)"
+    "var(--font, 'Manrope', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif)"
 )
 STREAMLIT_HEADING_FONT_STACK = (
-    "'Poppins', 'Nunito Sans', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+    "'Space Grotesk', 'Manrope', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
 )
 STREAMLIT_FONT_FALLBACK = "Helvetica"
 
@@ -2954,7 +2954,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     st.markdown(
         f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&family=Poppins:wght@600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
         :root {{
             --kiroshi-primary: {theme.primary};
             --kiroshi-accent: {theme.accent};
