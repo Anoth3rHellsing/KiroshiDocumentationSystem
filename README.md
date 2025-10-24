@@ -23,7 +23,9 @@ Coverage is actively tracked and the project receives daily updates.
 - **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
-  making it easy to copy into spreadsheets.
+  making it easy to copy into spreadsheets. A global listener also watches for **Ctrl+Alt+1…6** to copy the Title, Phonecall,
+  Remote Session, Internal Notes, Additional Information, or Root Cause & Conclusion tables individually (use **Ctrl+Alt+C** if
+  you still need the full bundle) without switching back to the Streamlit window.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
 - **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/`
   folder.
@@ -160,6 +162,31 @@ Linux desktops require the `xclip` or `xsel` command-line utilities; most
 distributions provide them through the package manager (for example,
 `sudo apt install xclip`). Document these prerequisites for field deployments so
 support teams can install the correct bridge ahead of time.
+
+#### Global table copy hotkeys
+
+Kiroshi runs a background listener that starts as soon as a case is loaded.
+Every time the case state changes, the UI thread calls
+`update_hotkey_snapshot(...)` to deep copy the active `CaseSession` and category
+map into an isolated container. While the listener is running you can trigger
+the following shortcuts from any window:
+
+| Shortcut         | Clipboard payload                         |
+| ---------------- | ------------------------------------------ |
+| **Ctrl+Alt+1**   | Title (HEADER) table                       |
+| **Ctrl+Alt+2**   | Phonecall table                            |
+| **Ctrl+Alt+3**   | Remote Session table                       |
+| **Ctrl+Alt+4**   | Internal Notes table                       |
+| **Ctrl+Alt+5**   | Additional Information table               |
+| **Ctrl+Alt+6**   | Root Cause & Conclusion table              |
+| **Ctrl+Alt+C**   | Full bundle (all tables, unchanged)        |
+
+Each shortcut converts the stored snapshot into the same plain-text output that
+the Tables tab renders and sends it to the operating system clipboard with
+`pyperclip.copy`. Because the listener works outside the Streamlit event loop,
+the shortcuts can be pressed while another window (for example, a CRM) has
+focus. Paste with the standard **Ctrl+V** to drop the selected table into the
+target field.
 
 #### Troubleshooting: `pyarrow` fails to install on Windows
 
