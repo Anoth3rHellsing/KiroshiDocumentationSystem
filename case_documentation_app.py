@@ -10224,13 +10224,8 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
 
         preview_value = build_system_prompt()
         preview_key = chat_tab_key("system_prompt_preview")
-        preview_registry = st.session_state.get("_system_prompt_preview_keys")
-        if not isinstance(preview_registry, set):
-            preview_registry = set()
-        preview_registry.add(preview_key)
-        st.session_state["_system_prompt_preview_keys"] = preview_registry
-        for other_key in preview_registry:
-            st.session_state[other_key] = preview_value
+        if st.session_state.get(preview_key) != preview_value:
+            st.session_state[preview_key] = preview_value
         st.text_area(
             "Active construct preview",
             value=preview_value,
