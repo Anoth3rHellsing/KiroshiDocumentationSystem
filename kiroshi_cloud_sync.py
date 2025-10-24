@@ -48,6 +48,10 @@ class EncryptionError(CloudError):
     """Raised when encrypted payloads cannot be decrypted with the session key."""
 
 
+class AgentBlockedError(CloudError):
+    """Raised when an agent attempts to upload while suspended."""
+
+
 DEFAULT_USERNAME = "admin"
 DEFAULT_PASSWORD = "admin123!"
 DEFAULT_OVERLAY_PROVIDER = "Tailscale, ZeroTier, or WireGuard"
@@ -87,6 +91,11 @@ CLOUD_ROOT = _default_cloud_directory()
 CLOUD_CONFIG_PATH = CLOUD_ROOT / "cloud_config.json"
 CLOUD_DEVICES_PATH = CLOUD_ROOT / "cloud_devices.enc"
 CLOUD_EDUCATE_PATH = CLOUD_ROOT / "cloud_educate.enc"
+
+DATASET_STORE_DEFAULT = {
+    "agents": {},
+    "last_modified": None,
+}
 
 DATABASE_ROOT = _default_database_directory()
 DATABASE_UTILITIES = DATABASE_ROOT / "utilities"
@@ -338,24 +347,304 @@ class CloudSession:
 
         return payload
 
-    def save_ai_dataset(self, dataset: dict[str, Any]) -> None:
-        payload = {
-            "dataset": dataset,
-            "saved_at": _utc_timestamp(),
+    def _append_justification(self, record: dict[str, Any], action: str, note: str) -> None:
+        entry = {
+            "timestamp": _utc_timestamp(),
+            "action": action,
+            "note": note or "",
         }
+        log = record.setdefault("justifications", [])
+        if isinstance(log, list):
+            log.append(entry)
+        else:  # pragma: no cover - defensive normalisation
+            record["justifications"] = [entry]
+
+    def _normalize_agent_record(
+        self, agent_id: str, record: dict[str, Any]
+    ) -> tuple[dict[str, Any], bool]:
+        normalised = dict(record or {})
+        changed = False
+        if normalised.get("agent_id") != agent_id:
+            normalised["agent_id"] = agent_id
+            changed = True
+        if "dataset" not in normalised:
+            normalised["dataset"] = None
+            changed = True
+        if "saved_at" not in normalised:
+            normalised["saved_at"] = None
+            changed = True
+        if "blocked" not in normalised:
+            normalised["blocked"] = False
+            changed = True
+        if "blocked_at" not in normalised:
+            normalised["blocked_at"] = None
+            changed = True
+        if "blocked_reason" not in normalised:
+            normalised["blocked_reason"] = ""
+            changed = True
+        justifications = normalised.get("justifications")
+        if not isinstance(justifications, list):
+            normalised["justifications"] = []
+            changed = True
+        return normalised, changed
+
+    def _normalize_agent_store(
+        self, payload: dict[str, Any] | None
+    ) -> tuple[dict[str, Any], bool]:
+        if not isinstance(payload, dict):
+            return json.loads(json.dumps(DATASET_STORE_DEFAULT)), True
+
+        agents = payload.get("agents")
+        changed = False
+        if isinstance(agents, dict):
+            store = {
+                "agents": {},
+                "last_modified": payload.get("last_modified"),
+            }
+            for raw_agent_id, raw_record in agents.items():
+                if not isinstance(raw_agent_id, str):
+                    changed = True
+                    continue
+                if not isinstance(raw_record, dict):
+                    record = self._empty_agent_record(raw_agent_id)
+                    changed = True
+                else:
+                    record, record_changed = self._normalize_agent_record(
+                        raw_agent_id, raw_record
+                    )
+                    if record_changed:
+                        changed = True
+                store["agents"][raw_agent_id] = record
+            if store.get("last_modified") is None:
+                store["last_modified"] = payload.get("last_modified") or _utc_timestamp()
+                changed = True
+            return store, changed
+
+        dataset = payload.get("dataset")
+        if dataset is not None:
+            agent_id = str(payload.get("agent_id") or "legacy")
+            record = self._empty_agent_record(agent_id)
+            record["dataset"] = dataset
+            record["saved_at"] = payload.get("saved_at") or _utc_timestamp()
+            self._append_justification(
+                record,
+                "migrate",
+                "Migrated from legacy single-dataset store.",
+            )
+            store = {
+                "agents": {agent_id: record},
+                "last_modified": _utc_timestamp(),
+            }
+            return store, True
+
+        return json.loads(json.dumps(DATASET_STORE_DEFAULT)), False
+
+    def _persist_agent_store(self, store: dict[str, Any]) -> None:
+        timestamp = _utc_timestamp()
+        store["last_modified"] = timestamp
+        payload = json.loads(json.dumps(store))
         self._encrypt_json(CLOUD_EDUCATE_PATH, payload)
 
-    def read_ai_dataset_wrapper(self) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-        data = self.load_ai_dataset()
-        if not data:
-            return None, {}
-        if isinstance(data, dict) and "dataset" in data and "saved_at" in data:
-            return data.get("dataset"), data
-        return data, {"saved_at": None}
+    def _load_agent_store_raw(self) -> dict[str, Any]:
+        payload = self._decrypt_json(CLOUD_EDUCATE_PATH, default=DATASET_STORE_DEFAULT)
+        store, changed = self._normalize_agent_store(payload)
+        if changed:
+            self._persist_agent_store(store)
+        return store
+
+    def load_all_agent_datasets(self) -> dict[str, Any]:
+        store = self._load_agent_store_raw()
+        return json.loads(json.dumps(store))
+
+    def get_agent_record(self, agent_id: str) -> dict[str, Any] | None:
+        if not agent_id:
+            raise CloudError("Agent identifier is required.")
+        store = self._load_agent_store_raw()
+        record = store.get("agents", {}).get(agent_id)
+        if record is None:
+            return None
+        record, changed = self._normalize_agent_record(agent_id, record)
+        if changed:
+            store["agents"][agent_id] = record
+            self._persist_agent_store(store)
+        return json.loads(json.dumps(record))
+
+    def load_agent_dataset(self, agent_id: str) -> dict[str, Any] | None:
+        record = self.get_agent_record(agent_id)
+        if not record:
+            return None
+        dataset = record.get("dataset")
+        if dataset is None:
+            return None
+        return json.loads(json.dumps(dataset))
+
+    def ensure_agent_allowed(self, agent_id: str) -> dict[str, Any] | None:
+        record = self.get_agent_record(agent_id)
+        if record and record.get("blocked"):
+            reason = record.get("blocked_reason") or "Uploads for this agent are currently suspended."
+            raise AgentBlockedError(f"Agent {agent_id} is blocked: {reason}")
+        return record
+
+    def save_agent_dataset(
+        self,
+        agent_id: str,
+        dataset: dict[str, Any],
+        *,
+        justification: str | None = None,
+    ) -> dict[str, Any]:
+        if not agent_id:
+            raise CloudError("Agent identifier is required to store a dataset.")
+        if not isinstance(dataset, dict):
+            raise CloudError("Agent datasets must be provided as dictionaries.")
+        self.ensure_agent_allowed(agent_id)
+        store = self._load_agent_store_raw()
+        agents = store.setdefault("agents", {})
+        record = agents.get(agent_id)
+        if not isinstance(record, dict):
+            record = self._empty_agent_record(agent_id)
+        else:
+            record, changed = self._normalize_agent_record(agent_id, record)
+            if changed:
+                agents[agent_id] = record
+        record["dataset"] = json.loads(json.dumps(dataset))
+        record["saved_at"] = _utc_timestamp()
+        self._append_justification(record, "upload", justification or "Uploaded dataset.")
+        agents[agent_id] = record
+        self._persist_agent_store(store)
+        return json.loads(json.dumps(record))
+
+    def delete_agent_dataset(self, agent_id: str, *, justification: str) -> dict[str, Any]:
+        if not agent_id:
+            raise CloudError("Agent identifier is required to delete a dataset.")
+        if not justification.strip():
+            raise CloudError("Provide a justification for deleting an agent dataset.")
+        store = self._load_agent_store_raw()
+        agents = store.setdefault("agents", {})
+        record = agents.get(agent_id)
+        if not isinstance(record, dict):
+            raise CloudError(f"Agent {agent_id} does not have a dataset to delete.")
+        record, _ = self._normalize_agent_record(agent_id, record)
+        record["dataset"] = None
+        record["saved_at"] = None
+        self._append_justification(record, "delete", justification)
+        agents[agent_id] = record
+        self._persist_agent_store(store)
+        return json.loads(json.dumps(record))
+
+    def merge_agent_datasets(
+        self,
+        target_agent_id: str,
+        source_agent_ids: Iterable[str],
+        *,
+        justification: str,
+    ) -> dict[str, Any]:
+        if not target_agent_id:
+            raise CloudError("Target agent is required for a merge operation.")
+        sources = [agent for agent in set(source_agent_ids) if agent and agent != target_agent_id]
+        if not sources:
+            raise CloudError("Select at least one source agent to merge.")
+        if not justification.strip():
+            raise CloudError("Provide a justification explaining the merge.")
+
+        store = self._load_agent_store_raw()
+        agents = store.setdefault("agents", {})
+
+        target_record = agents.get(target_agent_id)
+        if not isinstance(target_record, dict):
+            target_record = self._empty_agent_record(target_agent_id)
+        else:
+            target_record, changed = self._normalize_agent_record(target_agent_id, target_record)
+            if changed:
+                agents[target_agent_id] = target_record
+
+        merged_dataset = {}
+        if isinstance(target_record.get("dataset"), dict):
+            merged_dataset = json.loads(json.dumps(target_record["dataset"]))
+
+        merged_cases: list[dict[str, Any]] = []
+        seen_keys: set[tuple[str | None, str | None]] = set()
+
+        def _extend_cases(record: dict[str, Any]) -> None:
+            dataset = record.get("dataset") if isinstance(record, dict) else None
+            if not isinstance(dataset, dict):
+                return
+            cases = dataset.get("cases")
+            if not isinstance(cases, list):
+                return
+            for case in cases:
+                if not isinstance(case, dict):
+                    continue
+                case_id = case.get("case_id")
+                title = case.get("title")
+                key = (str(case_id) if case_id is not None else None, str(title) if title is not None else None)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                merged_cases.append(json.loads(json.dumps(case)))
+
+        _extend_cases(target_record)
+        for source_id in sources:
+            record = agents.get(source_id)
+            if not isinstance(record, dict):
+                continue
+            normalised, changed = self._normalize_agent_record(source_id, record)
+            if changed:
+                agents[source_id] = normalised
+                record = normalised
+            _extend_cases(record)
+            record["dataset"] = None
+            record["saved_at"] = None
+            self._append_justification(
+                record,
+                "merged", 
+                f"Merged into {target_agent_id}. {justification}".strip()
+            )
+            agents[source_id] = record
+
+        merged_dataset["cases"] = merged_cases
+        target_record["dataset"] = merged_dataset
+        target_record["saved_at"] = _utc_timestamp()
+        self._append_justification(
+            target_record,
+            "merge",
+            justification,
+        )
+        agents[target_agent_id] = target_record
+        self._persist_agent_store(store)
+        return json.loads(json.dumps(target_record))
+
+    def set_agent_block_status(
+        self,
+        agent_id: str,
+        *,
+        blocked: bool,
+        justification: str,
+    ) -> dict[str, Any]:
+        if not agent_id:
+            raise CloudError("Agent identifier is required to update block status.")
+        if blocked and not justification.strip():
+            raise CloudError("Provide a justification when suspending uploads for an agent.")
+        store = self._load_agent_store_raw()
+        agents = store.setdefault("agents", {})
+        record = agents.get(agent_id)
+        if not isinstance(record, dict):
+            record = self._empty_agent_record(agent_id)
+        else:
+            record, changed = self._normalize_agent_record(agent_id, record)
+            if changed:
+                agents[agent_id] = record
+        record["blocked"] = bool(blocked)
+        record["blocked_at"] = _utc_timestamp() if blocked else None
+        record["blocked_reason"] = justification if blocked else ""
+        action = "block" if blocked else "unblock"
+        self._append_justification(record, action, justification)
+        agents[agent_id] = record
+        self._persist_agent_store(store)
+        return json.loads(json.dumps(record))
 
     def update_credentials(self, new_username: str, new_password: str) -> None:
         devices_snapshot = self.load_devices()
-        dataset_snapshot, metadata = self.read_ai_dataset_wrapper()
+        dataset_snapshot = self.load_all_agent_datasets()
 
         password_salt = os.urandom(16)
         self.config["username"] = new_username
@@ -370,13 +659,8 @@ class CloudSession:
         self._fernet = _build_fernet(new_password, self.encryption_salt)
 
         self.save_devices(devices_snapshot)
-        if dataset_snapshot is not None:
-            if metadata:
-                payload = dict(metadata)
-                payload["dataset"] = dataset_snapshot
-            else:
-                payload = {"dataset": dataset_snapshot}
-            self._encrypt_json(CLOUD_EDUCATE_PATH, payload)
+        if dataset_snapshot:
+            self._encrypt_json(CLOUD_EDUCATE_PATH, dataset_snapshot)
 
     def update_overlay_settings(self, provider: str, instructions: str) -> dict[str, str]:
         provider_value = provider.strip() or DEFAULT_OVERLAY_PROVIDER
@@ -659,6 +943,7 @@ def dataset_counts_to_frame(counts: list[tuple[str, int]], *, label: str) -> pd.
 
 __all__ = [
     "AI_LEARNING_PATH",
+    "AgentBlockedError",
     "AuthenticationError",
     "CloudError",
     "CloudSession",
