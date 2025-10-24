@@ -2192,7 +2192,7 @@ KIROSHI_QUIPS_GENERAL = [
     "We should really get frequent flyer miles for all these escalation loops.",
     "Deadline approaching? Better check LinkedIn for inspiration.",
     "Why plan ahead when you can improvise with flair?",
-    "I drafted a to-do list and now I'm tired from the accomplishment.",
+    "I reorganized your wins; let's add another before lunch.",
     "We could fix morale by issuing everyone a nap pod.",
     "Today's innovation: reheating the same cup of coffee three times.",
     "I'm not avoiding work; I'm giving creativity room to breathe.",
@@ -4562,6 +4562,8 @@ def render_logo():
         #kiroshi-header__version span {{
             font-weight: 600;
             font-size: 1.05rem;
+            font-family: var(--kiroshi-heading-font-family);
+            letter-spacing: 0.04em;
         }}
 
         #kiroshi-header__companion {{
@@ -4572,6 +4574,7 @@ def render_logo():
             text-align: center;
             padding: 0 0.75rem;
             width: 100%;
+            padding-top: 1.5rem;
         }}
 
         #kiroshi-header__companion-card {{
@@ -4581,14 +4584,14 @@ def render_logo():
             box-shadow: {companion_card_shadow};
             max-width: 620px;
             width: 100%;
-            margin: 0 auto;
+            margin: 1.75rem auto 0;
             border: {companion_card_border};
         }}
 
         #kiroshi-header__companion-title {{
-            font-size: 1.2rem;
+            font-size: 1.25rem;
             font-weight: 700;
-            letter-spacing: 0.02em;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
             color: {companion_title_color};
             margin-bottom: 0.5rem;
@@ -4596,11 +4599,12 @@ def render_logo():
         }}
 
         #kiroshi-header__companion-text {{
-            font-size: 1.1rem;
+            font-size: 1rem;
             line-height: 1.6;
             color: {companion_text_color};
             font-family: var(--kiroshi-font-family);
-            font-weight: 400;
+            font-weight: 500;
+            letter-spacing: 0.015em;
         }}
 
         #kiroshi-header__date {{
@@ -4611,6 +4615,8 @@ def render_logo():
             display: flex;
             align-items: center;
             justify-content: flex-end;
+            font-family: var(--kiroshi-heading-font-family);
+            letter-spacing: 0.03em;
         }}
 
         @media (max-width: 1100px) {{
@@ -4634,7 +4640,7 @@ def render_logo():
 
             #kiroshi-header__companion {{
                 order: 2;
-                padding: 0 1.5rem;
+                padding: 1rem 1.5rem 0;
             }}
 
             #kiroshi-header__date {{
@@ -4645,6 +4651,7 @@ def render_logo():
             #kiroshi-header__companion-card {{
                 max-width: clamp(260px, 86vw, 540px);
                 padding: 1.1rem 1.25rem;
+                margin-top: 1.25rem;
             }}
         }}
     </style>
