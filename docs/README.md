@@ -78,6 +78,12 @@ Ensure that the dependencies listed in `requirements.txt` are installed.
 For optional mini-games or running the local transformers model, install the
 extra packages from `requirements-bored.txt`.
 
+When deploying on Linux, install either `xclip` or `xsel` so
+[`pyperclip`](https://pypi.org/project/pyperclip/) can access the clipboard. On
+Windows the default backend typically succeeds, but locked-down environments may
+need the [`pywin32`](https://pypi.org/project/pywin32/) package to expose the
+clipboard APIs.
+
 ## Local model configuration
 
 Kiroshi can talk to any OpenAI-compatible text generation server. Set the
