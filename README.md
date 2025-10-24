@@ -149,6 +149,18 @@ pip install -r requirements.txt
 pip install -r requirements-bored.txt
 ```
 
+#### Clipboard integration prerequisites
+
+The clipboard helpers use [`pyperclip`](https://pypi.org/project/pyperclip/) so
+that case notes and incident IDs can be moved between Kiroshi and other tools
+with a single shortcut. On Windows the bundled backend generally works out of
+the box, but environments with hardened clipboard policies might need the
+[`pywin32`](https://pypi.org/project/pywin32/) package to expose the Win32 API.
+Linux desktops require the `xclip` or `xsel` command-line utilities; most
+distributions provide them through the package manager (for example,
+`sudo apt install xclip`). Document these prerequisites for field deployments so
+support teams can install the correct bridge ahead of time.
+
 #### Troubleshooting: `pyarrow` fails to install on Windows
 
 Streamlit depends on `pyarrow`, which is distributed as a pre-built wheel for
