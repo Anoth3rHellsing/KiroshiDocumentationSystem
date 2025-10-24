@@ -109,6 +109,7 @@ from kiroshi_chat import (
     build_system_prompt,
 )
 from kiroshi_cloud_sync import (
+    AgentBlockedError as CloudAgentBlockedError,
     AuthenticationError as CloudAuthenticationError,
     CloudError as KiroshiCloudError,
     cloud_share_status,
@@ -433,6 +434,8 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
     "ai_educate_advanced": False,
+    "agent_first_name": "",
+    "agent_last_name": "",
     "tutorial_completed": False,
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
@@ -5138,6 +5141,7 @@ def render_onboarding_tutorial() -> None:
 
         interaction = step.get("interaction") if isinstance(step, dict) else None
         can_proceed = True
+        identity_ready = True
         if isinstance(interaction, dict):
             itype = (interaction.get("type") or "").lower()
             if itype == "radio":
@@ -5178,6 +5182,43 @@ def render_onboarding_tutorial() -> None:
                 else:
                     st.warning(interaction.get("failure", "Double-check the confirmation word."))
                     can_proceed = False
+
+        if step_idx == total_steps - 1:
+            st.markdown("#### Personalise your agent identity")
+            identity_cols = st.columns(2)
+            with identity_cols[0]:
+                first_input = st.text_input(
+                    "First name",
+                    key="agent_first_name",
+                    placeholder="e.g. Alex",
+                    help="This name personalises reports and cloud contributions.",
+                )
+            with identity_cols[1]:
+                last_input = st.text_input(
+                    "Last name",
+                    key="agent_last_name",
+                    placeholder="e.g. Johnson",
+                    help="Used to tag your datasets when collaborating with peers.",
+                )
+
+            first_value = _normalize_agent_name(first_input)
+            last_value = _normalize_agent_name(last_input)
+
+            if first_value != first_input:
+                st.session_state.agent_first_name = first_value
+            if last_value != last_input:
+                st.session_state.agent_last_name = last_value
+
+            if first_value != _persistent_settings_cache.get("agent_first_name", ""):
+                _persist_setting("agent_first_name")
+            if last_value != _persistent_settings_cache.get("agent_last_name", ""):
+                _persist_setting("agent_last_name")
+
+            identity_ready = bool(first_value and last_value)
+            if not identity_ready:
+                st.warning("Please provide both your first and last name to finish the tour.")
+
+        can_proceed = can_proceed and identity_ready
 
         nav_cols = st.columns([1.2, 1, 1, 1])
         with nav_cols[0]:
@@ -5263,6 +5304,14 @@ _init_state(
     _get_persistent_default("ai_educate_advanced", False),
 )
 _init_state(
+    "agent_first_name",
+    _get_persistent_default("agent_first_name", ""),
+)
+_init_state(
+    "agent_last_name",
+    _get_persistent_default("agent_last_name", ""),
+)
+_init_state(
     "kiroshi_cloud_enabled",
     _get_persistent_default("kiroshi_cloud_enabled", False),
 )
@@ -5279,6 +5328,8 @@ _init_state("kiroshi_cloud_authenticated", False)
 _init_state("kiroshi_cloud_status", None)
 _init_state("kiroshi_cloud_summary", None)
 _init_state("kiroshi_cloud_saved_at", None)
+_init_state("kiroshi_cloud_peers", [])
+_init_state("kiroshi_cloud_selected_agents", [])
 _init_state("ai_learning_data", None)
 _init_state("ai_learning_signature", None)
 _init_state("ai_learning_matches", [])
@@ -8731,6 +8782,47 @@ def _render_settings_workspace_tab() -> None:
         st.rerun()
 
     st.markdown(
+        "<div class='settings-section-title'><span>🪪</span>Agent identity</div>",
+        unsafe_allow_html=True,
+    )
+    identity_columns = st.columns(2)
+    with identity_columns[0]:
+        first_input = st.text_input(
+            "First name",
+            key="agent_first_name",
+            placeholder="e.g. Alex",
+            help="Used across reports, exports, and cloud sync metadata.",
+        )
+    with identity_columns[1]:
+        last_input = st.text_input(
+            "Last name",
+            key="agent_last_name",
+            placeholder="e.g. Johnson",
+            help="Peers will see this when merging your Kiroshi Cloud datasets.",
+        )
+
+    first_value = _normalize_agent_name(first_input)
+    last_value = _normalize_agent_name(last_input)
+
+    if first_value != first_input:
+        st.session_state.agent_first_name = first_value
+    if last_value != last_input:
+        st.session_state.agent_last_name = last_value
+
+    if first_value != _persistent_settings_cache.get("agent_first_name", ""):
+        _persist_setting("agent_first_name")
+    if last_value != _persistent_settings_cache.get("agent_last_name", ""):
+        _persist_setting("agent_last_name")
+
+    display_name = " ".join(part for part in (first_value, last_value) if part)
+    if display_name:
+        st.caption(
+            f"Shared datasets will be tagged as **{display_name}** so teammates recognise your contributions."
+        )
+    else:
+        st.caption("Add your name so shared datasets are clearly attributed to you.")
+
+    st.markdown(
         "<div class='settings-section-title'><span>🛠️</span>Workflow modes</div>",
         unsafe_allow_html=True,
     )
@@ -9135,44 +9227,112 @@ def _render_settings_ai_tab() -> None:
             elif imported_payload is not None:
                 st.warning("El archivo seleccionado no contiene un formato válido de Educate.")
 
-        if ai_dataset:
-            case_count = ai_dataset.get("case_count", 0)
-            generated_at = ai_dataset.get("generated_at")
-            status_message = (
-                f"Datos de aprendizaje generados a partir de {case_count} casos guardados el {generated_at}."
-            )
-            if dataset_updated:
-                st.success(status_message)
-            else:
-                st.caption(status_message)
-            summary = ai_dataset.get("insight_summary", {})
-            top_keywords = summary.get("top_keywords", [])
-            if top_keywords:
-                st.caption("Palabras clave más repetidas: " + ", ".join(top_keywords[:6]))
-            root_patterns = ai_dataset.get("root_cause_patterns", [])
-            if root_patterns:
-                st.markdown("**Principales patrones de causa raíz:**")
-                for pattern in root_patterns[:3]:
-                    st.markdown(f"- {pattern['root_cause']} ({pattern['count']} casos)")
+    if ai_dataset:
+        case_count = ai_dataset.get("case_count", 0)
+        generated_at = ai_dataset.get("generated_at")
+        status_message = (
+            f"Datos de aprendizaje generados a partir de {case_count} casos guardados el {generated_at}."
+        )
+        if dataset_updated:
+            st.success(status_message)
         else:
-            st.info(
-                "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
+            st.caption(status_message)
+        summary = ai_dataset.get("insight_summary", {})
+        top_keywords = summary.get("top_keywords", [])
+        if top_keywords:
+            st.caption("Palabras clave más repetidas: " + ", ".join(top_keywords[:6]))
+        root_patterns = ai_dataset.get("root_cause_patterns", [])
+        if root_patterns:
+            st.markdown("**Principales patrones de causa raíz:**")
+            for pattern in root_patterns[:3]:
+                st.markdown(f"- {pattern['root_cause']} ({pattern['count']} casos)")
+    else:
+        st.info(
+            "Aún no hay datos históricos disponibles. Guarda casos para que Educate pueda aprender."
+        )
+
+
+def _render_settings_cloud_tab() -> None:
+    st.markdown("##### Kiroshi Cloud")
+    st.caption(
+        "Sincroniza la base de Educate con la nube cifrada de Kiroshi para compartir conocimiento entre sedes remotas."
+    )
+    if not st.session_state.ai_educate_enabled:
+        st.info("Activa AI Educate para habilitar la sincronización con Kiroshi Cloud.")
+        return
+
+    cloud_enabled = st.toggle(
+        "Habilitar conexión con Kiroshi Cloud",
+        key="kiroshi_cloud_enabled",
+        on_change=_on_setting_change("kiroshi_cloud_enabled"),
+    )
+    if not cloud_enabled:
+        st.session_state.kiroshi_cloud_authenticated = False
+        st.session_state.kiroshi_cloud_status = None
+        st.session_state.kiroshi_cloud_summary = None
+        st.session_state.kiroshi_cloud_saved_at = None
+        return
+
+    overlay_info: dict[str, str] | None = None
+    try:
+        overlay_info = overlay_guidance()
+    except KiroshiCloudError:
+        overlay_info = None
+    if overlay_info:
+        provider_hint = overlay_info.get("provider")
+        instructions_hint = overlay_info.get("instructions")
+        if provider_hint:
+            st.caption(
+                f"Red privada recomendada para los túneles de Kiroshi Cloud: {provider_hint}."
+            )
+        if instructions_hint:
+            with st.expander(
+                "Guía para enlazar la red privada (overlay)",
+                icon="🌐",
+            ):
+                st.markdown(instructions_hint)
+
+    st.text_input(
+        "Usuario del cloud",
+        key="kiroshi_cloud_username",
+        help="Credencial configurada en la consola de Kiroshi Cloud.",
+        on_change=_on_setting_change("kiroshi_cloud_username"),
+    )
+    st.text_input(
+        "Contraseña del cloud",
+        type="password",
+        key="kiroshi_cloud_password",
+        help="Se guarda únicamente durante esta sesión.",
+    )
+    token_value = st.text_area(
+        "Token de conexión del dispositivo",
+        key="kiroshi_cloud_token",
+        help=(
+            "Pega el token generado para esta estación en la consola de Kiroshi Cloud."
+            " El token vincula el ID del dispositivo y el secreto compartido."
+        ),
+        on_change=_on_setting_change("kiroshi_cloud_token"),
+    )
+    token_details = None
+    token_value_stripped = token_value.strip()
+    if token_value_stripped:
+        try:
+            token_details = decode_device_token(token_value_stripped)
+        except KiroshiCloudError as exc:
+            st.error(f"El token proporcionado no es válido: {exc}")
+        else:
+            issued_at = token_details.get("issued_at") or "desconocido"
+            st.caption(
+                f"Token válido para el dispositivo `{token_details.get('device_id')}` emitido el {issued_at}."
             )
 
-        st.markdown("##### Kiroshi Cloud")
-        st.caption(
-            "Sincroniza la base de Educate con la nube cifrada de Kiroshi para compartir conocimiento entre sedes remotas."
-        )
-        cloud_enabled = st.toggle(
-            "Habilitar conexión con Kiroshi Cloud",
-            key="kiroshi_cloud_enabled",
-            on_change=_on_setting_change("kiroshi_cloud_enabled"),
-        )
-        if not cloud_enabled:
-            st.session_state.kiroshi_cloud_authenticated = False
-            st.session_state.kiroshi_cloud_status = None
-            st.session_state.kiroshi_cloud_summary = None
-            st.session_state.kiroshi_cloud_saved_at = None
+    status = st.session_state.get("kiroshi_cloud_status")
+    if isinstance(status, tuple) and len(status) == 2:
+        level, message = status
+        if level == "success":
+            st.success(message)
+        elif level == "warning":
+            st.warning(message)
         else:
             share_status = cloud_share_status()
             if not share_status["available"]:
@@ -9271,7 +9431,14 @@ def _render_settings_ai_tab() -> None:
                 if st.button("Validar conexión", key=global_widget_key("cloud_validate")):
                     session = _obtain_cloud_session()
                     if session:
-                        cloud_payload = session.load_ai_dataset()
+                        selected_agents = [
+                            str(agent).strip()
+                            for agent in st.session_state.get("kiroshi_cloud_selected_agents", [])
+                            if str(agent).strip()
+                        ]
+                        cloud_payload = session.load_ai_dataset(
+                            agent_ids=selected_agents or None
+                        )
                         saved_at = None
                         if (
                             isinstance(cloud_payload, Mapping)
@@ -9357,20 +9524,32 @@ def _render_settings_ai_tab() -> None:
                     summary_cols[1].metric(
                         "Dispositivos únicos", summary_data.get("unique_devices", 0)
                     )
-                    if saved_at:
-                        try:
-                            saved_dt = datetime.fromisoformat(str(saved_at).replace("Z", "+00:00"))
-                            saved_label = saved_dt.strftime("%Y-%m-%d %H:%M")
-                        except Exception:
-                            saved_label = str(saved_at)
-                    else:
-                        saved_label = "—"
-                    summary_cols[2].metric("Última actualización", saved_label)
-                    top_causes = summary_data.get("root_cause_counts") or []
-                    if top_causes:
-                        st.markdown("**Principales causas registradas en la nube:**")
-                        for label, count in top_causes[:3]:
-                            st.markdown(f"- {label}: {count} casos")
+
+        summary_data = st.session_state.get("kiroshi_cloud_summary")
+        saved_at = st.session_state.get("kiroshi_cloud_saved_at")
+        if summary_data:
+            st.caption("Resumen del cloud")
+            summary_cols = st.columns(3)
+            summary_cols[0].metric(
+                "Casos sincronizados", summary_data.get("total_cases", 0)
+            )
+            summary_cols[1].metric(
+                "Dispositivos únicos", summary_data.get("unique_devices", 0)
+            )
+            if saved_at:
+                try:
+                    saved_dt = datetime.fromisoformat(str(saved_at).replace("Z", "+00:00"))
+                    saved_label = saved_dt.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    saved_label = str(saved_at)
+            else:
+                saved_label = "—"
+            summary_cols[2].metric("Última actualización", saved_label)
+            top_causes = summary_data.get("root_cause_counts") or []
+            if top_causes:
+                st.markdown("**Principales causas registradas en la nube:**")
+                for label, count in top_causes[:3]:
+                    st.markdown(f"- {label}: {count} casos")
 
 
 def _render_settings_updates_tab() -> None:
@@ -9486,10 +9665,11 @@ def render_settings_panel() -> None:
     )
     with st.container():
         st.markdown("<div class='settings-tabs'>", unsafe_allow_html=True)
-        workspace_tab, ai_tab, updates_tab = st.tabs(
+        workspace_tab, ai_tab, cloud_tab, updates_tab = st.tabs(
             [
                 "Workspace",
                 "AI & Knowledge",
+                "Kiroshi Cloud",
                 "Updates",
             ]
         )
@@ -9497,6 +9677,8 @@ def render_settings_panel() -> None:
             _render_settings_workspace_tab()
         with ai_tab:
             _render_settings_ai_tab()
+        with cloud_tab:
+            _render_settings_cloud_tab()
         with updates_tab:
             _render_settings_updates_tab()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -10779,12 +10961,53 @@ def iter_saved_case_records() -> Iterable[tuple[Path, Mapping[str, object]]]:
         yield path, payload
 
 
+def _normalize_agent_name(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _agent_identity_snapshot() -> dict[str, str]:
+    try:
+        first = _normalize_agent_name(st.session_state.get("agent_first_name", ""))
+        last = _normalize_agent_name(st.session_state.get("agent_last_name", ""))
+    except AttributeError:
+        first = ""
+        last = ""
+
+    if not first:
+        first = _normalize_agent_name(
+            _persistent_settings_cache.get("agent_first_name", "")
+        )
+    if not last:
+        last = _normalize_agent_name(
+            _persistent_settings_cache.get("agent_last_name", "")
+        )
+
+    parts = [part for part in (first, last) if part]
+    display = " ".join(parts)
+    slug_parts = [
+        re.sub(r"[^a-z0-9]+", "-", part.lower()).strip("-")
+        for part in parts
+        if part
+    ]
+    identifier = "-".join([part for part in slug_parts if part])
+
+    return {
+        "first_name": first,
+        "last_name": last,
+        "display_name": display,
+        "identifier": identifier,
+    }
+
+
 def _create_ai_learning_dataset_from_cases(
     case_entries: Iterable[Mapping[str, object]],
     *,
     signature: Iterable[tuple[str, float]] | None = None,
     merged_sources: Iterable[str] | None = None,
     generated_at: str | None = None,
+    agent_identity: Mapping[str, str] | None = None,
 ) -> dict[str, object] | None:
     cases: list[dict[str, object]] = []
     keyword_counter: Counter[str] = Counter()
@@ -10859,6 +11082,13 @@ def _create_ai_learning_dataset_from_cases(
             "saved_at": saved_at,
             "source_path": entry.get("source_path"),
         }
+        if agent_identity:
+            agent_identifier = _normalize_agent_name(agent_identity.get("identifier"))
+            if agent_identifier:
+                case_entry["agent_id"] = agent_identifier
+            display_name = _normalize_agent_name(agent_identity.get("display_name"))
+            if display_name:
+                case_entry["agent_name"] = display_name
         cases.append(case_entry)
 
     if not cases:
@@ -10916,6 +11146,17 @@ def _create_ai_learning_dataset_from_cases(
         merged_labels.update(str(label) for label in merged_sources if label)
     if merged_labels:
         dataset["merged_sources"] = sorted(merged_labels)
+
+    if agent_identity:
+        identity_payload = {
+            "first_name": _normalize_agent_name(agent_identity.get("first_name")),
+            "last_name": _normalize_agent_name(agent_identity.get("last_name")),
+            "display_name": _normalize_agent_name(agent_identity.get("display_name")),
+            "identifier": _normalize_agent_name(agent_identity.get("identifier")),
+        }
+        dataset["agent_identity"] = identity_payload
+        if identity_payload.get("display_name") and not dataset.get("shared_by"):
+            dataset["shared_by"] = identity_payload["display_name"]
 
     return dataset
 
@@ -11011,10 +11252,21 @@ def merge_ai_learning_datasets(
         elif isinstance(base_signature, tuple):
             signature = base_signature
 
+    base_identity = None
+    if base_dataset:
+        candidate_identity = base_dataset.get("agent_identity")
+        if isinstance(candidate_identity, Mapping):
+            base_identity = dict(candidate_identity)
+    if base_identity is None:
+        candidate_identity = imported_dataset.get("agent_identity")
+        if isinstance(candidate_identity, Mapping):
+            base_identity = dict(candidate_identity)
+
     dataset = _create_ai_learning_dataset_from_cases(
         combined.values(),
         signature=signature,
         merged_sources=merged_sources,
+        agent_identity=base_identity,
     )
     return dataset
 
@@ -11067,7 +11319,12 @@ def build_ai_learning_dataset(
         }
         cases.append(case_entry)
 
-    return _create_ai_learning_dataset_from_cases(cases, signature=signature)
+    identity = _agent_identity_snapshot()
+    return _create_ai_learning_dataset_from_cases(
+        cases,
+        signature=signature,
+        agent_identity=identity,
+    )
 
 
 def save_ai_learning_dataset(dataset: Mapping[str, object]) -> None:
