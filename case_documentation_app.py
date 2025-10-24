@@ -10049,11 +10049,15 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
         st.caption(
             f"Active personality: {personality_mode.replace('_', ' ').title()} · Sarcasm mode: {sarcasm_state}"
         )
-        base_prompt_key = global_widget_key("system_prompt_base")
-        if base_prompt_key not in st.session_state:
-            st.session_state[base_prompt_key] = st.session_state.get(
-                "system_prompt", SYSTEM_PROMPT
-            )
+        base_prompt_key = chat_tab_key("system_prompt_base")
+        current_prompt = st.session_state.get("system_prompt", SYSTEM_PROMPT)
+        base_registry = st.session_state.get("_system_prompt_widget_keys")
+        if not isinstance(base_registry, set):
+            base_registry = set()
+        base_registry.add(base_prompt_key)
+        st.session_state["_system_prompt_widget_keys"] = base_registry
+        if st.session_state.get(base_prompt_key) != current_prompt:
+            st.session_state[base_prompt_key] = current_prompt
         edited_prompt = st.text_area(
             "Base system prompt",
             height=220,
@@ -10065,10 +10069,18 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
         )
         if edited_prompt != st.session_state.get("system_prompt"):
             st.session_state["system_prompt"] = edited_prompt
+            for other_key in st.session_state.get("_system_prompt_widget_keys", set()):
+                st.session_state[other_key] = edited_prompt
 
         preview_value = build_system_prompt()
-        preview_key = global_widget_key("system_prompt_preview")
-        st.session_state[preview_key] = preview_value
+        preview_key = chat_tab_key("system_prompt_preview")
+        preview_registry = st.session_state.get("_system_prompt_preview_keys")
+        if not isinstance(preview_registry, set):
+            preview_registry = set()
+        preview_registry.add(preview_key)
+        st.session_state["_system_prompt_preview_keys"] = preview_registry
+        for other_key in preview_registry:
+            st.session_state[other_key] = preview_value
         st.text_area(
             "Active construct preview",
             value=preview_value,
