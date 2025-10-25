@@ -218,12 +218,12 @@ PDF_FONT_REGULAR_NAME = "Helvetica"
 PDF_FONT_BOLD_NAME = "Helvetica-Bold"
 
 STREAMLIT_FONT_STACK_CSS = (
-    "var(--font, 'Manrope', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif)"
+    "var(--font, 'Space Grotesk', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif)"
 )
 STREAMLIT_HEADING_FONT_STACK = (
-    "'Space Grotesk', 'Manrope', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+    "'Space Grotesk', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
 )
-STREAMLIT_FONT_FALLBACK = "Helvetica"
+STREAMLIT_FONT_FALLBACK = "Space Grotesk"
 
 
 def _ensure_pdf_fonts() -> tuple[str, str]:
@@ -3090,7 +3090,7 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     st.markdown(
         f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
         :root {{
             --kiroshi-primary: {theme.primary};
             --kiroshi-accent: {theme.accent};
