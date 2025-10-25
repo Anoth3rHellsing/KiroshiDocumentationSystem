@@ -14607,10 +14607,13 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
     screenshots = get_active_screenshots()
 
+    anchor_id = f"floating-screenshot-menu-anchor-{case_idx}"
+    storage_key = f"kiroshi-floating-menu-position-{case_idx}"
+
     container = st.container()
     with container:
         st.markdown(
-            "<div id='floating-screenshot-menu-anchor'></div>",
+            f"<div id='{anchor_id}'></div>",
             unsafe_allow_html=True,
         )
         st.markdown(
@@ -14671,8 +14674,10 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             f"{len(screenshots)} capture{'s' if len(screenshots) != 1 else ''}."
         )
 
-    components.html(
-        """
+    anchor_id_js = json.dumps(anchor_id)
+    storage_key_js = json.dumps(storage_key)
+
+    script = """
         <script>
         (function() {
             let doc = window.document;
@@ -14717,7 +14722,8 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             };
 
             ensureDocReady(() => {
-            const storageKey = 'kiroshi-floating-menu-position';
+            const anchorId = __ANCHOR_ID__;
+            const storageKey = __STORAGE_KEY__;
 
             const bootstrapFloatingMenu = (targetBlock) => {
                 try {
@@ -15191,7 +15197,7 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             };
 
             const initialiseFloatingMenu = () => {
-                const anchor = doc.querySelector('#floating-screenshot-menu-anchor');
+                const anchor = doc.getElementById(anchorId);
                 if (!anchor) { return false; }
                 const targetBlock = anchor.closest('div[data-testid="stVerticalBlock"]');
                 if (!targetBlock) { return false; }
@@ -15215,7 +15221,12 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             });
         })();
         </script>
-        """,
+        """
+    script = script.replace("__ANCHOR_ID__", anchor_id_js)
+    script = script.replace("__STORAGE_KEY__", storage_key_js)
+
+    components.html(
+        script,
         height=0,
         width=0,
     )
