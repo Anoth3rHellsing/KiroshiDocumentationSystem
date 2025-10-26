@@ -11171,6 +11171,60 @@ def render_debug_panel() -> None:
             target = LOG_FILE
         st.text(tail_log(target))
         st.divider()
+        st.subheader("Case debug tools")
+        sessions = getattr(st.session_state, "case_sessions", None)
+        if not isinstance(sessions, Sequence) or not sessions:
+            st.info("Create or load a case to access case-specific debug utilities.")
+        else:
+            fallback_default = 0
+            if len(sessions) > 1:
+                fallback_default = min(max(CURRENT_CASE_IDX, 0), len(sessions) - 1)
+
+            default_target = _resolve_hotkey_target_index(sessions, fallback_default)
+            if not isinstance(default_target, int) or default_target < 0:
+                default_target = 0
+            default_target = min(default_target, len(sessions) - 1)
+
+            def _format_case_label(idx: int) -> str:
+                session = sessions[idx]
+                case = getattr(session, "case", None)
+                case_id = getattr(case, "case_id", "") if case else ""
+                company = getattr(case, "company_name", "") if case else ""
+                label = case_id or f"Case {idx + 1}"
+                return f"{label} – {company}" if company else label
+
+            selected_case_idx = st.selectbox(
+                "Case context",
+                list(range(len(sessions))),
+                index=default_target,
+                format_func=_format_case_label,
+                key="debug_case_context",
+            )
+
+            current_target = st.session_state.get(HOTKEY_TARGET_SESSION_KEY)
+            use_for_hotkeys = st.checkbox(
+                "Use this case for global clipboard hotkeys",
+                value=current_target == selected_case_idx,
+                key="debug_hotkey_target_toggle",
+                help=(
+                    "When enabled, Ctrl+Alt+C and the numeric shortcuts copy tables "
+                    "from this case even if another tab is open."
+                ),
+            )
+            if use_for_hotkeys and current_target != selected_case_idx:
+                st.session_state[HOTKEY_TARGET_SESSION_KEY] = selected_case_idx
+                _refresh_hotkey_snapshot()
+            elif not use_for_hotkeys and current_target == selected_case_idx:
+                st.session_state[HOTKEY_TARGET_SESSION_KEY] = None
+                _refresh_hotkey_snapshot()
+
+            try:
+                category_map = active_category_map()
+            except Exception:
+                logging.exception("Failed to build category map for debug panel")
+                category_map = {}
+            render_autohotkey_panel(category_map, selected_case_idx)
+        st.divider()
         if st.button("I'm bored", key=global_widget_key("debug_bored")):
             st.session_state.show_bored = True
             st.rerun()
@@ -15844,8 +15898,6 @@ def render_case_ui(case_idx: int):
         tab_labels.append("Kiroshi Chat")
     if st.session_state.show_bored:
         tab_labels.append("I'm bored")
-    if st.session_state.debug_mode:
-        tab_labels.append("Debug")
 
     tabs = st.tabs(tab_labels)
     render_floating_screenshot_menu(case_idx)
@@ -15860,7 +15912,6 @@ def render_case_ui(case_idx: int):
     tab_save_load = next(tab_iter)
     tab_chat = next(tab_iter) if show_case_chat else None
     tab_bored = next(tab_iter) if st.session_state.show_bored else None
-    tab_debug = next(tab_iter) if st.session_state.debug_mode else None
 
     # ================== 2ND LINE MODE TAB =================
     # ================== CASE TAB =================
@@ -17854,11 +17905,6 @@ End with: We look forward to your reply."""
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
 
-
-    if tab_debug:
-        with tab_debug:
-            st.subheader("Case debug tools")
-            render_autohotkey_panel(cat_map, case_idx)
 
     # ================== REMOTE SESSION TAB =================
     REMOTE_DESKTOP_STYLE = """
