@@ -11,212 +11,76 @@ generating PDF summaries, and creating email prompts or full emails via GPT-OSS 
 
 Coverage is actively tracked and the project receives daily updates.
 
-## Demo
+## Installation on Windows
 
-![Kiroshi UI Demo](docs/demo.png)
-*Replace `docs/demo.png` with an actual screenshot or GIF demonstrating the interface.*
+### Prerequisites
 
-## Features
+1. **Install Python 3 (64-bit).** Download the latest 64-bit installer from [python.org](https://www.python.org/downloads/),
+   check **Add Python to PATH**, and complete the setup. The installer ships with `pip`, so no additional download is required.
+2. **Verify Python and `pip`.** Open *PowerShell* and confirm the tools are available:
+   ```powershell
+   python --version
+   pip --version
+   ```
+   If either command fails, reopen PowerShell so the updated `PATH` is loaded or rerun the installer to repair the setup.
+3. **Optional: install Git.** [Git for Windows](https://git-scm.com/download/win) simplifies downloading updates via `git clone`
+   instead of manually extracting ZIP archives.
 
-- **Case tab** – capture customer information, notes, and track completion progress.
-- **2nd Line Mode Dashboard** – when 2nd Line mode is enabled, monitor active Dell and FedEx tracked cases, browse recent tracked files, and load or untrack any case directly from the tracking tables.
-- **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
-- **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
-- **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
-  making it easy to copy into spreadsheets.
-- **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
-- **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/`
-  folder.
-- **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP
-  under a dedicated `Screenshots/` folder.
-- **Real-time autosave** – case data is persisted to `autosave.json` on every interaction to prevent data loss.
-- **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
-- **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
-- **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
-- **GPT-OSS integration (coming soon)** – send prompts directly to GPT-OSS and display the generated response.
-- **Kiroshi chat tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
-  gentle reassurance when you're overwhelmed, and humorous escalation quips. Toggle Sarcasm Mode in Settings when you want the
-  assistant to lean into extra wit.
-- **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
-- **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
-  sessions.
+### 1.a Kiroshi Client
 
-## Installation
+Once the prerequisites are in place you can choose between the bundled installer and a manual installation from source.
 
-### Automated installation
+#### Automated installation
 
-1. Download the repository ZIP from GitHub.
+1. Download the repository ZIP from GitHub or pull the latest release package.
 2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_Release-1.7.2.bat`).
-3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_Release-1.7.2.bat`).
+3. Launch the client with **Kiroshi Launcher** (`KiroshiLauncher_Release-1.7.2.bat`).
 4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
 
-### Manual installation
+#### Manual installation
 
-Install the dependencies from the project directory. If you just cloned or downloaded the repository, first change into its folder
-with `cd` and then run `pip`:
-
-```bash
-cd /path/to/KiroshiDocumentationSystem
-pip install -r requirements.txt
-# Optional: install mini-game and local model dependencies
-pip install -r requirements-bored.txt
-```
+1. Open *PowerShell* in the project directory (for example
+   `cd C:\Users\you\Downloads\KiroshiDocumentationSystem`).
+2. (Optional) Create and activate a virtual environment so the dependencies remain isolated:
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   ```
+3. Install the runtime requirements:
+   ```powershell
+   pip install -r requirements.txt
+   # Optional: install mini-game and local model dependencies
+   pip install -r requirements-bored.txt
+   ```
+4. Run the application from source:
+   ```powershell
+   streamlit run case_documentation_app.py
+   ```
+   or launch the wrapper script:
+   ```powershell
+   python run_app.py
+   ```
 
 #### Troubleshooting: `pyarrow` fails to install on Windows
 
-Streamlit depends on `pyarrow`, which is distributed as a pre-built wheel for
-64-bit versions of Python on Windows. If `pip` prints messages such as
-`building 'pyarrow.lib' extension` and ends with `Could not build wheels for
-pyarrow`, check the temporary build path in the log. A fragment like
-`build\lib.win32-3.11` indicates that the interpreter is 32-bit, and no wheel
-exists for that architecture. Install a 64-bit build of Python (for example the
-default installer from python.org) or recreate your virtual environment with a
-64-bit interpreter, then rerun `pip install -r requirements.txt`. Once `pip`
-detects a compatible interpreter it will download the official wheel instead of
-attempting a source build, and the installation completes successfully.
+Streamlit depends on `pyarrow`, which is distributed as a pre-built wheel for 64-bit versions of Python on Windows. If `pip`
+prints messages such as `building 'pyarrow.lib' extension` and ends with `Could not build wheels for pyarrow`, check the
+temporary build path in the log. A fragment like `build\lib.win32-3.11` indicates that the interpreter is 32-bit. Install a
+64-bit build of Python (for example the default installer from python.org) or recreate your virtual environment with a 64-bit
+interpreter, then rerun `pip install -r requirements.txt`. Once `pip` detects a compatible interpreter it will download the
+official wheel instead of attempting a source build.
 
-#### Troubleshooting: `Screenshot capture is unavailable in this environment`
+### 1.b Kiroshi Control Tower
 
-Compiled deployments need at least one screenshot backend bundled with the
-executable. The app will attempt `pyautogui`, fall back to Pillow's
-`ImageGrab`, and finally use the optional `mss` module for headless-friendly
-captures. When building with PyInstaller, include the relevant packages (for
-example `--hidden-import pyautogui`, `PIL.ImageGrab`, and `mss`) or install them
-in the runtime environment. If advanced region selection reports that Tkinter
-is required, add the standard `tkinter` runtime to the build or use the full
-screen capture button instead.
+The Control Tower dashboards ship with the standard client. After installing the client (via the installer or from source):
 
-### Updating
+1. Launch Kiroshi with **Kiroshi Launcher** or `streamlit run case_documentation_app.py`.
+2. Open the **Settings** tab and enable **2nd Line mode** to unlock the Escalation Control Tower and dashboard tracking panels.
+3. Populate your escalation drawers with queue IDs, SLA targets, and vendor notes so reminders surface on the dashboard.
+4. If you maintain shared settings, distribute the generated `config.json`, `settings.json`, and `recent_cases.json` files from
+   `C:\ProgramFiles\KiroshiDatabase` to keep every workstation aligned.
 
-The `QuickUpdate.bat` script is intended for small incremental patches.
-Major updates such as **Release 1.7.2** introduce new requirements and should be applied manually.
-To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_Release-1.7.2.bat`).
-
-#### Updating Python dependencies to the newest releases
-
-If you want to test the application with the most recent Python packages (for example to confirm that a new
-Streamlit release works with Kiroshi) use the `requirements-latest.txt` manifest that accompanies the regular
-`requirements.txt`. The file pins each dependency to the latest version that was available when the manifest
-was generated.
-
-From a clean virtual environment run:
-
-```bash
-pip install --upgrade pip
-pip install -r requirements-latest.txt
-```
-
-Using a fresh virtual environment is recommended so that you can quickly revert to the stable `requirements.txt`
-set if a bleeding-edge dependency causes issues. To go back to the supported versions, reinstall the standard
-requirements in a separate environment or run `pip install -r requirements.txt` again.
-
-#### Customizing update checks
-
-Kiroshi automatically inspects the Git tree when checking for updates so it can
-locate `case_documentation_app.py` even if the file lives inside a nested
-folder. If your fork keeps the Streamlit entry point in a non-standard
-location, export the `KIROSHI_UPDATE_APP_PATHS` environment variable with a
-comma-separated list of relative paths (for example, `tools/streamlit` or
-`src/app`). The update checker will prefer these overrides before falling back
-to the auto-discovery heuristics.
-
-When the update repository is private, configure a personal access token via
-`KIROSHI_UPDATE_GITHUB_TOKEN`. The token is only used for the GitHub API calls
-that discover the application path, fetch the latest commit metadata, and
-download the remote `case_documentation_app.py` source so the version marker
-can be inspected. Without this credential GitHub responds with HTTP 404 for
-private repositories, which prevents the update panel from determining the
-latest available release.
-
-## Python test suite
-
-The repository includes a comprehensive `pytest` suite that exercises autosave
-behaviour, attachment handling, PDF exports, update checks, and the built-in
-chat tooling. After installing the runtime requirements you only need the test
-runner itself:
-
-```bash
-pip install -r requirements.txt
-pip install pytest
-```
-
-Then execute the full suite from the project root:
-
-```bash
-pytest
-```
-
-The fixtures automatically adjust `PYTHONPATH` for local imports and provide an
-in-repo shim for the [`responses`](https://github.com/getsentry/responses)
-library, so no additional development dependencies are required. Network calls
-are fully mocked, allowing the tests to run without internet connectivity.
-
-## Visual regression testing
-
-The Streamlit UI is covered by Playwright screenshot tests. Each test run
-pre-configures the dashboard via the URL query string so we can validate the
-base layout, a forced holiday palette, and a darker seasonal palette without
-clicking through the Settings panel.
-
-### One-time setup
-
-```bash
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Install Node dependencies and Playwright browsers
-npm ci
-npx playwright install --with-deps chromium
-```
-
-### Running the suite locally
-
-```bash
-# In a dedicated terminal
-streamlit run case_documentation_app.py --server.headless true --server.port 8501
-
-# In a second terminal
-npm run test:e2e
-```
-
-The tests navigate to `http://127.0.0.1:8501/?enable_holiday_theme=…&theme_preview=…`
-before the dashboard fully renders, ensuring the desired palette is active for the
-first paint. Baseline payloads live under `tests/e2e/baselines/<browser>/*.base64` and
-are materialized into PNGs at runtime. Each snapshot is stored as a newline-wrapped
-Base64 blob so textual diffs stay manageable when only a portion of the image
-changes. A 1% pixel diff ratio is tolerated to account for minor anti-aliasing
-differences.
-
-### Approving new baselines
-
-If a legitimate UI change alters the visuals, regenerate the baselines and re-encode
-them before committing:
-
-```bash
-npm run test:e2e:update
-npm run baselines:encode
-```
-
-After the run completes, review the refreshed `.base64` blobs in `tests/e2e/baselines/`
-and include them in your pull request. CI will automatically upload the HTML report and
-the `test-results/` diff directory whenever a comparison fails so reviewers can inspect
-the regressions.
-
-## Building the desktop executable
-
-The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it
-from the project root:
-
-```bash
-./build.sh
-```
-
-The script bundles `case_documentation_app.py` together with the Streamlit runtime and deposits the compiled
-artifacts under `dist/`. The process was last verified with PyInstaller 6.16.0 on Python 3.12.10; PyInstaller may
-emit warnings for optional modules such as `langchain`, but they do not prevent the executable from being
-generated.
-
-### Windows PATH helper
+### 1.c Known issues with the Streamlit path
 
 If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user
 `PATH`. The following PowerShell snippet adds it automatically:
@@ -239,93 +103,233 @@ if (Test-Path $scriptsPath) {
 }
 ```
 
-After running the script, close and reopen the terminal, then verify with:
+After running the script, close and reopen the terminal, then verify with `streamlit --version`.
 
-```powershell
-streamlit --version
+## Installation on Arch Linux
+
+### Prerequisites
+
+1. Update the system and install Python, `pip`, and the build tooling required by Streamlit dependencies:
+   ```bash
+   sudo pacman -Syu
+   sudo pacman -S python python-pip git base-devel
+   ```
+2. (Optional) Install Node.js and `npm` if you plan to run the Playwright end-to-end tests:
+   ```bash
+   sudo pacman -S nodejs npm
+   ```
+
+### 2.a Kiroshi Client
+
+1. Clone the repository and enter the project directory:
+   ```bash
+   git clone https://github.com/<your-account>/KiroshiDocumentationSystem.git
+   cd KiroshiDocumentationSystem
+   ```
+2. Create a virtual environment and activate it:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+3. Install the dependencies:
+   ```bash
+   pip install -r requirements.txt
+   # Optional: install mini-game and local model dependencies
+   pip install -r requirements-bored.txt
+   ```
+4. Launch the client:
+   ```bash
+   streamlit run case_documentation_app.py
+   ```
+   or run the helper:
+   ```bash
+   python run_app.py
+   ```
+
+### 2.b Kiroshi Control Tower
+
+The Arch Linux workflow mirrors Windows because the Control Tower is bundled with the client:
+
+1. Start the application with `streamlit run case_documentation_app.py` (or `python run_app.py`).
+2. In **Settings → Modes**, enable **2nd Line mode** to expose the Control Tower dashboards for Dell and FedEx tracking.
+3. Share the configuration files created in `~/KiroshiDatabase/` if multiple agents should inherit the same escalation presets.
+
+## How it works
+
+Kiroshi presents each support case as a dedicated workspace with tabs for capturing caller details, troubleshooting notes,
+hardware diagnostics, escalation data, and AI-assisted summaries. Case data is autosaved to `autosave.json`, and the **Tables**
+tab exposes an Excel-style snapshot that can be copied or exported as a PDF. Attachments, logs, and screenshots are bundled into
+ZIP exports, while optional AI prompts help draft emails or verify missing information during a call.
+
+## What is used
+
+- **Streamlit** for the interactive multi-tab interface and dashboard visualizations.
+- **Python 3.12** and the standard library for data models, PDF generation, and autosave orchestration.
+- **PyInstaller** and the provided `.spec` file for packaging the desktop executable distributed to Windows users.
+- **Playwright** (via Node.js) for visual regression tests that guard the Streamlit UI.
+- **AutoHotkey** scripts generated by the app to streamline common support responses and launchers on Windows workstations.
+
+## How it works — Control Tower focus
+
+The Control Tower experience expands the base client with escalation tooling. When 2nd Line mode is enabled, the dashboard lists
+tracked Dell and FedEx cases, exposes onboarding checklists, and adds escalation drawers to each case. The Remote Desktop control
+center merges multi-session notes, displays credential timelines, and provides quick-copy actions for live updates. SLA badges and
+auto-reminders surface critical follow-ups, while export tools ensure that vendor packets include the latest logs, screenshots,
+and troubleshooting history.
+
+## Demo
+
+![Kiroshi UI Demo](docs/demo.png)
+*Replace `docs/demo.png` with an actual screenshot or GIF demonstrating the interface.*
+
+## Features
+
+- **Case tab** – capture customer information, notes, and track completion progress.
+- **2nd Line Mode Dashboard** – when 2nd Line mode is enabled, monitor active Dell and FedEx tracked cases, browse recent tracked files, and load or untrack any case directly from the tracking tables.
+- **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
+- **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
+- **Tables tab** – displays each category in an Excel-style table with a title indicating Phonecall or Int plus the current date, making it easy to copy into spreadsheets.
+- **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
+- **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/` folder.
+- **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP under a dedicated `Screenshots/` folder.
+- **Real-time autosave** – case data is persisted to `autosave.json` on every interaction to prevent data loss.
+- **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
+- **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
+- **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
+- **GPT-OSS integration (coming soon)** – send prompts directly to GPT-OSS and display the generated response.
+- **Kiroshi chat tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory, gentle reassurance when you're overwhelmed, and humorous escalation quips. Toggle Sarcasm Mode in Settings when you want the assistant to lean into extra wit.
+- **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
+- **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended sessions.
+
+## Updating
+
+The `QuickUpdate.bat` script is intended for small incremental patches. Major updates such as **Release 1.7.2** introduce new
+requirements and should be applied manually. To upgrade to these releases, run **Kiroshi Uninstaller**
+(`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_Release-1.7.2.bat`).
+
+### Updating Python dependencies to the newest releases
+
+If you want to test the application with the most recent Python packages (for example to confirm that a new Streamlit release works with Kiroshi) use the `requirements-latest.txt` manifest that accompanies the regular `requirements.txt`. The file pins each dependency to the latest version that was available when the manifest was generated.
+
+From a clean virtual environment run:
+
+```bash
+pip install --upgrade pip
+pip install -r requirements-latest.txt
 ```
+
+Using a fresh virtual environment is recommended so that you can quickly revert to the stable `requirements.txt` set if a bleeding-edge dependency causes issues. To go back to the supported versions, reinstall the standard requirements in a separate environment or run `pip install -r requirements.txt` again.
+
+### Customizing update checks
+
+Kiroshi automatically inspects the Git tree when checking for updates so it can locate `case_documentation_app.py` even if the file lives inside a nested folder. If your fork keeps the Streamlit entry point in a non-standard location, export the `KIROSHI_UPDATE_APP_PATHS` environment variable with a comma-separated list of relative paths (for example, `tools/streamlit` or `src/app`). The update checker will prefer these overrides before falling back to the auto-discovery heuristics.
+
+When the update repository is private, configure a personal access token via `KIROSHI_UPDATE_GITHUB_TOKEN`. The token is only used for the GitHub API calls that discover the application path, fetch the latest commit metadata, and download the remote `case_documentation_app.py` source so the version marker can be inspected. Without this credential GitHub responds with HTTP 404 for private repositories, which prevents the update panel from determining the latest available release.
+
+## Python test suite
+
+The repository includes a comprehensive `pytest` suite that exercises autosave behaviour, attachment handling, PDF exports, update checks, and the built-in chat tooling. After installing the runtime requirements you only need the test runner itself:
+
+```bash
+pip install -r requirements.txt
+pip install pytest
+```
+
+Then execute the full suite from the project root:
+
+```bash
+pytest
+```
+
+The fixtures automatically adjust `PYTHONPATH` for local imports and provide an in-repo shim for the [`responses`](https://github.com/getsentry/responses) library, so no additional development dependencies are required. Network calls are fully mocked, allowing the tests to run without internet connectivity.
+
+## Visual regression testing
+
+The Streamlit UI is covered by Playwright screenshot tests. Each test run pre-configures the dashboard via the URL query string so we can validate the base layout, a forced holiday palette, and a darker seasonal palette without clicking through the Settings panel.
+
+### One-time setup
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install Node dependencies and Playwright browsers
+npm ci
+npx playwright install --with-deps chromium
+```
+
+### Running the suite locally
+
+```bash
+# In a dedicated terminal
+streamlit run case_documentation_app.py --server.headless true --server.port 8501
+
+# In a second terminal
+npm run test:e2e
+```
+
+The tests navigate to `http://127.0.0.1:8501/?enable_holiday_theme=…&theme_preview=…` before the dashboard fully renders, ensuring the desired palette is active for the first paint. Baseline payloads live under `tests/e2e/baselines/<browser>/*.base64` and are materialized into PNGs at runtime. Each snapshot is stored as a newline-wrapped Base64 blob so textual diffs stay manageable when only a portion of the image changes. A 1% pixel diff ratio is tolerated to account for minor anti-aliasing differences.
+
+### Approving new baselines
+
+If a legitimate UI change alters the visuals, regenerate the baselines and re-encode them before committing:
+
+```bash
+npm run test:e2e:update
+npm run baselines:encode
+```
+
+After the run completes, review the refreshed `.base64` blobs in `tests/e2e/baselines/` and include them in your pull request. CI will automatically upload the HTML report and the `test-results/` diff directory whenever a comparison fails so reviewers can inspect the regressions.
+
+## Building the desktop executable
+
+The repository ships with a helper script that drives the PyInstaller build used for the Windows release. Run it from the project root:
+
+```bash
+./build.sh
+```
+
+The script bundles `case_documentation_app.py` together with the Streamlit runtime and deposits the compiled artifacts under `dist/`. The process was last verified with PyInstaller 6.16.0 on Python 3.12.10; PyInstaller may emit warnings for optional modules such as `langchain`, but they do not prevent the executable from being generated.
 
 ## "Compile it for Dummies" guide
 
-If you want a single executable that bundles Python and all dependencies, you
-can create one with PyInstaller. The steps below assume you have never done
-this before and walk through the entire process from a clean machine.
+If you want a single executable that bundles Python and all dependencies, you can create one with PyInstaller. The steps below assume you have never done this before and walk through the entire process from a clean machine.
 
-1. **Install Python (64-bit).** Download the official 64-bit Python installer
-   from [python.org](https://www.python.org/downloads/) and ensure "Add Python
-   to PATH" is checked during installation.
-2. **Install Git (optional but recommended).** Grab
-   [Git for Windows](https://git-scm.com/download/win) so you can clone the
-   repository instead of downloading ZIP files manually.
-3. **Download the project.** Either run
-   `git clone https://github.com/<your-account>/KiroshiDocumentationSystem.git`
-   or download and extract the ZIP archive from GitHub.
-4. **Open a terminal inside the project folder.** On Windows you can use
-   *Command Prompt* or *PowerShell* and run `cd` to the extracted folder, for
-   example: `cd C:\Users\you\Downloads\KiroshiDocumentationSystem`.
-5. **Create (optional) and activate a virtual environment.** This keeps build
-   tools separate from the rest of your system:
+1. **Install Python (64-bit).** Download the official 64-bit Python installer from [python.org](https://www.python.org/downloads/) and ensure "Add Python to PATH" is checked during installation.
+2. **Install Git (optional but recommended).** Grab [Git for Windows](https://git-scm.com/download/win) so you can clone the repository instead of downloading ZIP files manually.
+3. **Download the project.** Either run `git clone https://github.com/<your-account>/KiroshiDocumentationSystem.git` or download and extract the ZIP archive from GitHub.
+4. **Open a terminal inside the project folder.** On Windows you can use *Command Prompt* or *PowerShell* and run `cd` to the extracted folder, for example: `cd C:\Users\you\Downloads\KiroshiDocumentationSystem`.
+5. **Create (optional) and activate a virtual environment.** This keeps build tools separate from the rest of your system:
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\activate
    ```
-   If you already created `.venv` in a previous session, activate the existing
-   environment with `.\.venv\Scripts\activate` and skip re-running
-   `python -m venv .venv`. Trying to recreate the environment while it is
-   active leads Windows to print `Unable to copy ... venvlauncher.exe` because
-   the interpreter files are locked by the running shell.
+   If you already created `.venv` in a previous session, activate the existing environment with `.\.venv\Scripts\activate` and skip re-running `python -m venv .venv`. Trying to recreate the environment while it is active leads Windows to print `Unable to copy ... venvlauncher.exe` because the interpreter files are locked by the running shell.
 6. **Install the app requirements and PyInstaller.**
    ```powershell
    pip install -r requirements.txt
    pip install pyinstaller
    ```
 
-   If you see `ModuleNotFoundError: No module named 'reportlab'` while running
-   the packaged executable, double-check that the build environment installed
-   the project's requirements with the command above. PyInstaller copies
-   dependencies from the interpreter that executes the build; missing packages
-   cannot be retroactively added to an already compiled binary.
-7. **Run PyInstaller.** Use the preconfigured spec file that lives in the
-   repository root:
+   If you see `ModuleNotFoundError: No module named 'reportlab'` while running the packaged executable, double-check that the build environment installed the project's requirements with the command above. PyInstaller copies dependencies from the interpreter that executes the build; missing packages cannot be retroactively added to an already compiled binary.
+7. **Run PyInstaller.** Use the preconfigured spec file that lives in the repository root:
    ```powershell
    pyinstaller KiroshiDocumentationSystem.spec
    ```
-   This spec mirrors the long one-liner you might type by hand but also guarantees that
-   `case_documentation_app.py` ships with the executable, that the theme and
-   server configuration in `.streamlit/config.toml` are packaged, and that all of
-   Streamlit's data files are collected. On macOS or Linux you can run the same
-   command or execute the helper script: `bash build.sh`.
-   > **Prefer a custom command?** If you roll your own `pyinstaller` invocation,
-   > remember to include the equivalent of `--add-data "case_documentation_app.py;."`
-   > (use a colon on macOS/Linux). Without it the packaged app cannot locate the
-   > Streamlit entry-point file and will exit with "File does not exist:
-   > case_documentation_app.py". If you disable CORS in a custom build, also
-   > bundle `.streamlit/config.toml` so `enableXsrfProtection` stays in sync and
-   > Streamlit does not print a startup warning.
-8. **Wait for the build to finish.** When PyInstaller completes you will find
-   the executable in the `dist` folder (for example
-   `dist\KiroshiDocumentationSystem.exe`). Copy that file wherever you want to
-   run the app.
-9. **Launch the executable.** Double-click the file from `dist` or run it from
-   a terminal. Streamlit will start and open the Kiroshi interface in your
-   browser just like when running `streamlit run`. Packaged builds listen on
-   `http://localhost:8502/`, so adjust any bookmarks or firewall rules that
-   referenced the default Streamlit port (`8501`).
+   This spec mirrors the long one-liner you might type by hand but also guarantees that `case_documentation_app.py` ships with the executable, that the theme and server configuration in `.streamlit/config.toml` are packaged, and that all of Streamlit's data files are collected. On macOS or Linux you can run the same command or execute the helper script: `bash build.sh`.
+   > **Prefer a custom command?** If you roll your own `pyinstaller` invocation, remember to include the equivalent of `--add-data "case_documentation_app.py;."` (use a colon on macOS/Linux). Without it the packaged app cannot locate the Streamlit entry-point file and will exit with "File does not exist: case_documentation_app.py". If you disable CORS in a custom build, also bundle `.streamlit/config.toml` so `enableXsrfProtection` stays in sync and Streamlit does not print a startup warning.
+8. **Wait for the build to finish.** When PyInstaller completes you will find the executable in the `dist` folder (for example `dist\KiroshiDocumentationSystem.exe`). Copy that file wherever you want to run the app.
+9. **Launch the executable.** Double-click the file from `dist` or run it from a terminal. Streamlit will start and open the Kiroshi interface in your browser just like when running `streamlit run`. Packaged builds listen on `http://localhost:8502/`, so adjust any bookmarks or firewall rules that referenced the default Streamlit port (`8501`).
 
-The PyInstaller spec bundles the companion `kiroshi_chat.py` module along with
-its saved-memory files and logos. This keeps the integrated Kiroshi chat
-panel working in the compiled build and prevents `ModuleNotFoundError`
-crashes when the executable launches.
+The PyInstaller spec bundles the companion `kiroshi_chat.py` module along with its saved-memory files and logos. This keeps the integrated Kiroshi chat panel working in the compiled build and prevents `ModuleNotFoundError` crashes when the executable launches.
 
-If you ever want to rebuild after pulling updates, repeat steps 6 and 7 (you do
-not need to reinstall Python or Git).
+If you ever want to rebuild after pulling updates, repeat steps 6 and 7 (you do not need to reinstall Python or Git).
 
 ## Usage
 
 If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_Release-1.7.2.bat`).
 
-For manual runs from source, execute the Streamlit app from the repository root. If you are not already in the project folder,
-navigate there first with `cd`:
+For manual runs from source, execute the Streamlit app from the repository root. If you are not already in the project folder, navigate there first with `cd`:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
@@ -340,13 +344,9 @@ python run_app.py
 
 This helper sets up the correct Streamlit arguments and is the entry point used when packaging the project into an executable.
 
-A browser window will open with tabs for entering case information. The "Download PDF" button exports a formatted summary, and the
-attachment section lets you bundle supporting files. Use the checkbox at the top to toggle hardware tabs and fields. The *Tables*
-tab provides a full markdown dump of all case data for easy copying. An internal *Debug* tab is available after logging in with
-username and password `admin`.
+A browser window will open with tabs for entering case information. The "Download PDF" button exports a formatted summary, and the attachment section lets you bundle supporting files. Use the checkbox at the top to toggle hardware tabs and fields. The *Tables* tab provides a full markdown dump of all case data for easy copying. An internal *Debug* tab is available after logging in with username and password `admin`.
 
-Multiple cases can be opened at once via the case tabs displayed at the bottom of the page. Use the **Add Case** tab to spawn a new
-blank case and switch between them for multitasking.
+Multiple cases can be opened at once via the case tabs displayed at the bottom of the page. Use the **Add Case** tab to spawn a new blank case and switch between them for multitasking.
 
 Within the *Case* tab, the integrated Kiroshi assistant offers a **Verify** button to highlight missing documentation.
 
@@ -359,24 +359,18 @@ streamlit run kiroshi_chat.py
 
 The chat history is saved to `kiroshi_memory.json` so conversations persist across sessions.
 
-For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for demonstration, and GPT-4o is selected by default
-for fast, high-quality responses. Replace the key or model with your own settings before generating an email.
+For API usage, a placeholder OpenAI API key is prefilled in the *Debug* tab for demonstration, and GPT-4o is selected by default for fast, high-quality responses. Replace the key or model with your own settings before generating an email.
 
 ### Configuration
 
-Copy the example configuration to a new `config.json` file and edit it to match your environment. The application reads options
-such as your OpenAI API key from this file.
+Copy the example configuration to a new `config.json` file and edit it to match your environment. The application reads options such as your OpenAI API key from this file.
 
 ```bash
 cp config.example.json config.json
 # then open config.json and update the values
 ```
 
-The backend endpoint is configurable via the `AI_BASE_URL` environment variable
-or the controls in the Debug tab. Choose **Cloud** to use OpenAI's service,
-**Local API** to point to any OpenAI-compatible server, or **Local Model** to
-run a minimal `transformers` pipeline directly. When using a local server, the
-`OPENAI_API_KEY` may be left blank.
+The backend endpoint is configurable via the `AI_BASE_URL` environment variable or the controls in the Debug tab. Choose **Cloud** to use OpenAI's service, **Local API** to point to any OpenAI-compatible server, or **Local Model** to run a minimal `transformers` pipeline directly. When using a local server, the `OPENAI_API_KEY` may be left blank.
 
 ```bash
 export AI_BASE_URL=http://localhost:8000/v1
@@ -384,10 +378,7 @@ export OPENAI_API_KEY=""
 streamlit run case_documentation_app.py
 ```
 
-If `AI_BASE_URL` is unset (the "Local Model" option), Kiroshi falls back to a
-minimal `transformers` pipeline (install the optional `transformers` and
-`torch` packages from `requirements-bored.txt` and supply an available model)
-to generate text without making HTTP requests.
+If `AI_BASE_URL` is unset (the "Local Model" option), Kiroshi falls back to a minimal `transformers` pipeline (install the optional `transformers` and `torch` packages from `requirements-bored.txt` and supply an available model) to generate text without making HTTP requests.
 
 ### Corporate SSL interception
 
@@ -405,8 +396,7 @@ pip install -r requirements-bored.txt
 ./build.sh
 ```
 
-The resulting binary will be placed in the `dist/` directory. The script bundles the `run_app.py` entry point so the executable
-launches the Streamlit interface directly.
+The resulting binary will be placed in the `dist/` directory. The script bundles the `run_app.py` entry point so the executable launches the Streamlit interface directly.
 
 ## Documentation
 
@@ -602,4 +592,3 @@ This project is licensed under the terms of the MIT License. See [LICENSE](LICEN
 - [Documentation](docs/README.md)
 - [Issue Tracker](https://github.com/your-org/KiroshiDocumentationSystem/issues)
 - [Streamlit](https://streamlit.io)
-
