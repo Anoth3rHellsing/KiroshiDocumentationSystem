@@ -4819,7 +4819,8 @@ def render_logo():
         }}
 
         #kiroshi-header {{
-            font-family: var(--kiroshi-font-family);
+            font-family: 'Segoe UI', 'Segoe UI Variable', 'Segoe UI Web', 'Trebuchet MS',
+                'Calibri', 'Verdana', sans-serif;
             color: var(--kiroshi-text);
         }}
 
@@ -4840,8 +4841,9 @@ def render_logo():
         #kiroshi-header__version span {{
             font-weight: 600;
             font-size: 1.05rem;
-            font-family: var(--kiroshi-heading-font-family);
-            letter-spacing: 0.04em;
+            font-family: 'Segoe UI Semibold', 'Segoe UI', 'Trebuchet MS', 'Calibri',
+                'Verdana', sans-serif;
+            letter-spacing: 0.02em;
         }}
 
         #kiroshi-header__companion {{
@@ -4867,20 +4869,21 @@ def render_logo():
         }}
 
         #kiroshi-header__companion-title {{
-            font-size: 1.25rem;
+            font-size: 1.3rem;
             font-weight: 700;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.03em;
             text-transform: uppercase;
             color: {companion_title_color};
             margin-bottom: 0.5rem;
-            font-family: var(--kiroshi-heading-font-family);
+            font-family: 'Segoe UI', 'Trebuchet MS', 'Calibri', 'Verdana', sans-serif;
         }}
 
         #kiroshi-header__companion-text {{
             font-size: 1rem;
             line-height: 1.6;
             color: {companion_text_color};
-            font-family: var(--kiroshi-font-family);
+            font-family: 'Segoe UI', 'Segoe UI Variable', 'Segoe UI Web', 'Calibri',
+                'Verdana', sans-serif;
             font-weight: 500;
             letter-spacing: 0.015em;
         }}
@@ -4893,8 +4896,9 @@ def render_logo():
             display: flex;
             align-items: center;
             justify-content: flex-end;
-            font-family: var(--kiroshi-heading-font-family);
-            letter-spacing: 0.03em;
+            font-family: 'Segoe UI Semibold', 'Segoe UI', 'Trebuchet MS', 'Calibri',
+                'Verdana', sans-serif;
+            letter-spacing: 0.02em;
         }}
 
         @media (max-width: 1100px) {{
@@ -4940,7 +4944,7 @@ def render_logo():
         </div>
         <div id="kiroshi-header__companion">
             <div id="kiroshi-header__companion-card">
-                <div id="kiroshi-header__companion-title">Kiroshi Motivational Compannion</div>
+                <div id="kiroshi-header__companion-title">Kiroshi Motivational Companion</div>
                 <div id="kiroshi-header__companion-text">{kiroshi_message}</div>
             </div>
         </div>
