@@ -17,6 +17,7 @@ __all__ = [
     "copy_active_case_build_title",
     "copy_active_case_tables",
     "copy_active_case_category",
+    "copy_active_case_chatgpt_prompt",
     "ensure_hotkey_listener",
     "update_hotkey_snapshot",
 ]
@@ -34,12 +35,14 @@ class HotkeySnapshot:
     session: object | None = None
     category_map: dict[str, list[str]] | None = None
     active_index: int = -1
+    chatgpt_prompt: str = ""
     updated_at: float | None = None
 
     def clear(self) -> None:
         self.session = None
         self.category_map = None
         self.active_index = -1
+        self.chatgpt_prompt = ""
         self.updated_at = None
 
 
@@ -76,6 +79,7 @@ def update_hotkey_snapshot(
     case_sessions: Sequence[object] | None,
     active_idx: int,
     category_map: dict[str, list[str]] | None,
+    chatgpt_prompt: str | None = None,
 ) -> None:
     """Persist a deep copy of the active case session for use on the listener thread."""
 
@@ -101,9 +105,12 @@ def update_hotkey_snapshot(
             _snapshot_state.clear()
             return
 
+        prompt_text = chatgpt_prompt if isinstance(chatgpt_prompt, str) else ""
+
         _snapshot_state.session = session_copy
         _snapshot_state.category_map = category_map_copy
         _snapshot_state.active_index = active_idx
+        _snapshot_state.chatgpt_prompt = prompt_text
         _snapshot_state.updated_at = time.monotonic()
 
 
@@ -213,12 +220,43 @@ def copy_active_case_category(category_key: str, *, display_name: str | None = N
 
 
 _HOTKEY_CATEGORY_BINDINGS: dict[str, tuple[str, str]] = {
-    "<ctrl>+<alt>+2": ("PHONECALL", "Phonecall"),
-    "<ctrl>+<alt>+3": ("REMOTE SESSION", "Remote Session"),
+    "<ctrl>+<alt>+2": ("DESCRIPTION", "Description"),
+    "<ctrl>+<alt>+3": ("PHONECALL", "Phonecall"),
     "<ctrl>+<alt>+4": ("INTERNAL NOTES", "Internal Notes"),
-    "<ctrl>+<alt>+5": ("ADDITIONAL INFORMATION", "Additional Information"),
-    "<ctrl>+<alt>+6": ("CONCLUSION", "Root cause and Conclusion"),
+    "<ctrl>+<alt>+5": ("REMOTE SESSION", "Remote Session"),
+    "<ctrl>+<alt>+6": ("ADDITIONAL INFORMATION", "Additional Information"),
+    "<ctrl>+<alt>+7": ("CONCLUSION", "Root Cause & Conclusion"),
 }
+
+
+def copy_active_case_chatgpt_prompt() -> None:
+    """Copy the most recently generated ChatGPT prompt into the clipboard."""
+
+    try:
+        with _snapshot_lock:
+            prompt = _snapshot_state.chatgpt_prompt
+            updated_at = _snapshot_state.updated_at
+
+        if not isinstance(prompt, str) or not prompt.strip():
+            logging.info("Clipboard hotkey ignored: ChatGPT prompt is empty")
+            return
+
+        if updated_at is not None:
+            age = time.monotonic() - updated_at
+            if age > STALE_SNAPSHOT_WARNING_SECONDS:
+                logging.info(
+                    "Hotkey snapshot data may be stale (last updated %.1fs ago)",
+                    age,
+                )
+
+        pyperclip.copy(prompt)
+        logging.info("Copied ChatGPT prompt to clipboard")
+    except pyperclip.PyperclipException as exc:
+        logging.warning("Failed to copy ChatGPT prompt to clipboard: %s", exc)
+    except Exception:
+        logging.exception(
+            "Unexpected error while copying ChatGPT prompt to clipboard",
+        )
 
 
 def _run_hotkey_listener() -> None:
@@ -227,6 +265,7 @@ def _run_hotkey_listener() -> None:
             "<ctrl>+<alt>+c": copy_active_case_tables,
         }
         bindings["<ctrl>+<alt>+1"] = copy_active_case_build_title
+        bindings["<ctrl>+<alt>+8"] = copy_active_case_chatgpt_prompt
         for combo, (category, label) in _HOTKEY_CATEGORY_BINDINGS.items():
             bindings[combo] = partial(
                 copy_active_case_category,
