@@ -14641,10 +14641,33 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         st.code(hotkey_script, language="autohotkey")
 
 
-def render_floating_screenshot_menu(case_idx: int) -> None:
-    """Render floating screenshot capture controls that persist across tabs."""
+def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
+    """Render screenshot capture controls anchored at the bottom of a tab.
 
-    menu_key = partial(case_widget_key, "floating_capture", case_idx=case_idx)
+    ``tab_slug`` should be a stable identifier for the current tab (typically a
+    slugified label). We still guard against empty values so the footer remains
+    usable even if future tabs forget to provide a slug. Each footer instance is
+    registered in session state to guarantee that its widget keys remain unique
+    per case and per tab.
+    """
+
+    raw_slug = str(tab_slug or "").strip()
+    clean_slug = re.sub(r"[^0-9a-z_]+", "_", raw_slug.lower()).strip("_")
+    registry_state_key = widget_state_key("capture_footer_tab_registry", case_idx)
+    slug_registry = st.session_state.setdefault(registry_state_key, {})
+
+    if raw_slug not in slug_registry:
+        candidate = clean_slug or "tab"
+        existing = set(slug_registry.values())
+        counter = 1
+        unique_candidate = candidate
+        while unique_candidate in existing:
+            counter += 1
+            unique_candidate = f"{candidate}_{counter}"
+        slug_registry[raw_slug] = unique_candidate
+
+    footer_slug = f"capture_footer_{slug_registry[raw_slug]}"
+    menu_key = partial(case_widget_key, footer_slug, case_idx=case_idx)
 
     label_state_key = menu_key("shot_label")
     if label_state_key not in st.session_state:
@@ -14661,25 +14684,16 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
 
     screenshots = get_active_screenshots()
 
-    anchor_id = f"floating-screenshot-menu-anchor-{case_idx}"
-    storage_key = f"kiroshi-floating-menu-position-{case_idx}"
-
     container = st.container()
     with container:
-        st.markdown(
-            f"<div id='{anchor_id}'></div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div class='floating-menu-title' role='heading' aria-level='3'>"
-            "📸 Screenshot capture"
-            "</div>",
-            unsafe_allow_html=True,
+        st.markdown("---")
+        st.subheader("Screenshot capture")
+        st.caption(
+            "Capture evidence without leaving the current tab. Files stay linked to the case."
         )
         st.caption(
-            "Capture evidence without leaving your current tab. Files stay linked to the case."
+            "These tools stay pinned to the bottom of each tab so you can grab screenshots anywhere."
         )
-        st.caption("Tap the floating capture bubble to expand these tools, then drag the header or bubble to park them anywhere on your screen.")
         st.text_input(
             "Label for next capture",
             key=label_state_key,
@@ -14728,791 +14742,6 @@ def render_floating_screenshot_menu(case_idx: int) -> None:
             f"{len(screenshots)} capture{'s' if len(screenshots) != 1 else ''}."
         )
 
-    anchor_id_js = json.dumps(anchor_id)
-    storage_key_js = json.dumps(storage_key)
-
-    script = """
-        <script>
-        (function() {
-            let doc = window.document;
-            let rootWindow = window;
-            try {
-                if (window.parent && window.parent !== window) {
-                    const candidate = window.parent.document;
-                    if (candidate) {
-                        doc = candidate;
-                        rootWindow = window.parent;
-                    }
-                }
-            } catch (err) {
-                doc = window.document;
-                rootWindow = window;
-            }
-
-            const scheduleFrame = (callback) => {
-                if (typeof rootWindow.requestAnimationFrame === 'function') {
-                    return rootWindow.requestAnimationFrame(callback);
-                }
-                if (typeof window.requestAnimationFrame === 'function') {
-                    return window.requestAnimationFrame(callback);
-                }
-                return setTimeout(callback, 16);
-            };
-
-            const runLater = (callback, delay = 0) => {
-                if (typeof rootWindow.setTimeout === 'function') {
-                    return rootWindow.setTimeout(callback, delay);
-                }
-                return setTimeout(callback, delay);
-            };
-
-            const ensureDocReady = (callback, retries = 20) => {
-                if (doc && doc.body) {
-                    callback();
-                    return;
-                }
-                if (retries <= 0) { return; }
-                runLater(() => ensureDocReady(callback, retries - 1), 50);
-            };
-
-            ensureDocReady(() => {
-            const anchorId = __ANCHOR_ID__;
-            const storageKey = __STORAGE_KEY__;
-
-            const bootstrapFloatingMenu = (targetBlock) => {
-                try {
-                    if (!targetBlock) { return; }
-
-                    doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block').forEach((el) => {
-                        if (el !== targetBlock) {
-                            el.classList.remove('floating-menu-block');
-                            el.classList.remove('is-expanded');
-                        }
-                    });
-
-                    if (!targetBlock.classList.contains('floating-menu-block')) {
-                        targetBlock.classList.add('floating-menu-block');
-                    }
-
-                    const existingBubble = targetBlock.querySelector(':scope > .floating-menu-bubble');
-                    const existingPanel = targetBlock.querySelector(':scope > .floating-menu-panel');
-                    if (targetBlock.dataset.dragInitialised === '1' && existingBubble && existingPanel) {
-                        return;
-                    }
-
-                    if (existingBubble) {
-                        existingBubble.remove();
-                    }
-                    if (existingPanel) {
-                        while (existingPanel.firstChild) {
-                            targetBlock.insertBefore(existingPanel.firstChild, existingPanel);
-                        }
-                        existingPanel.remove();
-                    }
-
-                    targetBlock.dataset.dragInitialised = '1';
-
-                    const getLocalStorage = () => {
-                        try {
-                            return rootWindow.localStorage;
-                        } catch (err) {
-                            return null;
-                        }
-                    };
-                    const storage = getLocalStorage();
-
-                    const bubble = doc.createElement('button');
-                    bubble.type = 'button';
-                    bubble.className = 'floating-menu-bubble';
-                    bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
-                    bubble.setAttribute('aria-expanded', 'false');
-                    bubble.setAttribute('aria-label', 'Open screenshot capture menu');
-                    bubble.dataset.suppressNextToggle = '0';
-
-                    const panel = doc.createElement('div');
-                    panel.className = 'floating-menu-panel';
-                    while (targetBlock.firstChild) {
-                        panel.appendChild(targetBlock.firstChild);
-                    }
-                    targetBlock.appendChild(panel);
-                    targetBlock.appendChild(bubble);
-
-                    const ensureInBounds = (pos) => {
-                        const safe = { ...pos };
-                        const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
-                        const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
-                        const margin = 24;
-                        const maxLeft = Math.max(margin, viewportWidth - targetBlock.offsetWidth - margin);
-                        const maxTop = Math.max(margin, viewportHeight - targetBlock.offsetHeight - margin);
-                        if (!Number.isFinite(safe.left)) {
-                            safe.left = margin;
-                        }
-                        if (!Number.isFinite(safe.top)) {
-                            safe.top = maxTop;
-                        }
-                        safe.left = Math.min(Math.max(safe.left, margin), maxLeft);
-                        safe.top = Math.min(Math.max(safe.top, margin), maxTop);
-                        return safe;
-                    };
-
-                    let currentPosition = null;
-
-                    const applyPosition = (pos) => {
-                        const safe = ensureInBounds(pos || {});
-                        targetBlock.style.position = 'fixed';
-                        targetBlock.style.top = `${safe.top}px`;
-                        targetBlock.style.left = `${safe.left}px`;
-                        targetBlock.style.right = 'auto';
-                        targetBlock.style.bottom = 'auto';
-                        currentPosition = safe;
-                        return safe;
-                    };
-
-                    const savePosition = (pos) => {
-                        if (!storage || !pos) { return; }
-                        try {
-                            storage.setItem(storageKey, JSON.stringify(pos));
-                        } catch (err) {
-                            console.warn('Unable to persist floating menu position', err);
-                        }
-                    };
-
-                    const setBubbleContent = (expanded) => {
-                        if (expanded) {
-                            bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">&times;</span><span class="sr-only">Collapse screenshot capture menu</span>';
-                            bubble.setAttribute('aria-label', 'Collapse screenshot capture menu');
-                        } else {
-                            bubble.innerHTML = '<span aria-hidden="true" class="floating-menu-bubble-icon">📸</span><span class="sr-only">Open screenshot capture menu</span>';
-                            bubble.setAttribute('aria-label', 'Open screenshot capture menu');
-                        }
-                    };
-
-                    const setExpanded = (expanded, options = {}) => {
-                        const { skipFocus = false, skipReposition = false } = options;
-                        if (expanded) {
-                            targetBlock.classList.add('is-expanded');
-                            bubble.classList.add('is-expanded');
-                            bubble.setAttribute('aria-expanded', 'true');
-                            setBubbleContent(true);
-                            if (!skipReposition) {
-                                scheduleFrame(() => {
-                                    if (currentPosition) {
-                                        const adjusted = ensureInBounds(currentPosition);
-                                        if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
-                                            applyPosition(adjusted);
-                                            savePosition(adjusted);
-                                        }
-                                    }
-                                });
-                            }
-                        } else {
-                            targetBlock.classList.remove('is-expanded');
-                            bubble.classList.remove('is-expanded');
-                            bubble.setAttribute('aria-expanded', 'false');
-                            setBubbleContent(false);
-                            if (!skipFocus) {
-                                bubble.focus({ preventScroll: true });
-                            }
-                            if (!skipReposition) {
-                                scheduleFrame(() => {
-                                    if (currentPosition) {
-                                        const adjusted = ensureInBounds(currentPosition);
-                                        if (adjusted.left !== currentPosition.left || adjusted.top !== currentPosition.top) {
-                                            applyPosition(adjusted);
-                                            savePosition(adjusted);
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                    };
-
-                    targetBlock.__setExpanded = (expanded, opts) => setExpanded(expanded, opts || {});
-
-                    setExpanded(false, { skipFocus: true, skipReposition: true });
-
-                    const savedPosition = (() => {
-                        if (!storage) { return null; }
-                        const raw = storage.getItem(storageKey);
-                        if (!raw) { return null; }
-                        try {
-                            const parsed = JSON.parse(raw);
-                            if (parsed && typeof parsed === 'object') {
-                                return {
-                                    top: Number(parsed.top),
-                                    left: Number(parsed.left),
-                                };
-                            }
-                        } catch (err) {
-                            console.warn('Unable to parse saved floating menu position', err);
-                        }
-                        return null;
-                    })();
-
-                    scheduleFrame(() => {
-                        if (savedPosition) {
-                            const applied = applyPosition(savedPosition);
-                            savePosition(applied);
-                        } else {
-                            const viewportWidth = rootWindow.innerWidth || doc.documentElement.clientWidth || 0;
-                            const viewportHeight = rootWindow.innerHeight || doc.documentElement.clientHeight || 0;
-                            const margin = 24;
-                            const gap = 12;
-                            let defaultLeft = Math.max(margin, viewportWidth - targetBlock.offsetWidth - margin);
-                            let defaultTop = Math.max(
-                                margin,
-                                viewportHeight - targetBlock.offsetHeight - margin,
-                            );
-
-                            const quickActions = doc.querySelector('.quick-actions-floating');
-                            if (quickActions && typeof quickActions.getBoundingClientRect === 'function') {
-                                const rect = quickActions.getBoundingClientRect();
-                                if (rect && Number.isFinite(rect.left) && Number.isFinite(rect.bottom)) {
-                                    const candidateLeft = rect.left - targetBlock.offsetWidth - gap;
-                                    if (Number.isFinite(candidateLeft)) {
-                                        defaultLeft = Math.min(
-                                            Math.max(candidateLeft, margin),
-                                            Math.max(margin, viewportWidth - targetBlock.offsetWidth - margin),
-                                        );
-                                    }
-
-                                    const candidateTop = rect.bottom - targetBlock.offsetHeight;
-                                    if (Number.isFinite(candidateTop)) {
-                                        defaultTop = Math.min(
-                                            Math.max(candidateTop, margin),
-                                            Math.max(margin, viewportHeight - targetBlock.offsetHeight - margin),
-                                        );
-                                    }
-                                }
-                            }
-
-                            const applied = applyPosition({ top: defaultTop, left: defaultLeft });
-                            savePosition(applied);
-                        }
-                    });
-
-                    if (!doc.__floatingMenuOutsideHandler) {
-                        doc.__floatingMenuOutsideHandler = true;
-                        doc.addEventListener('pointerdown', (event) => {
-                            doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
-                                if (!block.contains(event.target)) {
-                                    if (typeof block.__setExpanded === 'function') {
-                                        block.__setExpanded(false, { skipFocus: true });
-                                    }
-                                }
-                            });
-                        });
-                        doc.addEventListener('keydown', (event) => {
-                            if (event.key === 'Escape') {
-                                doc.querySelectorAll('div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded').forEach((block) => {
-                                    if (typeof block.__setExpanded === 'function') {
-                                        block.__setExpanded(false, { skipFocus: true });
-                                    }
-                                });
-                            }
-                        });
-                    }
-
-                    let activePointerId = null;
-                    let dragStart = null;
-                    let mouseDragging = false;
-                    let touchDragging = false;
-                    let activeDragHandle = null;
-                    let suppressClickToggle = false;
-
-                    const beginDragFromPoint = (clientX, clientY) => {
-                        suppressClickToggle = false;
-                        const computed = rootWindow.getComputedStyle
-                            ? rootWindow.getComputedStyle(targetBlock)
-                            : window.getComputedStyle(targetBlock);
-                        const top = parseFloat(computed.top);
-                        const left = parseFloat(computed.left);
-                        const fallbackPosition = currentPosition || ensureInBounds({});
-                        dragStart = {
-                            x: clientX,
-                            y: clientY,
-                            top: Number.isFinite(top) ? top : fallbackPosition.top,
-                            left: Number.isFinite(left) ? left : fallbackPosition.left,
-                        };
-                        targetBlock.classList.add('is-dragging');
-                    };
-
-                    const applyDragFromDelta = (deltaX, deltaY) => {
-                        if (!dragStart) { return; }
-                        if (!suppressClickToggle && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
-                            suppressClickToggle = true;
-                        }
-                        const next = {
-                            left: dragStart.left + deltaX,
-                            top: dragStart.top + deltaY,
-                        };
-                        const applied = applyPosition(next);
-                        savePosition(applied);
-                    };
-
-                    const onPointerMove = (event) => {
-                        if (event.pointerId !== activePointerId || !dragStart) {
-                            return;
-                        }
-                        applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
-                        if (typeof event.preventDefault === 'function') {
-                            event.preventDefault();
-                        }
-                    };
-
-                    const onMouseMove = (event) => {
-                        if (!mouseDragging || !dragStart) {
-                            return;
-                        }
-                        applyDragFromDelta(event.clientX - dragStart.x, event.clientY - dragStart.y);
-                        if (typeof event.preventDefault === 'function') {
-                            event.preventDefault();
-                        }
-                    };
-
-                    const onTouchMove = (event) => {
-                        if (!touchDragging || !dragStart) {
-                            return;
-                        }
-                        const touch = event.touches[0];
-                        if (!touch) { return; }
-                        applyDragFromDelta(touch.clientX - dragStart.x, touch.clientY - dragStart.y);
-                        if (typeof event.preventDefault === 'function') {
-                            event.preventDefault();
-                        }
-                    };
-
-                    const endPointerDrag = (event) => {
-                        if (event.pointerId !== activePointerId) {
-                            return;
-                        }
-                        activePointerId = null;
-                        dragStart = null;
-                        targetBlock.classList.remove('is-dragging');
-                        doc.removeEventListener('pointermove', onPointerMove);
-                        doc.removeEventListener('pointerup', endPointerDrag);
-                        doc.removeEventListener('pointercancel', endPointerDrag);
-                        if (activeDragHandle) {
-                            try {
-                                activeDragHandle.releasePointerCapture(event.pointerId);
-                            } catch (releaseErr) {
-                                // Ignore browsers without pointer capture support.
-                            }
-                        }
-                        activeDragHandle = null;
-                        if (suppressClickToggle) {
-                            bubble.dataset.suppressNextToggle = '1';
-                        }
-                    };
-
-                    const endMouseDrag = () => {
-                        if (!mouseDragging) {
-                            return;
-                        }
-                        mouseDragging = false;
-                        dragStart = null;
-                        targetBlock.classList.remove('is-dragging');
-                        doc.removeEventListener('mousemove', onMouseMove);
-                        doc.removeEventListener('mouseup', endMouseDrag);
-                        if (suppressClickToggle) {
-                            bubble.dataset.suppressNextToggle = '1';
-                        }
-                        activeDragHandle = null;
-                    };
-
-                    const endTouchDrag = () => {
-                        if (!touchDragging) {
-                            return;
-                        }
-                        touchDragging = false;
-                        dragStart = null;
-                        targetBlock.classList.remove('is-dragging');
-                        doc.removeEventListener('touchmove', onTouchMove);
-                        doc.removeEventListener('touchend', endTouchDrag);
-                        doc.removeEventListener('touchcancel', endTouchDrag);
-                        if (suppressClickToggle) {
-                            bubble.dataset.suppressNextToggle = '1';
-                        }
-                        activeDragHandle = null;
-                    };
-
-                    const isInteractive = (node) => {
-                        if (!node) { return false; }
-                        if (node === bubble) { return false; }
-                    const interactiveSelectors = [
-                        'button',
-                        'a',
-                        'input',
-                        'textarea',
-                        'select',
-                        'label',
-                        '[role="button"]',
-                        '[role="checkbox"]',
-                        '[role="switch"]',
-                    ];
-                        const interactive = node.closest(interactiveSelectors.join(','));
-                        if (!interactive) { return false; }
-                        return !interactive.classList.contains('floating-menu-bubble');
-                    };
-
-                    const startPointerDrag = (event) => {
-                        if (activePointerId !== null) {
-                            return;
-                        }
-                        if (event.pointerType === 'mouse' && event.button !== 0) {
-                            return;
-                        }
-                        if (isInteractive(event.target)) {
-                            return;
-                        }
-                        activePointerId = event.pointerId;
-                        activeDragHandle = event.currentTarget;
-                        beginDragFromPoint(event.clientX, event.clientY);
-                        doc.addEventListener('pointermove', onPointerMove);
-                        doc.addEventListener('pointerup', endPointerDrag);
-                        doc.addEventListener('pointercancel', endPointerDrag);
-                        try {
-                            activeDragHandle?.setPointerCapture(activePointerId);
-                        } catch (captureErr) {
-                            // Ignore browsers that do not support pointer capture.
-                        }
-                    };
-
-                    const startMouseDrag = (event) => {
-                        if (activePointerId !== null || event.button !== 0 || mouseDragging) {
-                            return;
-                        }
-                        if (isInteractive(event.target)) {
-                            return;
-                        }
-                        mouseDragging = true;
-                        activeDragHandle = event.currentTarget;
-                        beginDragFromPoint(event.clientX, event.clientY);
-                        doc.addEventListener('mousemove', onMouseMove);
-                        doc.addEventListener('mouseup', endMouseDrag);
-                    };
-
-                    const startTouchDrag = (event) => {
-                        if (activePointerId !== null || touchDragging) {
-                            return;
-                        }
-                        if (isInteractive(event.target)) {
-                            return;
-                        }
-                        const touch = event.touches[0];
-                        if (!touch) { return; }
-                        touchDragging = true;
-                        activeDragHandle = event.currentTarget;
-                        beginDragFromPoint(touch.clientX, touch.clientY);
-                        doc.addEventListener('touchmove', onTouchMove, { passive: false });
-                        doc.addEventListener('touchend', endTouchDrag);
-                        doc.addEventListener('touchcancel', endTouchDrag);
-                    };
-
-                    const attachDragHandlers = (handleEl) => {
-                        handleEl.classList.add('floating-drag-handle');
-                        handleEl.addEventListener('pointerdown', startPointerDrag, { passive: false });
-                        handleEl.addEventListener('mousedown', startMouseDrag);
-                        handleEl.addEventListener('touchstart', startTouchDrag, { passive: false });
-                    };
-
-                    const titleHandle = panel.querySelector('.floating-menu-title');
-                    if (titleHandle) {
-                        attachDragHandlers(titleHandle);
-                    }
-                    attachDragHandlers(bubble);
-
-                    bubble.addEventListener('click', (event) => {
-                        if (bubble.dataset.suppressNextToggle === '1') {
-                            bubble.dataset.suppressNextToggle = '0';
-                            return;
-                        }
-                        event.stopPropagation();
-                        const expanded = targetBlock.classList.contains('is-expanded');
-                        setExpanded(!expanded, { skipFocus: expanded });
-                        if (!expanded) {
-                            scheduleFrame(() => {
-                                const focusTarget = panel.querySelector('input, button, textarea, select');
-                                focusTarget?.focus({ preventScroll: true });
-                            });
-                        }
-                    });
-
-                    rootWindow.addEventListener('resize', () => {
-                        if (currentPosition) {
-                            const adjusted = ensureInBounds(currentPosition);
-                            applyPosition(adjusted);
-                            savePosition(adjusted);
-                        }
-                    });
-                } catch (err) {
-                    console.error('floating menu bootstrap failed', err);
-                }
-            };
-
-            const initialiseFloatingMenu = () => {
-                const anchor = doc.getElementById(anchorId);
-                if (!anchor) { return false; }
-                const targetBlock = anchor.closest('div[data-testid="stVerticalBlock"]');
-                if (!targetBlock) { return false; }
-                bootstrapFloatingMenu(targetBlock);
-                return true;
-            };
-
-            if (!initialiseFloatingMenu()) {
-                const Observer = rootWindow.MutationObserver || window.MutationObserver;
-                if (!Observer) { return; }
-                const observer = new Observer(() => {
-                    if (initialiseFloatingMenu()) {
-                        observer.disconnect();
-                    }
-                });
-                observer.observe(doc.body, { childList: true, subtree: true });
-                rootWindow.addEventListener('beforeunload', () => observer.disconnect(), { once: true });
-                runLater(() => observer.disconnect(), 15000);
-            }
-
-            });
-        })();
-        </script>
-        """
-    script = script.replace("__ANCHOR_ID__", anchor_id_js)
-    script = script.replace("__STORAGE_KEY__", storage_key_js)
-
-    components.html(
-        script,
-        height=0,
-        width=0,
-    )
-
-
-    st.markdown(
-        """
-        <style>
-            div[data-testid="stVerticalBlock"].floating-menu-block {
-                position: fixed;
-                top: auto;
-                bottom: 1.5rem;
-                right: calc(1.5rem + 3.75rem);
-                width: min(360px, 90vw);
-                padding: 1.1rem 1.25rem 1.35rem;
-                border-radius: 0.9rem;
-                box-shadow: 0 18px 42px rgba(15, 23, 42, 0.35);
-                background: var(--floating-menu-bg, rgba(255, 255, 255, 0.98));
-                z-index: 1000;
-                border: 1px solid rgba(148, 163, 184, 0.35);
-                backdrop-filter: blur(10px);
-                color: var(--floating-menu-fg, inherit);
-                overflow: visible;
-                transition: box-shadow 0.2s ease, padding 0.2s ease, width 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block:not(.is-expanded) {
-                width: auto;
-                padding: 0;
-                border: none;
-                box-shadow: none;
-                background: transparent;
-                backdrop-filter: none;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-width: 0;
-                min-height: 0;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-panel {
-                display: none;
-                width: 100%;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-panel {
-                display: block;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble {
-                position: relative;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                width: 3.25rem;
-                height: 3.25rem;
-                border-radius: 999px;
-                background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-                color: #0b1120;
-                border: none;
-                cursor: pointer;
-                box-shadow: 0 12px 30px rgba(14, 165, 233, 0.45);
-                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, width 0.2s ease, height 0.2s ease;
-                padding: 0;
-                user-select: none;
-                -webkit-user-select: none;
-                touch-action: none;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble:hover {
-                transform: translateY(-1px);
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble:focus-visible {
-                outline: 3px solid rgba(59, 130, 246, 0.65);
-                outline-offset: 2px;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-bubble .floating-menu-bubble-icon {
-                font-size: 1.55rem;
-                line-height: 1;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-bubble {
-                position: absolute;
-                top: -0.75rem;
-                right: -0.75rem;
-                width: 2.5rem;
-                height: 2.5rem;
-                background: linear-gradient(135deg, rgba(248, 250, 252, 0.9), rgba(226, 232, 240, 0.95));
-                color: inherit;
-                box-shadow: 0 14px 28px rgba(15, 23, 42, 0.25);
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-bubble .floating-menu-bubble-icon {
-                font-size: 1.2rem;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block label,
-            div[data-testid="stVerticalBlock"].floating-menu-block p,
-            div[data-testid="stVerticalBlock"].floating-menu-block span,
-            div[data-testid="stVerticalBlock"].floating-menu-block h4,
-            div[data-testid="stVerticalBlock"].floating-menu-block small {
-                color: inherit !important;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="input"] input,
-            div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="textarea"] textarea {
-                background-color: rgba(248, 250, 252, 0.9);
-                color: inherit;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block [data-testid="stMarkdown"] p {
-                margin-bottom: 0.35rem;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-title {
-                font-size: 1.05rem;
-                font-weight: 700;
-                margin-bottom: 0.25rem;
-                display: flex;
-                align-items: center;
-                gap: 0.4rem;
-                cursor: grab;
-                user-select: none;
-                touch-action: none;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block.is-dragging .floating-menu-title {
-                cursor: grabbing;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .stButton button {
-                border-radius: 999px;
-                padding: 0.55rem 0.9rem;
-                border: 1px solid rgba(148, 163, 184, 0.45);
-                font-weight: 600;
-                background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
-                color: inherit;
-                transition: transform 0.15s ease, box-shadow 0.15s ease;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .stButton button:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .sr-only {
-                position: absolute;
-                width: 1px;
-                height: 1px;
-                padding: 0;
-                margin: -1px;
-                overflow: hidden;
-                clip: rect(0, 0, 0, 0);
-                border: 0;
-            }
-
-            [data-testid="stAppViewContainer"] {
-                padding-bottom: 9rem;
-            }
-
-            #floating-screenshot-menu-anchor {
-                display: none;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block .floating-menu-title {
-                font-size: 1.05rem;
-                font-weight: 700;
-                margin-bottom: 0.25rem;
-                display: flex;
-                align-items: center;
-                gap: 0.4rem;
-                cursor: grab;
-                user-select: none;
-                touch-action: none;
-            }
-
-            div[data-testid="stVerticalBlock"].floating-menu-block.is-dragging .floating-menu-title {
-                cursor: grabbing;
-            }
-
-            @media (prefers-color-scheme: dark) {
-                div[data-testid="stVerticalBlock"].floating-menu-block {
-                    background: var(--floating-menu-bg-dark, rgba(15, 23, 42, 0.92));
-                    border-color: rgba(226, 232, 240, 0.25);
-                    color: var(--floating-menu-fg-dark, #f8fafc);
-                }
-
-                div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="input"] input,
-                div[data-testid="stVerticalBlock"].floating-menu-block [data-baseweb="textarea"] textarea {
-                    background-color: rgba(30, 41, 59, 0.75);
-                    color: inherit;
-                    border-color: rgba(148, 163, 184, 0.45);
-                }
-
-                div[data-testid="stVerticalBlock"].floating-menu-block .stButton button {
-                    background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.95));
-                    border: 1px solid rgba(125, 211, 252, 0.6);
-                    color: #0b1120;
-                    box-shadow: 0 14px 32px rgba(56, 189, 248, 0.35);
-                }
-
-                div[data-testid="stVerticalBlock"].floating-menu-block .stButton button:hover {
-                    filter: brightness(1.05);
-                    transform: translateY(-1px);
-                }
-
-                div[data-testid="stVerticalBlock"].floating-menu-block:not(.is-expanded) .floating-menu-bubble {
-                    background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.95));
-                    color: #0b1120;
-                }
-
-                div[data-testid="stVerticalBlock"].floating-menu-block.is-expanded .floating-menu-bubble {
-                    background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
-                    color: var(--floating-menu-fg-dark, #f8fafc);
-                }
-            }
-
-            @media (max-width: 768px) {
-                div[data-testid="stVerticalBlock"].floating-menu-block {
-                    top: auto;
-                    right: calc(0.75rem + 3.25rem);
-                    bottom: 0.75rem;
-                    width: min(320px, 92vw);
-                }
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
 
 def render_case_attachments_panel(
     case: CaseData, *, case_idx: int, tab_slug: str
@@ -15527,7 +14756,7 @@ def render_case_attachments_panel(
 
     st.markdown("##### Quick capture")
     st.caption(
-        "Use the floating capture menu that travels with you to grab screenshots from any tab."
+        "Use the screenshot controls at the bottom of each tab to grab evidence wherever you're working."
     )
     st.caption(
         "Captured screenshots sync automatically with uploads so the export ZIP contains everything."
@@ -15900,7 +15129,6 @@ def render_case_ui(case_idx: int):
         tab_labels.append("I'm bored")
 
     tabs = st.tabs(tab_labels)
-    render_floating_screenshot_menu(case_idx)
     tab_iter = iter(tabs)
     tab_case = next(tab_iter)
     tab_tracking = next(tab_iter) if st.session_state.track_case else None
@@ -16391,6 +15619,10 @@ def render_case_ui(case_idx: int):
                     render_description_and_internal_notes(case_shell, False)
                     render_phonecall_section(case_shell, False)
                     render_conclusion_and_additional(case_shell, False)
+
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Case"]
+        )
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -17363,11 +16595,15 @@ End with: We look forward to your reply."""
                                 save_memory(st.session_state.kiroshi_chat_history)
                                 st.session_state.generated_email = reply
                                 st.session_state[generated_email_key] = reply
-                st.session_state.generated_email = st.text_area(
-                    "Generated Email",
-                    height=300,
-                    key=generated_email_key,
-                )
+        st.session_state.generated_email = st.text_area(
+            "Generated Email",
+            height=300,
+            key=generated_email_key,
+        )
+
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Email"]
+        )
     # ================== TRACKING TAB =================
     if tab_tracking:
         with tab_tracking:
@@ -17508,6 +16744,10 @@ End with: We look forward to your reply."""
                 save_case_to_database(D, notify=False)
                 st.session_state.track_case = False
                 st.rerun()
+
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Tracking"]
+            )
 
 
     # ================== ESCALATIONS TAB =================
@@ -17858,6 +17098,10 @@ End with: We look forward to your reply."""
                 )
                 st.markdown("---")
 
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Escalations"]
+            )
+
 
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
@@ -17903,6 +17147,10 @@ End with: We look forward to your reply."""
             )
             st.dataframe(
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
+            )
+
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Hardware Issues"]
             )
 
 
@@ -18229,6 +17477,10 @@ End with: We look forward to your reply."""
                 tab_slug="remote_attachments",
             )
 
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Remote Session"]
+        )
+
 
 
     # ================== TABLES TAB =================
@@ -18321,6 +17573,10 @@ End with: We look forward to your reply."""
                 key=tables_tab_key(f"df_{copy_suffix}"),
             )
 
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Tables"]
+        )
+
 
     # ================== SAVE/LOAD TAB =================
     with tab_save_load:
@@ -18400,10 +17656,17 @@ End with: We look forward to your reply."""
             if col_s.button("Save", key=save_tab_key("save_before_loading")):
                 save_case_to_database(D)
 
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Save/Load"]
+        )
+
 
     if show_case_chat and tab_chat is not None:
         with tab_chat:
             render_case_kiroshi_chat_panel(case_idx)
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Kiroshi Chat"]
+            )
 
     # ================== BORED TAB =================
     if tab_bored:
@@ -18570,6 +17833,10 @@ End with: We look forward to your reply."""
             if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
+
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["I'm bored"]
+            )
 
     autosave()
 
