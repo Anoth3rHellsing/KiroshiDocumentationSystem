@@ -4806,6 +4806,7 @@ def render_logo():
     companion_text_color = "#111827" if holiday_theme_active else "var(--kiroshi-text)"
     header_html = f"""
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap');
         #kiroshi-header {{
             display: grid;
             grid-template-columns: minmax(180px, 0.85fr) minmax(320px, 1.5fr) minmax(200px, 0.85fr);
@@ -4867,13 +4868,13 @@ def render_logo():
         }}
 
         #kiroshi-header__companion-title {{
-            font-size: 1.25rem;
+            font-size: 1.3rem;
             font-weight: 700;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.03em;
             text-transform: uppercase;
             color: {companion_title_color};
             margin-bottom: 0.5rem;
-            font-family: var(--kiroshi-heading-font-family);
+            font-family: 'Segoe UI', 'Trebuchet MS', 'Calibri', 'Verdana', sans-serif;
         }}
 
         #kiroshi-header__companion-text {{
@@ -4940,7 +4941,7 @@ def render_logo():
         </div>
         <div id="kiroshi-header__companion">
             <div id="kiroshi-header__companion-card">
-                <div id="kiroshi-header__companion-title">Kiroshi Motivational Compannion</div>
+                <div id="kiroshi-header__companion-title">Kiroshi Motivational Companion</div>
                 <div id="kiroshi-header__companion-text">{kiroshi_message}</div>
             </div>
         </div>
