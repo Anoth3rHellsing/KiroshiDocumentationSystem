@@ -14,6 +14,7 @@ import pyperclip
 from pynput import keyboard
 
 __all__ = [
+    "copy_active_case_build_title",
     "copy_active_case_tables",
     "copy_active_case_category",
     "ensure_hotkey_listener",
@@ -164,6 +165,46 @@ def copy_active_case_tables() -> None:
     _copy_tables_from_snapshot(categories=None, log_label="all tables")
 
 
+def copy_active_case_build_title() -> None:
+    """Copy the build title for the active case into the system clipboard."""
+
+    try:
+        with _snapshot_lock:
+            session = _snapshot_state.session
+            updated_at = _snapshot_state.updated_at
+
+        if session is None:
+            logging.info("Clipboard hotkey ignored: hotkey snapshot is empty")
+            return
+
+        if updated_at is not None:
+            age = time.monotonic() - updated_at
+            if age > STALE_SNAPSHOT_WARNING_SECONDS:
+                logging.info(
+                    "Hotkey snapshot data may be stale (last updated %.1fs ago)",
+                    age,
+                )
+
+        case_obj = getattr(session, "case", None)
+        if case_obj is None:
+            logging.info("Clipboard hotkey ignored: snapshot missing case data")
+            return
+
+        from case_documentation_app import build_title  # Local import to avoid cycles
+
+        title = build_title(case_obj)
+        if not title:
+            logging.info("Clipboard hotkey ignored: build title is empty")
+            return
+
+        pyperclip.copy(title)
+        logging.info("Copied build title to clipboard")
+    except pyperclip.PyperclipException as exc:
+        logging.warning("Failed to copy build title to clipboard: %s", exc)
+    except Exception:
+        logging.exception("Unexpected error while copying build title to clipboard")
+
+
 def copy_active_case_category(category_key: str, *, display_name: str | None = None) -> None:
     """Copy a single category table for the active case."""
 
@@ -172,7 +213,6 @@ def copy_active_case_category(category_key: str, *, display_name: str | None = N
 
 
 _HOTKEY_CATEGORY_BINDINGS: dict[str, tuple[str, str]] = {
-    "<ctrl>+<alt>+1": ("HEADER", "Title"),
     "<ctrl>+<alt>+2": ("PHONECALL", "Phonecall"),
     "<ctrl>+<alt>+3": ("REMOTE SESSION", "Remote Session"),
     "<ctrl>+<alt>+4": ("INTERNAL NOTES", "Internal Notes"),
@@ -186,6 +226,7 @@ def _run_hotkey_listener() -> None:
         bindings: dict[str, object] = {
             "<ctrl>+<alt>+c": copy_active_case_tables,
         }
+        bindings["<ctrl>+<alt>+1"] = copy_active_case_build_title
         for combo, (category, label) in _HOTKEY_CATEGORY_BINDINGS.items():
             bindings[combo] = partial(
                 copy_active_case_category,
