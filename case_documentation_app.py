@@ -14672,6 +14672,10 @@ def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
         slug_registry[raw_slug] = unique_candidate
 
     footer_slug = f"capture_footer_{slug_registry[raw_slug]}"
+    render_token = (case_idx, footer_slug)
+    if render_token in _RENDERED_CAPTURE_FOOTERS:
+        return
+    _RENDERED_CAPTURE_FOOTERS.add(render_token)
     menu_key = partial(case_widget_key, footer_slug, case_idx=case_idx)
 
     label_state_key = menu_key("shot_label")
@@ -14939,6 +14943,12 @@ CASE_TAB_SLUGS = {
     "I'm bored": "bored",
     "Debug": "debug",
 }
+
+# Tracks which (case, tab) combinations have already rendered the screenshot footer
+# during the current Streamlit script execution. Prevents duplicate footers from
+# appearing when callers accidentally invoke the renderer multiple times within a
+# single render cycle.
+_RENDERED_CAPTURE_FOOTERS: set[tuple[int, str]] = set()
 
 
 def _case_chat_state_key(case_idx: int) -> str:
