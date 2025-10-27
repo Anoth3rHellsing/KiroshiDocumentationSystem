@@ -16784,6 +16784,12 @@ End with: We look forward to your reply."""
                 "Replacement Move+ Closure",
                 "Dell Escalation Email",
             }
+            generated_email_key = email_tab_key("generated_email_output")
+            if generated_email_key not in st.session_state:
+                st.session_state[generated_email_key] = st.session_state.get(
+                    "generated_email", ""
+                )
+
             if email_type not in static_templates:
                 st.text_area(
                     prompt_label,
@@ -16811,11 +16817,6 @@ End with: We look forward to your reply."""
                     value=st.session_state.get(scan_time_toggle_key, False),
                     key=scan_time_toggle_key,
                 )
-                generated_email_key = email_tab_key("generated_email_output")
-                if generated_email_key not in st.session_state:
-                    st.session_state[generated_email_key] = st.session_state.get(
-                        "generated_email", ""
-                    )
                 if st.button("Use GPT-OSS", key=email_tab_key("use_gpt")):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
