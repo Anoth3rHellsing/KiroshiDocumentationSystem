@@ -4868,13 +4868,13 @@ def render_logo():
         }}
 
         #kiroshi-header__companion-title {{
-            font-size: 1.25rem;
+            font-size: 1.3rem;
             font-weight: 700;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.03em;
             text-transform: uppercase;
             color: {companion_title_color};
             margin-bottom: 0.5rem;
-            font-family: 'Playfair Display', var(--kiroshi-heading-font-family);
+            font-family: 'Segoe UI', 'Trebuchet MS', 'Calibri', 'Verdana', sans-serif;
         }}
 
         #kiroshi-header__companion-text {{
