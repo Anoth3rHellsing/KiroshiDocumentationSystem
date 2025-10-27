@@ -1,8 +1,7 @@
 import logging
-from types import SimpleNamespace
-
 import sys
 import types
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,4 +77,39 @@ def test_copy_active_case_tables_uses_snapshot(monkeypatch, caplog):
     )
     assert any(
         "Copied case tables to clipboard" in record.message for record in caplog.records
+    )
+
+
+def test_copy_chatgpt_prompt_uses_snapshot(monkeypatch, caplog):
+    captured_payloads: list[str] = []
+
+    monkeypatch.setattr(kiroshi_hotkeys.pyperclip, "copy", captured_payloads.append)
+
+    session = SimpleNamespace(case=SimpleNamespace(value="original"))
+    category_map: dict[str, list[str]] = {}
+
+    monotonic_values = iter(
+        [
+            0.0,
+            kiroshi_hotkeys.STALE_SNAPSHOT_WARNING_SECONDS + 2.0,
+        ]
+    )
+    monkeypatch.setattr(kiroshi_hotkeys.time, "monotonic", lambda: next(monotonic_values))
+
+    kiroshi_hotkeys.update_hotkey_snapshot(
+        [session],
+        0,
+        category_map,
+        "Prompt payload",
+    )
+
+    caplog.set_level(logging.INFO)
+    kiroshi_hotkeys.copy_active_case_chatgpt_prompt()
+
+    assert captured_payloads == ["Prompt payload"]
+    assert any(
+        "Hotkey snapshot data may be stale" in record.message for record in caplog.records
+    )
+    assert any(
+        "Copied ChatGPT prompt to clipboard" in record.message for record in caplog.records
     )

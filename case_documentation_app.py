@@ -6942,7 +6942,10 @@ def _refresh_hotkey_snapshot() -> None:
         logging.exception("Failed to build category map for hotkey snapshot")
         category_map = {}
     target_idx = _resolve_hotkey_target_index(sessions, CURRENT_CASE_IDX)
-    update_hotkey_snapshot(sessions, target_idx, category_map)
+    prompt_text = st.session_state.get("last_prompt")
+    if not isinstance(prompt_text, str):
+        prompt_text = ""
+    update_hotkey_snapshot(sessions, target_idx, category_map, prompt_text)
 
 
 def _ensure_case_hardware_test_text(case: CaseData | None) -> None:
@@ -16014,11 +16017,12 @@ def render_case_ui(case_idx: int):
                 with left:
                     st.subheader("Documentation Preview – Copy‑friendly Tables")
                     st.caption(
-                        "Hotkeys: Ctrl+Alt+1 copies the Title table, 2 copies Phonecall, 3 copies Remote Session, 4 copies "
-                        "Internal Notes, 5 copies Additional Information, 6 copies Root Cause & Conclusion, and Ctrl+Alt+C "
-                        "still grabs every table. Flip the “Use this case for global clipboard hotkeys” toggle in the Tables "
-                        "tab when you want these shortcuts to pull from a different case. The listener keeps running even "
-                        "when Kiroshi is in the background so you can paste with Ctrl+V directly into your CRM or spreadsheet."
+                        "Hotkeys: Ctrl+Alt+1 copies the Build Title, 2 copies Description, 3 copies Phonecall, 4 copies "
+                        "Internal Notes, 5 copies Remote Session, 6 copies Additional Information, 7 copies Root Cause & "
+                        "Conclusion, 8 copies the ChatGPT prompt (Email tab), and Ctrl+Alt+C still grabs every table. Flip "
+                        "the “Use this case for global clipboard hotkeys” toggle in the Tables tab when you want these "
+                        "shortcuts to pull from a different case. The listener keeps running even when Kiroshi is in the "
+                        "background so you can paste with Ctrl+V directly into your CRM or spreadsheet."
                     )
                     for cat in cat_map:
                         title_text = table_title(cat)

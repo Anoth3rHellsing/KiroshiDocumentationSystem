@@ -23,10 +23,11 @@ Coverage is actively tracked and the project receives daily updates.
 - **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
 - **Optional hardware tab** – enable with the "Include hardware issue fields" checkbox when a case involves hardware.
 - **Tables tab** – displays each category in an Excel‑style table with a title indicating Phonecall or Int plus the current date,
-  making it easy to copy into spreadsheets. A global listener also watches for **Ctrl+Alt+1…6** to copy the Title, Phonecall,
-  Remote Session, Internal Notes, Additional Information, or Root Cause & Conclusion tables individually (use **Ctrl+Alt+C** if
-  you still need the full bundle) without switching back to the Streamlit window. Pick which case feeds those shortcuts via the
-  “Use this case for global clipboard hotkeys” toggle at the top of the Tables tab.
+  making it easy to copy into spreadsheets. A global listener also watches for **Ctrl+Alt+1…8** to copy the Build Title,
+  Description, Phonecall, Internal Notes, Remote Session, Additional Information, Root Cause & Conclusion tables, or the
+  ChatGPT prompt (Email tab) individually (use **Ctrl+Alt+C** if you still need the full bundle) without switching back to the
+  Streamlit window. Pick which case feeds those shortcuts via the “Use this case for global clipboard hotkeys” toggle at the top
+  of the Tables tab.
 - **PDF export** – download a formatted summary of the case with wrapped table text so long values stay within the page.
 - **Attachments** – upload screenshots or videos and export everything as a ZIP bundle, with logs placed in a separate `logs/`
   folder.
@@ -174,12 +175,14 @@ the following shortcuts from any window:
 
 | Shortcut         | Clipboard payload                         |
 | ---------------- | ------------------------------------------ |
-| **Ctrl+Alt+1**   | Title (HEADER) table                       |
-| **Ctrl+Alt+2**   | Phonecall table                            |
-| **Ctrl+Alt+3**   | Remote Session table                       |
+| **Ctrl+Alt+1**   | Build Title (HEADER table)                 |
+| **Ctrl+Alt+2**   | Description table                          |
+| **Ctrl+Alt+3**   | Phonecall table                            |
 | **Ctrl+Alt+4**   | Internal Notes table                       |
-| **Ctrl+Alt+5**   | Additional Information table               |
-| **Ctrl+Alt+6**   | Root Cause & Conclusion table              |
+| **Ctrl+Alt+5**   | Remote Session table                       |
+| **Ctrl+Alt+6**   | Additional Information table               |
+| **Ctrl+Alt+7**   | Root Cause & Conclusion table              |
+| **Ctrl+Alt+8**   | ChatGPT prompt (Email tab)                 |
 | **Ctrl+Alt+C**   | Full bundle (all tables, unchanged)        |
 
 Each shortcut converts the stored snapshot into the same plain-text output that
