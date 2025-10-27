@@ -14649,6 +14649,31 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         st.code(hotkey_script, language="autohotkey")
 
 
+_CAPTURE_FOOTER_REGISTRY_PREFIX = "capture_footer_tab_registry"
+
+
+def _reset_capture_footer_registry(*, case_idx: int | None = None) -> None:
+    """Clear cached capture footer state so fresh widgets render cleanly."""
+
+    if case_idx is None:
+        _RENDERED_CAPTURE_FOOTERS.clear()
+        prefix = f"{_CAPTURE_FOOTER_REGISTRY_PREFIX}_"
+        keys_to_drop = [
+            key
+            for key in list(st.session_state.keys())
+            if isinstance(key, str) and key.startswith(prefix)
+        ]
+        for key in keys_to_drop:
+            st.session_state.pop(key, None)
+    else:
+        _RENDERED_CAPTURE_FOOTERS.difference_update(
+            {token for token in _RENDERED_CAPTURE_FOOTERS if token[0] == case_idx}
+        )
+        st.session_state.pop(
+            widget_state_key(_CAPTURE_FOOTER_REGISTRY_PREFIX, case_idx), None
+        )
+
+
 def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
     """Render screenshot capture controls anchored at the bottom of a tab.
 
@@ -14661,7 +14686,9 @@ def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
 
     raw_slug = str(tab_slug or "").strip()
     clean_slug = re.sub(r"[^0-9a-z_]+", "_", raw_slug.lower()).strip("_")
-    registry_state_key = widget_state_key("capture_footer_tab_registry", case_idx)
+    registry_state_key = widget_state_key(
+        _CAPTURE_FOOTER_REGISTRY_PREFIX, case_idx
+    )
     slug_registry = st.session_state.setdefault(registry_state_key, {})
 
     if raw_slug not in slug_registry:
@@ -17863,6 +17890,8 @@ End with: We look forward to your reply."""
 
     reminder_state = _refresh_wellness_reminder_state()
     render_wellness_alert(reminder_state)
+
+    _reset_capture_footer_registry()
 
 visible_case_indices = list(range(1, len(st.session_state.case_sessions)))
 case_labels = [
