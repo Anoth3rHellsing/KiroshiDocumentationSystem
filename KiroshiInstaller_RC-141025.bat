@@ -5,7 +5,7 @@ REM  PLAN C: Creates plain .CMD launchers instead of .LNK shortcuts.
 REM  - Copies to C:\ProgramData\Kiroshi Documentation
 REM  - Creates venv, installs requirements (with pip SSL bypass)
 REM  - Writes launcher CMD files to Desktop(s) and Start Menu folders
-REM  - Launches with: streamlit run case_documentation_app.py
+REM  - Launches with: streamlit-desktop-app run case_documentation_app.py
 REM  NOTE: .CMD files don't support custom icons.
 REM ======================================================================
 
@@ -25,6 +25,7 @@ set "DEST=C:\ProgramData\Kiroshi Documentation"
 set "VENV=%DEST%\.venv"
 set "PYTHON_EXE=%VENV%\Scripts\python.exe"
 set "STREAMLIT_EXE=%VENV%\Scripts\streamlit.exe"
+set "STREAMLIT_DESKTOP_EXE=%VENV%\Scripts\streamlit-desktop-app.exe"
 set "DESKTOP_USER=%USERPROFILE%\Desktop"
 set "DESKTOP_PUBLIC=%Public%\Desktop"
 set "START_MENU_USER=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
@@ -102,6 +103,12 @@ if exist "%DEST%\requirements.txt" (
         --trusted-host pypi.python.org ^
         streamlit 1>>"%LOG%" 2>&1
 )
+REM Install desktop wrapper used for packaged Streamlit experience.
+"%PYTHON_EXE%" -m pip install ^
+    --trusted-host pypi.org ^
+    --trusted-host files.pythonhosted.org ^
+    --trusted-host pypi.python.org ^
+    streamlit-desktop-app 1>>"%LOG%" 2>&1
 
 :: ------------------------- Create .CMD launchers --------------------------
 for %%D in ("%DESKTOP_USER%","%DESKTOP_PUBLIC%","%START_MENU_USER%","%START_MENU_ALL%") do (
@@ -113,10 +120,12 @@ set "PS1_FILE=%TEMP%\mk_kiroshi_cmd_launchers.ps1"
 >>"%PS1_FILE%" echo $content = @"
 >>"%PS1_FILE%" echo @echo off
 >>"%PS1_FILE%" echo cd /d ""$Dest""
->>"%PS1_FILE%" echo if exist ".venv\Scripts\streamlit.exe" ^(
->>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\streamlit.exe" run case_documentation_app.py
+>>"%PS1_FILE%" echo if exist ".venv\Scripts\streamlit-desktop-app.exe" ^(
+>>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\streamlit-desktop-app.exe" run case_documentation_app.py
 >>"%PS1_FILE%" echo ^) else ^(
->>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\python.exe" -m streamlit run case_documentation_app.py
+>>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\python.exe" -m streamlit_desktop_app run case_documentation_app.py
+>>"%PS1_FILE%" echo ^  REM Legacy Streamlit CLI fallback retained for older installs.
+>>"%PS1_FILE%" echo ^  if exist ".venv\Scripts\streamlit.exe" start "" ".venv\Scripts\streamlit.exe" run case_documentation_app.py
 >>"%PS1_FILE%" echo ^)
 >>"%PS1_FILE%" echo "@
 >>"%PS1_FILE%" echo foreach($p in $Paths){
@@ -134,10 +143,12 @@ set "PS1_FILE=%TEMP%\mk_kiroshi_cmd_launchers.ps1"
 >>"%PS1_FILE%" echo ^  $content2 = @"
 >>"%PS1_FILE%" echo @echo off
 >>"%PS1_FILE%" echo cd /d ""$Dest""
->>"%PS1_FILE%" echo if exist ".venv\Scripts\streamlit.exe" ^(
->>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\streamlit.exe" run kiroshi_chat.py
+>>"%PS1_FILE%" echo if exist ".venv\Scripts\streamlit-desktop-app.exe" ^(
+>>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\streamlit-desktop-app.exe" run kiroshi_chat.py
 >>"%PS1_FILE%" echo ^) else ^(
->>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\python.exe" -m streamlit run kiroshi_chat.py
+>>"%PS1_FILE%" echo ^  start "" ".venv\Scripts\python.exe" -m streamlit_desktop_app run kiroshi_chat.py
+>>"%PS1_FILE%" echo ^  REM Legacy Streamlit CLI fallback retained for older installs.
+>>"%PS1_FILE%" echo ^  if exist ".venv\Scripts\streamlit.exe" start "" ".venv\Scripts\streamlit.exe" run kiroshi_chat.py
 >>"%PS1_FILE%" echo ^)
 >>"%PS1_FILE%" echo "@
 >>"%PS1_FILE%" echo ^  foreach($p in $Paths){
@@ -160,11 +171,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1_FILE%" ^
 if exist "%PS1_FILE%" del "%PS1_FILE%" >nul 2>&1
 
 :: ------------------------------- Launch App -------------------------------
-echo Launching Kiroshi with Streamlit...
-if exist "%STREAMLIT_EXE%" (
-    start "" "%STREAMLIT_EXE%" run case_documentation_app.py
+echo Launching Kiroshi with Streamlit Desktop runner...
+if exist "%STREAMLIT_DESKTOP_EXE%" (
+    start "" "%STREAMLIT_DESKTOP_EXE%" run case_documentation_app.py
 ) else (
-    start "" "%PYTHON_EXE%" -m streamlit run case_documentation_app.py
+    start "" "%PYTHON_EXE%" -m streamlit_desktop_app run case_documentation_app.py
+    REM Legacy Streamlit CLI fallback retained for older installs lacking the desktop package.
+    if exist "%STREAMLIT_EXE%" start "" "%STREAMLIT_EXE%" run case_documentation_app.py
 )
 
 echo.
