@@ -1413,6 +1413,54 @@ def _discover_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
             yield path
 
 
+def _ensure_update_branch_accessible(repo: str, branch: str) -> None:
+    """Raise an informative error when the update target cannot be accessed."""
+
+    api_url = f"https://api.github.com/repos/{repo}/branches/{branch}"
+    headers = _build_github_headers()
+    try:
+        response = requests.get(
+            api_url,
+            headers=headers,
+            timeout=UPDATE_CHECK_TIMEOUT,
+            verify=False,
+        )
+    except requests.RequestException as exc:  # pragma: no cover - network errors
+        logging.debug(
+            "Unable to verify update branch %s for %s: %s", branch, repo, exc
+        )
+        return
+
+    if response.status_code == 200:
+        return
+
+    if response.status_code == 404:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        message = payload.get("message") if isinstance(payload, dict) else None
+        if isinstance(message, str) and message.lower().startswith("branch not found"):
+            raise FileNotFoundError(
+                f"GitHub branch '{branch}' was not found in the repository {repo}. "
+                "Update KIROSHI_UPDATE_BRANCH to a valid branch name."
+            )
+        raise FileNotFoundError(
+            f"GitHub repository {repo} is not accessible. Configure {GITHUB_TOKEN_ENV_VAR} "
+            "or update KIROSHI_UPDATE_REPO."
+        )
+
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:  # pragma: no cover - defensive
+        logging.debug(
+            "Unexpected error when verifying update branch %s for %s: %s",
+            branch,
+            repo,
+            exc,
+        )
+
+
 def _iter_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
     """Yield possible locations for the application in the update repo.
 
@@ -1526,6 +1574,13 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
         return match.group(1).strip()
 
     if last_error:
+        if isinstance(last_error, requests.HTTPError):
+            response = last_error.response
+            if response is not None and response.status_code == 404:
+                try:
+                    _ensure_update_branch_accessible(repo, branch)
+                except FileNotFoundError as exc:
+                    raise FileNotFoundError(str(exc)) from last_error
         raise FileNotFoundError(
             "Unable to locate case_documentation_app.py in the configured repository "
             f"({repo}@{branch}). Set KIROSHI_UPDATE_APP_PATHS to override the lookup."
