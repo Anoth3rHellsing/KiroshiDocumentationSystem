@@ -8,3 +8,4 @@ pyinstaller==6.16.0
 pyautogui==0.9.54
 pynput==1.8.1
 pyperclip==1.11.0
+streamlit-desktop-app==0.3.4

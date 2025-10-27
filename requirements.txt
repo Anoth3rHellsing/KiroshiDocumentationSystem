@@ -13,3 +13,4 @@ pillow
 mss
 pdfminer.six
 cryptography
+streamlit-desktop-app
