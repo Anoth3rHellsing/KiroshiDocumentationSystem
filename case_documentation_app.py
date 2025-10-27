@@ -14741,22 +14741,23 @@ def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
 
     raw_slug = str(tab_slug or "").strip()
     clean_slug = re.sub(r"[^0-9a-z_]+", "_", raw_slug.lower()).strip("_")
+    slug_key = clean_slug or "tab"
     registry_state_key = widget_state_key(
         _CAPTURE_FOOTER_REGISTRY_PREFIX, case_idx
     )
     slug_registry = st.session_state.setdefault(registry_state_key, {})
 
-    if raw_slug not in slug_registry:
-        candidate = clean_slug or "tab"
+    if slug_key not in slug_registry:
+        candidate = slug_key
         existing = set(slug_registry.values())
         counter = 1
         unique_candidate = candidate
         while unique_candidate in existing:
             counter += 1
             unique_candidate = f"{candidate}_{counter}"
-        slug_registry[raw_slug] = unique_candidate
+        slug_registry[slug_key] = unique_candidate
 
-    footer_slug = f"capture_footer_{slug_registry[raw_slug]}"
+    footer_slug = f"capture_footer_{slug_registry[slug_key]}"
     render_token = (case_idx, footer_slug)
     if render_token in _RENDERED_CAPTURE_FOOTERS:
         return
