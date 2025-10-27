@@ -16868,9 +16868,9 @@ End with: We look forward to your reply."""
             key=generated_email_key,
         )
 
-            render_screenshot_capture_footer(
-                case_idx, tab_slug=CASE_TAB_SLUGS["Email"]
-            )
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Email"]
+        )
     # ================== TRACKING TAB =================
     if tab_tracking:
         with tab_tracking:
