@@ -168,3 +168,71 @@ def test_check_for_updates_returns_commit_metadata(monkeypatch):
     expected_url = f"https://codeload.github.com/{repo}/zip/refs/heads/main"
     assert result.download_url == expected_url
 
+
+@responses.activate
+def test_check_for_updates_reports_inaccessible_repository(monkeypatch):
+    repo = "missing/repo"
+    metadata_url = f"https://api.github.com/repos/{repo}"
+    tree_url = f"https://api.github.com/repos/{repo}/git/trees/main?recursive=1"
+    branch_url = f"https://api.github.com/repos/{repo}/branches/main"
+
+    responses.add(responses.GET, metadata_url, json={"message": "Not Found"}, status=404)
+    responses.add(responses.GET, tree_url, json={"message": "Not Found"}, status=404)
+    for candidate in [
+        "case_documentation_app.py",
+        "KiroshiDocumentationSystem/case_documentation_app.py",
+        "src/case_documentation_app.py",
+        "app/case_documentation_app.py",
+    ]:
+        responses.add(
+            responses.GET,
+            f"https://raw.githubusercontent.com/{repo}/main/{candidate}",
+            status=404,
+        )
+    responses.add(responses.GET, branch_url, json={"message": "Not Found"}, status=404)
+
+    monkeypatch.setenv("KIROSHI_UPDATE_REPO", repo)
+
+    result = check_for_updates()
+
+    assert isinstance(result, UpdateCheckResult)
+    assert result.error
+    assert "repository" in result.error
+    assert repo in result.error
+
+
+@responses.activate
+def test_check_for_updates_reports_missing_branch(monkeypatch):
+    repo = "example/repo"
+    branch = "staging"
+    tree_url = f"https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
+    branch_url = f"https://api.github.com/repos/{repo}/branches/{branch}"
+
+    responses.add(responses.GET, tree_url, json={"message": "Not Found"}, status=404)
+    for candidate in [
+        "case_documentation_app.py",
+        "KiroshiDocumentationSystem/case_documentation_app.py",
+        "src/case_documentation_app.py",
+        "app/case_documentation_app.py",
+    ]:
+        responses.add(
+            responses.GET,
+            f"https://raw.githubusercontent.com/{repo}/{branch}/{candidate}",
+            status=404,
+        )
+    responses.add(
+        responses.GET,
+        branch_url,
+        json={"message": "Branch not found"},
+        status=404,
+    )
+
+    monkeypatch.setenv("KIROSHI_UPDATE_REPO", repo)
+    monkeypatch.setenv("KIROSHI_UPDATE_BRANCH", branch)
+
+    result = check_for_updates()
+
+    assert isinstance(result, UpdateCheckResult)
+    assert result.error
+    assert branch in result.error
+
