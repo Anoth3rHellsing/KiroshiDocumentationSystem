@@ -15720,9 +15720,9 @@ def render_case_ui(case_idx: int):
                     render_phonecall_section(case_shell, False)
                     render_conclusion_and_additional(case_shell, False)
 
-        render_screenshot_capture_footer(
-            case_idx, tab_slug=CASE_TAB_SLUGS["Case"]
-        )
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Case"]
+            )
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -16868,9 +16868,9 @@ End with: We look forward to your reply."""
             key=generated_email_key,
         )
 
-        render_screenshot_capture_footer(
-            case_idx, tab_slug=CASE_TAB_SLUGS["Email"]
-        )
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Email"]
+            )
     # ================== TRACKING TAB =================
     if tab_tracking:
         with tab_tracking:
