@@ -14642,10 +14642,33 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         st.code(hotkey_script, language="autohotkey")
 
 
-def render_screenshot_capture_footer(case_idx: int) -> None:
-    """Render screenshot capture controls anchored at the bottom of a tab."""
+def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
+    """Render screenshot capture controls anchored at the bottom of a tab.
 
-    menu_key = partial(case_widget_key, "capture_footer", case_idx=case_idx)
+    ``tab_slug`` should be a stable identifier for the current tab (typically a
+    slugified label). We still guard against empty values so the footer remains
+    usable even if future tabs forget to provide a slug. Each footer instance is
+    registered in session state to guarantee that its widget keys remain unique
+    per case and per tab.
+    """
+
+    raw_slug = str(tab_slug or "").strip()
+    clean_slug = re.sub(r"[^0-9a-z_]+", "_", raw_slug.lower()).strip("_")
+    registry_state_key = widget_state_key("capture_footer_tab_registry", case_idx)
+    slug_registry = st.session_state.setdefault(registry_state_key, {})
+
+    if raw_slug not in slug_registry:
+        candidate = clean_slug or "tab"
+        existing = set(slug_registry.values())
+        counter = 1
+        unique_candidate = candidate
+        while unique_candidate in existing:
+            counter += 1
+            unique_candidate = f"{candidate}_{counter}"
+        slug_registry[raw_slug] = unique_candidate
+
+    footer_slug = f"capture_footer_{slug_registry[raw_slug]}"
+    menu_key = partial(case_widget_key, footer_slug, case_idx=case_idx)
 
     label_state_key = menu_key("shot_label")
     if label_state_key not in st.session_state:
@@ -15598,7 +15621,9 @@ def render_case_ui(case_idx: int):
                     render_phonecall_section(case_shell, False)
                     render_conclusion_and_additional(case_shell, False)
 
-        render_screenshot_capture_footer(case_idx)
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Case"]
+        )
     # ================== EMAIL TAB =================
     if tab_email:
         with tab_email:
@@ -16577,7 +16602,9 @@ End with: We look forward to your reply."""
             key=generated_email_key,
         )
 
-        render_screenshot_capture_footer(case_idx)
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Email"]
+        )
     # ================== TRACKING TAB =================
     if tab_tracking:
         with tab_tracking:
@@ -16719,7 +16746,9 @@ End with: We look forward to your reply."""
                 st.session_state.track_case = False
                 st.rerun()
 
-            render_screenshot_capture_footer(case_idx)
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Tracking"]
+            )
 
 
     # ================== ESCALATIONS TAB =================
@@ -17070,7 +17099,9 @@ End with: We look forward to your reply."""
                 )
                 st.markdown("---")
 
-            render_screenshot_capture_footer(case_idx)
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Escalations"]
+            )
 
 
     # ================== HARDWARE ISSUES TAB =================
@@ -17119,7 +17150,9 @@ End with: We look forward to your reply."""
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
 
-            render_screenshot_capture_footer(case_idx)
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Hardware Issues"]
+            )
 
 
     # ================== REMOTE SESSION TAB =================
@@ -17445,7 +17478,9 @@ End with: We look forward to your reply."""
                 tab_slug="remote_attachments",
             )
 
-        render_screenshot_capture_footer(case_idx)
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Remote Session"]
+        )
 
 
 
@@ -17539,7 +17574,9 @@ End with: We look forward to your reply."""
                 key=tables_tab_key(f"df_{copy_suffix}"),
             )
 
-        render_screenshot_capture_footer(case_idx)
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Tables"]
+        )
 
 
     # ================== SAVE/LOAD TAB =================
@@ -17620,13 +17657,17 @@ End with: We look forward to your reply."""
             if col_s.button("Save", key=save_tab_key("save_before_loading")):
                 save_case_to_database(D)
 
-        render_screenshot_capture_footer(case_idx)
+        render_screenshot_capture_footer(
+            case_idx, tab_slug=CASE_TAB_SLUGS["Save/Load"]
+        )
 
 
     if show_case_chat and tab_chat is not None:
         with tab_chat:
             render_case_kiroshi_chat_panel(case_idx)
-            render_screenshot_capture_footer(case_idx)
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["Kiroshi Chat"]
+            )
 
     # ================== BORED TAB =================
     if tab_bored:
@@ -17794,7 +17835,9 @@ End with: We look forward to your reply."""
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
 
-            render_screenshot_capture_footer(case_idx)
+            render_screenshot_capture_footer(
+                case_idx, tab_slug=CASE_TAB_SLUGS["I'm bored"]
+            )
 
     autosave()
 
