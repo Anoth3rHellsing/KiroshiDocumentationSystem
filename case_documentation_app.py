@@ -15778,6 +15778,13 @@ def render_case_ui(case_idx: int):
                     "second_line_only": True,
                 },
                 {
+                    "value": "Replacement Dispatch Request",
+                    "label": "Replacement Dispatch Request",
+                    "icon": "📬",
+                    "description": "Confirm replacement shipments and return expectations with customers.",
+                    "group": "Hardware fixes",
+                },
+                {
                     "value": "Replacement Wired Scanner Setup",
                     "label": "Replacement Wired Scanner Setup",
                     "icon": "🔄",
@@ -16328,6 +16335,163 @@ Wishing you the best again!"""
                     key=email_tab_key("generated_email"),
                 )
 
+            elif email_type == "Replacement Dispatch Request":
+                st.markdown("#### Replacement dispatch options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_replacement_dispatch", "agent_name", case_idx),
+                )
+                device_options = ["TRIOS", "Pod", "Spare item"]
+                prev_choice = ext.get("replacement_device_type", device_options[0])
+                default_index = (
+                    device_options.index(prev_choice)
+                    if prev_choice in device_options
+                    else 0
+                )
+                selected_device = st.selectbox(
+                    "Replacement device type",
+                    device_options,
+                    index=default_index,
+                    key=case_widget_key(
+                        "email_replacement_dispatch", "device_type", case_idx
+                    ),
+                )
+                ext["replacement_device_type"] = selected_device
+                default_serial_map = {
+                    "TRIOS": D.scanner_sn or "",
+                    "Pod": D.base_sn or "",
+                    "Spare item": ext.get("serial_number", ""),
+                }
+                if prev_choice != selected_device:
+                    prev_default = default_serial_map.get(prev_choice, "")
+                    current_serial = ext.get("serial_number", "")
+                    if current_serial in ("", prev_default):
+                        ext["serial_number"] = default_serial_map.get(
+                            selected_device, ""
+                        )
+                spare_item_name = ext.get("spare_item_name", "")
+                spare_return_required = True
+                if selected_device == "Spare item":
+                    spare_item_name = st.text_input(
+                        "Spare item description",
+                        spare_item_name,
+                        key=case_widget_key(
+                            "email_replacement_dispatch", "spare_item", case_idx
+                        ),
+                    )
+                    ext["spare_item_name"] = spare_item_name
+                    toggle_default = ext.get("spare_return_required")
+                    if toggle_default is None:
+                        toggle_default = False
+                    spare_return_required = st.toggle(
+                        "Return of spare item required?",
+                        value=bool(toggle_default),
+                        key=case_widget_key(
+                            "email_replacement_dispatch", "spare_return", case_idx
+                        ),
+                    )
+                    ext["spare_return_required"] = spare_return_required
+                else:
+                    ext["spare_return_required"] = True
+                    ext["spare_item_name"] = spare_item_name
+                serial_placeholder = ext.get("serial_number", "")
+                if not serial_placeholder:
+                    serial_placeholder = default_serial_map.get(selected_device, "")
+                ext["serial_number"] = st.text_input(
+                    "Serial number of the device being replaced",
+                    serial_placeholder,
+                    key=case_widget_key(
+                        "email_replacement_dispatch", "serial_number", case_idx
+                    ),
+                )
+                intro = build_email_intro(D)
+                agent = ext["agent_name"] or "(Agent Name)"
+                issue = D.brief_description or "the reported hardware issue"
+                serial_number = ext.get("serial_number", "").strip() or "(Serial number)"
+                if selected_device == "TRIOS":
+                    device_label = "TRIOS scanner"
+                elif selected_device == "Pod":
+                    device_label = "TRIOS Pod/base unit"
+                else:
+                    device_label = spare_item_name.strip() or "spare item"
+                return_required = (
+                    spare_return_required if selected_device == "Spare item" else True
+                )
+
+                hardware_lines: list[str] = []
+
+                def _add_hardware_line(label: str, value: object) -> None:
+                    if isinstance(value, str):
+                        cleaned = value.strip()
+                        if cleaned:
+                            hardware_lines.append(f"- {label}: {cleaned}")
+                        return
+                    if isinstance(value, (int, float)) and value:
+                        hardware_lines.append(f"- {label}: {value}")
+
+                _add_hardware_line("Scanner serial", D.scanner_sn)
+                _add_hardware_line("Base serial", D.base_sn)
+                _add_hardware_line("TRIOS module version", D.trios_module_version)
+                _add_hardware_line("Dongle deployment date", D.dongle_deployment_date)
+                _add_hardware_line(
+                    "Previous replacements", D.scanner_previous_replacements
+                )
+                _add_hardware_line("Damage classification", D.scanner_accidental_damage)
+                _add_hardware_line("Hardware test", D.hardware_test)
+                _add_hardware_line("PC service tag", D.service_tag)
+                _add_hardware_line("PC model", D.pc_model)
+                _add_hardware_line("Windows version", D.windows_version)
+                _add_hardware_line("BIOS version", D.bios_version)
+                _add_hardware_line("Graphics card", D.graphics_card)
+                _add_hardware_line("Processor", D.processor)
+                _add_hardware_line("Warranty", D.warranty)
+
+                hardware_section = ""
+                if hardware_lines:
+                    hardware_section = (
+                        "Here are the hardware details we currently have on file:\n"
+                        + "\n".join(hardware_lines)
+                    )
+
+                tracking_line = (
+                    "We will send you the Tracking # for the shipment as soon as it becomes available."
+                )
+                if return_required:
+                    return_paragraph = (
+                        "Please keep the shipping box from the replacement delivery. "
+                        "Once the new unit arrives, place the faulty device in that same packaging and seal it with the enclosed return label. "
+                        "You will have 30 days to return the device to 3Shape using the provided label; after that period, the TRIOS licenses associated with the clinic will be suspended."
+                    )
+                else:
+                    return_paragraph = (
+                        "Because this is a spare component, a return shipment is not required. You may keep the existing part for your records, and no return label or 30-day deadline applies in this case."
+                    )
+
+                paragraphs = [
+                    (
+                        "We completed our hardware review and determined that replacing your "
+                        f"{device_label} is necessary to resolve {issue}."
+                    ),
+                    f"The serial number of the unit we are exchanging is {serial_number}.",
+                    tracking_line,
+                    return_paragraph,
+                ]
+                if hardware_section:
+                    paragraphs.append(hardware_section)
+                body = "\n\n".join(paragraphs)
+                closing = (
+                    "Please let me know if anything changes or if you need further assistance."
+                    f"\n\nBest regards,\n{agent}\n3Shape Support"
+                )
+                email_text = f"{intro}\n{body}\n\n{closing}"
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=420,
+                    key=email_tab_key("generated_email"),
+                )
+
             elif email_type == "Replacement Wired Scanner Setup":
                 st.markdown("#### Replacement scanner options")
                 ext["agent_name"] = st.text_input(
@@ -16615,6 +16779,7 @@ End with: We look forward to your reply."""
             st.session_state.email_extra = ext
             static_templates = {
                 "FedEx Tracking Email",
+                "Replacement Dispatch Request",
                 "Replacement Wired Scanner Setup",
                 "Replacement Move+ Closure",
                 "Dell Escalation Email",
