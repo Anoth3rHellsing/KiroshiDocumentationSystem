@@ -14705,13 +14705,13 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
 
 
 _CAPTURE_FOOTER_REGISTRY_PREFIX = "capture_footer_tab_registry"
+_CAPTURE_FOOTER_RENDERED_PREFIX = f"{_CAPTURE_FOOTER_REGISTRY_PREFIX}_rendered"
 
 
 def _reset_capture_footer_registry(*, case_idx: int | None = None) -> None:
     """Clear cached capture footer state so fresh widgets render cleanly."""
 
     if case_idx is None:
-        _RENDERED_CAPTURE_FOOTERS.clear()
         prefix = f"{_CAPTURE_FOOTER_REGISTRY_PREFIX}_"
         keys_to_drop = [
             key
@@ -14720,12 +14720,20 @@ def _reset_capture_footer_registry(*, case_idx: int | None = None) -> None:
         ]
         for key in keys_to_drop:
             st.session_state.pop(key, None)
+        rendered_prefix = f"{_CAPTURE_FOOTER_RENDERED_PREFIX}_"
+        rendered_to_drop = [
+            key
+            for key in list(st.session_state.keys())
+            if isinstance(key, str) and key.startswith(rendered_prefix)
+        ]
+        for key in rendered_to_drop:
+            st.session_state.pop(key, None)
     else:
-        _RENDERED_CAPTURE_FOOTERS.difference_update(
-            {token for token in _RENDERED_CAPTURE_FOOTERS if token[0] == case_idx}
-        )
         st.session_state.pop(
             widget_state_key(_CAPTURE_FOOTER_REGISTRY_PREFIX, case_idx), None
+        )
+        st.session_state.pop(
+            widget_state_key(_CAPTURE_FOOTER_RENDERED_PREFIX, case_idx), None
         )
 
 
@@ -14756,12 +14764,17 @@ def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
             counter += 1
             unique_candidate = f"{candidate}_{counter}"
         slug_registry[slug_key] = unique_candidate
+        st.session_state[registry_state_key] = slug_registry
 
     footer_slug = f"capture_footer_{slug_registry[slug_key]}"
-    render_token = (case_idx, footer_slug)
-    if render_token in _RENDERED_CAPTURE_FOOTERS:
+    rendered_state_key = widget_state_key(
+        _CAPTURE_FOOTER_RENDERED_PREFIX, case_idx
+    )
+    rendered_tokens = st.session_state.setdefault(rendered_state_key, [])
+    if footer_slug in rendered_tokens:
         return
-    _RENDERED_CAPTURE_FOOTERS.add(render_token)
+    rendered_tokens.append(footer_slug)
+    st.session_state[rendered_state_key] = rendered_tokens
     menu_key = partial(case_widget_key, footer_slug, case_idx=case_idx)
 
     label_state_key = menu_key("shot_label")
@@ -14836,6 +14849,15 @@ def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
             "Queued screenshots: "
             f"{len(screenshots)} capture{'s' if len(screenshots) != 1 else ''}."
         )
+
+
+@contextmanager
+def case_tab(tab, *, case_idx: int, slug: str):
+    """Wrap a Streamlit tab and append the screenshot footer once it renders."""
+
+    with tab:
+        yield
+        render_screenshot_capture_footer(case_idx, tab_slug=slug)
 
 
 def render_case_attachments_panel(
@@ -15029,13 +15051,6 @@ CASE_TAB_SLUGS = {
     "I'm bored": "bored",
     "Debug": "debug",
 }
-
-# Tracks which (case, tab) combinations have already rendered the screenshot footer
-# during the current Streamlit script execution. Prevents duplicate footers from
-# appearing when callers accidentally invoke the renderer multiple times within a
-# single render cycle.
-_RENDERED_CAPTURE_FOOTERS: set[tuple[int, str]] = set()
-
 
 def _case_chat_state_key(case_idx: int) -> str:
     """Return a stable session key for storing chat history per case."""
@@ -15244,7 +15259,7 @@ def render_case_ui(case_idx: int):
 
     # ================== 2ND LINE MODE TAB =================
     # ================== CASE TAB =================
-    with tab_case:
+    with case_tab(tab_case, case_idx=case_idx, slug=CASE_TAB_SLUGS["Case"]):
         case_tab_key = partial(case_widget_key, CASE_TAB_SLUGS["Case"], case_idx=case_idx)
         api_key = st.session_state.openai_api_key
         model = st.session_state.openai_model
@@ -15721,12 +15736,9 @@ def render_case_ui(case_idx: int):
                     render_phonecall_section(case_shell, False)
                     render_conclusion_and_additional(case_shell, False)
 
-            render_screenshot_capture_footer(
-                case_idx, tab_slug=CASE_TAB_SLUGS["Case"]
-            )
     # ================== EMAIL TAB =================
     if tab_email:
-        with tab_email:
+        with case_tab(tab_email, case_idx=case_idx, slug=CASE_TAB_SLUGS["Email"]):
             email_tab_key = partial(case_widget_key, CASE_TAB_SLUGS["Email"], case_idx=case_idx)
             st.subheader("Email Prompt Generator")
             if st.session_state.email_type == "Custom Request":
@@ -16869,12 +16881,9 @@ End with: We look forward to your reply."""
             key=generated_email_key,
         )
 
-        render_screenshot_capture_footer(
-            case_idx, tab_slug=CASE_TAB_SLUGS["Email"]
-        )
     # ================== TRACKING TAB =================
     if tab_tracking:
-        with tab_tracking:
+        with case_tab(tab_tracking, case_idx=case_idx, slug=CASE_TAB_SLUGS["Tracking"]):
             tracking_tab_key = partial(
                 case_widget_key, CASE_TAB_SLUGS["Tracking"], case_idx=case_idx
             )
@@ -17013,14 +17022,13 @@ End with: We look forward to your reply."""
                 st.session_state.track_case = False
                 st.rerun()
 
-            render_screenshot_capture_footer(
-                case_idx, tab_slug=CASE_TAB_SLUGS["Tracking"]
-            )
 
 
     # ================== ESCALATIONS TAB =================
     if tab_escalations:
-        with tab_escalations:
+        with case_tab(
+            tab_escalations, case_idx=case_idx, slug=CASE_TAB_SLUGS["Escalations"]
+        ):
             escalations_tab_key = partial(
                 case_widget_key, CASE_TAB_SLUGS["Escalations"], case_idx=case_idx
             )
@@ -17366,14 +17374,11 @@ End with: We look forward to your reply."""
                 )
                 st.markdown("---")
 
-            render_screenshot_capture_footer(
-                case_idx, tab_slug=CASE_TAB_SLUGS["Escalations"]
-            )
 
 
     # ================== HARDWARE ISSUES TAB =================
     if tab_hw:
-        with tab_hw:
+        with case_tab(tab_hw, case_idx=case_idx, slug=CASE_TAB_SLUGS["Hardware Issues"]):
             st.subheader("PC Hardware Issue")
             col_pc1, col_pc2 = st.columns(2)
             auto_text_input("Service Tag", "service_tag", container=col_pc1)
@@ -17417,9 +17422,6 @@ End with: We look forward to your reply."""
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
             )
 
-            render_screenshot_capture_footer(
-                case_idx, tab_slug=CASE_TAB_SLUGS["Hardware Issues"]
-            )
 
 
     # ================== REMOTE SESSION TAB =================
@@ -17519,7 +17521,7 @@ End with: We look forward to your reply."""
     }
     </style>
     """
-    with tab_remote:
+    with case_tab(tab_remote, case_idx=case_idx, slug=CASE_TAB_SLUGS["Remote Session"]):
         remote_tab_key = partial(
             case_widget_key, CASE_TAB_SLUGS["Remote Session"], case_idx=case_idx
         )
@@ -17745,14 +17747,8 @@ End with: We look forward to your reply."""
                 tab_slug="remote_attachments",
             )
 
-        render_screenshot_capture_footer(
-            case_idx, tab_slug=CASE_TAB_SLUGS["Remote Session"]
-        )
-
-
-
     # ================== TABLES TAB =================
-    with tab_tables:
+    with case_tab(tab_tables, case_idx=case_idx, slug=CASE_TAB_SLUGS["Tables"]):
         tables_tab_key = partial(
             case_widget_key, CASE_TAB_SLUGS["Tables"], case_idx=case_idx
         )
@@ -17841,13 +17837,8 @@ End with: We look forward to your reply."""
                 key=tables_tab_key(f"df_{copy_suffix}"),
             )
 
-        render_screenshot_capture_footer(
-            case_idx, tab_slug=CASE_TAB_SLUGS["Tables"]
-        )
-
-
     # ================== SAVE/LOAD TAB =================
-    with tab_save_load:
+    with case_tab(tab_save_load, case_idx=case_idx, slug=CASE_TAB_SLUGS["Save/Load"]):
         save_tab_key = partial(
             case_widget_key, CASE_TAB_SLUGS["Save/Load"], case_idx=case_idx
         )
@@ -17924,21 +17915,13 @@ End with: We look forward to your reply."""
             if col_s.button("Save", key=save_tab_key("save_before_loading")):
                 save_case_to_database(D)
 
-        render_screenshot_capture_footer(
-            case_idx, tab_slug=CASE_TAB_SLUGS["Save/Load"]
-        )
-
-
     if show_case_chat and tab_chat is not None:
-        with tab_chat:
+        with case_tab(tab_chat, case_idx=case_idx, slug=CASE_TAB_SLUGS["Kiroshi Chat"]):
             render_case_kiroshi_chat_panel(case_idx)
-            render_screenshot_capture_footer(
-                case_idx, tab_slug=CASE_TAB_SLUGS["Kiroshi Chat"]
-            )
 
     # ================== BORED TAB =================
     if tab_bored:
-        with tab_bored:
+        with case_tab(tab_bored, case_idx=case_idx, slug=CASE_TAB_SLUGS["I'm bored"]):
             bored_tab_key = partial(
                 case_widget_key, CASE_TAB_SLUGS["I'm bored"], case_idx=case_idx
             )
@@ -18102,9 +18085,6 @@ End with: We look forward to your reply."""
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
 
-            render_screenshot_capture_footer(
-                case_idx, tab_slug=CASE_TAB_SLUGS["I'm bored"]
-            )
 
     autosave()
 
