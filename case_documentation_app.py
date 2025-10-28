@@ -60,8 +60,24 @@ from reportlab.platypus import (
     Preformatted,
 )
 from reportlab.graphics.shapes import Drawing, String
-from reportlab.graphics.charts.barcharts import VerticalBarChart
-from reportlab.graphics.charts.lineplots import LinePlot
+
+# Ensure local helper modules remain importable when the app is packaged in a
+# standalone desktop bundle.  Streamlit Desktop places the entrypoint inside an
+# ``_internal`` directory, so we add the bundle root (one directory up) to the
+# import path before attempting to import sibling modules like ``kiroshi_chat``.
+APP_DIR = Path(__file__).resolve().parent
+PACKAGE_ROOT = APP_DIR.parent
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_ROOT))
+REPORTLAB_CHARTS_AVAILABLE = False
+try:
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.lineplots import LinePlot
+
+    REPORTLAB_CHARTS_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - fallback when graphics extras missing
+    VerticalBarChart = None  # type: ignore[assignment]
+    LinePlot = None  # type: ignore[assignment]
 from reportlab.graphics.widgets.markers import makeMarker
 import requests
 import urllib3
@@ -146,6 +162,17 @@ def safe_modal(title: str, key: str | None = None):
     with container:
         st.markdown(f"### {title}")
         yield
+
+
+def _require_reportlab_charts() -> None:
+    """Ensure ReportLab's chart modules are available before rendering graphics."""
+
+    if not REPORTLAB_CHARTS_AVAILABLE:
+        raise RuntimeError(
+            "ReportLab chart components are unavailable. Install the 'reportlab' package "
+            "with its graphics extras to enable PDF chart rendering."
+        )
+
 
 VERSION = "RC 141025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
@@ -12133,6 +12160,8 @@ def collect_ai_educate_report_data(
 
 
 def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
+    _require_reportlab_charts()
+
     chart_data = counts.head(8).copy()
     if chart_data.empty:
         raise ValueError("No hay datos para el gráfico de recurrencia.")
@@ -12208,6 +12237,8 @@ def _build_frequency_chart(counts: pd.DataFrame, title: str) -> Drawing:
 
 
 def _build_timeline_chart(timeline: pd.DataFrame, title: str) -> Drawing:
+    _require_reportlab_charts()
+
     if timeline.empty:
         raise ValueError("No hay datos para la tendencia temporal.")
 
