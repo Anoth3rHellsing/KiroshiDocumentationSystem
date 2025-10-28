@@ -60,6 +60,15 @@ from reportlab.platypus import (
     Preformatted,
 )
 from reportlab.graphics.shapes import Drawing, String
+
+# Ensure local helper modules remain importable when the app is packaged in a
+# standalone desktop bundle.  Streamlit Desktop places the entrypoint inside an
+# ``_internal`` directory, so we add the bundle root (one directory up) to the
+# import path before attempting to import sibling modules like ``kiroshi_chat``.
+APP_DIR = Path(__file__).resolve().parent
+PACKAGE_ROOT = APP_DIR.parent
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_ROOT))
 REPORTLAB_CHARTS_AVAILABLE = False
 try:
     from reportlab.graphics.charts.barcharts import VerticalBarChart
