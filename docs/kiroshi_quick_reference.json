@@ -16,7 +16,7 @@
   },
   {
     "title": "Configuration, Storage & Launch",
-    "content": "Persistent settings live in the KiroshiDatabase directory under your user profile (or C:\\ProgramFiles on Windows). Autosave.json stores the active workspace, while tracked cases are written to the TrackedCases folder for dashboard analytics. The application can be launched with `streamlit run case_documentation_app.py` or the bundled run_app.py helper, and packaged through build.sh for distribution. Environment variables such as AI_BASE_URL and OPENAI_API_KEY control GPT connectivity, and manual reference notes feed the Kiroshi knowledge base. The onboarding tutorial records completion status in settings and can be replayed from the Settings tab.",
+    "content": "Persistent settings live in the KiroshiDatabase directory under your user profile (or C:\\ProgramFiles on Windows). Autosave.json stores the active workspace, while tracked cases are written to the TrackedCases folder for dashboard analytics. Launch the application in a browser with `streamlit run case_documentation_app.py` or pick the desktop build with `streamlit-desktop-app run case_documentation_app.py`; run_app.py continues to wrap the browser/server mode flags. Package the project through build.sh or `streamlit-desktop-app build` when preparing a desktop installer. Environment variables such as AI_BASE_URL and OPENAI_API_KEY control GPT connectivity, and manual reference notes feed the Kiroshi knowledge base. The onboarding tutorial records completion status in settings and can be replayed from the Settings tab.",
     "tags": ["configuration", "storage", "launch", "onboarding"]
   }
 ]

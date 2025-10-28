@@ -67,13 +67,24 @@ uploaded files along with a `case.json` file that contains the case data.
 
 ## Running the App
 
-From the repository root:
+From the repository root pick either the classic browser mode or the desktop
+runner:
 
 ```bash
+# Browser mode
 streamlit run case_documentation_app.py
+
+# Desktop mode
+streamlit-desktop-app run case_documentation_app.py
 ```
 
-Ensure that the dependencies listed in `requirements.txt` are installed.
+Ensure that the dependencies listed in `requirements.txt` are installed and
+that the desktop tooling is available when needed:
+
+```bash
+pip install streamlit-desktop-app
+python -m streamlit_desktop_app  # one-time initialisation
+```
 
 For optional mini-games or running the local transformers model, install the
 extra packages from `requirements-bored.txt`.
@@ -97,7 +108,12 @@ To run against a local model server exposing an OpenAI-style API:
 ```bash
 export AI_BASE_URL=http://localhost:8000/v1
 export OPENAI_API_KEY=""  # no key required for local servers
+
+# Browser mode
 streamlit run case_documentation_app.py
+
+# Desktop mode
+streamlit-desktop-app run case_documentation_app.py
 ```
 
 If `AI_BASE_URL` is unset (the "Local Model" option), Kiroshi falls back to a

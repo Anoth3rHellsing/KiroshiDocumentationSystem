@@ -1,11 +1,11 @@
 """Streamlit entry point for the Kiroshi Documentation System.
 
-This lightweight wrapper mirrors the command `streamlit run
-case_documentation_app.py` while remaining compatible with PyInstaller
-builds.  When frozen, PyInstaller unpacks the project into a temporary
-folder referenced by ``sys._MEIPASS``.  Resolving the application path at
-runtime keeps the launcher functional whether the project is executed
-from source or from the generated executable.
+This lightweight wrapper mirrors the browser/server command
+`streamlit run case_documentation_app.py` while remaining compatible with
+PyInstaller builds.  When frozen, PyInstaller unpacks the project into a
+temporary folder referenced by ``sys._MEIPASS``.  Resolving the
+application path at runtime keeps the launcher functional whether the
+project is executed from source or from the generated executable.
 """
 
 from __future__ import annotations
