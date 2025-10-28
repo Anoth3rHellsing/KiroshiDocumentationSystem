@@ -203,6 +203,52 @@ Cómo usarlo:
 3. Concede permisos de ejecución: `chmod +x install_kiroshi.sh`.
 4. Ejecuta el script: `./install_kiroshi.sh`.
 
+### Instalador batch (Windows)
+
+También se incluye un instalador para Windows (`install_kiroshi.bat`). El script limpia la carpeta de destino, copia los archivos nuevos y, si encuentra un `requirements.txt`, instala las dependencias usando `pip`.
+
+```bat
+@echo off
+REM ---- Variables: Cambia los paths según tu entorno ----
+set INSTALLDIR=C:\ProgramFiles\KiroshiDocumentation
+set SRCDIR=%USERPROFILE%\kiroshi_nueva_version
+set REQFILE=%SRCDIR%\requirements.txt
+
+echo --------- Instalador Kiroshi (Windows .bat) ---------
+
+REM Borra contenido previo (archivos y carpetas)
+if exist "%INSTALLDIR%" (
+    echo Borrando archivos previos en "%INSTALLDIR%"...
+    del /Q "%INSTALLDIR%\*" 2>nul
+    for /d %%i in ("%INSTALLDIR%\*") do rd /s /q "%%i"
+) else (
+    mkdir "%INSTALLDIR%"
+)
+
+REM Copia archivos y carpetas nuevos
+echo Copiando archivos nuevos desde "%SRCDIR%"...
+xcopy "%SRCDIR%\*" "%INSTALLDIR%\" /E /H /C /Y
+
+REM Instala requisitos de Python
+if exist "%REQFILE%" (
+    echo Instalando dependencias desde requirements.txt...
+    python -m pip install -r "%REQFILE%"
+    echo Dependencias instaladas correctamente.
+) else (
+    echo No se encontró requirements.txt en "%SRCDIR%", saltando instalación de dependencias.
+)
+
+echo Instalación terminada. Kiroshi listo para usar.
+pause
+```
+
+Cómo usarlo:
+
+1. Copia el script en un archivo (`install_kiroshi.bat`).
+2. Edita las variables para que las rutas sean correctas en tu entorno.
+3. Ejecuta el archivo con doble clic o desde la consola (`install_kiroshi.bat`).
+
+
 ### Streamlit Desktop App runner
 
 Kiroshi now bundles first-class support for the
