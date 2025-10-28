@@ -58,10 +58,14 @@ sites without opening ports on edge firewalls.
 
 1. Install the Python requirements as described below (the list now includes
    `cryptography` for the encryption layer).
-2. Launch the console with:
+2. Launch the console with your preferred runner:
 
    ```bash
+   # Browser mode
    streamlit run kiroshi_cloud_client.py
+
+   # Desktop mode
+   streamlit-desktop-app run kiroshi_cloud_client.py
    ```
 
 3. Sign in with the default credentials **admin / admin123!**. The first screen
@@ -138,7 +142,8 @@ from the console transparently re-encrypts the payloads with the new key.
 
 1. Download the repository ZIP from GitHub.
 2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_RC-141025.bat`).
-3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_RC-141025.bat`).
+3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_RC-141025.bat`),
+   which now boots the bundled Streamlit Desktop App build.
 4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
 
 ### Manual installation
@@ -152,6 +157,37 @@ pip install -r requirements.txt
 # Optional: install mini-game and local model dependencies
 pip install -r requirements-bored.txt
 ```
+
+### Streamlit Desktop App runner
+
+Kiroshi now bundles first-class support for the
+[Streamlit Desktop App](https://github.com/streamlit/streamlit-desktop).
+After installing the project requirements, install the desktop runner and
+initialise it once so the helper files are created:
+
+```bash
+pip install streamlit-desktop-app
+python -m streamlit_desktop_app
+```
+
+Launch the desktop experience from the repository root:
+
+```bash
+streamlit-desktop-app run case_documentation_app.py
+```
+
+To distribute a self-contained desktop bundle, use the new build command. The
+example below generates an executable with the Kiroshi logo and a custom
+window title:
+
+```bash
+streamlit-desktop-app build case_documentation_app.py \
+  --icon Kiroshi_Logo.png \
+  --title "Kiroshi Desktop"
+```
+
+Use the `--debug` or `--headless` switches to mirror any advanced `streamlit`
+arguments you previously passed through `run_app.py` or `streamlit run`.
 
 #### Clipboard integration prerequisites
 
@@ -307,12 +343,15 @@ npx playwright install --with-deps chromium
 ### Running the suite locally
 
 ```bash
-# In a dedicated terminal
+# In a dedicated terminal (browser/server mode required for tests)
 streamlit run case_documentation_app.py --server.headless true --server.port 8501
 
 # In a second terminal
 npm run test:e2e
 ```
+
+> The end-to-end tests expect an HTTP server. The Streamlit Desktop App is not
+> currently supported for this workflow.
 
 The tests navigate to `http://127.0.0.1:8501/?enable_holiday_theme=…&theme_preview=…`
 before the dashboard fully renders, ensuring the desired palette is active for the
@@ -443,7 +482,8 @@ this before and walk through the entire process from a clean machine.
    run the app.
 9. **Launch the executable.** Double-click the file from `dist` or run it from
    a terminal. Streamlit will start and open the Kiroshi interface in your
-   browser just like when running `streamlit run`. Packaged builds listen on
+   browser just like when running `streamlit run`, while providing the same
+   native window chrome as `streamlit-desktop-app`. Packaged builds listen on
    `http://localhost:8502/`, so adjust any bookmarks or firewall rules that
    referenced the default Streamlit port (`8501`).
 
@@ -459,21 +499,28 @@ not need to reinstall Python or Git).
 
 If you used the automated installer, start Kiroshi with the provided **Kiroshi Launcher** (`KiroshiLauncher_RC-141025.bat`).
 
-For manual runs from source, execute the Streamlit app from the repository root. If you are not already in the project folder,
-navigate there first with `cd`:
+For manual runs from source, choose the classic browser runner or the desktop
+experience. If you are not already in the project folder, navigate there first
+with `cd`:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
+
+# Browser mode
 streamlit run case_documentation_app.py
+
+# Desktop mode
+streamlit-desktop-app run case_documentation_app.py
 ```
 
-Alternatively, use the provided wrapper script:
+Alternatively, use the provided wrapper script for browser/server mode:
 
 ```bash
 python run_app.py
 ```
 
-This helper sets up the correct Streamlit arguments and is the entry point used when packaging the project into an executable.
+This helper sets up the correct Streamlit arguments and is the entry point used when packaging the project into a browser-first
+executable.
 
 A browser window will open with tabs for entering case information. The "Download PDF" button exports a formatted summary, and the
 attachment section lets you bundle supporting files. Use the checkbox at the top to toggle hardware tabs and fields. The *Tables*
@@ -489,7 +536,12 @@ To experiment with the Kiroshi chatbox, run the dedicated script:
 
 ```bash
 cd /path/to/KiroshiDocumentationSystem
+
+# Browser mode
 streamlit run kiroshi_chat.py
+
+# Desktop mode
+streamlit-desktop-app run kiroshi_chat.py
 ```
 
 The chat history is saved to `kiroshi_memory.json` so conversations persist across sessions.
@@ -516,7 +568,12 @@ run a minimal `transformers` pipeline directly. When using a local server, the
 ```bash
 export AI_BASE_URL=http://localhost:8000/v1
 export OPENAI_API_KEY=""
+
+# Browser mode
 streamlit run case_documentation_app.py
+
+# Desktop mode
+streamlit-desktop-app run case_documentation_app.py
 ```
 
 If `AI_BASE_URL` is unset (the "Local Model" option), Kiroshi falls back to a
