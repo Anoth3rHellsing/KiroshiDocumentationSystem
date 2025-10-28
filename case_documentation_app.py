@@ -16875,11 +16875,11 @@ End with: We look forward to your reply."""
                                 save_memory(st.session_state.kiroshi_chat_history)
                                 st.session_state.generated_email = reply
                                 st.session_state[generated_email_key] = reply
-        st.session_state.generated_email = st.text_area(
-            "Generated Email",
-            height=300,
-            key=generated_email_key,
-        )
+            st.session_state.generated_email = st.text_area(
+                "Generated Email",
+                height=300,
+                key=generated_email_key,
+            )
 
     # ================== TRACKING TAB =================
     if tab_tracking:
