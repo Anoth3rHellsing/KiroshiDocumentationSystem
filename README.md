@@ -261,10 +261,14 @@ pip install streamlit-desktop-app
 python -m streamlit_desktop_app
 ```
 
-Launch the desktop experience from the repository root:
+Launch the desktop experience from the repository root with the standard
+Streamlit runner (the desktop helper only exposes a `build` command at the
+moment):
 
 ```bash
-streamlit-desktop-app run case_documentation_app.py
+streamlit run case_documentation_app.py
+# or
+python run_app.py
 ```
 
 To distribute a self-contained desktop bundle, use the new build command. The
