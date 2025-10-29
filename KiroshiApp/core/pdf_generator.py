@@ -1,63 +1,99 @@
 """PDF helpers for the experimental desktop prototype."""
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .model import CaseData
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-PDF_HEADER = b"%PDF-1.4\n"
+from .model import CaseData, RemoteSessionEntry
 
 
-def _format_case_summary(case: CaseData, extra_sections: Sequence[tuple[str, str]] | None = None) -> str:
-    sections: list[str] = []
-    sections.append(f"Case ID: {case.case_id}")
-    sections.append(f"Company: {case.company_name}")
+def _format_metadata(case: CaseData) -> list[tuple[str, str]]:
+    fields: list[tuple[str, str]] = []
+    fields.append(("Case ID", case.case_id or "N/A"))
+    if case.company_name:
+        fields.append(("Company", case.company_name))
     if case.brief_description:
-        sections.append(f"Summary: {case.brief_description}")
+        fields.append(("Summary", case.brief_description))
     if case.description:
-        sections.append(f"Description: {case.description}")
+        fields.append(("Description", case.description))
     if case.solution:
-        sections.append(f"Solution: {case.solution}")
+        fields.append(("Solution", case.solution))
     if case.additional_info:
-        sections.append(f"Additional Info: {case.additional_info}")
-    if case.remote_sessions:
-        notes = "; ".join(entry.notes for entry in case.remote_sessions if entry.notes)
-        if notes:
-            sections.append(f"Remote Sessions: {notes}")
+        fields.append(("Additional Info", case.additional_info))
+    if case.tracking and getattr(case.tracking, "status", ""):
+        fields.append(("Tracking Status", case.tracking.status))
+    if case.tracking and getattr(case.tracking, "priority", ""):
+        fields.append(("Priority", case.tracking.priority))
+    return fields
+
+
+def _build_remote_session_table(sessions: Iterable[RemoteSessionEntry]) -> Table | None:
+    rows: list[list[str]] = []
+    for idx, entry in enumerate(sessions, start=1):
+        title = entry.display_title(idx)
+        notes = entry.notes.strip() or "—"
+        rows.append([title, notes])
+    if not rows:
+        return None
+    table = Table([["Session", "Notes"], *rows], colWidths=[180, 350])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
+            ]
+        )
+    )
+    return table
+
+
+def _story_for_case(
+    case: CaseData,
+    attachments: Iterable[Path] | None,
+    extra_sections: Sequence[tuple[str, str]] | None,
+) -> list:
+    styles = getSampleStyleSheet()
+    body = styles["BodyText"]
+    body.spaceAfter = 6
+    heading = styles["Heading2"]
+    story: list = []
+
+    story.append(Paragraph("Kiroshi Case Summary", styles["Title"]))
+    story.append(Spacer(1, 12))
+
+    for label, value in _format_metadata(case):
+        story.append(Paragraph(f"<b>{label}:</b> {value}", body))
+
     if extra_sections:
         for title, content in extra_sections:
-            sections.append(f"{title}: {content}")
-    return "\n".join(sections)
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(f"<b>{title}:</b> {content}", body))
 
+    table = _build_remote_session_table(case.remote_sessions)
+    if table is not None:
+        story.append(Spacer(1, 12))
+        story.append(Paragraph("Remote Sessions", heading))
+        story.append(table)
 
-def _build_stub_pdf(case: CaseData, attachments: Iterable[Path] | None, extra_sections: Sequence[tuple[str, str]] | None) -> bytes:
-    body_lines = ["BT", "/F1 12 Tf", "50 750 Td"]
-    summary = _format_case_summary(case, extra_sections)
-    for line in summary.splitlines() or ["Case export"]:
-        escaped = line.replace("(", r"\(").replace(")", r"\)")
-        body_lines.append(f"({escaped}) Tj")
-        body_lines.append("0 -18 Td")
-    if attachments:
-        body_lines.append("% Attachments included:")
-        for path in attachments:
-            body_lines.append(f"% - {Path(path).name}")
-    body_lines.append("ET")
-    stream = "\n".join(body_lines)
-    pdf_template = (
-        "1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n"
-        "2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n"
-        "3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        "/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>endobj\n"
-        "4 0 obj<< /Length {length} >>stream\n{stream}\nendstream endobj\n"
-        "5 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\n"
-        "xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n"
-        "0000000114 00000 n \n0000000278 00000 n \n0000000395 00000 n \n"
-        "trailer<< /Size 6 /Root 1 0 R >>\nstartxref\n489\n%%EOF"
-    )
-    stream_bytes = stream.encode("utf-8")
-    pdf_bytes = PDF_HEADER + pdf_template.format(length=len(stream_bytes), stream=stream).encode("utf-8")
-    return pdf_bytes
+    attachment_list = list(Path(p) for p in (attachments or []))
+    if attachment_list:
+        story.append(Spacer(1, 12))
+        story.append(Paragraph("Attachments", heading))
+        for path in attachment_list:
+            story.append(Paragraph(f"• {path.name}", body))
+
+    return story
 
 
 def generate_case_pdf(
@@ -67,12 +103,18 @@ def generate_case_pdf(
     attachments: Iterable[Path] | None = None,
     extra_sections: Sequence[tuple[str, str]] | None = None,
 ) -> bytes | Path:
-    """Create a minimal PDF representation of a case."""
+    """Create a PDF representation of ``case`` using ReportLab."""
 
-    pdf_bytes = _build_stub_pdf(case, attachments, extra_sections)
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, title=case.case_id or "Case Summary")
+    story = _story_for_case(case, attachments, extra_sections)
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+
     if output_path is not None:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(pdf_bytes)
         return output_path
+
     return pdf_bytes
