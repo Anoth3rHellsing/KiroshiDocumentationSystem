@@ -9,6 +9,7 @@ from typing import Any, Callable, Iterable
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
 
+from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData
 from KiroshiApp.core.storage import get_database_root, save_autosave
 
@@ -139,9 +140,7 @@ class KiroshiMainWindow(QMainWindow):
         self.case = case or CaseData()
         self._base_path = base_path
         self._config = load_global_config(base_path=base_path)
-        self._hotkey_manager = GlobalHotkeyManager(self)
-        self._tables_tab = TablesTab(self.case)
-        self._use_case_for_hotkeys = False
+        self._ai_client = AIClient()
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self.resize(1024, 720)
         self.setCentralWidget(self._build_tabs())
@@ -150,8 +149,8 @@ class KiroshiMainWindow(QMainWindow):
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
         tabs.addTab(CaseTab(), "Caso")
-        tabs.addTab(EmailTab(), "Email")
-        tabs.addTab(self._tables_tab, "Tablas")
+        tabs.addTab(EmailTab(self.case, self._ai_client), "Email")
+        tabs.addTab(TablesTab(), "Tablas")
         tabs.addTab(SaveLoadTab(), "Guardar/Cargar")
         tabs.addTab(TrackingTab(), "Control Tower")
         tabs.addTab(SettingsTab(), "Configuración")
