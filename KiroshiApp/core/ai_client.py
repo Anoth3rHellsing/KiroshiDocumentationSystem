@@ -2,14 +2,48 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping, Sequence
+import inspect
 import types
 from dataclasses import dataclass, fields
+from importlib import import_module, util
 from typing import Any, Callable
 
 import requests
 
 import kiroshi_chat
 from .model import CaseData
+
+
+class _SessionStateShim(dict):
+    """Dictionary that also exposes keys via attribute access."""
+
+    def __getattr__(self, name: str) -> object:  # pragma: no cover - convenience proxy
+        try:
+            return self[name]
+        except KeyError as exc:  # pragma: no cover - mirrors dict semantics
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name: str, value: object) -> None:  # pragma: no cover
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:  # pragma: no cover
+        del self[name]
+
+
+_streamlit_exists: Callable[[], bool] | None = None
+_streamlit_runtime_spec = util.find_spec("streamlit.runtime")
+if _streamlit_runtime_spec is not None:
+    _streamlit_runtime = import_module("streamlit.runtime")
+    _streamlit_exists = getattr(_streamlit_runtime, "exists", None)
+
+
+def _has_streamlit_context() -> bool:
+    if _streamlit_exists is None:
+        return False
+    try:
+        return bool(_streamlit_exists())
+    except Exception:
+        return False
 
 
 @dataclass
@@ -74,18 +108,30 @@ class AIClient:
     # ───────────────────── Personality & memory helpers ────────
     def _ensure_session_state(self) -> MutableMapping[str, object]:
         state = getattr(kiroshi_chat, "st", None)
-        session_state = getattr(state, "session_state", None)
-        if isinstance(session_state, MutableMapping):
-            if "assistant_notes" not in session_state:
-                session_state["assistant_notes"] = []
-            return session_state
+        if state is not None:
+            session_state: MutableMapping[str, object] | None = None
+            candidate = getattr(state, "session_state", None)
+            if isinstance(candidate, MutableMapping):
+                if _has_streamlit_context() or not inspect.ismodule(state):
+                    session_state = candidate
+            if session_state is not None:
+                session_state.setdefault("assistant_notes", [])
+                return session_state
 
-        proxy: MutableMapping[str, object] = {}
-        if state is None:
+        proxy = getattr(kiroshi_chat, "_desktop_session_state", None)
+        if not isinstance(proxy, MutableMapping):
+            proxy = _SessionStateShim()
+            setattr(kiroshi_chat, "_desktop_session_state", proxy)
+
+        proxy.setdefault("assistant_notes", [])
+
+        if state is None or inspect.ismodule(state) or not hasattr(state, "session_state"):
+            if inspect.ismodule(state):
+                setattr(kiroshi_chat, "_streamlit_module", state)
             kiroshi_chat.st = types.SimpleNamespace(session_state=proxy)
         else:
-            state.session_state = proxy
-        proxy["assistant_notes"] = []
+            setattr(state, "session_state", proxy)
+
         return proxy
 
     def _load_memory_history(self) -> list[dict[str, str]]:
