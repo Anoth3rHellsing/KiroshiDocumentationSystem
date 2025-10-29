@@ -67,8 +67,16 @@ from reportlab.graphics.shapes import Drawing, String
 # import path before attempting to import sibling modules like ``kiroshi_chat``.
 APP_DIR = Path(__file__).resolve().parent
 PACKAGE_ROOT = APP_DIR.parent
-if str(PACKAGE_ROOT) not in sys.path:
-    sys.path.insert(0, str(PACKAGE_ROOT))
+
+# ``streamlit-desktop-app`` moves the entrypoint into ``_internal`` when the
+# project is bundled.  At runtime Python does not automatically add that
+# directory (or its parent) to ``sys.path`` which breaks imports of sibling
+# modules like ``kiroshi_chat``.  Guard against this by explicitly placing both
+# locations on ``sys.path`` when missing.
+for path_candidate in (APP_DIR, PACKAGE_ROOT):
+    candidate_str = str(path_candidate)
+    if candidate_str and candidate_str not in sys.path:
+        sys.path.insert(0, candidate_str)
 REPORTLAB_CHARTS_AVAILABLE = False
 try:
     from reportlab.graphics.charts.barcharts import VerticalBarChart
