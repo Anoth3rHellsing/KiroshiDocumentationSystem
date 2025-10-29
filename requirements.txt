@@ -1,12 +1,6 @@
-streamlit
-altair
-pandas
+# codex/experimental-desktop-rebuild (experimental desktop prototype)
+PySide6
 reportlab
-requests
-urllib3
-tabulate
-pyinstaller
-pyautogui
 pillow
-mss
-pdfminer.six
+requests
+pandas
