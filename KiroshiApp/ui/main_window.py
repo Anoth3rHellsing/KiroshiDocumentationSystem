@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QIcon, QKeySequence
 from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
 
 from KiroshiApp.core.ai_client import AIClient
@@ -19,6 +19,7 @@ from .email_tab import EmailTab
 from .save_load_tab import SaveLoadTab
 from .settings_tab import SettingsTab
 from .tables_tab import TablesTab
+from .theme import load_stylesheet
 from .tracking_tab import TrackingTab
 
 CONFIG_FILENAME = "settings.json"
@@ -144,9 +145,26 @@ class KiroshiMainWindow(QMainWindow):
         self._config = load_global_config(base_path=base_path)
         self._ai_client = AIClient()
         self.setWindowTitle("Kiroshi Desktop Prototype")
+        self._apply_branding()
+        self._apply_theme_preference()
         self.resize(1024, 720)
         self.setCentralWidget(self._build_tabs())
         self._init_menus()
+
+    def _apply_branding(self) -> None:
+        logo_path = Path(__file__).resolve().parents[2] / "Kiroshi_Logo.png"
+        if logo_path.exists():
+            self.setWindowIcon(QIcon(str(logo_path)))
+
+    def _apply_theme_preference(self) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        preferred = str(self._config.get("theme", "light") or "light").lower()
+        stylesheet = load_stylesheet(preferred)
+        if not stylesheet and preferred != "light":
+            stylesheet = load_stylesheet("light")
+        app.setStyleSheet(stylesheet)
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
