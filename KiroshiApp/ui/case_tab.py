@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.attachments import capture_screenshot
 from ..core.model import CaseData
 from ..core.storage import save_autosave
 
@@ -42,6 +43,8 @@ class CaseTab(QWidget):
 
         self._field_widgets: dict[str, QWidget] = {}
         self._category_bars: dict[str, QProgressBar] = {}
+        self._autosave_hooks: list[Callable[[CaseData], None]] = []
+        self._track_callback: Callable[[CaseData, bool], None] | None = None
 
         self._categories = {
             "Identificación": ["case_id", "company_name", "subscription_id"],
@@ -72,6 +75,10 @@ class CaseTab(QWidget):
         self._autosave_toggle.stateChanged.connect(self._toggle_autosave)
         overall_layout.addWidget(self._autosave_toggle)
         outer_layout.addLayout(overall_layout)
+
+        self._track_checkbox = QCheckBox("Track this case")
+        self._track_checkbox.stateChanged.connect(self._on_track_toggled)
+        outer_layout.addWidget(self._track_checkbox)
 
         self._category_container = QWidget()
         category_layout = QVBoxLayout(self._category_container)
@@ -107,6 +114,9 @@ class CaseTab(QWidget):
         self._add_line_edit("remote_steps", "Notas de troubleshooting", multiline=True)
 
         button_layout = QHBoxLayout()
+        screenshot_button = QPushButton("Tomar captura")
+        screenshot_button.clicked.connect(self._take_screenshot)
+        button_layout.addWidget(screenshot_button)
         button_layout.addStretch()
         refresh_button = QPushButton("Recalcular progreso")
         refresh_button.clicked.connect(self._update_progress)
@@ -139,6 +149,7 @@ class CaseTab(QWidget):
                 widget.setPlainText(str(value or ""))
                 widget.blockSignals(False)
         self._update_progress()
+        self._sync_tracking_checkbox()
 
     def _on_line_changed(self, field: str, text: str) -> None:
         setattr(self.case, field, text)
@@ -164,8 +175,10 @@ class CaseTab(QWidget):
             return
         try:
             save_autosave(self.case)
+            for hook in list(self._autosave_hooks):
+                hook(self.case)
         except Exception as exc:  # pragma: no cover - defensive UI path
-            LOGGER.error("Autosave failed: %%s", exc)
+            LOGGER.error("Autosave failed: %s", exc)
             QMessageBox.warning(self, "Autosave", f"No se pudo guardar: {exc}")
 
     def _toggle_autosave(self, state: int) -> None:
@@ -199,10 +212,7 @@ class CaseTab(QWidget):
     def on_manual_autosave(self, callback: Callable[[CaseData], None]) -> None:
         """Allow the parent window to run extra hooks when autosave triggers."""
 
-        def _handler() -> None:
-            callback(self.case)
-
-        self._autosave_timer.timeout.connect(_handler)
+        self._autosave_hooks.append(callback)
 
     def autosave_enabled(self) -> bool:
         return self._autosave_enabled
@@ -214,3 +224,42 @@ class CaseTab(QWidget):
         self._autosave_toggle.blockSignals(False)
         if not enabled:
             self._autosave_timer.stop()
+
+    def on_tracking_toggled(self, callback: Callable[[CaseData, bool], None]) -> None:
+        self._track_callback = callback
+
+    def _on_track_toggled(self, state: int) -> None:
+        enabled = state == Qt.Checked
+        tracking = getattr(self.case, "tracking", None)
+        if tracking is not None:
+            try:
+                tracking.active = enabled  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        if self._track_callback:
+            self._track_callback(self.case, enabled)
+
+    def _sync_tracking_checkbox(self) -> None:
+        tracking = getattr(self.case, "tracking", None)
+        is_active = bool(getattr(tracking, "active", False)) if tracking is not None else False
+        self._track_checkbox.blockSignals(True)
+        self._track_checkbox.setChecked(is_active)
+        self._track_checkbox.blockSignals(False)
+
+    def _take_screenshot(self) -> None:
+        try:
+            path = capture_screenshot(self.case)
+        except Exception as exc:  # pragma: no cover - feedback path
+            LOGGER.error("Failed to capture screenshot: %s", exc)
+            QMessageBox.warning(self, "Captura", f"No se pudo capturar la pantalla: {exc}")
+            return
+        QMessageBox.information(self, "Captura", f"Captura guardada en {path}")
+
+    def set_tracking_active(self, active: bool) -> None:
+        tracking = getattr(self.case, "tracking", None)
+        if tracking is not None:
+            try:
+                tracking.active = active  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        self._sync_tracking_checkbox()

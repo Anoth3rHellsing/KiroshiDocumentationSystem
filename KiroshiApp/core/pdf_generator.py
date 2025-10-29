@@ -122,6 +122,7 @@ class CasePdfBuilder:
     def _render_remote_sessions(
         self, sessions: Sequence[RemoteSessionEntry], body_style: ParagraphStyle
     ):
+        code_style = self.styles["Code"]
         for idx, session in enumerate(sessions, start=1):
             header = session.display_title(idx)
             timestamps: list[str] = []
@@ -133,7 +134,10 @@ class CasePdfBuilder:
             yield Paragraph(f"{header}{subtitle}", self.styles["Heading"])
             notes = session.notes.strip() or "No notes provided."
             style = code_style if "\n" in notes else body_style
-            yield Preformatted(notes, style) if style is code_style else Paragraph(notes, style)
+            if style is code_style:
+                yield Preformatted(notes, style)
+            else:
+                yield Paragraph(notes, style)
             yield Spacer(1, 8)
 
     def _render_tracking(self, case: CaseData, body_style: ParagraphStyle):
@@ -172,21 +176,26 @@ class CasePdfBuilder:
 
 def _load_styles():
     styles = getSampleStyleSheet()
-    styles.add(
-        ParagraphStyle(
-            name="Heading",
-            parent=styles["Heading2"],
-            spaceAfter=6,
-        )
+    heading_style = ParagraphStyle(
+        name="Heading",
+        parent=styles["Heading2"],
+        spaceAfter=6,
     )
-    styles.add(
-        ParagraphStyle(
-            name="Code",
-            parent=styles["BodyText"],
-            fontName="Courier",
-            leading=10,
-        )
+    try:
+        styles.add(heading_style)
+    except KeyError:  # pragma: no cover - style already registered
+        styles.byName["Heading"] = heading_style
+
+    code_style = ParagraphStyle(
+        name="Code",
+        parent=styles["BodyText"],
+        fontName="Courier",
+        leading=10,
     )
+    try:
+        styles.add(code_style)
+    except KeyError:  # pragma: no cover - style already registered
+        styles.byName["Code"] = code_style
     return styles
 
 

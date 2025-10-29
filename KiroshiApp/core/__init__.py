@@ -1,13 +1,21 @@
 """Core packages for the experimental desktop client."""
 from .ai_client import AIClient, AIMode
-from .attachments import (
-    add_attachment,
-    attachments_root,
-    create_zip,
-    iter_attachments,
-    remove_attachment,
-    sanitize_filename,
-)
+
+try:  # pragma: no cover - optional dependency in headless environments
+    from .attachments import (
+        add_attachment,
+        attachments_root,
+        create_zip,
+        iter_attachments,
+        remove_attachment,
+        sanitize_filename,
+    )
+except Exception as exc:  # pragma: no cover - expose lazy errors when used
+    def _missing(*_args, **_kwargs):
+        raise RuntimeError("Attachments support unavailable") from exc
+
+    add_attachment = attachments_root = create_zip = iter_attachments = _missing
+    remove_attachment = sanitize_filename = _missing
 from .model import (
     CaseData,
     RemoteSessionEntry,
