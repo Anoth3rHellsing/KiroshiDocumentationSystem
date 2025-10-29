@@ -1,26 +1,28 @@
-"""Dataclasses describing the core domain model for the desktop client."""
+"""Data model helpers for the experimental desktop prototype."""
 from __future__ import annotations
 
-import json
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from typing import Iterable, Mapping, Sequence
 import uuid
-from dataclasses import asdict, dataclass, field, fields
-from typing import ClassVar, Iterable, Mapping, Sequence
 
-from .utils import utc_now_iso
 
-PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
-DEFAULT_TRACKING_PRIORITY = "Normal"
-DEFAULT_APP_VERSION = "Release 1.7.2"
+__all__ = [
+    "RemoteSessionEntry",
+    "TrackingData",
+    "CaseData",
+]
 
 
 def _utc_now_z() -> str:
-    """Return an ISO-8601 timestamp with a ``Z`` suffix."""
+    """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
 
-    return utc_now_iso().replace("+00:00", "Z")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    return now.isoformat().replace("+00:00", "Z")
 
 
 def _normalize_hardware_test_text(value: object) -> str:
-    """Return a clean text snippet describing the hardware test results."""
+    """Return a text representation for stored hardware test values."""
 
     if isinstance(value, str):
         return value.strip()
@@ -29,29 +31,6 @@ def _normalize_hardware_test_text(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
-
-
-def _normalize_damage_classification(value: object) -> str:
-    """Return a human readable scanner damage classification."""
-
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return ""
-        normalized = text.lower()
-        if normalized in {"accidental", "accidental damage", "y", "yes", "true", "1"}:
-            return "Accidental damage"
-        if normalized in {"internal", "internal damage", "n", "no", "false", "0", "none"}:
-            return "Internal damage"
-        return text
-    if isinstance(value, bool):
-        return "Accidental damage" if value else "Internal damage"
-    if isinstance(value, (int, float)):
-        return "Accidental damage" if value else "Internal damage"
-    text = str(value).strip()
-    return text if text else ""
 
 
 @dataclass
@@ -65,11 +44,73 @@ class RemoteSessionEntry:
     updated_at: str = field(default_factory=_utc_now_z)
 
     def display_title(self, index: int) -> str:
+        """Return a human-friendly title, falling back to an indexed label."""
+
         title = (self.title or "").strip()
         return title or f"Session {index}"
 
     def touch(self) -> None:
+        """Refresh the ``updated_at`` timestamp to the current moment."""
+
         self.updated_at = _utc_now_z()
+
+    def to_dict(self) -> dict[str, str]:
+        """Return a serialisable mapping for the entry."""
+
+        return {
+            "session_id": self.session_id,
+            "title": self.title,
+            "notes": self.notes,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+def _coerce_remote_session_entry(payload: object, *, default_title: str) -> RemoteSessionEntry:
+    """Return a ``RemoteSessionEntry`` built from loose mapping data."""
+
+    if isinstance(payload, RemoteSessionEntry):
+        return RemoteSessionEntry(
+            session_id=payload.session_id or uuid.uuid4().hex,
+            title=str(payload.title or default_title),
+            notes=str(payload.notes or ""),
+            created_at=str(payload.created_at or _utc_now_z()),
+            updated_at=str(payload.updated_at or payload.created_at or _utc_now_z()),
+        )
+    if isinstance(payload, Mapping):
+        created = str(payload.get("created_at") or "")
+        if not created:
+            created = _utc_now_z()
+        updated = str(payload.get("updated_at") or "") or created
+        return RemoteSessionEntry(
+            session_id=str(payload.get("session_id") or uuid.uuid4().hex),
+            title=str(payload.get("title") or default_title),
+            notes=str(payload.get("notes") or ""),
+            created_at=created,
+            updated_at=updated,
+        )
+    if isinstance(payload, str):
+        return RemoteSessionEntry(title=default_title, notes=payload)
+    return RemoteSessionEntry(title=default_title)
+
+
+def _normalize_remote_session_list(raw_sessions: Iterable[object] | None) -> list[RemoteSessionEntry]:
+    """Convert raw session payloads into dataclass entries."""
+
+    if not raw_sessions or isinstance(raw_sessions, (str, bytes)):
+        return []
+
+    normalized: list[RemoteSessionEntry] = []
+    for payload in raw_sessions:
+        default_title = f"Session {len(normalized) + 1}"
+        normalized.append(
+            _coerce_remote_session_entry(payload, default_title=default_title)
+        )
+    return normalized
+
+
+PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
+DEFAULT_TRACKING_PRIORITY = "Normal"
 
 
 @dataclass
@@ -100,90 +141,13 @@ class TrackingData:
             "expected_arrival_date",
             "service_tag",
         ):
-            value = getattr(self, field_name)
-            if value is None:
+            if getattr(self, field_name) is None:
                 setattr(self, field_name, "")
 
+    def to_dict(self) -> dict[str, object]:
+        """Return a serialisable mapping for the tracking data."""
 
-def _coerce_remote_session_entry(payload: object, *, default_title: str) -> RemoteSessionEntry:
-    if isinstance(payload, RemoteSessionEntry):
-        entry = RemoteSessionEntry(
-            session_id=(payload.session_id or uuid.uuid4().hex),
-            title=str(payload.title or default_title),
-            notes=str(payload.notes or ""),
-            created_at=str(payload.created_at or _utc_now_z()),
-            updated_at=str(payload.updated_at or payload.created_at or _utc_now_z()),
-        )
-    elif isinstance(payload, Mapping):
-        created = str(payload.get("created_at") or "")
-        if not created:
-            created = _utc_now_z()
-        updated = str(payload.get("updated_at") or "")
-        if not updated:
-            updated = created
-        entry = RemoteSessionEntry(
-            session_id=str(payload.get("session_id") or uuid.uuid4().hex),
-            title=str(payload.get("title") or default_title),
-            notes=str(payload.get("notes") or ""),
-            created_at=created,
-            updated_at=updated,
-        )
-    elif isinstance(payload, str):
-        entry = RemoteSessionEntry(title=default_title, notes=payload)
-    else:
-        entry = RemoteSessionEntry(title=default_title)
-
-    if not entry.title.strip():
-        entry.title = default_title
-    if not entry.created_at:
-        entry.created_at = _utc_now_z()
-    if not entry.updated_at:
-        entry.updated_at = entry.created_at
-    return entry
-
-
-def _normalize_remote_session_list(raw_sessions: Iterable[object] | None) -> list[RemoteSessionEntry]:
-    if not raw_sessions or isinstance(raw_sessions, (str, bytes)):
-        return []
-    normalized: list[RemoteSessionEntry] = []
-    for payload in raw_sessions:
-        default_title = f"Session {len(normalized) + 1}"
-        normalized.append(_coerce_remote_session_entry(payload, default_title=default_title))
-    return normalized
-
-
-def format_remote_sessions_summary(
-    sessions: Sequence[RemoteSessionEntry], *, include_timestamps: bool = True
-) -> str:
-    if not sessions:
-        return ""
-    show_titles = len(sessions) > 1 or any(
-        session.title.strip()
-        and session.title.strip().lower() != f"session {index}"
-        for index, session in enumerate(sessions, start=1)
-    )
-
-    blocks: list[str] = []
-    for idx, session in enumerate(sessions, start=1):
-        title = session.display_title(idx)
-        notes = (session.notes or "").strip()
-        if show_titles:
-            header = title
-            if include_timestamps:
-                created = (session.created_at or "").strip()
-                updated = (session.updated_at or "").strip()
-                timestamp_bits: list[str] = []
-                if created:
-                    timestamp_bits.append(f"started {created}")
-                if updated and updated != created:
-                    timestamp_bits.append(f"updated {updated}")
-                if timestamp_bits:
-                    header = f"{header} ({', '.join(timestamp_bits)})"
-            block = header if not notes else f"{header}\n{notes}"
-        else:
-            block = notes
-        blocks.append(block.strip())
-    return "\n\n".join(part for part in blocks if part).strip()
+        return asdict(self)
 
 
 @dataclass
@@ -276,88 +240,49 @@ class CaseData:
     clinic_state: str = ""
     clinic_postal_code: str = ""
     tracking: TrackingData = field(default_factory=TrackingData)
-    kiroshi_version: str = DEFAULT_APP_VERSION
+    kiroshi_version: str = ""
     last_modified: str = ""
 
-    REQUIRED_FIELDS: ClassVar[tuple[str, ...]] = (
-        "case_id",
-        "company_name",
-        "brief_description",
-    )
-
     def __post_init__(self) -> None:
-        self.hardware_test = _normalize_hardware_test_text(self.hardware_test)
-
-        sessions_source: Iterable[object] | None
-        if isinstance(self.remote_sessions, Iterable) and not isinstance(
-            self.remote_sessions, (str, bytes)
-        ):
-            sessions_source = self.remote_sessions
+        if isinstance(self.tracking, TrackingData):
+            pass
+        elif isinstance(self.tracking, Mapping):
+            self.tracking = TrackingData(**dict(self.tracking))
         else:
-            sessions_source = []
-        normalized_sessions = _normalize_remote_session_list(sessions_source)
-        if not normalized_sessions and self.remote_steps.strip():
-            now = _utc_now_z()
-            normalized_sessions = [
-                RemoteSessionEntry(
-                    title="Session 1",
-                    notes=self.remote_steps,
-                    created_at=now,
-                    updated_at=now,
-                )
-            ]
-        self.remote_sessions = normalized_sessions
-        self.remote_steps = format_remote_sessions_summary(
-            self.remote_sessions, include_timestamps=True
-        )
-        if not isinstance(self.tracking, TrackingData):
-            if isinstance(self.tracking, Mapping):
-                self.tracking = TrackingData(**self.tracking)  # type: ignore[arg-type]
-            else:
-                self.tracking = TrackingData()
-        if not self.kiroshi_version:
-            self.kiroshi_version = DEFAULT_APP_VERSION
-        if self.tracking.priority not in PRIORITY_OPTIONS:
-            self.tracking.priority = DEFAULT_TRACKING_PRIORITY
-        if self.last_modified is None:
-            self.last_modified = ""
-        elif not isinstance(self.last_modified, str):
-            self.last_modified = str(self.last_modified)
-
-        self.scanner_accidental_damage = _normalize_damage_classification(
-            getattr(self, "scanner_accidental_damage", "")
-        )
-
-        self._missing_required = [
-            name for name in self.REQUIRED_FIELDS if not getattr(self, name)
-        ]
+            self.tracking = TrackingData()
+        self.hardware_test = _normalize_hardware_test_text(self.hardware_test)
+        self.remote_sessions = _normalize_remote_session_list(self.remote_sessions)
+        if self.remote_steps and not self.remote_sessions:
+            self.remote_sessions = _normalize_remote_session_list([self.remote_steps])
 
     def validate(self) -> None:
-        if self._missing_required:
-            raise ValueError(
-                "Missing required fields: " + ", ".join(self._missing_required)
-            )
+        """Validate the case payload. Raises ``ValueError`` on invalid data."""
 
-    @property
-    def missing_required_fields(self) -> list[str]:
-        return list(self._missing_required)
+        if not isinstance(self.case_id, str):
+            raise ValueError("case_id must be a string")
+        if not isinstance(self.company_name, str):
+            raise ValueError("company_name must be a string")
+        for entry in self.remote_sessions:
+            if not isinstance(entry, RemoteSessionEntry):
+                raise ValueError("remote_sessions must contain RemoteSessionEntry instances")
 
-    def to_dict(self) -> dict:
-        data = asdict(self)
-        data["remote_sessions"] = [asdict(entry) for entry in self.remote_sessions]
-        return data
+    def to_dict(self) -> dict[str, object]:
+        """Return a serialisable mapping representing the case."""
 
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+        payload = asdict(self)
+        payload["remote_sessions"] = [entry.to_dict() for entry in self.remote_sessions]
+        payload["tracking"] = self.tracking.to_dict()
+        return payload
 
     @classmethod
-    def from_json(cls, payload: str | Mapping[str, object]) -> "CaseData":
-        if isinstance(payload, str):
-            data = json.loads(payload)
-        else:
-            data = dict(payload)
-        if not isinstance(data, Mapping):
-            raise TypeError("CaseData.from_json expects a mapping or JSON string")
-        field_names = {f.name for f in fields(cls)}
-        filtered = {k: v for k, v in data.items() if k in field_names}
-        return cls(**filtered)
+    def from_dict(cls, payload: Mapping[str, object]) -> "CaseData":
+        """Instantiate a case from a plain mapping."""
+
+        data = dict(payload)
+        tracking_payload = data.get("tracking")
+        if isinstance(tracking_payload, Mapping):
+            data["tracking"] = TrackingData(**tracking_payload)
+        remote_payload = data.get("remote_sessions")
+        if isinstance(remote_payload, Sequence) and not isinstance(remote_payload, (str, bytes)):
+            data["remote_sessions"] = _normalize_remote_session_list(remote_payload)
+        return cls(**data)

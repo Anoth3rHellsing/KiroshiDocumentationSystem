@@ -1,21 +1,20 @@
-"""PySide6 UI components for the experimental desktop client."""
-
+"""UI package for the experimental desktop prototype."""
+from .main_window import MainWindow
 from .case_tab import CaseTab
 from .email_tab import EmailTab
+from .tables_tab import TablesTab
 from .save_load_tab import SaveLoadTab
 from .tracking_tab import TrackingTab
 from .settings_tab import SettingsTab
 from .debug_tab import DebugTab
-from .chat_window import ChatWindow
-from .main_window import KiroshiMainWindow
 
 __all__ = [
-    "KiroshiMainWindow",
+    "MainWindow",
     "CaseTab",
     "EmailTab",
+    "TablesTab",
     "SaveLoadTab",
     "TrackingTab",
     "SettingsTab",
     "DebugTab",
-    "ChatWindow",
 ]

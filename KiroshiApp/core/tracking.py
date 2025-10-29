@@ -1,160 +1,110 @@
-"""Tracking helpers for monitoring active cases."""
+"""Tracking helpers for the experimental desktop prototype."""
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Dict, Iterable, Iterator, Mapping, Optional
 
 from .model import CaseData, TrackingData
-from .storage import save_case
-from .utils import get_database_root, read_json, utc_now_iso, write_json
+from .storage import get_database_root
 
-LOGGER = logging.getLogger(__name__)
-TRACKED_DIR_NAME = "TrackedCases"
+TRACKED_CASES_DIRNAME = "TrackedCases"
+
+
+@dataclass
+class TrackedCase:
+    """Simple wrapper storing case tracking information."""
+
+    case: CaseData
+    data: TrackingData = field(default_factory=TrackingData)
 
 
 @dataclass
 class TrackedCaseRecord:
-    path: Path
+    """Metadata returned when listing tracked cases from disk."""
+
     case: CaseData
-    last_modified: str
-    kiroshi_version: str | None = None
+    path: Path
     is_legacy: bool = False
 
 
-def start_tracking(case: CaseData, base_path: Path | None = None) -> Path:
-    """Persist ``case`` as a tracked file, enabling tracking if necessary."""
+class TrackingManager:
+    """In-memory registry of tracked cases for the prototype."""
 
-    if not isinstance(case.tracking, TrackingData):
-        if isinstance(case.tracking, Mapping):
-            case.tracking = TrackingData(**case.tracking)  # type: ignore[arg-type]
-        else:
-            case.tracking = TrackingData()
-    case.tracking.active = True
-    case.last_modified = utc_now_iso()
+    def __init__(self) -> None:
+        self._cases: Dict[str, TrackedCase] = {}
 
-    root = get_database_root(base_path) / TRACKED_DIR_NAME
+    def start_tracking(self, case: CaseData) -> None:
+        self._cases[case.case_id or case.company_name] = TrackedCase(case)
+
+    def stop_tracking(self, ticket_number: str) -> None:
+        self._cases.pop(ticket_number, None)
+
+    def iter_tracked_cases(self) -> Iterable[TrackedCase]:
+        return self._cases.values()
+
+
+def _tracking_root(base_path: Optional[Path | str] = None) -> Path:
+    return get_database_root(base_path) / TRACKED_CASES_DIRNAME
+
+
+def _safe_tracking_filename(case_id: str) -> str:
+    sanitized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in case_id or "case")
+    return f"{sanitized}.json"
+
+
+def _read_case_payload(path: Path) -> Mapping[str, object] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if isinstance(data, Mapping) and "case" in data and isinstance(data["case"], Mapping):
+        return data["case"]  # type: ignore[index]
+    if isinstance(data, Mapping):
+        return data
+    return None
+
+
+def start_tracking(case: CaseData, *, base_path: Optional[Path | str] = None) -> Path:
+    """Persist tracking information for the provided case."""
+
+    root = _tracking_root(base_path)
     root.mkdir(parents=True, exist_ok=True)
-    safe_name = _safe_case_filename(case.case_id)
-    destination = root / f"{safe_name}.json"
-    counter = 1
-    while destination.exists():
-        destination = root / f"{safe_name}_{counter}.json"
-        counter += 1
-    save_case(case, destination)
+    filename = _safe_tracking_filename(case.case_id)
+    destination = root / filename
+    payload = {
+        "case": case.to_dict(),
+        "tracking": case.tracking.to_dict(),
+    }
+    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return destination
 
 
-def update_tracked_case(
-    path: str | Path,
-    *,
-    tracking_updates: Mapping[str, Any] | None = None,
-    case_updates: Mapping[str, Any] | None = None,
-) -> CaseData:
-    """Apply updates to a tracked case file returning the refreshed ``CaseData``."""
+def stop_tracking(case_id: str, *, base_path: Optional[Path | str] = None) -> bool:
+    """Remove the tracking file for the specified case."""
 
-    path = Path(path)
-    payload = read_json(path)
-    if payload is None:
-        raise FileNotFoundError(path)
-
-    container, case_payload = _extract_case_payload(payload)
-    if case_payload is None:
-        raise ValueError(f"Unsupported tracked case format at {path}")
-
-    case_data = dict(case_payload)
-    if case_updates:
-        case_data.update(case_updates)
-    tracking_payload = case_data.get("tracking")
-    if isinstance(tracking_payload, Mapping):
-        merged = dict(tracking_payload)
-    else:
-        merged = {}
-    if tracking_updates:
-        merged.update(tracking_updates)
-    if merged:
-        merged.setdefault("active", True)
-        case_data["tracking"] = merged
-
-    case = CaseData.from_json(case_data)
-    case.last_modified = utc_now_iso()
-    container.update(
-        {
-            "case": case.to_dict(),
-            "last_modified": case.last_modified,
-            "version": container.get("version") or case.kiroshi_version,
-        }
-    )
-    write_json(path, container)
-    return case
+    root = _tracking_root(base_path)
+    filename = _safe_tracking_filename(case_id)
+    path = root / filename
+    if path.exists():
+        path.unlink()
+        return True
+    return False
 
 
-def list_tracked_cases(base_path: Path | None = None) -> list[TrackedCaseRecord]:
-    """Return every active tracked case stored on disk."""
+def list_tracked_cases(*, base_path: Optional[Path | str] = None) -> list[TrackedCaseRecord]:
+    """Return tracked case metadata from disk."""
 
-    root = get_database_root(base_path)
-    tracked_root = root / TRACKED_DIR_NAME
-    candidates = list(root.glob("*.json")) + list(tracked_root.glob("*.json"))
+    root = _tracking_root(base_path)
+    if not root.exists():
+        return []
+
     records: list[TrackedCaseRecord] = []
-    for candidate in candidates:
-        payload = read_json(candidate)
-        if payload is None:
+    for path in sorted(root.glob("*.json")):
+        payload = _read_case_payload(path)
+        if not payload:
             continue
-        container, case_payload = _extract_case_payload(payload)
-        if case_payload is None:
-            continue
-        try:
-            case = CaseData.from_json(case_payload)
-        except Exception as exc:
-            LOGGER.warning("Skipping invalid tracked case %s: %s", candidate, exc)
-            continue
-        tracking = case.tracking
-        if not isinstance(tracking, TrackingData) or not tracking.active:
-            continue
-        last_modified = str(container.get("last_modified") or case.last_modified or "")
-        if not last_modified:
-            last_modified = utc_now_iso()
-        container_dict = container or {}
-        is_legacy = "case" not in container_dict
-        records.append(
-            TrackedCaseRecord(
-                path=candidate,
-                case=case,
-                last_modified=last_modified,
-                kiroshi_version=str(container_dict.get("version")) if container_dict else None,
-                is_legacy=is_legacy,
-            )
-        )
-    return sorted(records, key=lambda record: record.last_modified, reverse=True)
-
-
-def _safe_case_filename(case_id: str) -> str:
-    text = case_id or "case"
-    safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
-    return safe or "case"
-
-
-def _extract_case_payload(payload: Any) -> tuple[dict[str, Any] | None, Mapping[str, Any] | None]:
-    if isinstance(payload, Mapping):
-        if "case" in payload and isinstance(payload["case"], Mapping):
-            return dict(payload), payload["case"]  # type: ignore[return-value]
-        return dict(payload), payload
-    if isinstance(payload, Iterable):
-        for item in payload:
-            if isinstance(item, Mapping):
-                return dict(item), item
-    return None, None
-
-
-def stop_tracking(case_id: str, base_path: Path | None = None) -> bool:
-    """Disable tracking for ``case_id`` when an entry exists."""
-
-    if not case_id:
-        return False
-    updated = False
-    for record in list_tracked_cases(base_path):
-        if record.case.case_id == case_id:
-            update_tracked_case(record.path, tracking_updates={"active": False})
-            updated = True
-    return updated
+        case = CaseData.from_dict(payload)
+        records.append(TrackedCaseRecord(case=case, path=path, is_legacy=False))
+    return records

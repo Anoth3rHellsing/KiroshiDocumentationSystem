@@ -1,155 +1,148 @@
-"""Persistence helpers for autosave and case storage."""
+"""Storage helpers for the experimental desktop prototype."""
 from __future__ import annotations
 
 import json
-import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Iterable, Iterator, Mapping, Optional
 
 from .model import CaseData
-from .utils import get_database_root, read_json, utc_now_iso, write_json
 
-LOGGER = logging.getLogger(__name__)
 AUTOSAVE_FILENAME = "autosave.json"
-CASE_EXTENSION = ".json"
-CASES_DIRNAME = "cases"
+CASES_DIRNAME = "Cases"
 
 
-def autosave_path(base_path: Path | None = None) -> Path:
-    """Return the path where the autosave file is stored."""
+def _utc_now_iso() -> str:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    return now.isoformat().replace("+00:00", "Z")
 
+
+def get_database_root(base_path: Optional[Path | str] = None) -> Path:
+    """Return the default directory used for local data storage."""
+
+    if base_path is not None:
+        return Path(base_path)
+    return Path.home() / "KiroshiDatabase"
+
+
+def cases_root(base_path: Optional[Path | str] = None) -> Path:
+    """Return the directory where persistent case files are stored."""
+
+    return get_database_root(base_path) / CASES_DIRNAME
+
+
+def _autosave_path(base_path: Optional[Path | str] = None) -> Path:
     return get_database_root(base_path) / AUTOSAVE_FILENAME
 
 
-def save_autosave(case: CaseData, base_path: Path | None = None) -> Path:
-    """Write the active case to the autosave file and return the path used."""
-
-    target = autosave_path(base_path)
-    if not case.last_modified:
-        case.last_modified = utc_now_iso()
-    payload = {
-        "case": case.to_dict(),
-        "version": case.kiroshi_version,
-        "last_modified": case.last_modified,
-    }
-    write_json(target, payload)
-    return target
+def _case_payload(case: CaseData) -> dict[str, object]:
+    payload = case.to_dict()
+    payload.setdefault("last_modified", _utc_now_iso())
+    return payload
 
 
-def load_autosave(base_path: Path | None = None) -> CaseData | None:
-    """Load the autosaved case if one exists on disk."""
+def save_autosave(case: CaseData, *, base_path: Optional[Path | str] = None) -> Path:
+    """Persist the latest draft case to the autosave file."""
 
-    path = autosave_path(base_path)
-    payload = read_json(path)
-    return _parse_case_payload(payload)
-
-
-def save_case(case: CaseData, destination: Path) -> Path:
-    """Persist ``case`` to ``destination`` ensuring the parent directory exists."""
-
-    destination = destination.with_suffix(CASE_EXTENSION)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if not case.last_modified:
-        case.last_modified = utc_now_iso()
-    payload = {
-        "case": case.to_dict(),
-        "version": case.kiroshi_version,
-        "last_modified": case.last_modified,
-    }
-    write_json(destination, payload)
-    return destination
+    path = _autosave_path(base_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(_case_payload(case), handle, ensure_ascii=False, indent=2)
+    return path
 
 
-def load_case(path: Path) -> CaseData:
-    """Read a saved case from ``path`` supporting historical layouts."""
-
-    payload = read_json(path)
-    case = _parse_case_payload(payload)
-    if case is None:
-        raise FileNotFoundError(f"Unable to decode case at {path}")
-    return case
+def _coerce_case_payload(payload: Mapping[str, object]) -> Mapping[str, object]:
+    case_payload = payload
+    if "case" in payload and isinstance(payload["case"], Mapping):
+        case_payload = payload["case"]  # type: ignore[index]
+    return case_payload
 
 
-def save_case_to_db(case: CaseData, base_path: Path | None = None) -> Path:
-    """Persist the current case inside the database directory."""
+def load_autosave(*, base_path: Optional[Path | str] = None) -> CaseData | None:
+    """Load the autosave file if it exists."""
 
-    root = cases_root(base_path)
-    filename = _safe_case_filename(case.case_id or "case")
-    destination = root / filename
-    return save_case(case, destination)
-
-
-def cases_root(base_path: Path | None = None) -> Path:
-    """Return the directory where persistent case files are stored."""
-
-    root = get_database_root(base_path) / CASES_DIRNAME
-    root.mkdir(parents=True, exist_ok=True)
-    return root
-
-
-def iter_case_files(base_path: Path | None = None):
-    """Yield all known case file paths stored under the database root."""
-
-    database_root = get_database_root(base_path)
-    cases_dir = database_root / CASES_DIRNAME
-    candidates: set[Path] = set()
-    if database_root.exists():
-        for candidate in database_root.glob(f"*{CASE_EXTENSION}"):
-            if candidate.name == AUTOSAVE_FILENAME:
-                continue
-            candidates.add(candidate)
-    if cases_dir.exists():
-        candidates.update(cases_dir.glob(f"*{CASE_EXTENSION}"))
-    for candidate in sorted(
-        candidates,
-        key=lambda item: item.stat().st_mtime,
-        reverse=True,
-    ):
-        yield candidate
-
-
-def _parse_case_payload(payload: Any) -> CaseData | None:
-    if isinstance(payload, Mapping):
-        if "case" in payload and isinstance(payload["case"], Mapping):
-            case_payload = payload["case"]
-        else:
-            case_payload = payload
-        try:
-            case = CaseData.from_json(case_payload)  # type: ignore[arg-type]
-        except Exception as exc:
-            LOGGER.warning("Failed to parse autosave payload: %s", exc)
-            return None
-        if not case.last_modified:
-            case.last_modified = str(payload.get("last_modified") or "")
-        if not case.last_modified:
-            case.last_modified = utc_now_iso()
-        return case
-    if isinstance(payload, list):
-        dict_entries = [item for item in payload if isinstance(item, Mapping)]
-        if dict_entries:
-            return _parse_case_payload(dict_entries[0])
-    if payload is None:
+    path = _autosave_path(base_path)
+    if not path.exists():
         return None
-    LOGGER.warning("Unsupported autosave payload: %s", type(payload).__name__)
-    return None
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    if not isinstance(data, Mapping):
+        return None
+
+    case_payload = dict(_coerce_case_payload(data))
+    remote_steps = case_payload.get("remote_steps")
+    if isinstance(remote_steps, str) and remote_steps.strip():
+        sessions = case_payload.get("remote_sessions")
+        if not isinstance(sessions, Iterable) or isinstance(sessions, (str, bytes)):
+            case_payload["remote_sessions"] = [remote_steps]
+    return CaseData.from_dict(case_payload)
 
 
-def create_autosave_snapshot(case: CaseData, base_path: Path | None = None) -> Path:
-    """Create a timestamped backup of ``case`` inside the database directory."""
+def save_case(case: CaseData, *, destination: Optional[Path] = None) -> Path:
+    """Compat wrapper that mirrors the previous API signature."""
 
-    root = get_database_root(base_path)
-    snapshot_dir = root / "backups"
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
-    case_id = case.case_id or "case"
-    timestamp = case.last_modified or utc_now_iso()
-    safe_case_id = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in case_id)
-    filename = f"autosave_{safe_case_id}_{timestamp.replace(':', '-')}.json"
-    destination = snapshot_dir / filename
-    write_json(destination, {"case": case.to_dict(), "version": case.kiroshi_version})
+    if destination is None:
+        destination = _autosave_path()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(_case_payload(case), ensure_ascii=False, indent=2), encoding="utf-8")
     return destination
+
+
+def load_case(source: Optional[Path] = None) -> CaseData:
+    """Compat wrapper returning the autosaved case if present."""
+
+    if source is None:
+        case = load_autosave()
+        return case or CaseData()
+
+    if not source.exists():
+        return CaseData()
+
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return CaseData()
+
+    if isinstance(data, Mapping) and "case" in data and isinstance(data["case"], Mapping):
+        data = data["case"]
+    if isinstance(data, Mapping):
+        return CaseData.from_dict(data)
+    return CaseData()
 
 
 def _safe_case_filename(case_id: str) -> str:
-    text = case_id.strip() if case_id else "case"
-    safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
-    return safe or "case"
+    sanitized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in case_id or "case")
+    return f"{sanitized}.json"
+
+
+def save_case_to_db(case: CaseData, *, base_path: Optional[Path | str] = None) -> Path:
+    """Persist the case as a JSON document in the database directory."""
+
+    root = cases_root(base_path)
+    root.mkdir(parents=True, exist_ok=True)
+    filename = _safe_case_filename(case.case_id or "case")
+    destination = root / filename
+    payload = {
+        "case": _case_payload(case),
+        "saved_at": _utc_now_iso(),
+    }
+    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return destination
+
+
+def iter_case_files(*, base_path: Optional[Path | str] = None) -> Iterator[Path]:
+    """Yield saved case files ordered by most recent modification time."""
+
+    root = cases_root(base_path)
+    if not root.exists():
+        return iter(())
+    files = sorted(
+        (path for path in root.glob("*.json") if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return iter(files)
