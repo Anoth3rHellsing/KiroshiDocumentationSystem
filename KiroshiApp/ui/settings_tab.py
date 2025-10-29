@@ -36,6 +36,8 @@ def _coerce_time(value: object) -> time:
                 pass
     return time(10, 30)
 
+from KiroshiApp.core.model import CaseData
+
 
 class SettingsTab(QWidget):
     """Interactive form that persists workspace preferences to disk."""
@@ -98,132 +100,11 @@ class SettingsTab(QWidget):
         self._reset_button.clicked.connect(self._reset_defaults)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Configura la experiencia del Control Tower."))
-        layout.addWidget(self._second_line_checkbox)
-        layout.addWidget(reminders_group)
-        layout.addWidget(self._status_label)
+        self._label = QLabel("Settings tab coming soon", self)
+        layout.addWidget(self._label)
 
-        buttons_layout = QHBoxLayout()
-        buttons_layout.addStretch(1)
-        buttons_layout.addWidget(self._reset_button)
-        layout.addLayout(buttons_layout)
-        layout.addStretch(1)
+    def refresh_case(self, case: CaseData) -> None:
+        """Echo the active case identifier."""
 
-        self._apply_preferences_to_ui()
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-    def _get_reminders_config(self) -> dict[str, Any]:
-        reminders = self._config.get("wellness_reminders")
-        if not isinstance(reminders, dict):
-            reminders = {
-                "enabled": False,
-                "notification_lead": 10,
-                "schedule": {
-                    "break_1": "10:30",
-                    "lunch": "12:30",
-                    "break_2": "15:00",
-                },
-            }
-            self._config["wellness_reminders"] = reminders
-        return reminders
-
-    def _apply_preferences_to_ui(self) -> None:
-        self._updating_ui = True
-        try:
-            second_line = bool(self._config.get("second_line_mode", False))
-            self._second_line_checkbox.setChecked(second_line)
-
-            reminders = self._get_reminders_config()
-            enabled = bool(reminders.get("enabled", False))
-            lead = int(reminders.get("notification_lead", 10) or 10)
-            schedule = reminders.get("schedule")
-            if not isinstance(schedule, dict):
-                schedule = {}
-
-            self._reminders_enabled.setChecked(enabled)
-            self._lead_time.setValue(lead)
-
-            for key, editor in self._time_fields.items():
-                editor.setTime(_coerce_time(schedule.get(key, "10:30")))
-                editor.setEnabled(enabled)
-
-            self._lead_time.setEnabled(enabled)
-            self._status_label.setText(self._build_status_text(second_line, enabled))
-        finally:
-            self._updating_ui = False
-
-    def _build_status_text(self, second_line: bool, reminders_enabled: bool) -> str:
-        summary = []
-        summary.append(
-            "Modo 2nd Line activado." if second_line else "Modo 2nd Line desactivado."
-        )
-        if reminders_enabled:
-            summary.append(
-                "Recordatorios habilitados — recibirás avisos antes de cada checkpoint."
-            )
-        else:
-            summary.append("Los recordatorios están desactivados.")
-        return "\n".join(summary)
-
-    def _persist_preferences(self) -> None:
-        if self._save_config:
-            self._save_config(self._config, base_path=self._base_path)
-        if self._on_preferences_changed:
-            self._on_preferences_changed(dict(self._config))
-
-    # ------------------------------------------------------------------
-    # Event handlers
-    # ------------------------------------------------------------------
-    def _handle_second_line_changed(self, state: int) -> None:
-        if self._updating_ui:
-            return
-        self._config["second_line_mode"] = state == Qt.Checked
-        reminders = self._get_reminders_config()
-        self._status_label.setText(
-            self._build_status_text(self._config["second_line_mode"], reminders.get("enabled", False))
-        )
-        self._persist_preferences()
-
-    def _handle_reminders_changed(self) -> None:
-        if self._updating_ui:
-            return
-        reminders = self._get_reminders_config()
-        enabled = self._reminders_enabled.isChecked()
-        reminders["enabled"] = enabled
-        reminders["notification_lead"] = int(self._lead_time.value())
-
-        schedule = reminders.setdefault("schedule", {})
-        for key, editor in self._time_fields.items():
-            schedule[key] = editor.time().toString("HH:mm")
-            editor.setEnabled(enabled)
-
-        self._lead_time.setEnabled(enabled)
-        self._status_label.setText(
-            self._build_status_text(self._config.get("second_line_mode", False), enabled)
-        )
-        self._persist_preferences()
-
-    def _reset_defaults(self) -> None:
-        self._config["second_line_mode"] = False
-        self._config["wellness_reminders"] = {
-            "enabled": False,
-            "notification_lead": 10,
-            "schedule": {
-                "break_1": "10:30",
-                "lunch": "12:30",
-                "break_2": "15:00",
-            },
-        }
-        self._apply_preferences_to_ui()
-        self._persist_preferences()
-
-    # ------------------------------------------------------------------
-    # External API
-    # ------------------------------------------------------------------
-    def update_preferences(self, config: dict[str, Any]) -> None:
-        """Update the form with freshly persisted settings."""
-
-        self._config.update(config)
-        self._apply_preferences_to_ui()
+        summary = case.case_id or case.company_name or "Sin caso seleccionado"
+        self._label.setText(f"Settings tab coming soon\nCaso activo: {summary}")

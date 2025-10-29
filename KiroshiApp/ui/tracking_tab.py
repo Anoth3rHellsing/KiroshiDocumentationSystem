@@ -68,6 +68,8 @@ def _sla_status(tracking: TrackingData) -> str:
         return "Fuera de plazo"
     return "Sin datos"
 
+from KiroshiApp.core.model import CaseData
+
 
 class TrackingTab(QWidget):
     """Visual dashboard that monitors tracked cases on disk."""
@@ -148,134 +150,11 @@ class TrackingTab(QWidget):
         metrics_layout.addRow("Cerrados esta sesión", self._metrics_labels["closed"])
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self._header_label)
-        layout.addWidget(self._gate_label)
-        layout.addWidget(self._table)
-        layout.addLayout(buttons_layout)
-        layout.addWidget(metrics_group)
-        layout.addStretch(1)
+        self._label = QLabel("Tracking tab coming soon", self)
+        layout.addWidget(self._label)
 
-        self.set_second_line_enabled(second_line_enabled)
-        self.refresh()
+    def refresh_case(self, case: CaseData) -> None:
+        """Update the placeholder with the active case."""
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-    def refresh(self) -> None:
-        """Reload tracked case information from disk."""
-
-        self._records = list_tracked_cases(base_path=self._base_path)
-        self._table.setRowCount(len(self._records))
-        for row, record in enumerate(self._records):
-            case = record.case
-            tracking = case.tracking if isinstance(case.tracking, TrackingData) else TrackingData()
-            values = [
-                case.case_id or "(sin ID)",
-                case.company_name or "(sin cliente)",
-                tracking.priority or "Normal",
-                tracking.status or "", 
-                tracking.ticket_number or "",
-                _sla_status(tracking),
-            ]
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setData(Qt.UserRole, record.case.case_id)
-                self._table.setItem(row, column, item)
-
-        self._update_metrics()
-        self._update_actions_state()
-
-    def set_second_line_enabled(self, enabled: bool) -> None:
-        """Enable or disable interactions based on 2nd Line mode."""
-
-        self._gate_label.setVisible(not enabled)
-        self._table.setEnabled(enabled)
-        self._load_button.setEnabled(enabled and bool(self._records))
-        self._untrack_button.setEnabled(False)
-        self._close_button.setEnabled(False)
-        self._update_actions_state()
-
-    def apply_preferences(self, reminders_config: dict[str, Any] | None) -> None:
-        """Update reminder preferences displayed in the metrics panel."""
-
-        self._reminders_config = reminders_config or {}
-        self._update_metrics()
-
-    def register_closed_case(self, case_id: str) -> None:
-        """Track locally closed cases for the session metrics."""
-
-        if case_id and case_id not in self._closed_cases:
-            self._closed_cases.append(case_id)
-        self._update_metrics()
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-    def _current_record(self) -> TrackedCaseRecord | None:
-        indexes = self._table.selectionModel().selectedRows() if self._table.selectionModel() else []
-        if not indexes:
-            return None
-        row = indexes[0].row()
-        if 0 <= row < len(self._records):
-            return self._records[row]
-        return None
-
-    def _update_actions_state(self) -> None:
-        record = self._current_record()
-        enabled = bool(record)
-        if not self._table.isEnabled():
-            enabled = False
-        self._load_button.setEnabled(enabled)
-        self._untrack_button.setEnabled(enabled)
-        self._close_button.setEnabled(enabled)
-
-    def _update_metrics(self) -> None:
-        total = len(self._records)
-        on_track = 0
-        warning = 0
-        overdue = 0
-        for record in self._records:
-            status = _sla_status(record.case.tracking)
-            if status == "En plazo":
-                on_track += 1
-            elif status == "Aviso":
-                warning += 1
-            elif status == "Fuera de plazo":
-                overdue += 1
-
-        reminders_enabled = False
-        lead = ""
-        if isinstance(self._reminders_config, dict):
-            reminders_enabled = bool(self._reminders_config.get("enabled", False))
-            if reminders_enabled:
-                lead_value = self._reminders_config.get("notification_lead", "")
-                if lead_value:
-                    lead = f"{lead_value} min antes"
-
-        self._metrics_labels["total"].setText(str(total))
-        self._metrics_labels["on_track"].setText(str(on_track))
-        self._metrics_labels["warning"].setText(str(warning))
-        self._metrics_labels["overdue"].setText(str(overdue))
-        self._metrics_labels["closed"].setText(str(len(self._closed_cases)))
-        if reminders_enabled:
-            self._metrics_labels["reminders"].setText(f"Activos ({lead or 'sin adelanto'})")
-        else:
-            self._metrics_labels["reminders"].setText("Desactivados")
-
-    # ------------------------------------------------------------------
-    # Button callbacks
-    # ------------------------------------------------------------------
-    def _on_load_clicked(self) -> None:
-        record = self._current_record()
-        if record:
-            self.loadRequested.emit(record.case)
-
-    def _on_untrack_clicked(self) -> None:
-        record = self._current_record()
-        if record:
-            self.untrackRequested.emit(record.case.case_id)
-
-    def _on_close_clicked(self) -> None:
-        record = self._current_record()
-        if record:
-            self.closeRequested.emit(record.case.case_id)
+        summary = case.case_id or case.tracking.ticket_number or "Sin caso seleccionado"
+        self._label.setText(f"Tracking tab coming soon\nCaso activo: {summary}")
