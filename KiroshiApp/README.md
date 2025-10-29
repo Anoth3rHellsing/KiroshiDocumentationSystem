@@ -1,11 +1,24 @@
-# KiroshiApp Experimental Desktop Rebuild
+# Kiroshi Desktop Prototype (Experimental Branch)
 
-This directory hosts the experimental desktop implementation of the Kiroshi application.
-The branch is dedicated to prototyping a PySide6-based interface with supporting
-utilities for document generation and AI-assisted tooling.
+This directory contains the experimental PySide6 rebuild of the Kiroshi
+application. The branch focuses on validating a desktop-first architecture with
+autosave, document generation, AI assistance, and background workers that keep
+the UI responsive while long-running jobs execute.
+
+## Requirements
+
+Install the desktop dependencies before running the prototype:
+
+```bash
+pip install -r requirements.txt
+```
+
+Key packages include PySide6, ReportLab, pandas, openpyxl, requests, Pillow,
+pytesseract, transformers, and openai.
 
 ## Structure
-- `main.py`: Temporary entry point for the future desktop client.
+- `main.py`: Entry point that wires the logging stack and launches the desktop
+  shell.
 - `ui/`: User interface modules and Qt Designer files.
 - `core/`: Core application logic and services.
 -   `core/model.py`: Dataclasses representing cases, tracking metadata and
@@ -23,10 +36,47 @@ utilities for document generation and AI-assisted tooling.
 -   `core/utils.py`: Shared helpers for logging, timestamps, and
     configuration files.
 - `assets/`: Static assets such as icons, fonts, and shared QSS themes.
-- `tests/`: Automated tests for the desktop components.
+- `tests/`: Automated tests covering persistence, AI client backends, PDF
+  exports, and end-to-end flows for the experimental desktop.
 
-The desktop shell now includes background workers for AI, PDF, and ZIP actions,
+The desktop shell includes background workers for AI, PDF, and ZIP actions,
 rotating log files under `core/logs/`, and a switchable light/dark theme that can
 be toggled from the settings tab.
 
-> **Note:** This branch is experimental and not intended for production use yet.
+## Running the prototype
+
+1. (Optional) Set `QT_QPA_PLATFORM=offscreen` when running on a headless
+   environment.
+2. Launch the app with:
+
+   ```bash
+   python -m KiroshiApp.main
+   ```
+3. The application loads any `autosave.json` found under the local
+   `KiroshiDatabase` folder and opens the main window with the case, email,
+   tracking, settings, and debug tabs ready for editing.
+
+## Automated QA & testing
+
+A pytest suite validates the critical behaviours of the prototype:
+
+- `tests/test_storage.py`: autosave and persistent case storage helpers.
+- `tests/test_ai_client.py`: AI client prompt formatting and backend dispatching.
+- `tests/test_pdf_generator.py`: ReportLab PDF generation with attachments.
+- `tests/test_desktop_flow.py`: End-to-end case flow (autosave → PDF export →
+  tracking → closure).
+- `tests/test_ui_performance.py`: Confirms the main window initialises in under
+  two seconds when run off-screen.
+
+Execute the full desktop suite with:
+
+```bash
+pytest tests/test_storage.py \
+       tests/test_ai_client.py \
+       tests/test_pdf_generator.py \
+       tests/test_desktop_flow.py \
+       tests/test_ui_performance.py
+```
+
+> **Note:** This branch remains experimental and is not intended for production
+> deployments yet.

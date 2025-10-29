@@ -152,8 +152,9 @@ def stop_tracking(case_id: str, base_path: Path | None = None) -> bool:
 
     if not case_id:
         return False
+    updated = False
     for record in list_tracked_cases(base_path):
         if record.case.case_id == case_id:
             update_tracked_case(record.path, tracking_updates={"active": False})
-            return True
-    return False
+            updated = True
+    return updated
