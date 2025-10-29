@@ -11,11 +11,12 @@ from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
 
 from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData
-from KiroshiApp.core.storage import get_database_root, save_autosave
+from KiroshiApp.core.storage import get_database_root, save_autosave, save_case_to_db
 
 from .case_tab import CaseTab
 from .debug_tab import DebugTab
 from .email_tab import EmailTab
+from .chat_window import ChatWindow
 from .save_load_tab import SaveLoadTab
 from .settings_tab import SettingsTab
 from .tables_tab import TablesTab
@@ -143,14 +144,16 @@ class KiroshiMainWindow(QMainWindow):
             self.case if getattr(self.case, "active_for_hotkeys", False) else None
         )
         self._base_path = base_path
-        self._loaded_case_source: str | None = None
         self._config = load_global_config(base_path=base_path)
         self._ai_client = AIClient()
+        self._chat_window: ChatWindow | None = None
+        self._save_load_tab: SaveLoadTab | None = None
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self._apply_branding()
         self._apply_theme_preference()
         self.resize(1024, 720)
-        self.setCentralWidget(self._build_tabs())
+        tabs = self._build_tabs()
+        self.setCentralWidget(tabs)
         self._init_menus()
 
     def _apply_branding(self) -> None:
@@ -174,45 +177,107 @@ class KiroshiMainWindow(QMainWindow):
         self._case_tab.caseChanged.connect(self._handle_case_changed)
         self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
         tabs.addTab(self._case_tab, "Caso")
-        self._email_tab = EmailTab(self.case, self._ai_client, self)
-        tabs.addTab(self._email_tab, "Email")
-        self._tables_tab = TablesTab(case=self.case, parent=self)
-        tabs.addTab(self._tables_tab, "Tablas")
+        tabs.addTab(EmailTab(), "Email")
+        tabs.addTab(TablesTab(), "Tablas")
         self._save_load_tab = SaveLoadTab(
-            self._get_active_case,
-            self._load_case_from_disk,
+            case_getter=self._case_tab.case,
+            case_loader=self._handle_case_loaded_from_storage,
             base_path=self._base_path,
         )
         tabs.addTab(self._save_load_tab, "Guardar/Cargar")
-        self._tracking_tab = TrackingTab(base_path=self._base_path)
-        tabs.addTab(self._tracking_tab, "Control Tower")
-        self._settings_tab = SettingsTab(
-            config=self._config,
-            base_path=self._base_path,
-            load_config=load_global_config,
-            save_config=save_global_config,
-        )
-        tabs.addTab(self._settings_tab, "Configuración")
-        self._debug_tab = DebugTab()
-        tabs.addTab(self._debug_tab, "Debug")
+        tabs.addTab(TrackingTab(), "Control Tower")
+        tabs.addTab(SettingsTab(), "Configuración")
+        tabs.addTab(DebugTab(), "Debug")
         return tabs
 
-    def _get_active_case(self) -> CaseData:
-        return self.case
+    def _init_menus(self) -> None:
+        menu_bar = self.menuBar()
 
-    def _load_case_from_disk(self, case: CaseData, source: str) -> None:
-        self.case = case
-        self._loaded_case_source = source
-        self._case_tab.set_case(case)
-        self._refresh_case_dependents(case)
+        archivo_menu = menu_bar.addMenu("Archivo")
+
+        self._save_case_action = QAction("Guardar caso", self)
+        self._save_case_action.setShortcut(QKeySequence.StandardKey.Save)
+        self._save_case_action.triggered.connect(self._save_case_to_database)
+        archivo_menu.addAction(self._save_case_action)
+
+        self._save_autosave_action = QAction("Guardar borrador (autosave)", self)
+        self._save_autosave_action.triggered.connect(self._trigger_autosave)
+        archivo_menu.addAction(self._save_autosave_action)
+
+        archivo_menu.addSeparator()
+
+        exit_action = QAction("Salir", self)
+        exit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        exit_action.triggered.connect(self._quit_application)
+        archivo_menu.addAction(exit_action)
+
+        herramientas_menu = menu_bar.addMenu("Herramientas")
+
+        self._open_chat_action = QAction("Abrir chat IA", self)
+        self._open_chat_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        self._open_chat_action.triggered.connect(self._open_chat_window)
+        herramientas_menu.addAction(self._open_chat_action)
+
+        menu_bar.addMenu("Ayuda")
 
     def _handle_case_changed(self, case: CaseData) -> None:
         self.case = case
-        self._refresh_case_dependents(case)
+        if self._save_load_tab is not None:
+            self._save_load_tab.refresh_case(case)
+        try:
+            save_autosave(case, base_path=self._base_path)
+        except OSError as exc:
+            logging.warning("No se pudo guardar el autosave del caso: %s", exc)
 
     def _handle_hotkey_selection(self, active: bool) -> None:
         self.case.active_for_hotkeys = active
         self._active_case_for_hotkeys = self.case if active else None
+
+    def _handle_case_loaded_from_storage(self, case: CaseData, source: str) -> None:
+        self.case = case
+        self._case_tab.set_case(case)
+        self._active_case_for_hotkeys = (
+            case if getattr(case, "active_for_hotkeys", False) else None
+        )
+        if self._save_load_tab is not None:
+            self._save_load_tab.refresh_case(case)
+        self.statusBar().showMessage(f"Caso cargado desde {source}", 5000)
+
+    def _save_case_to_database(self) -> None:
+        try:
+            destination = save_case_to_db(self.case, base_path=self._base_path)
+        except OSError as exc:
+            logging.warning("No se pudo guardar el caso: %s", exc)
+            self.statusBar().showMessage(f"Error al guardar el caso: {exc}", 5000)
+            return
+        if self._save_load_tab is not None:
+            self._save_load_tab.refresh_recent_files()
+            self._save_load_tab.refresh_case(self.case)
+        self.statusBar().showMessage(f"Caso guardado en {destination}", 5000)
+
+    def _trigger_autosave(self) -> None:
+        try:
+            path = save_autosave(self.case, base_path=self._base_path)
+        except OSError as exc:
+            logging.warning("No se pudo crear el autosave: %s", exc)
+            self.statusBar().showMessage(f"Error al crear autosave: {exc}", 5000)
+            return
+        self.statusBar().showMessage(f"Autosave guardado en {path}", 5000)
+
+    def _open_chat_window(self) -> None:
+        if self._chat_window is not None and self._chat_window.isVisible():
+            self._chat_window.activateWindow()
+            self._chat_window.raise_()
+            return
+        self._chat_window = ChatWindow(self._ai_client, self._case_tab.case, self)
+        self._chat_window.show()
+
+    def _quit_application(self) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+        else:
+            self.close()
 
     @property
     def active_case_for_hotkeys(self) -> CaseData | None:
