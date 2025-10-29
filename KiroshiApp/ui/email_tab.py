@@ -370,6 +370,13 @@ class EmailTab(QWidget):
         self._status_label = QLabel()
         layout.addWidget(self._status_label)
 
+    def refresh_case(self, case: CaseData) -> None:
+        """Synchronise the UI with the latest case state."""
+
+        self._case = case
+        self._apply_case_state()
+        self._refresh_template_list()
+
     def _apply_case_state(self) -> None:
         if not self._second_line_checkbox:
             return

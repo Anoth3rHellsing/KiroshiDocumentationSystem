@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QIcon, QKeySequence
 from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
 
 from KiroshiApp.core.ai_client import AIClient
@@ -20,6 +20,7 @@ from .chat_window import ChatWindow
 from .save_load_tab import SaveLoadTab
 from .settings_tab import SettingsTab
 from .tables_tab import TablesTab
+from .theme import load_stylesheet
 from .tracking_tab import TrackingTab
 
 CONFIG_FILENAME = "settings.json"
@@ -148,10 +149,27 @@ class KiroshiMainWindow(QMainWindow):
         self._chat_window: ChatWindow | None = None
         self._save_load_tab: SaveLoadTab | None = None
         self.setWindowTitle("Kiroshi Desktop Prototype")
+        self._apply_branding()
+        self._apply_theme_preference()
         self.resize(1024, 720)
         tabs = self._build_tabs()
         self.setCentralWidget(tabs)
         self._init_menus()
+
+    def _apply_branding(self) -> None:
+        logo_path = Path(__file__).resolve().parents[2] / "Kiroshi_Logo.png"
+        if logo_path.exists():
+            self.setWindowIcon(QIcon(str(logo_path)))
+
+    def _apply_theme_preference(self) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        preferred = str(self._config.get("theme", "light") or "light").lower()
+        stylesheet = load_stylesheet(preferred)
+        if not stylesheet and preferred != "light":
+            stylesheet = load_stylesheet("light")
+        app.setStyleSheet(stylesheet)
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
@@ -264,6 +282,17 @@ class KiroshiMainWindow(QMainWindow):
     @property
     def active_case_for_hotkeys(self) -> CaseData | None:
         return self._active_case_for_hotkeys
+
+    def _refresh_case_dependents(self, case: CaseData) -> None:
+        self._active_case_for_hotkeys = (
+            case if getattr(case, "active_for_hotkeys", False) else None
+        )
+        self._tables_tab.update_case(case)
+        self._email_tab.refresh_case(case)
+        self._save_load_tab.refresh_case(case)
+        self._tracking_tab.refresh_case(case)
+        self._settings_tab.refresh_case(case)
+        self._debug_tab.refresh_case(case)
 
 
 # Backwards compatible alias used by older tests.
