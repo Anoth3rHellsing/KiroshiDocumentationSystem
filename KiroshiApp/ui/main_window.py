@@ -141,6 +141,8 @@ class KiroshiMainWindow(QMainWindow):
         self._active_case_for_hotkeys: CaseData | None = (
             self.case if getattr(self.case, "active_for_hotkeys", False) else None
         )
+        self._base_path = base_path
+        self._loaded_case_source: str | None = None
         self._config = load_global_config(base_path=base_path)
         self._ai_client = AIClient()
         self.setWindowTitle("Kiroshi Desktop Prototype")
@@ -154,16 +156,41 @@ class KiroshiMainWindow(QMainWindow):
         self._case_tab.caseChanged.connect(self._handle_case_changed)
         self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
         tabs.addTab(self._case_tab, "Caso")
-        tabs.addTab(EmailTab(), "Email")
-        tabs.addTab(TablesTab(), "Tablas")
-        tabs.addTab(SaveLoadTab(), "Guardar/Cargar")
-        tabs.addTab(TrackingTab(), "Control Tower")
-        tabs.addTab(SettingsTab(), "Configuración")
-        tabs.addTab(DebugTab(), "Debug")
+        self._email_tab = EmailTab(self.case, self._ai_client, self)
+        tabs.addTab(self._email_tab, "Email")
+        self._tables_tab = TablesTab(case=self.case, parent=self)
+        tabs.addTab(self._tables_tab, "Tablas")
+        self._save_load_tab = SaveLoadTab(
+            self._get_active_case,
+            self._load_case_from_disk,
+            base_path=self._base_path,
+        )
+        tabs.addTab(self._save_load_tab, "Guardar/Cargar")
+        self._tracking_tab = TrackingTab(base_path=self._base_path)
+        tabs.addTab(self._tracking_tab, "Control Tower")
+        self._settings_tab = SettingsTab(
+            config=self._config,
+            base_path=self._base_path,
+            load_config=load_global_config,
+            save_config=save_global_config,
+        )
+        tabs.addTab(self._settings_tab, "Configuración")
+        self._debug_tab = DebugTab()
+        tabs.addTab(self._debug_tab, "Debug")
         return tabs
+
+    def _get_active_case(self) -> CaseData:
+        return self.case
+
+    def _load_case_from_disk(self, case: CaseData, source: str) -> None:
+        self.case = case
+        self._loaded_case_source = source
+        self._case_tab.set_case(case)
+        self._refresh_case_dependents(case)
 
     def _handle_case_changed(self, case: CaseData) -> None:
         self.case = case
+        self._refresh_case_dependents(case)
 
     def _handle_hotkey_selection(self, active: bool) -> None:
         self.case.active_for_hotkeys = active
@@ -172,6 +199,17 @@ class KiroshiMainWindow(QMainWindow):
     @property
     def active_case_for_hotkeys(self) -> CaseData | None:
         return self._active_case_for_hotkeys
+
+    def _refresh_case_dependents(self, case: CaseData) -> None:
+        self._active_case_for_hotkeys = (
+            case if getattr(case, "active_for_hotkeys", False) else None
+        )
+        self._tables_tab.update_case(case)
+        self._email_tab.refresh_case(case)
+        self._save_load_tab.refresh_case(case)
+        self._tracking_tab.refresh_case(case)
+        self._settings_tab.refresh_case(case)
+        self._debug_tab.refresh_case(case)
 
 
 # Backwards compatible alias used by older tests.
