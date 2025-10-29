@@ -252,6 +252,8 @@ AUDIENCE_OPTIONS: Sequence[tuple[str, str]] = (
     ("Interno", "internal"),
 )
 
+from KiroshiApp.core.model import CaseData
+
 
 class EmailTab(QWidget):
     """Interactive email template browser with AI generation helpers."""
