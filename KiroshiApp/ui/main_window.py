@@ -138,7 +138,9 @@ class KiroshiMainWindow(QMainWindow):
     def __init__(self, *, case: CaseData | None = None, base_path: Path | None = None) -> None:
         super().__init__()
         self.case = case or CaseData()
-        self._base_path = base_path
+        self._active_case_for_hotkeys: CaseData | None = (
+            self.case if getattr(self.case, "active_for_hotkeys", False) else None
+        )
         self._config = load_global_config(base_path=base_path)
         self._ai_client = AIClient()
         self.setWindowTitle("Kiroshi Desktop Prototype")
@@ -148,8 +150,11 @@ class KiroshiMainWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
-        tabs.addTab(CaseTab(), "Caso")
-        tabs.addTab(EmailTab(self.case, self._ai_client), "Email")
+        self._case_tab = CaseTab(case=self.case, parent=self)
+        self._case_tab.caseChanged.connect(self._handle_case_changed)
+        self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
+        tabs.addTab(self._case_tab, "Caso")
+        tabs.addTab(EmailTab(), "Email")
         tabs.addTab(TablesTab(), "Tablas")
         tabs.addTab(SaveLoadTab(), "Guardar/Cargar")
         tabs.addTab(TrackingTab(), "Control Tower")
@@ -157,67 +162,16 @@ class KiroshiMainWindow(QMainWindow):
         tabs.addTab(DebugTab(), "Debug")
         return tabs
 
-    def _init_menus(self) -> None:
-        menu_bar = self.menuBar()
-        hotkey_menu = menu_bar.addMenu("Hotkeys")
-        action = QAction("Use this case for global clipboard hotkeys", self)
-        action.setCheckable(True)
-        action.toggled.connect(self._toggle_case_hotkeys)
-        hotkey_menu.addAction(action)
-        self._hotkey_action = action
-        if not self._hotkey_manager.is_available:
-            action.setEnabled(False)
-            action.setToolTip(
-                "Global hotkeys are unavailable because QHotkey and keyboard modules are missing."
-            )
+    def _handle_case_changed(self, case: CaseData) -> None:
+        self.case = case
 
-    def _toggle_case_hotkeys(self, enabled: bool) -> None:
-        if not self._hotkey_manager.is_available:
-            return
-        self._use_case_for_hotkeys = enabled
-        if enabled:
-            self._register_case_hotkeys()
-            self.statusBar().showMessage(
-                "Global hotkeys active for this case", 3000
-            )
-        else:
-            self._hotkey_manager.unregister_all()
-            self.statusBar().showMessage("Global hotkeys disabled", 3000)
+    def _handle_hotkey_selection(self, active: bool) -> None:
+        self.case.active_for_hotkeys = active
+        self._active_case_for_hotkeys = self.case if active else None
 
-    def _register_case_hotkeys(self) -> None:
-        self._hotkey_manager.unregister_all()
-        sequences: Iterable[str] = self.HOTKEY_SEQUENCES
-        for index, sequence in enumerate(sequences):
-            if self._tables_tab.section_at(index) is None:
-                break
-            self._hotkey_manager.register(sequence, self._make_section_callback(index))
-        self._hotkey_manager.register("ctrl+alt+c", self._copy_all_sections)
-
-    def _make_section_callback(self, index: int) -> Callable[[], None]:
-        def _callback() -> None:
-            self._copy_section(index)
-
-        return _callback
-
-    def _copy_section(self, index: int) -> None:
-        content = self._tables_tab.section_tsv(index)
-        if not content:
-            return
-        QApplication.clipboard().setText(content)
-        self.statusBar().showMessage(
-            f"Copied table {index + 1} to clipboard", 3000
-        )
-
-    def _copy_all_sections(self) -> None:
-        content = self._tables_tab.all_sections_tsv()
-        if not content:
-            return
-        QApplication.clipboard().setText(content)
-        self.statusBar().showMessage("Copied all tables to clipboard", 3000)
-
-    def closeEvent(self, event) -> None:  # type: ignore[override]
-        self._hotkey_manager.unregister_all()
-        super().closeEvent(event)
+    @property
+    def active_case_for_hotkeys(self) -> CaseData | None:
+        return self._active_case_for_hotkeys
 
 
 # Backwards compatible alias used by older tests.
