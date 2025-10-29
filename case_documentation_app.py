@@ -65,6 +65,12 @@ from reportlab.graphics.widgets.markers import makeMarker
 import requests
 import urllib3
 
+from KiroshiApp.core.attachments import (
+    AttachmentStorage,
+    sanitize_filename as core_sanitize_filename,
+)
+from KiroshiApp.core.pdf_generator import generate_case_pdf
+
 try:  # pyautogui may require a GUI environment
     import pyautogui  # type: ignore
     PYAUTOGUI_AVAILABLE = True
@@ -5912,6 +5918,8 @@ class ScreenshotService:
         auto_stamp: bool,
         label_state_key: str,
         reset_flag_key: str | None = None,
+        storage: AttachmentStorage | None = None,
+        case_id: str | None = None,
     ) -> None:
         existing = self.assets()
         safe_stem, display_label = _generate_screenshot_basename(
@@ -5922,6 +5930,26 @@ class ScreenshotService:
         if shot:
             shot.capture_mode = mode
             shot.origin = "capture"
+            if storage is not None:
+                try:
+                    stored_path = storage.store_bytes("screenshots", shot.name, shot.getvalue())
+                    shot.name = stored_path.name
+                    metadata = shot.metadata(path=storage.relative_path(stored_path))
+                    current_index = st.session_state.get(
+                        "attachments_index", _default_attachments_index()
+                    )
+                    screenshots_index = list(current_index.get("screenshots", []))
+                    paths = {
+                        entry.get("path")
+                        for entry in screenshots_index
+                        if isinstance(entry, Mapping)
+                    }
+                    if metadata.get("path") not in paths:
+                        screenshots_index.append(metadata)
+                        current_index["screenshots"] = screenshots_index
+                        _set_active_session_attachments_index(current_index)
+                except Exception as exc:  # pragma: no cover - filesystem edge cases
+                    logging.warning("Unable to store captured screenshot: %s", exc)
             self.append(shot)
             self._queue_screenshot_upload(shot)
             st.success(f"Captured {mode} screenshot: {shot.label}")
@@ -6135,8 +6163,19 @@ def _capture_screenshot_from_ui(
     auto_stamp: bool,
     label_state_key: str,
     reset_flag_key: str | None = None,
+    case_id: str | None = None,
 ) -> None:
     """Capture a screenshot using the configured UI preferences."""
+
+    storage: AttachmentStorage | None = None
+    if case_id:
+        try:
+            storage = AttachmentStorage(get_case_attachments_dir(case_id))
+        except Exception as exc:  # pragma: no cover - defensive: filesystem issues
+            logging.warning(
+                "Unable to prepare attachment storage for %s: %s", case_id, exc
+            )
+            storage = None
 
     _screenshot_service.capture_from_ui(
         mode,
@@ -6144,6 +6183,8 @@ def _capture_screenshot_from_ui(
         auto_stamp=auto_stamp,
         label_state_key=label_state_key,
         reset_flag_key=reset_flag_key,
+        storage=storage,
+        case_id=case_id,
     )
 
 
@@ -7072,11 +7113,9 @@ def sanitize_case_id(case_id: str) -> str:
 
 
 def sanitize_filename(filename: str) -> str:
-    """Return a filesystem-safe filename preserving extension when possible."""
+    """Delegate to the shared attachment sanitiser used across the app."""
 
-    name = Path(filename).name
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-    return sanitized or "file"
+    return core_sanitize_filename(filename)
 
 
 def get_case_attachments_dir(case_id: str) -> Path:
@@ -7102,6 +7141,7 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
 
     try:
         base_dir = get_case_attachments_dir(case_id)
+        storage = AttachmentStorage(base_dir)
     except Exception as exc:
         logging.exception("Unable to prepare attachments directory for %s", case_id)
         st.warning(f"Unable to persist attachments: {exc}")
@@ -7109,22 +7149,19 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
 
     screenshots_state = get_active_screenshots()
     mapping = [
-        ("uploads", st.session_state.get("uploads", []), "uploads"),
-        ("log_uploads", st.session_state.get("log_uploads", []), "logs"),
-        ("screenshots", screenshots_state, "screenshots"),
+        ("uploads", st.session_state.get("uploads", [])),
+        ("log_uploads", st.session_state.get("log_uploads", [])),
+        ("screenshots", screenshots_state),
     ]
 
-    for key, items, subdir in mapping:
+    for key, items in mapping:
         if not items:
             continue
-        target_dir = base_dir / subdir
-        target_dir.mkdir(parents=True, exist_ok=True)
         seen: set[str] = set()
         for item in items:
             name = getattr(item, "name", None)
             if not isinstance(name, str):
                 continue
-            sanitized = sanitize_filename(name)
             try:
                 data = item.getvalue()
             except Exception as exc:  # pragma: no cover - streamlit runtime specific
@@ -7132,21 +7169,20 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
                 continue
             if not isinstance(data, (bytes, bytearray)):
                 continue
-            dest = target_dir / sanitized
             try:
-                with open(dest, "wb") as fh:
-                    fh.write(data)
+                dest = storage.store_bytes(key, name, bytes(data))
             except Exception as exc:
-                logging.warning("Failed to write attachment %s: %s", dest, exc)
+                logging.warning("Failed to write attachment %s: %s", name, exc)
                 continue
             rel_path = dest.relative_to(base_dir).as_posix()
             if rel_path in seen:
                 continue
             seen.add(rel_path)
             if isinstance(item, ScreenshotAsset):
+                item.name = dest.name
                 attachments_index[key].append(item.metadata(path=rel_path))
             else:
-                attachments_index[key].append({"name": sanitized, "path": rel_path})
+                attachments_index[key].append({"name": dest.name, "path": rel_path})
 
     _set_active_session_attachments_index(attachments_index)
     return attachments_index
@@ -13461,6 +13497,7 @@ def render_case_attachments_panel(
             auto_stamp=auto_stamp,
             label_state_key=label_state_key,
             reset_flag_key=reset_flag_key,
+            case_id=case.case_id,
         )
         screenshots = get_active_screenshots()
     if capture_cols[1].button(
@@ -13473,6 +13510,7 @@ def render_case_attachments_panel(
             auto_stamp=auto_stamp,
             label_state_key=label_state_key,
             reset_flag_key=reset_flag_key,
+            case_id=case.case_id,
         )
         screenshots = get_active_screenshots()
     if capture_cols[2].button(
@@ -13518,32 +13556,11 @@ def render_case_attachments_panel(
     if not (uploads or log_uploads or screenshots):
         st.info("No evidence queued yet. Capture a screenshot or upload supporting files to begin.")
     else:
-        if uploads:
-            st.markdown("###### Uploaded files")
-            for i, f in enumerate(list(uploads)):
-                cols = st.columns([6, 2, 1])
-                cols[0].markdown(f"**{f.name}**")
-                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
-                if cols[2].button(
-                    "Remove",
-                    key=attachments_key(f"attachments_rem_upload_{i}"),
-                ):
-                    uploads.pop(i)
-                    st.rerun()
-        if log_uploads:
-            st.markdown("###### Log bundles")
-            for i, f in enumerate(list(log_uploads)):
-                cols = st.columns([6, 2, 1])
-                cols[0].markdown(f"**{f.name}**")
-                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
-                if cols[2].button(
-                    "Remove",
-                    key=attachments_key(f"attachments_rem_log_{i}"),
-                ):
-                    log_uploads.pop(i)
-                    st.rerun()
-        if screenshots:
-            st.markdown("###### Captured screenshots")
+        tabs = st.tabs(["Screenshots", "Logs", "Otros adjuntos"])
+
+        with tabs[0]:
+            if not screenshots:
+                st.caption("No screenshots captured yet.")
             for i, shot in enumerate(list(screenshots)):
                 edit_cols = st.columns([3, 3, 1])
                 label_edit_key = attachments_key(f"shot_label_edit_{i}")
@@ -13603,6 +13620,34 @@ def render_case_attachments_panel(
                 with st.expander("Preview", expanded=False):
                     st.image(shot.data, caption=shot.label, use_container_width=True)
 
+        with tabs[1]:
+            if not log_uploads:
+                st.caption("No logs uploaded yet.")
+            for i, f in enumerate(list(log_uploads)):
+                cols = st.columns([6, 2, 1])
+                cols[0].markdown(f"**{f.name}**")
+                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
+                if cols[2].button(
+                    "Remove",
+                    key=attachments_key(f"attachments_rem_log_{i}"),
+                ):
+                    log_uploads.pop(i)
+                    st.rerun()
+
+        with tabs[2]:
+            if not uploads:
+                st.caption("No additional evidence uploaded yet.")
+            for i, f in enumerate(list(uploads)):
+                cols = st.columns([6, 2, 1])
+                cols[0].markdown(f"**{f.name}**")
+                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
+                if cols[2].button(
+                    "Remove",
+                    key=attachments_key(f"attachments_rem_upload_{i}"),
+                ):
+                    uploads.pop(i)
+                    st.rerun()
+
     include_case_json_key = attachments_key("attachments_include_case_json")
     if include_case_json_key not in st.session_state:
         st.session_state[include_case_json_key] = True
@@ -13618,24 +13663,43 @@ def render_case_attachments_panel(
         key=attachments_key("attachments_create_zip"),
         help="Writes uploads, logs, and screenshots to a single ZIP ready to attach to incidents.",
     ):
-        zbuf = io.BytesIO()
-        with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-            for f in uploads:
-                z.writestr(f"uploads/{f.name}", f.getvalue())
-            for f in log_uploads:
-                z.writestr(f"logs/{f.name}", f.getvalue())
-            for shot in screenshots:
-                z.writestr(f"screenshots/{shot.name}", shot.getvalue())
-            if st.session_state.get(include_case_json_key, True):
-                z.writestr("case.json", json.dumps(asdict(case), indent=2))
-        zbuf.seek(0)
-        st.download_button(
-            "Download evidence.zip",
-            zbuf,
-            file_name=f"{case.case_id or 'case'}_evidence.zip",
-            mime="application/zip",
-            key=attachments_key("attachments_download_zip"),
-        )
+        if not case.case_id:
+            st.warning("Assign a case ID before creating the evidence bundle.")
+        else:
+            attachments_index = persist_case_attachments(case.case_id)
+            base_dir = get_case_attachments_dir(case.case_id)
+            attachment_paths: list[Path] = []
+            for entries in attachments_index.values():
+                for entry in entries:
+                    if not isinstance(entry, Mapping):
+                        continue
+                    rel_path = entry.get("path")
+                    if not isinstance(rel_path, str):
+                        continue
+                    candidate = base_dir / Path(rel_path)
+                    if candidate.exists():
+                        attachment_paths.append(candidate)
+
+            pdf_bytes = generate_case_pdf(case, attachments=attachment_paths)
+
+            zbuf = io.BytesIO()
+            with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+                for path in attachment_paths:
+                    arcname = path.relative_to(base_dir).as_posix()
+                    z.write(path, arcname=arcname)
+                if st.session_state.get(include_case_json_key, True):
+                    z.writestr("case.json", json.dumps(asdict(case), indent=2))
+                pdf_name = f"{sanitize_filename(case.case_id) or 'case'}.pdf"
+                z.writestr(pdf_name, pdf_bytes)
+
+            zbuf.seek(0)
+            st.download_button(
+                "Download evidence.zip",
+                zbuf,
+                file_name=f"{case.case_id or 'case'}_evidence.zip",
+                mime="application/zip",
+                key=attachments_key("attachments_download_zip"),
+            )
 
 
 CASE_TAB_SLUGS = {
