@@ -1,12 +1,14 @@
 """AI client helpers for the experimental desktop prototype."""
 from __future__ import annotations
 
+from collections.abc import MutableMapping, Sequence
 import types
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Callable
 
 import requests
 
+import kiroshi_chat
 from .model import CaseData
 
 
@@ -20,6 +22,8 @@ class AISettings:
 
 class AIClient:
     """Backwards-compatible AI client used across the desktop tests."""
+
+    _MEMORY_WINDOW = 8
 
     def __init__(
         self,
@@ -39,6 +43,9 @@ class AIClient:
         self.local_model = local_model
         self.timeout = timeout
         self._settings = settings or AISettings(provider=self.mode, model=self.model or "")
+        self._session_state = self._ensure_session_state()
+        self._memory_history = self._load_memory_history()
+        self._personality_mode = self._derive_personality_mode()
 
     def invoke_completion(self, prompt: str, **options: Any) -> str:
         """Dispatch a completion request based on the configured mode."""
@@ -46,13 +53,167 @@ class AIClient:
         if not prompt:
             return ""
 
+        enriched_prompt = self._build_contextual_prompt(prompt)
+
         if self.mode == "local_api":
-            return self._invoke_local_api(prompt, **options)
-        if self.mode == "cloud":
-            return self._invoke_cloud_api(prompt, **options)
-        if self.mode == "local_model":
-            return self._invoke_local_model(prompt, **options)
-        return f"[AI disabled] Prompt received: {prompt}" if prompt else "[AI disabled]"
+            response = self._invoke_local_api(enriched_prompt, **options)
+        elif self.mode == "cloud":
+            response = self._invoke_cloud_api(enriched_prompt, **options)
+        elif self.mode == "local_model":
+            response = self._invoke_local_model(enriched_prompt, **options)
+        else:
+            response = (
+                f"[AI disabled] Prompt received: {prompt}" if prompt else "[AI disabled]"
+            )
+
+        if self.mode in {"local_api", "cloud", "local_model"} and response:
+            self._record_interaction(prompt, response)
+
+        return response
+
+    # ───────────────────── Personality & memory helpers ────────
+    def _ensure_session_state(self) -> MutableMapping[str, object]:
+        state = getattr(kiroshi_chat, "st", None)
+        session_state = getattr(state, "session_state", None)
+        if isinstance(session_state, MutableMapping):
+            if "assistant_notes" not in session_state:
+                session_state["assistant_notes"] = []
+            return session_state
+
+        proxy: MutableMapping[str, object] = {}
+        if state is None:
+            kiroshi_chat.st = types.SimpleNamespace(session_state=proxy)
+        else:
+            state.session_state = proxy
+        proxy["assistant_notes"] = []
+        return proxy
+
+    def _load_memory_history(self) -> list[dict[str, str]]:
+        raw_history = kiroshi_chat.load_memory()
+        history: list[dict[str, str]] = []
+        if isinstance(raw_history, Sequence):
+            for entry in raw_history:
+                if not isinstance(entry, dict):
+                    continue
+                role = str(entry.get("role", "")).strip()
+                content = str(entry.get("content", "")).strip()
+                if not role or not content:
+                    continue
+                history.append({"role": role, "content": content})
+        self._session_state["kiroshi_chat_history"] = list(history)
+        return history
+
+    def _derive_personality_mode(self) -> str:
+        sarcasm_enabled = bool(self._session_state.get("kiroshi_sarcasm_mode"))
+        return "sarcasm" if sarcasm_enabled else "comfort"
+
+    def get_personality_mode(self) -> str:
+        """Return the active personality mode."""
+
+        return self._personality_mode
+
+    def set_personality_mode(self, mode: str) -> None:
+        """Update the personality mode and persist it to shared memory."""
+
+        normalized = mode.lower().strip()
+        if normalized not in {"sarcasm", "comfort"}:
+            raise ValueError("mode must be either 'sarcasm' or 'comfort'")
+        self._personality_mode = normalized
+        self._session_state["kiroshi_sarcasm_mode"] = normalized == "sarcasm"
+        self._session_state["personality_mode"] = "coffee" if normalized == "sarcasm" else "utility"
+        self._persist_memory()
+
+    def get_conversation_history(self) -> list[dict[str, str]]:
+        """Return a copy of the stored conversation history."""
+
+        return list(self._memory_history)
+
+    def reset_history(self) -> None:
+        """Clear the stored conversation history for all surfaces."""
+
+        self._memory_history.clear()
+        self._session_state["kiroshi_chat_history"] = []
+        self._persist_memory()
+
+    def _record_interaction(self, prompt: str, response: str) -> None:
+        self._memory_history.append({"role": "user", "content": prompt})
+        self._memory_history.append({"role": "assistant", "content": response})
+        if len(self._memory_history) > self._MEMORY_WINDOW * 2:
+            self._memory_history = self._memory_history[-self._MEMORY_WINDOW * 2 :]
+        self._session_state["kiroshi_chat_history"] = list(self._memory_history)
+        self._persist_memory()
+
+    def _persist_memory(self) -> None:
+        kiroshi_chat.save_memory(list(self._memory_history))
+
+    def _build_contextual_prompt(self, prompt: str) -> str:
+        lines = []
+        if self._personality_mode == "sarcasm":
+            lines.append(
+                "Personality mode: Sarcasm. Reply with dry wit while remaining helpful and professional."
+            )
+        else:
+            lines.append(
+                "Personality mode: Comfort. Reply with a reassuring, patient tone while staying concise."
+            )
+
+        memory_prompt = kiroshi_chat.build_assistant_memory_prompt()
+        if memory_prompt:
+            lines.append("Supervisor reminders:\n" + memory_prompt)
+
+        if self._memory_history:
+            transcript = []
+            for entry in self._memory_history[-self._MEMORY_WINDOW :]:
+                speaker = "User" if entry.get("role") == "user" else "Assistant"
+                transcript.append(f"{speaker}: {entry.get('content', '')}")
+            lines.append("Recent exchange:\n" + "\n".join(transcript))
+
+        lines.append("Current request:\n" + prompt)
+        return "\n\n".join(lines)
+
+    # ───────────────────── Case helpers ───────────────────────
+    def verify_case_data(self, case: CaseData) -> list[dict[str, str]]:
+        """Return a structured list of empty fields detected in ``case``."""
+
+        missing: list[dict[str, str]] = []
+        critical = {
+            "company_name",
+            "case_id",
+            "brief_description",
+            "description",
+            "solution",
+            "contact_name",
+            "email",
+            "phone_number",
+        }
+
+        for field in fields(CaseData):
+            value = getattr(case, field.name)
+            if isinstance(value, str):
+                if value.strip():
+                    continue
+                severity = "critical" if field.name in critical else "info"
+                missing.append(
+                    {
+                        "field": field.name,
+                        "label": field.name.replace("_", " ").capitalize(),
+                        "severity": severity,
+                    }
+                )
+            elif isinstance(value, Sequence) and not isinstance(
+                value, (str, bytes, bytearray)
+            ):
+                if value:
+                    continue
+                missing.append(
+                    {
+                        "field": field.name,
+                        "label": field.name.replace("_", " ").capitalize(),
+                        "severity": "info",
+                    }
+                )
+
+        return missing
 
     # ───────────────────── Mode handlers ──────────────────────
     def _invoke_local_api(self, prompt: str, **options: Any) -> str:
