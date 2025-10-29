@@ -7,6 +7,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QMainWindow, QTabWidget
 
+from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData
 from KiroshiApp.core.storage import get_database_root
 
@@ -51,6 +52,7 @@ class KiroshiMainWindow(QMainWindow):
         super().__init__()
         self.case = case or CaseData()
         self._config = load_global_config(base_path=base_path)
+        self._ai_client = AIClient()
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self.resize(1024, 720)
         self.setCentralWidget(self._build_tabs())
@@ -58,7 +60,7 @@ class KiroshiMainWindow(QMainWindow):
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
         tabs.addTab(CaseTab(), "Caso")
-        tabs.addTab(EmailTab(), "Email")
+        tabs.addTab(EmailTab(self.case, self._ai_client), "Email")
         tabs.addTab(TablesTab(), "Tablas")
         tabs.addTab(SaveLoadTab(), "Guardar/Cargar")
         tabs.addTab(TrackingTab(), "Control Tower")
