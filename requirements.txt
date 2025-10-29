@@ -1,16 +1,23 @@
-streamlit
+# Experimental branch: codex/experimental-desktop-rebuild
+# Desktop rebuild dependencies
+PySide6
 altair
+cryptography
+mss
+openai
+openpyxl
 pandas
-reportlab
-requests
-urllib3
-tabulate
-pyinstaller
+pdfminer.six
+pillow
 pyautogui
+pyinstaller
 pynput
 pyperclip
-pillow
-mss
-pdfminer.six
-cryptography
+pytesseract
+reportlab
+requests
+streamlit
 streamlit-desktop-app
+tabulate
+transformers
+urllib3
