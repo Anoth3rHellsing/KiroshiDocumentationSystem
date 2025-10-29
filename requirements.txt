@@ -1,3 +1,4 @@
+# Experimental branch codex/experimental-desktop-rebuild
 streamlit
 altair
 pandas
@@ -10,3 +11,8 @@ pyautogui
 pillow
 mss
 pdfminer.six
+PySide6
+openpyxl
+pytesseract
+transformers
+openai
