@@ -41,6 +41,31 @@ def test_autosave_roundtrip(tmp_path: Path) -> None:
     assert reloaded.brief_description == case.brief_description
 
 
+def test_load_autosave_accepts_legacy_layout(tmp_path: Path) -> None:
+    legacy_payload = {
+        "case_id": "LEGACY-42",
+        "company_name": "Legacy Dental",
+        "brief_description": "Legacy JSON compatibility",
+        "remote_steps": "Rebooted scanner and reapplied firmware.",
+        "tracking": {
+            "priority": "High",
+            "status": "Escalated",
+        },
+        "last_modified": "2024-05-01T10:00:00Z",
+    }
+    autosave_file = tmp_path / AUTOSAVE_FILENAME
+    autosave_file.write_text(json.dumps(legacy_payload), encoding="utf-8")
+
+    loaded = load_autosave(base_path=tmp_path)
+    assert loaded is not None
+    assert loaded.case_id == "LEGACY-42"
+    assert loaded.tracking.priority == "High"
+    assert loaded.tracking.status == "Escalated"
+    assert "Rebooted scanner" in loaded.remote_steps
+    assert loaded.remote_sessions
+    assert loaded.remote_sessions[0].notes.startswith("Rebooted")
+
+
 def test_save_case_to_db_creates_cases_directory(tmp_path: Path) -> None:
     case = _make_case(case_id="CASE/002")
     destination = save_case_to_db(case, base_path=tmp_path)
