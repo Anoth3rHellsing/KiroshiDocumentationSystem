@@ -12,3 +12,5 @@ tests/e2e/baselines/**/*.png
 streamlit.log
 
 config.json
+
+autosave.json

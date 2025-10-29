@@ -198,6 +198,13 @@ class CaseData:
     esc_name: str = ""
     esc_ph: str = ""
     esc_email: str = ""
+    email_selected_template: str = ""
+    email_tone: str = "neutral"
+    email_audience: str = "customer"
+    email_custom_prompt: str = ""
+    email_last_body: str = ""
+    email_second_line_mode: bool = False
+    email_draft: str = ""
     additional_info: str = ""
     include_hardware_fields: bool = False
     active_for_hotkeys: bool = False

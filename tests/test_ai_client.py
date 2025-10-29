@@ -9,6 +9,42 @@ from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData, RemoteSessionEntry
 
 
+@pytest.fixture(autouse=True)
+def fake_chat_memory(monkeypatch: pytest.MonkeyPatch):
+    import KiroshiApp.core.ai_client as ai_module
+
+    memory_store: list[dict[str, str]] = []
+    session_state: dict[str, object] = {}
+
+    ai_module.kiroshi_chat.st = types.SimpleNamespace(session_state=session_state)
+
+    def _load_memory() -> list[dict[str, str]]:
+        return list(memory_store)
+
+    def _save_memory(history: list[dict[str, str]]) -> None:
+        memory_store[:] = list(history)
+        session_state["kiroshi_chat_history"] = list(history)
+
+    def _build_prompt() -> str | None:
+        notes = session_state.get("assistant_notes", [])
+        lines: list[str] = []
+        if isinstance(notes, list):
+            for note in notes:
+                if isinstance(note, dict):
+                    text = str(note.get("text", "")).strip()
+                    if text:
+                        lines.append(text)
+        return "\n".join(lines) if lines else None
+
+    session_state["assistant_notes"] = []
+
+    monkeypatch.setattr(ai_module.kiroshi_chat, "load_memory", _load_memory)
+    monkeypatch.setattr(ai_module.kiroshi_chat, "save_memory", _save_memory)
+    monkeypatch.setattr(ai_module.kiroshi_chat, "build_assistant_memory_prompt", _build_prompt)
+
+    return memory_store, session_state
+
+
 def _make_case(**overrides: object) -> CaseData:
     data = {
         "company_name": "Acme Dental",
@@ -17,6 +53,9 @@ def _make_case(**overrides: object) -> CaseData:
         "description": "The scanner intermittently disconnects during capture.",
         "solution": "Updated firmware",
         "additional_info": "Follow up tomorrow",
+        "phone_number": "555-0100",
+        "contact_name": "Jamie Analyst",
+        "email": "support@example.com",
         "remote_sessions": [
             RemoteSessionEntry(title="Diagnostics", notes="Reviewed USB stability"),
         ],
@@ -44,7 +83,7 @@ def test_generate_email_body_formats_prompt(monkeypatch: pytest.MonkeyPatch) -> 
     assert "Tone: friendly" in captured["prompt"]
 
 
-def test_local_api_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_local_api_mode(monkeypatch: pytest.MonkeyPatch, fake_chat_memory) -> None:
     payload = {"completion": "Local API response"}
 
     class DummyResponse:
@@ -56,7 +95,8 @@ def test_local_api_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def _fake_post(url: str, json: dict[str, object], timeout: int) -> DummyResponse:
         assert url == "https://local-api"
-        assert json["prompt"] == "Hello"
+        assert "Current request" in json["prompt"]
+        assert "Hello" in json["prompt"]
         assert timeout == 30
         return DummyResponse()
 
@@ -64,9 +104,14 @@ def test_local_api_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     client = AIClient(mode="local_api", base_url="https://local-api")
     response = client.invoke_completion("Hello")
     assert response == payload["completion"]
+    memory_store, _ = fake_chat_memory
+    assert memory_store[-2:] == [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": payload["completion"]},
+    ]
 
 
-def test_cloud_mode_uses_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cloud_mode_uses_openai(monkeypatch: pytest.MonkeyPatch, fake_chat_memory) -> None:
     calls: dict[str, object] = {}
 
     class DummyResponses:
@@ -94,12 +139,13 @@ def test_cloud_mode_uses_openai(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert text == "Cloud text"
     assert calls["model"] == "gpt-test"
-    assert calls["input"] == "Prompt"
+    assert "Current request" in calls["input"]
+    assert "Prompt" in calls["input"]
     assert calls["max_output_tokens"] == 64
     assert calls["api_key"] == "secret"
 
 
-def test_local_model_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_local_model_mode(monkeypatch: pytest.MonkeyPatch, fake_chat_memory) -> None:
     class DummyGenerator:
         def __init__(self, model_name: str) -> None:
             self.model = types.SimpleNamespace(name_or_path=model_name)
@@ -116,4 +162,44 @@ def test_local_model_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     client = AIClient(mode="local_model", local_model="tiny-model")
     text = client.invoke_completion("Prompt", max_tokens=32)
 
-    assert text == "Prompt :: 32"
+    assert "Prompt :: 32" in text
+    history, _ = fake_chat_memory
+    assert history[-2]["role"] == "user"
+    assert "Prompt" in history[-2]["content"]
+    assert history[-1]["role"] == "assistant"
+
+
+def test_verify_case_data_flags_missing_fields(fake_chat_memory) -> None:
+    client = AIClient()
+    case = _make_case(company_name="", remote_sessions=[], solution="")
+    missing = client.verify_case_data(case)
+    fields = {entry["field"] for entry in missing}
+    assert "company_name" in fields
+    assert "solution" in fields
+
+
+def test_set_personality_mode_updates_session_state(fake_chat_memory) -> None:
+    _, session_state = fake_chat_memory
+    client = AIClient()
+    client.set_personality_mode("Sarcasm")
+    assert client.get_personality_mode() == "sarcasm"
+    assert session_state["kiroshi_sarcasm_mode"] is True
+    assert session_state["personality_mode"] == "coffee"
+
+
+def test_invoke_completion_tracks_memory(monkeypatch: pytest.MonkeyPatch, fake_chat_memory) -> None:
+    memory_store, _ = fake_chat_memory
+    client = AIClient(mode="local_api", base_url="https://local-api")
+
+    def _fake_local(prompt: str, **_: object) -> str:
+        assert "Current request" in prompt
+        return "Respuesta"
+
+    monkeypatch.setattr(client, "_invoke_local_api", _fake_local)
+    text = client.invoke_completion("Hola")
+
+    assert text == "Respuesta"
+    assert memory_store[-2:] == [
+        {"role": "user", "content": "Hola"},
+        {"role": "assistant", "content": "Respuesta"},
+    ]

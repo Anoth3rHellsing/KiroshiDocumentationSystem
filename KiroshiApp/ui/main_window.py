@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
-from PySide6.QtWidgets import QMainWindow, QTabWidget
+from PySide6.QtGui import QKeySequence
+from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
 
+from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData
-from KiroshiApp.core.storage import get_database_root
+from KiroshiApp.core.storage import get_database_root, save_autosave
 
 from .case_tab import CaseTab
 from .debug_tab import DebugTab
@@ -19,6 +22,7 @@ from .tables_tab import TablesTab
 from .tracking_tab import TrackingTab
 
 CONFIG_FILENAME = "settings.json"
+AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000  # five minutes
 
 
 def load_global_config(*, base_path: Path | None = None) -> dict[str, Any]:
@@ -44,8 +48,92 @@ def save_global_config(config: dict[str, Any], *, base_path: Path | None = None)
     return path
 
 
+class GlobalHotkeyManager:
+    """Register global shortcuts using QHotkey or keyboard."""
+
+    def __init__(self, parent: QMainWindow) -> None:
+        self._parent = parent
+        self._backend: str | None = None
+        self._hotkeys: list[object] = []
+        self._keyboard_module: Any | None = None
+        self._qhotkey_class: Any | None = None
+        self._key_sequence_class: Any | None = None
+        self._initialise_backend()
+
+    def _initialise_backend(self) -> None:
+        try:  # Prefer the Qt-native backend when available.
+            from qhotkey import QHotkey  # type: ignore[import-not-found]
+
+            self._qhotkey_class = QHotkey
+            self._key_sequence_class = QKeySequence
+            self._backend = "qhotkey"
+            return
+        except ImportError:
+            logging.debug("QHotkey not available; falling back to keyboard module if present.")
+
+        try:
+            import keyboard  # type: ignore[import-not-found]
+
+            self._keyboard_module = keyboard
+            self._backend = "keyboard"
+        except ImportError:
+            logging.warning(
+                "Global hotkeys disabled: neither QHotkey nor keyboard modules are installed."
+            )
+            self._backend = None
+
+    @property
+    def is_available(self) -> bool:
+        return self._backend is not None
+
+    def register(self, sequence: str, callback: Callable[[], None]) -> None:
+        if self._backend == "qhotkey":
+            assert self._qhotkey_class is not None and self._key_sequence_class is not None
+            hotkey = self._qhotkey_class(self._key_sequence_class(sequence), parent=self._parent)
+            hotkey.activated.connect(callback)  # type: ignore[no-untyped-call]
+            if not hotkey.setRegistered(True):
+                logging.warning("Failed to register global hotkey: %s", sequence)
+                hotkey.deleteLater()
+                return
+            self._hotkeys.append(hotkey)
+        elif self._backend == "keyboard":
+            try:
+                handler = self._keyboard_module.add_hotkey(sequence, callback)
+            except Exception as exc:  # pragma: no cover - platform dependent
+                logging.warning("Failed to register keyboard hotkey %s: %s", sequence, exc)
+                return
+            self._hotkeys.append(handler)
+
+    def unregister_all(self) -> None:
+        if self._backend == "qhotkey":
+            while self._hotkeys:
+                hotkey = self._hotkeys.pop()
+                try:
+                    hotkey.setRegistered(False)
+                finally:
+                    hotkey.deleteLater()
+        elif self._backend == "keyboard":
+            while self._hotkeys:
+                handler = self._hotkeys.pop()
+                try:
+                    self._keyboard_module.remove_hotkey(handler)
+                except KeyError:
+                    pass
+
+
 class KiroshiMainWindow(QMainWindow):
     """Main window that wires together placeholder tabs."""
+
+    HOTKEY_SEQUENCES = (
+        "ctrl+alt+1",
+        "ctrl+alt+2",
+        "ctrl+alt+3",
+        "ctrl+alt+4",
+        "ctrl+alt+5",
+        "ctrl+alt+6",
+        "ctrl+alt+7",
+        "ctrl+alt+8",
+    )
 
     def __init__(self, *, case: CaseData | None = None, base_path: Path | None = None) -> None:
         super().__init__()
@@ -54,9 +142,11 @@ class KiroshiMainWindow(QMainWindow):
             self.case if getattr(self.case, "active_for_hotkeys", False) else None
         )
         self._config = load_global_config(base_path=base_path)
+        self._ai_client = AIClient()
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self.resize(1024, 720)
         self.setCentralWidget(self._build_tabs())
+        self._init_menus()
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
