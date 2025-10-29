@@ -268,6 +268,8 @@ class SectionWidget(QWidget):
     def rows(self) -> Sequence[Sequence[str]]:
         return tuple(tuple(cell for cell in row) for row in self._rows)
 
+from KiroshiApp.core.model import CaseData
+
 
 class TablesTab(QWidget):
     """Spreadsheet-style presentation of key case sections."""

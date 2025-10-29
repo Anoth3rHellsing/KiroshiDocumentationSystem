@@ -10,7 +10,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
 
 from KiroshiApp.core.model import CaseData
-from KiroshiApp.core.storage import get_database_root
+from KiroshiApp.core.storage import get_database_root, save_autosave
 
 from .case_tab import CaseTab
 from .debug_tab import DebugTab
@@ -21,6 +21,7 @@ from .tables_tab import TablesTab
 from .tracking_tab import TrackingTab
 
 CONFIG_FILENAME = "settings.json"
+AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000  # five minutes
 
 
 def load_global_config(*, base_path: Path | None = None) -> dict[str, Any]:
@@ -136,6 +137,7 @@ class KiroshiMainWindow(QMainWindow):
     def __init__(self, *, case: CaseData | None = None, base_path: Path | None = None) -> None:
         super().__init__()
         self.case = case or CaseData()
+        self._base_path = base_path
         self._config = load_global_config(base_path=base_path)
         self._hotkey_manager = GlobalHotkeyManager(self)
         self._tables_tab = TablesTab(self.case)
