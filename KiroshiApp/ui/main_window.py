@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QMainWindow, QTabWidget
+from PySide6.QtGui import QKeySequence
+from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
 
 from KiroshiApp.core.model import CaseData
 from KiroshiApp.core.storage import get_database_root, save_autosave
@@ -47,85 +47,178 @@ def save_global_config(config: dict[str, Any], *, base_path: Path | None = None)
     return path
 
 
+class GlobalHotkeyManager:
+    """Register global shortcuts using QHotkey or keyboard."""
+
+    def __init__(self, parent: QMainWindow) -> None:
+        self._parent = parent
+        self._backend: str | None = None
+        self._hotkeys: list[object] = []
+        self._keyboard_module: Any | None = None
+        self._qhotkey_class: Any | None = None
+        self._key_sequence_class: Any | None = None
+        self._initialise_backend()
+
+    def _initialise_backend(self) -> None:
+        try:  # Prefer the Qt-native backend when available.
+            from qhotkey import QHotkey  # type: ignore[import-not-found]
+
+            self._qhotkey_class = QHotkey
+            self._key_sequence_class = QKeySequence
+            self._backend = "qhotkey"
+            return
+        except ImportError:
+            logging.debug("QHotkey not available; falling back to keyboard module if present.")
+
+        try:
+            import keyboard  # type: ignore[import-not-found]
+
+            self._keyboard_module = keyboard
+            self._backend = "keyboard"
+        except ImportError:
+            logging.warning(
+                "Global hotkeys disabled: neither QHotkey nor keyboard modules are installed."
+            )
+            self._backend = None
+
+    @property
+    def is_available(self) -> bool:
+        return self._backend is not None
+
+    def register(self, sequence: str, callback: Callable[[], None]) -> None:
+        if self._backend == "qhotkey":
+            assert self._qhotkey_class is not None and self._key_sequence_class is not None
+            hotkey = self._qhotkey_class(self._key_sequence_class(sequence), parent=self._parent)
+            hotkey.activated.connect(callback)  # type: ignore[no-untyped-call]
+            if not hotkey.setRegistered(True):
+                logging.warning("Failed to register global hotkey: %s", sequence)
+                hotkey.deleteLater()
+                return
+            self._hotkeys.append(hotkey)
+        elif self._backend == "keyboard":
+            try:
+                handler = self._keyboard_module.add_hotkey(sequence, callback)
+            except Exception as exc:  # pragma: no cover - platform dependent
+                logging.warning("Failed to register keyboard hotkey %s: %s", sequence, exc)
+                return
+            self._hotkeys.append(handler)
+
+    def unregister_all(self) -> None:
+        if self._backend == "qhotkey":
+            while self._hotkeys:
+                hotkey = self._hotkeys.pop()
+                try:
+                    hotkey.setRegistered(False)
+                finally:
+                    hotkey.deleteLater()
+        elif self._backend == "keyboard":
+            while self._hotkeys:
+                handler = self._hotkeys.pop()
+                try:
+                    self._keyboard_module.remove_hotkey(handler)
+                except KeyError:
+                    pass
+
+
 class KiroshiMainWindow(QMainWindow):
     """Main window that wires together placeholder tabs."""
+
+    HOTKEY_SEQUENCES = (
+        "ctrl+alt+1",
+        "ctrl+alt+2",
+        "ctrl+alt+3",
+        "ctrl+alt+4",
+        "ctrl+alt+5",
+        "ctrl+alt+6",
+        "ctrl+alt+7",
+        "ctrl+alt+8",
+    )
 
     def __init__(self, *, case: CaseData | None = None, base_path: Path | None = None) -> None:
         super().__init__()
         self.case = case or CaseData()
         self._base_path = base_path
         self._config = load_global_config(base_path=base_path)
-        self._status_bar = self.statusBar()
+        self._hotkey_manager = GlobalHotkeyManager(self)
+        self._tables_tab = TablesTab(self.case)
+        self._use_case_for_hotkeys = False
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self.resize(1024, 720)
-        self._tabs = self._build_tabs()
-        self.setCentralWidget(self._tabs)
-        self.refresh_tabs()
-        self._setup_autosave()
+        self.setCentralWidget(self._build_tabs())
+        self._init_menus()
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
-        self._case_tab = CaseTab()
-        tabs.addTab(self._case_tab, "Caso")
-        self._email_tab = EmailTab()
-        tabs.addTab(self._email_tab, "Email")
-        self._tables_tab = TablesTab()
+        tabs.addTab(CaseTab(), "Caso")
+        tabs.addTab(EmailTab(), "Email")
         tabs.addTab(self._tables_tab, "Tablas")
-        self._save_load_tab = SaveLoadTab(
-            case_getter=lambda: self.case,
-            case_loader=self._apply_loaded_case,
-            base_path=self._base_path,
-        )
-        tabs.addTab(self._save_load_tab, "Guardar/Cargar")
-        self._tracking_tab = TrackingTab()
-        tabs.addTab(self._tracking_tab, "Control Tower")
-        self._settings_tab = SettingsTab()
-        tabs.addTab(self._settings_tab, "Configuración")
-        self._debug_tab = DebugTab()
-        tabs.addTab(self._debug_tab, "Debug")
+        tabs.addTab(SaveLoadTab(), "Guardar/Cargar")
+        tabs.addTab(TrackingTab(), "Control Tower")
+        tabs.addTab(SettingsTab(), "Configuración")
+        tabs.addTab(DebugTab(), "Debug")
         return tabs
 
-    def refresh_tabs(self) -> None:
-        """Notify all tabs that the case information changed."""
+    def _init_menus(self) -> None:
+        menu_bar = self.menuBar()
+        hotkey_menu = menu_bar.addMenu("Hotkeys")
+        action = QAction("Use this case for global clipboard hotkeys", self)
+        action.setCheckable(True)
+        action.toggled.connect(self._toggle_case_hotkeys)
+        hotkey_menu.addAction(action)
+        self._hotkey_action = action
+        if not self._hotkey_manager.is_available:
+            action.setEnabled(False)
+            action.setToolTip(
+                "Global hotkeys are unavailable because QHotkey and keyboard modules are missing."
+            )
 
-        for index in range(self._tabs.count()):
-            widget = self._tabs.widget(index)
-            refresh = getattr(widget, "refresh_case", None)
-            if callable(refresh):
-                refresh(self.case)
-
-    def _apply_loaded_case(self, case: CaseData, source: str) -> None:
-        """Update the active case with content loaded from disk."""
-
-        self.case = case
-        self.refresh_tabs()
-        self._status_bar.showMessage(f"Caso cargado desde {source}", 5000)
-        self._perform_autosave(reason="load")
-
-    def notify_case_modified(self, *, reason: str = "manual") -> None:
-        """Trigger a refresh and autosave after form edits."""
-
-        self.refresh_tabs()
-        self._perform_autosave(reason=reason)
-
-    def _setup_autosave(self) -> None:
-        self._autosave_timer = QTimer(self)
-        self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
-        self._autosave_timer.timeout.connect(self._on_autosave_timeout)
-        self._autosave_timer.start()
-        self._perform_autosave(reason="inicio")
-
-    def _on_autosave_timeout(self) -> None:
-        self._perform_autosave(reason="temporizador")
-
-    def _perform_autosave(self, *, reason: str) -> None:
-        try:
-            path = save_autosave(self.case, base_path=self._base_path)
-        except OSError as exc:  # pragma: no cover - filesystem errors are rare
-            self._status_bar.showMessage(f"Autosave falló: {exc}", 5000)
+    def _toggle_case_hotkeys(self, enabled: bool) -> None:
+        if not self._hotkey_manager.is_available:
             return
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self._status_bar.showMessage(f"Autosave ({reason}) {timestamp} → {path}", 5000)
+        self._use_case_for_hotkeys = enabled
+        if enabled:
+            self._register_case_hotkeys()
+            self.statusBar().showMessage(
+                "Global hotkeys active for this case", 3000
+            )
+        else:
+            self._hotkey_manager.unregister_all()
+            self.statusBar().showMessage("Global hotkeys disabled", 3000)
+
+    def _register_case_hotkeys(self) -> None:
+        self._hotkey_manager.unregister_all()
+        sequences: Iterable[str] = self.HOTKEY_SEQUENCES
+        for index, sequence in enumerate(sequences):
+            if self._tables_tab.section_at(index) is None:
+                break
+            self._hotkey_manager.register(sequence, self._make_section_callback(index))
+        self._hotkey_manager.register("ctrl+alt+c", self._copy_all_sections)
+
+    def _make_section_callback(self, index: int) -> Callable[[], None]:
+        def _callback() -> None:
+            self._copy_section(index)
+
+        return _callback
+
+    def _copy_section(self, index: int) -> None:
+        content = self._tables_tab.section_tsv(index)
+        if not content:
+            return
+        QApplication.clipboard().setText(content)
+        self.statusBar().showMessage(
+            f"Copied table {index + 1} to clipboard", 3000
+        )
+
+    def _copy_all_sections(self) -> None:
+        content = self._tables_tab.all_sections_tsv()
+        if not content:
+            return
+        QApplication.clipboard().setText(content)
+        self.statusBar().showMessage("Copied all tables to clipboard", 3000)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._hotkey_manager.unregister_all()
+        super().closeEvent(event)
 
 
 # Backwards compatible alias used by older tests.
