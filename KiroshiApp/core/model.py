@@ -199,6 +199,8 @@ class CaseData:
     esc_ph: str = ""
     esc_email: str = ""
     additional_info: str = ""
+    include_hardware_fields: bool = False
+    active_for_hotkeys: bool = False
     customer_trios_only: bool = False
     support_fee_accepted: bool = False
     hardware_test: str = ""
@@ -244,6 +246,8 @@ class CaseData:
     last_modified: str = ""
 
     def __post_init__(self) -> None:
+        self.include_hardware_fields = bool(self.include_hardware_fields)
+        self.active_for_hotkeys = bool(self.active_for_hotkeys)
         if isinstance(self.tracking, TrackingData):
             pass
         elif isinstance(self.tracking, Mapping):

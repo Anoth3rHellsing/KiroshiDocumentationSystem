@@ -50,6 +50,9 @@ class KiroshiMainWindow(QMainWindow):
     def __init__(self, *, case: CaseData | None = None, base_path: Path | None = None) -> None:
         super().__init__()
         self.case = case or CaseData()
+        self._active_case_for_hotkeys: CaseData | None = (
+            self.case if getattr(self.case, "active_for_hotkeys", False) else None
+        )
         self._config = load_global_config(base_path=base_path)
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self.resize(1024, 720)
@@ -57,7 +60,10 @@ class KiroshiMainWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
-        tabs.addTab(CaseTab(), "Caso")
+        self._case_tab = CaseTab(case=self.case, parent=self)
+        self._case_tab.caseChanged.connect(self._handle_case_changed)
+        self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
+        tabs.addTab(self._case_tab, "Caso")
         tabs.addTab(EmailTab(), "Email")
         tabs.addTab(TablesTab(), "Tablas")
         tabs.addTab(SaveLoadTab(), "Guardar/Cargar")
@@ -65,6 +71,17 @@ class KiroshiMainWindow(QMainWindow):
         tabs.addTab(SettingsTab(), "Configuración")
         tabs.addTab(DebugTab(), "Debug")
         return tabs
+
+    def _handle_case_changed(self, case: CaseData) -> None:
+        self.case = case
+
+    def _handle_hotkey_selection(self, active: bool) -> None:
+        self.case.active_for_hotkeys = active
+        self._active_case_for_hotkeys = self.case if active else None
+
+    @property
+    def active_case_for_hotkeys(self) -> CaseData | None:
+        return self._active_case_for_hotkeys
 
 
 # Backwards compatible alias used by older tests.
