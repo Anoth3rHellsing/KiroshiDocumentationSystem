@@ -6,8 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from PySide6.QtGui import QIcon, QKeySequence
-from PySide6.QtWidgets import QAction, QApplication, QMainWindow, QTabWidget
+from PySide6.QtGui import QAction, QIcon, QKeySequence
+from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData
