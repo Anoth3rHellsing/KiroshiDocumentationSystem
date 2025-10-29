@@ -148,6 +148,11 @@ class KiroshiMainWindow(QMainWindow):
         self._ai_client = AIClient()
         self._chat_window: ChatWindow | None = None
         self._save_load_tab: SaveLoadTab | None = None
+        self._email_tab: EmailTab | None = None
+        self._tables_tab: TablesTab | None = None
+        self._tracking_tab: TrackingTab | None = None
+        self._settings_tab: SettingsTab | None = None
+        self._debug_tab: DebugTab | None = None
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self._apply_branding()
         self._apply_theme_preference()
@@ -155,6 +160,7 @@ class KiroshiMainWindow(QMainWindow):
         tabs = self._build_tabs()
         self.setCentralWidget(tabs)
         self._init_menus()
+        self._refresh_case_dependents(self.case)
 
     def _apply_branding(self) -> None:
         logo_path = Path(__file__).resolve().parents[2] / "Kiroshi_Logo.png"
@@ -177,17 +183,28 @@ class KiroshiMainWindow(QMainWindow):
         self._case_tab.caseChanged.connect(self._handle_case_changed)
         self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
         tabs.addTab(self._case_tab, "Caso")
-        tabs.addTab(EmailTab(), "Email")
-        tabs.addTab(TablesTab(), "Tablas")
+        self._email_tab = EmailTab(case=self.case, ai_client=self._ai_client, parent=self)
+        tabs.addTab(self._email_tab, "Email")
+        self._tables_tab = TablesTab(case=self.case, parent=self)
+        tabs.addTab(self._tables_tab, "Tablas")
         self._save_load_tab = SaveLoadTab(
             case_getter=self._case_tab.case,
             case_loader=self._handle_case_loaded_from_storage,
             base_path=self._base_path,
         )
         tabs.addTab(self._save_load_tab, "Guardar/Cargar")
-        tabs.addTab(TrackingTab(), "Control Tower")
-        tabs.addTab(SettingsTab(), "Configuración")
-        tabs.addTab(DebugTab(), "Debug")
+        self._tracking_tab = TrackingTab(base_path=self._base_path)
+        tabs.addTab(self._tracking_tab, "Control Tower")
+        self._settings_tab = SettingsTab(
+            config=self._config,
+            base_path=self._base_path,
+            load_config=load_global_config,
+            save_config=save_global_config,
+            on_preferences_changed=self._handle_preferences_updated,
+        )
+        tabs.addTab(self._settings_tab, "Configuración")
+        self._debug_tab = DebugTab()
+        tabs.addTab(self._debug_tab, "Debug")
         return tabs
 
     def _init_menus(self) -> None:
@@ -222,8 +239,7 @@ class KiroshiMainWindow(QMainWindow):
 
     def _handle_case_changed(self, case: CaseData) -> None:
         self.case = case
-        if self._save_load_tab is not None:
-            self._save_load_tab.refresh_case(case)
+        self._refresh_case_dependents(case)
         try:
             save_autosave(case, base_path=self._base_path)
         except OSError as exc:
@@ -236,11 +252,7 @@ class KiroshiMainWindow(QMainWindow):
     def _handle_case_loaded_from_storage(self, case: CaseData, source: str) -> None:
         self.case = case
         self._case_tab.set_case(case)
-        self._active_case_for_hotkeys = (
-            case if getattr(case, "active_for_hotkeys", False) else None
-        )
-        if self._save_load_tab is not None:
-            self._save_load_tab.refresh_case(case)
+        self._refresh_case_dependents(case)
         self.statusBar().showMessage(f"Caso cargado desde {source}", 5000)
 
     def _save_case_to_database(self) -> None:
@@ -287,12 +299,22 @@ class KiroshiMainWindow(QMainWindow):
         self._active_case_for_hotkeys = (
             case if getattr(case, "active_for_hotkeys", False) else None
         )
-        self._tables_tab.update_case(case)
-        self._email_tab.refresh_case(case)
-        self._save_load_tab.refresh_case(case)
-        self._tracking_tab.refresh_case(case)
-        self._settings_tab.refresh_case(case)
-        self._debug_tab.refresh_case(case)
+        if self._tables_tab is not None:
+            self._tables_tab.update_case(case)
+        if self._email_tab is not None:
+            self._email_tab.refresh_case(case)
+        if self._save_load_tab is not None:
+            self._save_load_tab.refresh_case(case)
+        if self._tracking_tab is not None:
+            self._tracking_tab.refresh_case(case)
+        if self._settings_tab is not None:
+            self._settings_tab.refresh_case(case)
+        if self._debug_tab is not None:
+            self._debug_tab.refresh_case(case)
+
+    def _handle_preferences_updated(self, config: dict[str, Any]) -> None:
+        self._config = dict(config)
+        self._apply_theme_preference()
 
 
 # Backwards compatible alias used by older tests.
