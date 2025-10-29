@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.utils import get_log_path
+from ..core.utils import get_database_root
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +34,6 @@ class DebugTab(QWidget):
         self._log_view.setPlaceholderText("Introduce credenciales para ver los logs")
         self._system_info = QTextEdit()
         self._system_info.setReadOnly(True)
-        self._log_path = get_log_path()
 
         self._build_ui()
 
@@ -49,14 +48,10 @@ class DebugTab(QWidget):
 
         login_button = QPushButton("Login")
         login_button.clicked.connect(self._attempt_login)
-        self._refresh_button = QPushButton("Actualizar logs")
-        self._refresh_button.setEnabled(False)
-        self._refresh_button.clicked.connect(self._load_debug_data)
 
         top_row = QHBoxLayout()
         top_row.addLayout(form_layout)
         top_row.addWidget(login_button)
-        top_row.addWidget(self._refresh_button)
         layout.addLayout(top_row)
 
         layout.addWidget(QLabel("Logs recientes"))
@@ -74,15 +69,15 @@ class DebugTab(QWidget):
             self._username.setEnabled(False)
             self._password.setEnabled(False)
             self._load_debug_data()
-            self._refresh_button.setEnabled(True)
             QMessageBox.information(self, "Debug", "Acceso concedido")
         else:
             QMessageBox.warning(self, "Debug", "Credenciales inválidas")
 
     def _load_debug_data(self) -> None:
-        if self._log_path.exists():
+        log_path = get_database_root() / "kiroshi.log"
+        if log_path.exists():
             try:
-                lines = self._log_path.read_text(encoding="utf-8").splitlines()
+                lines = log_path.read_text(encoding="utf-8").splitlines()
                 tail = "\n".join(lines[-200:])
                 self._log_view.setPlainText(tail)
             except Exception as exc:  # pragma: no cover - defensive path

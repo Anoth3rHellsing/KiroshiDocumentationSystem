@@ -145,16 +145,3 @@ def _extract_case_payload(payload: Any) -> tuple[dict[str, Any] | None, Mapping[
             if isinstance(item, Mapping):
                 return dict(item), item
     return None, None
-
-
-def stop_tracking(case_id: str, base_path: Path | None = None) -> bool:
-    """Disable tracking for ``case_id`` when an entry exists."""
-
-    if not case_id:
-        return False
-    updated = False
-    for record in list_tracked_cases(base_path):
-        if record.case.case_id == case_id:
-            update_tracked_case(record.path, tracking_updates={"active": False})
-            updated = True
-    return updated

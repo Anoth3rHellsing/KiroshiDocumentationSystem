@@ -5,43 +5,20 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 APP_NAME = "KiroshiDatabase"
 CONFIG_FILENAME = "settings.json"
-LOG_DIR = Path(__file__).resolve().parent / "logs"
-LOG_FILENAME = "kiroshi.log"
 
 
-def setup_logging(level: int = logging.INFO) -> Path:
-    """Configure rotating file logging for the desktop client."""
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configure the root logger with a sensible default format."""
 
-    log_path = get_log_path()
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-    for handler in list(root_logger.handlers):
-        root_logger.removeHandler(handler)
-
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-
-    file_handler = RotatingFileHandler(
-        log_path,
-        maxBytes=1_048_576,
-        backupCount=5,
-        encoding="utf-8",
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    file_handler.setFormatter(formatter)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(stream_handler)
-    return log_path
 
 
 def utc_now() -> datetime:
@@ -74,12 +51,6 @@ def ensure_directory(path: Path) -> Path:
 
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def get_log_path() -> Path:
-    """Return the path used by the rotating log handler."""
-
-    return LOG_DIR / LOG_FILENAME
 
 
 def get_database_root(base_path: Path | None = None) -> Path:

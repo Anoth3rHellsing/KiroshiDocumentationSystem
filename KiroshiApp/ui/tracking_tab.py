@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -37,16 +37,12 @@ class TrackingTab(QWidget):
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.cellChanged.connect(self._on_cell_changed)
         self._updating = False
-        self._has_loaded = False
 
         self._summary_label = QLabel()
         self._summary_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
         self._build_ui()
-
-    def showEvent(self, event: QEvent) -> None:  # pragma: no cover - UI dispatch
-        super().showEvent(event)
-        self.ensure_loaded()
+        self.refresh()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -87,11 +83,6 @@ class TrackingTab(QWidget):
             self._updating = False
         self._update_summary([record.case for record in records])
         self._table.resizeColumnsToContents()
-        self._has_loaded = True
-
-    def ensure_loaded(self) -> None:
-        if not self._has_loaded:
-            self.refresh()
 
     def _set_item(self, row: int, column: int, value: str, *, editable: bool = True) -> None:
         item = QTableWidgetItem(value)

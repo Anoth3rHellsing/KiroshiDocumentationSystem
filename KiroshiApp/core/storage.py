@@ -12,7 +12,6 @@ from .utils import get_database_root, read_json, utc_now_iso, write_json
 LOGGER = logging.getLogger(__name__)
 AUTOSAVE_FILENAME = "autosave.json"
 CASE_EXTENSION = ".json"
-CASES_DIRNAME = "cases"
 
 
 def autosave_path(base_path: Path | None = None) -> Path:
@@ -70,44 +69,6 @@ def load_case(path: Path) -> CaseData:
     return case
 
 
-def save_case_to_db(case: CaseData, base_path: Path | None = None) -> Path:
-    """Persist the current case inside the database directory."""
-
-    root = cases_root(base_path)
-    filename = _safe_case_filename(case.case_id or "case")
-    destination = root / filename
-    return save_case(case, destination)
-
-
-def cases_root(base_path: Path | None = None) -> Path:
-    """Return the directory where persistent case files are stored."""
-
-    root = get_database_root(base_path) / CASES_DIRNAME
-    root.mkdir(parents=True, exist_ok=True)
-    return root
-
-
-def iter_case_files(base_path: Path | None = None):
-    """Yield all known case file paths stored under the database root."""
-
-    database_root = get_database_root(base_path)
-    cases_dir = database_root / CASES_DIRNAME
-    candidates: set[Path] = set()
-    if database_root.exists():
-        for candidate in database_root.glob(f"*{CASE_EXTENSION}"):
-            if candidate.name == AUTOSAVE_FILENAME:
-                continue
-            candidates.add(candidate)
-    if cases_dir.exists():
-        candidates.update(cases_dir.glob(f"*{CASE_EXTENSION}"))
-    for candidate in sorted(
-        candidates,
-        key=lambda item: item.stat().st_mtime,
-        reverse=True,
-    ):
-        yield candidate
-
-
 def _parse_case_payload(payload: Any) -> CaseData | None:
     if isinstance(payload, Mapping):
         if "case" in payload and isinstance(payload["case"], Mapping):
@@ -147,9 +108,3 @@ def create_autosave_snapshot(case: CaseData, base_path: Path | None = None) -> P
     destination = snapshot_dir / filename
     write_json(destination, {"case": case.to_dict(), "version": case.kiroshi_version})
     return destination
-
-
-def _safe_case_filename(case_id: str) -> str:
-    text = case_id.strip() if case_id else "case"
-    safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
-    return safe or "case"

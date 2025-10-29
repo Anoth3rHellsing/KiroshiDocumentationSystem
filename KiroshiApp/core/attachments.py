@@ -6,10 +6,8 @@ import zipfile
 from pathlib import Path
 from typing import Iterable
 
-from PySide6.QtGui import QGuiApplication, QScreen
-
 from .model import CaseData
-from .utils import get_database_root, utc_now_iso
+from .utils import get_database_root
 
 INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
 
@@ -90,32 +88,4 @@ def create_zip(
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in attachment_paths:
             archive.write(path, arcname=path.name)
-    return destination
-
-
-def capture_screenshot(
-    case: CaseData,
-    *,
-    base_path: Path | None = None,
-    screen: QScreen | None = None,
-) -> Path:
-    """Capture the current desktop contents and store them as an attachment."""
-
-    gui_app = QGuiApplication.instance()
-    primary_screen = screen
-    if primary_screen is None and gui_app is not None:
-        primary_screen = gui_app.primaryScreen()
-    if primary_screen is None:
-        raise RuntimeError("No se pudo acceder a la pantalla para la captura")
-
-    pixmap = primary_screen.grabWindow(0)
-    if pixmap.isNull():
-        raise RuntimeError("La captura de pantalla no devolvió datos")
-
-    timestamp = utc_now_iso().replace(":", "-")
-    filename = sanitize_filename(f"screenshot_{timestamp}.png")
-    destination_dir = attachments_root(case.case_id, base_path)
-    destination = destination_dir / filename
-    if not pixmap.save(str(destination), "PNG"):
-        raise RuntimeError("No se pudo guardar la captura de pantalla")
     return destination
