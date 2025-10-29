@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, List, Tuple
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from ..core.ai_client import AIClient
 from ..core.model import CaseData
+from .background import run_in_threadpool
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,11 +30,14 @@ class ChatWindow(QDialog):
         ai_client: AIClient,
         case_getter: Callable[[], CaseData],
         parent: QDialog | None = None,
+        *,
+        thread_pool: QThreadPool | None = None,
     ) -> None:
         super().__init__(parent)
         self._ai_client = ai_client
         self._case_getter = case_getter
         self._history: List[Tuple[str, str]] = []
+        self._thread_pool = thread_pool or QThreadPool.globalInstance()
 
         self.setWindowTitle("Asistente IA")
         self.resize(640, 480)
@@ -45,6 +49,7 @@ class ChatWindow(QDialog):
 
         self._status_label = QLabel()
         self._status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._send_button: QPushButton | None = None
 
         self._build_ui()
 
@@ -58,9 +63,9 @@ class ChatWindow(QDialog):
         layout.addWidget(self._status_label)
 
         button_row = QHBoxLayout()
-        send_button = QPushButton("Enviar")
-        send_button.clicked.connect(self._on_send_clicked)
-        button_row.addWidget(send_button)
+        self._send_button = QPushButton("Enviar")
+        self._send_button.clicked.connect(self._on_send_clicked)
+        button_row.addWidget(self._send_button)
 
         clear_button = QPushButton("Limpiar")
         clear_button.clicked.connect(self._clear_history)
@@ -79,19 +84,30 @@ class ChatWindow(QDialog):
             return
         self._append_history("Usuario", message)
         self._input.clear()
+        if self._send_button:
+            self._send_button.setEnabled(False)
         self._status_label.setText("Generando respuesta…")
-        QApplication.processEvents()
 
-        try:
-            response = self._invoke_ai(message)
-        except Exception as exc:  # pragma: no cover - network failures
+        def _on_success(response: str) -> None:
+            self._append_history("Asistente", response.strip())
+            self._status_label.setText("Respuesta recibida")
+            if self._send_button:
+                self._send_button.setEnabled(True)
+
+        def _on_error(exc: Exception) -> None:
             LOGGER.error("Chat completion failed: %s", exc)
             QMessageBox.warning(self, "IA", f"No se pudo obtener respuesta: {exc}")
             self._status_label.setText("Error")
-            return
+            if self._send_button:
+                self._send_button.setEnabled(True)
 
-        self._append_history("Asistente", response.strip())
-        self._status_label.setText("Respuesta recibida")
+        run_in_threadpool(
+            self._invoke_ai,
+            args=(message,),
+            on_success=_on_success,
+            on_error=_on_error,
+            thread_pool=self._thread_pool,
+        )
 
     def _invoke_ai(self, message: str) -> str:
         case = self._case_getter()
@@ -118,9 +134,3 @@ class ChatWindow(QDialog):
         self._history.clear()
         self._history_view.clear()
         self._status_label.clear()
-
-
-try:
-    from PySide6.QtWidgets import QApplication
-except ImportError:  # pragma: no cover - guard for type checkers
-    QApplication = object  # type: ignore

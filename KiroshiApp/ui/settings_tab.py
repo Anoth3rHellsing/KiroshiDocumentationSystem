@@ -30,12 +30,14 @@ class SettingsTab(QWidget):
         self,
         on_autosave_changed: Callable[[bool], None] | None = None,
         on_ai_settings_changed: Callable[[dict[str, str]], None] | None = None,
+        on_theme_changed: Callable[[str], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._config = load_global_config()
         self._on_autosave_changed = on_autosave_changed
         self._on_ai_settings_changed = on_ai_settings_changed
+        self._on_theme_changed = on_theme_changed
 
         self._second_line = QCheckBox("Modo 2nd Line")
         self._hardware_fields = QCheckBox("Mostrar campos de hardware")
@@ -44,6 +46,7 @@ class SettingsTab(QWidget):
         self._ai_model = QLineEdit()
         self._ai_key = QLineEdit()
         self._ai_key.setEchoMode(QLineEdit.Password)
+        self._theme_mode = QComboBox()
 
         self._build_ui()
         self._load_values()
@@ -68,6 +71,8 @@ class SettingsTab(QWidget):
         form_layout.addRow(QLabel("Modo IA"), self._ai_mode)
         form_layout.addRow(QLabel("Modelo IA"), self._ai_model)
         form_layout.addRow(QLabel("API Key"), self._ai_key)
+        self._theme_mode.addItems(["system", "light", "dark"])
+        form_layout.addRow(QLabel("Tema"), self._theme_mode)
         layout.addWidget(form_container)
 
         button_row = QHBoxLayout()
@@ -87,6 +92,7 @@ class SettingsTab(QWidget):
         self._ai_mode.currentIndexChanged.connect(lambda _: self._save())
         self._ai_model.editingFinished.connect(self._save)
         self._ai_key.editingFinished.connect(self._save)
+        self._theme_mode.currentIndexChanged.connect(lambda _: self._save())
 
     def _load_values(self) -> None:
         self._second_line.setChecked(bool(self._config.get("mode_second_line")))
@@ -100,6 +106,14 @@ class SettingsTab(QWidget):
             self._ai_key.setText(str(ai_settings.get("api_key", "")))
         else:
             self._ai_mode.setCurrentText("cloud")
+        appearance = self._config.get("appearance", {})
+        if isinstance(appearance, dict):
+            theme = str(appearance.get("theme", "system"))
+        else:
+            theme = "system"
+        if theme not in {"system", "light", "dark"}:
+            theme = "system"
+        self._theme_mode.setCurrentText(theme)
 
     def _on_checkbox_changed(self, state: int) -> None:
         self._config["mode_second_line"] = self._second_line.isChecked()
@@ -117,6 +131,7 @@ class SettingsTab(QWidget):
             "api_key": self._ai_key.text().strip(),
         }
         self._config["ai"] = ai_settings
+        self._config["appearance"] = {"theme": self._theme_mode.currentText()}
         try:
             save_global_config(self._config)
         except Exception as exc:  # pragma: no cover
@@ -125,6 +140,8 @@ class SettingsTab(QWidget):
             return
         if self._on_ai_settings_changed:
             self._on_ai_settings_changed(ai_settings)
+        if self._on_theme_changed:
+            self._on_theme_changed(self._theme_mode.currentText())
 
     def _check_updates(self) -> None:
         QMessageBox.information(

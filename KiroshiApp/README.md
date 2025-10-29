@@ -22,7 +22,11 @@ utilities for document generation and AI-assisted tooling.
     records.
 -   `core/utils.py`: Shared helpers for logging, timestamps, and
     configuration files.
-- `assets/`: Static assets such as icons or fonts.
+- `assets/`: Static assets such as icons, fonts, and shared QSS themes.
 - `tests/`: Automated tests for the desktop components.
+
+The desktop shell now includes background workers for AI, PDF, and ZIP actions,
+rotating log files under `core/logs/`, and a switchable light/dark theme that can
+be toggled from the settings tab.
 
 > **Note:** This branch is experimental and not intended for production use yet.

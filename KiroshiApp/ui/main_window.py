@@ -4,9 +4,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -24,7 +25,12 @@ from ..core.model import CaseData
 from ..core.pdf_generator import generate_case_pdf
 from ..core.storage import save_autosave, save_case_to_db
 from ..core.tracking import start_tracking, stop_tracking
-from ..core.utils import get_database_root, load_global_config, save_global_config, utc_now_iso
+from ..core.utils import (
+    get_database_root,
+    load_global_config,
+    save_global_config,
+    utc_now_iso,
+)
 from .case_tab import CaseTab
 from .chat_window import ChatWindow
 from .debug_tab import DebugTab
@@ -32,6 +38,8 @@ from .email_tab import EmailTab
 from .save_load_tab import SaveLoadTab
 from .settings_tab import SettingsTab
 from .tracking_tab import TrackingTab
+from .background import run_in_threadpool
+from .theme import load_stylesheet
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,17 +55,24 @@ class KiroshiMainWindow(QMainWindow):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._thread_pool = QThreadPool.globalInstance()
         self._config = load_global_config()
         self._autosave_to_db_enabled = bool(self._config.get("autosave_to_db", True))
         self._ai_client = ai_client or AIClient()
         self._apply_ai_settings(self._config.get("ai", {}))
+        self._apply_theme(self._config.get("appearance", {}).get("theme"))
 
         self._case_tab = CaseTab(case)
-        self._email_tab = EmailTab(self._case_tab.current_case, self._ai_client)
+        self._email_tab = EmailTab(
+            self._case_tab.current_case,
+            self._ai_client,
+            thread_pool=self._thread_pool,
+        )
         self._tracking_tab = TrackingTab()
         self._settings_tab = SettingsTab(
             self._on_autosave_changed,
             self._on_ai_settings_changed,
+            self._on_theme_changed,
         )
         self._debug_tab = DebugTab()
         self._save_load_tab = SaveLoadTab(
@@ -66,6 +81,7 @@ class KiroshiMainWindow(QMainWindow):
             autosave_toggle=self._case_tab.set_autosave_enabled,
             autosave_db_enabled=self._autosave_to_db_enabled,
             on_autosave_db_changed=self._on_autosave_db_changed,
+            thread_pool=self._thread_pool,
         )
 
         self._chat_window: ChatWindow | None = None
@@ -75,6 +91,7 @@ class KiroshiMainWindow(QMainWindow):
 
         self._case_tab.on_manual_autosave(self._on_autosave_completed)
         self._case_tab.on_tracking_toggled(self._on_track_case)
+        self._tab_widget.currentChanged.connect(self._on_tab_changed)
 
     def _build_ui(self) -> None:
         self.setWindowTitle("Kiroshi Desktop Experimental")
@@ -175,17 +192,37 @@ class KiroshiMainWindow(QMainWindow):
             return
         output_path = Path(path)
         attachments = list(iter_attachments(case))
-        try:
-            generate_case_pdf(case, output_path=output_path, attachments=attachments)
-        except Exception as exc:  # pragma: no cover - defensive path
+
+        self.statusBar().showMessage("Generando PDF…")
+
+        def _on_success(_: object) -> None:
+            self.statusBar().showMessage("PDF generado correctamente", 5000)
+            QMessageBox.information(self, "PDF", f"PDF guardado en {output_path}")
+
+        def _on_error(exc: Exception) -> None:
             LOGGER.error("Failed to export PDF: %s", exc)
             QMessageBox.warning(self, "PDF", f"No se pudo generar el PDF: {exc}")
-            return
-        QMessageBox.information(self, "PDF", f"PDF guardado en {output_path}")
+            self.statusBar().showMessage("Error al generar PDF", 5000)
+
+        run_in_threadpool(
+            generate_case_pdf,
+            args=(case,),
+            kwargs={
+                "output_path": output_path,
+                "attachments": attachments,
+            },
+            on_success=_on_success,
+            on_error=_on_error,
+            thread_pool=self._thread_pool,
+        )
 
     def _open_chat_window(self) -> None:
         if self._chat_window is None:
-            self._chat_window = ChatWindow(self._ai_client, self._case_tab.current_case)
+            self._chat_window = ChatWindow(
+                self._ai_client,
+                self._case_tab.current_case,
+                thread_pool=self._thread_pool,
+            )
         self._chat_window.show()
         self._chat_window.raise_()
         self._chat_window.activateWindow()
@@ -298,8 +335,28 @@ class KiroshiMainWindow(QMainWindow):
         self._apply_ai_settings(settings)
         self._persist_config()
 
+    def _on_theme_changed(self, theme: str) -> None:
+        appearance = self._config.setdefault("appearance", {})
+        appearance["theme"] = theme
+        self._apply_theme(theme)
+        self._persist_config()
+
     def _persist_config(self) -> None:
         try:
             save_global_config(self._config)
         except Exception as exc:  # pragma: no cover - defensive path
             LOGGER.error("Failed to persist config: %s", exc)
+
+    def _on_tab_changed(self, index: int) -> None:
+        widget = self._tab_widget.widget(index)
+        if widget is self._save_load_tab:
+            self._save_load_tab.ensure_loaded()
+        elif widget is self._tracking_tab:
+            self._tracking_tab.ensure_loaded()
+
+    def _apply_theme(self, theme: str | None) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        stylesheet = load_stylesheet((theme or "system").lower())
+        app.setStyleSheet(stylesheet)

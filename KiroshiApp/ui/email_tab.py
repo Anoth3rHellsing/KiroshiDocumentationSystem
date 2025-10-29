@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from ..core.ai_client import AIClient
 from ..core.model import CaseData
+from .background import run_in_threadpool
 
 LOGGER = logging.getLogger(__name__)
 
@@ -50,16 +51,20 @@ class EmailTab(QWidget):
         case_getter: Callable[[], CaseData],
         ai_client: AIClient,
         parent: QWidget | None = None,
+        *,
+        thread_pool: QThreadPool | None = None,
     ) -> None:
         super().__init__(parent)
         self._case_getter = case_getter
         self._ai_client = ai_client
+        self._thread_pool = thread_pool or QThreadPool.globalInstance()
 
         self._template_selector = QComboBox()
         self._preview = QTextEdit()
         self._preview.setAcceptRichText(False)
         self._preview.setPlaceholderText("Previsualización de email…")
         self._status_label = QLabel()
+        self._generate_button: QPushButton | None = None
 
         self._build_ui()
         self._refresh_preview()
@@ -75,9 +80,9 @@ class EmailTab(QWidget):
         self._template_selector.currentIndexChanged.connect(self._refresh_preview)
         layout.addWidget(self._template_selector, 0, 1)
 
-        generate_button = QPushButton("Generar con IA")
-        generate_button.clicked.connect(self._on_generate_clicked)
-        layout.addWidget(generate_button, 0, 2)
+        self._generate_button = QPushButton("Generar con IA")
+        self._generate_button.clicked.connect(self._on_generate_clicked)
+        layout.addWidget(self._generate_button, 0, 2)
 
         copy_button = QPushButton("Copiar al portapapeles")
         copy_button.clicked.connect(self._copy_to_clipboard)
@@ -104,14 +109,30 @@ class EmailTab(QWidget):
 
     def _on_generate_clicked(self) -> None:
         case = self._case_getter()
-        try:
-            body = self._ai_client.generate_email_body(case)
-        except Exception as exc:  # pragma: no cover - defensive path
+        if self._generate_button:
+            self._generate_button.setEnabled(False)
+        self._status_label.setText("Generando con IA…")
+
+        def _on_success(result: str) -> None:
+            self._preview.setPlainText(result.strip())
+            self._status_label.setText("Generado con IA")
+            if self._generate_button:
+                self._generate_button.setEnabled(True)
+
+        def _on_error(exc: Exception) -> None:
             LOGGER.error("AI email generation failed: %s", exc)
             QMessageBox.warning(self, "IA", f"No se pudo generar el correo: {exc}")
-            return
-        self._preview.setPlainText(body.strip())
-        self._status_label.setText("Generado con IA")
+            self._status_label.setText("Error al generar IA")
+            if self._generate_button:
+                self._generate_button.setEnabled(True)
+
+        run_in_threadpool(
+            self._ai_client.generate_email_body,
+            args=(case,),
+            on_success=_on_success,
+            on_error=_on_error,
+            thread_pool=self._thread_pool,
+        )
 
     def _copy_to_clipboard(self) -> None:
         text = self._preview.toPlainText()
