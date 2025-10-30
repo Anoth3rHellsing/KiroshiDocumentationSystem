@@ -88,6 +88,7 @@ class TrackingTab(QWidget):
         super().__init__()
         self._base_path = base_path
         self._reminders_config = reminders_config or {}
+        self._second_line_enabled = bool(second_line_enabled)
         self._records: list[TrackedCaseRecord] = []
         self._closed_cases: list[str] = []
 
@@ -153,8 +154,25 @@ class TrackingTab(QWidget):
         self._label = QLabel("Tracking tab coming soon", self)
         layout.addWidget(self._label)
 
+        self._update_actions_state()
+
     def refresh_case(self, case: CaseData) -> None:
         """Update the placeholder with the active case."""
 
         summary = case.case_id or case.tracking.ticket_number or "Sin caso seleccionado"
         self._label.setText(f"Tracking tab coming soon\nCaso activo: {summary}")
+
+    def _update_actions_state(self) -> None:
+        """Enable or disable controls based on the current selection."""
+
+        has_selection = bool(self._table.selectedIndexes())
+        self._load_button.setEnabled(has_selection)
+
+        tracking_actions_enabled = has_selection and self._second_line_enabled
+        self._untrack_button.setEnabled(tracking_actions_enabled)
+        self._close_button.setEnabled(tracking_actions_enabled)
+
+        # The gate label explains why actions are disabled when second line mode
+        # is inactive. Show it only when the user cannot interact with the
+        # tracking controls.
+        self._gate_label.setVisible(not self._second_line_enabled)
