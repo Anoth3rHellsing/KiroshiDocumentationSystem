@@ -8,6 +8,7 @@ from typing import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
+    QAbstractItemView,
     QHBoxLayout,
     QLabel,
     QListWidget,
