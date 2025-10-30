@@ -10,7 +10,6 @@ from typing import Any, Callable
 
 import requests
 
-import kiroshi_chat
 from .model import CaseData
 
 
@@ -28,22 +27,6 @@ class _SessionStateShim(dict):
 
     def __delattr__(self, name: str) -> None:  # pragma: no cover
         del self[name]
-
-
-_streamlit_exists: Callable[[], bool] | None = None
-_streamlit_runtime_spec = util.find_spec("streamlit.runtime")
-if _streamlit_runtime_spec is not None:
-    _streamlit_runtime = import_module("streamlit.runtime")
-    _streamlit_exists = getattr(_streamlit_runtime, "exists", None)
-
-
-def _has_streamlit_context() -> bool:
-    if _streamlit_exists is None:
-        return False
-    try:
-        return bool(_streamlit_exists())
-    except Exception:
-        return False
 
 
 @dataclass
@@ -69,6 +52,7 @@ class AIClient:
         local_model: str | None = None,
         timeout: int = 30,
         settings: AISettings | None = None,
+        session_state: MutableMapping[str, object] | None = None,
     ) -> None:
         self.mode = mode or (settings.provider if settings else "disabled")
         self.base_url = base_url
@@ -77,7 +61,10 @@ class AIClient:
         self.local_model = local_model
         self.timeout = timeout
         self._settings = settings or AISettings(provider=self.mode, model=self.model or "")
-        self._session_state = self._ensure_session_state()
+        self._session_state = session_state or _SessionStateShim()
+        self._session_state.setdefault("assistant_notes", [])
+        self._session_state.setdefault("kiroshi_chat_history", [])
+        self._session_state.setdefault("kiroshi_sarcasm_mode", False)
         self._memory_history = self._load_memory_history()
         self._personality_mode = self._derive_personality_mode()
 
@@ -106,38 +93,12 @@ class AIClient:
         return response
 
     # ───────────────────── Personality & memory helpers ────────
-    def _ensure_session_state(self) -> MutableMapping[str, object]:
-        state = getattr(kiroshi_chat, "st", None)
-        if state is not None:
-            session_state: MutableMapping[str, object] | None = None
-            candidate = getattr(state, "session_state", None)
-            if isinstance(candidate, MutableMapping):
-                if _has_streamlit_context() or not inspect.ismodule(state):
-                    session_state = candidate
-            if session_state is not None:
-                session_state.setdefault("assistant_notes", [])
-                return session_state
-
-        proxy = getattr(kiroshi_chat, "_desktop_session_state", None)
-        if not isinstance(proxy, MutableMapping):
-            proxy = _SessionStateShim()
-            setattr(kiroshi_chat, "_desktop_session_state", proxy)
-
-        proxy.setdefault("assistant_notes", [])
-
-        if state is None or inspect.ismodule(state) or not hasattr(state, "session_state"):
-            if inspect.ismodule(state):
-                setattr(kiroshi_chat, "_streamlit_module", state)
-            kiroshi_chat.st = types.SimpleNamespace(session_state=proxy)
-        else:
-            setattr(state, "session_state", proxy)
-
-        return proxy
-
     def _load_memory_history(self) -> list[dict[str, str]]:
-        raw_history = kiroshi_chat.load_memory()
+        raw_history: Sequence[object] | MutableMapping[str, object] | None = self._session_state.get(
+            "kiroshi_chat_history"
+        )
         history: list[dict[str, str]] = []
-        if isinstance(raw_history, Sequence):
+        if isinstance(raw_history, Sequence) and not isinstance(raw_history, (str, bytes, bytearray)):
             for entry in raw_history:
                 if not isinstance(entry, dict):
                     continue
@@ -145,6 +106,12 @@ class AIClient:
                 content = str(entry.get("content", "")).strip()
                 if not role or not content:
                     continue
+                history.append({"role": role, "content": content})
+        elif isinstance(raw_history, MutableMapping):
+            # legacy dictionary format: {"role": str, "content": str}
+            role = str(raw_history.get("role", "")).strip()
+            content = str(raw_history.get("content", "")).strip()
+            if role and content:
                 history.append({"role": role, "content": content})
         self._session_state["kiroshi_chat_history"] = list(history)
         return history
@@ -190,7 +157,7 @@ class AIClient:
         self._persist_memory()
 
     def _persist_memory(self) -> None:
-        kiroshi_chat.save_memory(list(self._memory_history))
+        self._session_state["kiroshi_chat_history"] = list(self._memory_history)
 
     def _build_contextual_prompt(self, prompt: str) -> str:
         lines = []
@@ -203,9 +170,11 @@ class AIClient:
                 "Personality mode: Comfort. Reply with a reassuring, patient tone while staying concise."
             )
 
-        memory_prompt = kiroshi_chat.build_assistant_memory_prompt()
-        if memory_prompt:
-            lines.append("Supervisor reminders:\n" + memory_prompt)
+        notes = self._session_state.get("assistant_notes", [])
+        if isinstance(notes, Sequence) and not isinstance(notes, (str, bytes, bytearray)):
+            note_lines = [str(item).strip() for item in notes if str(item).strip()]
+            if note_lines:
+                lines.append("Supervisor reminders:\n" + "\n".join(f"- {line}" for line in note_lines))
 
         if self._memory_history:
             transcript = []
