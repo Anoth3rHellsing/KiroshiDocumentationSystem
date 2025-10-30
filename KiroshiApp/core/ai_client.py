@@ -14,6 +14,22 @@ import kiroshi_chat
 from .model import CaseData
 
 
+class _SessionStateShim(dict):
+    """Dictionary that also exposes keys via attribute access."""
+
+    def __getattr__(self, name: str) -> object:  # pragma: no cover - convenience proxy
+        try:
+            return self[name]
+        except KeyError as exc:  # pragma: no cover - mirrors dict semantics
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name: str, value: object) -> None:  # pragma: no cover
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:  # pragma: no cover
+        del self[name]
+
+
 _streamlit_exists: Callable[[], bool] | None = None
 _streamlit_runtime_spec = util.find_spec("streamlit.runtime")
 if _streamlit_runtime_spec is not None:
@@ -94,13 +110,9 @@ class AIClient:
         state = getattr(kiroshi_chat, "st", None)
         if state is not None:
             session_state: MutableMapping[str, object] | None = None
-            if _has_streamlit_context():
-                candidate = getattr(state, "session_state", None)
-                if isinstance(candidate, MutableMapping):
-                    session_state = candidate
-            elif not inspect.ismodule(state):
-                candidate = getattr(state, "session_state", None)
-                if isinstance(candidate, MutableMapping):
+            candidate = getattr(state, "session_state", None)
+            if isinstance(candidate, MutableMapping):
+                if _has_streamlit_context() or not inspect.ismodule(state):
                     session_state = candidate
             if session_state is not None:
                 session_state.setdefault("assistant_notes", [])
@@ -108,11 +120,18 @@ class AIClient:
 
         proxy = getattr(kiroshi_chat, "_desktop_session_state", None)
         if not isinstance(proxy, MutableMapping):
-            proxy = {}
+            proxy = _SessionStateShim()
             setattr(kiroshi_chat, "_desktop_session_state", proxy)
+
         proxy.setdefault("assistant_notes", [])
-        if state is None:
+
+        if state is None or inspect.ismodule(state) or not hasattr(state, "session_state"):
+            if inspect.ismodule(state):
+                setattr(kiroshi_chat, "_streamlit_module", state)
             kiroshi_chat.st = types.SimpleNamespace(session_state=proxy)
+        else:
+            setattr(state, "session_state", proxy)
+
         return proxy
 
     def _load_memory_history(self) -> list[dict[str, str]]:

@@ -88,7 +88,7 @@ class SaveLoadTab(QWidget):
         recent_label.setObjectName("recent-label")
         layout.addWidget(recent_label)
 
-        self._recent_list.setSelectionMode(self._recent_list.SingleSelection)
+        self._recent_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         layout.addWidget(self._recent_list)
 
         self._status_label.setObjectName("status-label")
