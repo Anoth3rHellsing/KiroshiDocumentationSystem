@@ -8,6 +8,7 @@ from typing import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
+    QAbstractItemView,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -88,7 +89,7 @@ class SaveLoadTab(QWidget):
         recent_label.setObjectName("recent-label")
         layout.addWidget(recent_label)
 
-        self._recent_list.setSelectionMode(self._recent_list.SingleSelection)
+        self._recent_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         layout.addWidget(self._recent_list)
 
         self._status_label.setObjectName("status-label")
