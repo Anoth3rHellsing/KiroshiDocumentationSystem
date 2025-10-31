@@ -20,7 +20,11 @@ from PySide6.QtWidgets import (
 )
 
 from KiroshiApp.core.model import CaseData, TrackingData
-from KiroshiApp.core.tracking import TrackedCaseRecord, list_tracked_cases
+from KiroshiApp.core.tracking import (
+    TrackedCaseRecord,
+    list_tracked_cases,
+    stop_tracking,
+)
 
 
 def _parse_date(value: object) -> date | None:
@@ -67,9 +71,6 @@ def _sla_status(tracking: TrackingData) -> str:
             return "Aviso"
         return "Fuera de plazo"
     return "Sin datos"
-
-from KiroshiApp.core.model import CaseData
-
 
 class TrackingTab(QWidget):
     """Visual dashboard that monitors tracked cases on disk."""
@@ -118,6 +119,7 @@ class TrackingTab(QWidget):
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
         self._table.horizontalHeader().setStretchLastSection(True)
+        self._table.setAlternatingRowColors(True)
         self._table.itemSelectionChanged.connect(self._update_actions_state)
 
         self._load_button = QPushButton("Cargar caso")
@@ -151,16 +153,36 @@ class TrackingTab(QWidget):
         metrics_layout.addRow("Cerrados esta sesión", self._metrics_labels["closed"])
 
         layout = QVBoxLayout(self)
-        self._label = QLabel("Tracking tab coming soon", self)
-        layout.addWidget(self._label)
+        layout.addWidget(self._header_label)
+        layout.addWidget(self._gate_label)
+        layout.addWidget(self._table)
+        layout.addLayout(buttons_layout)
+        layout.addWidget(metrics_group)
 
+        self._active_case_label = QLabel("Tracking tab coming soon", self)
+        self._active_case_label.setWordWrap(True)
+        layout.addWidget(self._active_case_label)
+        layout.addStretch(1)
+
+        self._reload_records()
         self._update_actions_state()
 
     def refresh_case(self, case: CaseData) -> None:
         """Update the placeholder with the active case."""
 
-        summary = case.case_id or case.tracking.ticket_number or "Sin caso seleccionado"
-        self._label.setText(f"Tracking tab coming soon\nCaso activo: {summary}")
+        summary = self._case_identifier(case)
+        self._active_case_label.setText(
+            f"Tracking tab coming soon\nCaso activo: {summary}"
+        )
+        # Highlight the matching tracked case when present.
+        identifier = summary
+        for row, record in enumerate(self._records):
+            if self._case_identifier(record.case) == identifier:
+                self._table.selectRow(row)
+                break
+        else:
+            self._table.clearSelection()
+        self._update_actions_state()
 
     def _update_actions_state(self) -> None:
         """Enable or disable controls based on the current selection."""
@@ -176,3 +198,135 @@ class TrackingTab(QWidget):
         # is inactive. Show it only when the user cannot interact with the
         # tracking controls.
         self._gate_label.setVisible(not self._second_line_enabled)
+
+    # ------------------------------------------------------------------
+    # Data helpers
+    # ------------------------------------------------------------------
+    def _reload_records(self) -> None:
+        """Refresh the table with tracked case information from disk."""
+
+        self._records = list_tracked_cases(base_path=self._base_path)
+        self._populate_table()
+        self._update_metrics()
+
+    def _populate_table(self) -> None:
+        self._table.setSortingEnabled(False)
+        self._table.clearContents()
+        self._table.setRowCount(len(self._records))
+        for row, record in enumerate(self._records):
+            case = record.case
+            values = [
+                self._case_identifier(case),
+                case.company_name or "—",
+                case.tracking.priority or "—",
+                case.tracking.status or "—",
+                case.tracking.ticket_number or "—",
+                _sla_status(case.tracking),
+            ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._table.setItem(row, column, item)
+        self._table.setSortingEnabled(True)
+        self._table.sortItems(0)
+        self._table.clearSelection()
+
+    def _update_metrics(self) -> None:
+        total = len(self._records)
+        on_track = warning = overdue = 0
+        for record in self._records:
+            status = _sla_status(record.case.tracking)
+            if status == "En plazo":
+                on_track += 1
+            elif status == "Aviso":
+                warning += 1
+            elif status == "Fuera de plazo":
+                overdue += 1
+
+        reminders_enabled = bool(self._reminders_config.get("enabled", False))
+        if reminders_enabled:
+            times = [
+                str(self._reminders_config.get(key) or "")
+                for key in ("break_1", "lunch", "break_2")
+            ]
+            times = [time for time in times if time]
+            schedule = " / ".join(times)
+            reminders_text = (
+                f"Activos ({schedule})" if schedule else "Activos"
+            )
+            lead_time = self._reminders_config.get("lead_time_minutes")
+            if isinstance(lead_time, int) and lead_time > 0:
+                reminders_text = f"{reminders_text} · aviso {lead_time} min"
+        else:
+            reminders_text = "Inactivos"
+
+        self._metrics_labels["total"].setText(str(total))
+        self._metrics_labels["on_track"].setText(str(on_track))
+        self._metrics_labels["warning"].setText(str(warning))
+        self._metrics_labels["overdue"].setText(str(overdue))
+        self._metrics_labels["reminders"].setText(reminders_text)
+        self._metrics_labels["closed"].setText(str(len(self._closed_cases)))
+
+    def _selected_record(self) -> TrackedCaseRecord | None:
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._records):
+            return None
+        return self._records[row]
+
+    def _case_identifier(self, case: CaseData) -> str:
+        return (
+            case.case_id
+            or case.tracking.ticket_number
+            or case.company_name
+            or "Sin caso seleccionado"
+        )
+
+    def _record_identifier(self, record: TrackedCaseRecord) -> str:
+        identifier = self._case_identifier(record.case)
+        if identifier == "Sin caso seleccionado":
+            identifier = record.path.stem
+        return identifier
+
+    # ------------------------------------------------------------------
+    # Action handlers
+    # ------------------------------------------------------------------
+    def _on_load_clicked(self) -> None:
+        record = self._selected_record()
+        if not record:
+            return
+        self.loadRequested.emit(record.case)
+        self.refresh_case(record.case)
+
+    def _on_untrack_clicked(self) -> None:
+        record = self._selected_record()
+        if not record:
+            return
+        identifier = self._record_identifier(record)
+        if self._remove_record(record):
+            self.untrackRequested.emit(identifier)
+
+    def _on_close_clicked(self) -> None:
+        record = self._selected_record()
+        if not record:
+            return
+        identifier = self._record_identifier(record)
+        if self._remove_record(record):
+            self._closed_cases.append(identifier)
+            self._metrics_labels["closed"].setText(str(len(self._closed_cases)))
+            self.closeRequested.emit(identifier)
+
+    def _remove_record(self, record: TrackedCaseRecord) -> bool:
+        case_id = record.case.case_id
+        removed = False
+        if case_id:
+            removed = stop_tracking(case_id, base_path=self._base_path)
+        if not removed:
+            try:
+                record.path.unlink()
+                removed = True
+            except OSError:
+                removed = False
+        if removed:
+            self._reload_records()
+            self._update_actions_state()
+        return removed
