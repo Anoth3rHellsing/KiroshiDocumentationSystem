@@ -37,7 +37,9 @@ def _autosave_path(base_path: Optional[Path | str] = None) -> Path:
 
 def _case_payload(case: CaseData) -> dict[str, object]:
     payload = case.to_dict()
-    payload.setdefault("last_modified", _utc_now_iso())
+    last_modified = payload.get("last_modified")
+    if not isinstance(last_modified, str) or not last_modified.strip():
+        payload["last_modified"] = _utc_now_iso()
     return payload
 
 
