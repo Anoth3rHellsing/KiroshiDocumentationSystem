@@ -7297,12 +7297,12 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
 
         uploads: list[InMemoryUploadedFile] = []
         log_uploads: list[InMemoryUploadedFile] = []
-        screenshots: list[InMemoryUploadedFile] = []
+        screenshots: list[ScreenshotAsset] = []
         if case_obj.case_id:
             try:
-                uploads, log_uploads, screenshots = load_case_attachments(
-                    case_obj.case_id,
-                    attachments_index,
+                loader = _case_attachments_loader()
+                uploads, log_uploads, screenshots = loader(
+                    case_obj.case_id, attachments_index
                 )
             except Exception as exc:  # pragma: no cover - runtime environment specific
                 logging.warning(
@@ -7803,6 +7803,26 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
     return attachments_index
 
 
+def _case_attachments_loader() -> Callable[
+    [str, Mapping[str, Iterable[Mapping[str, object]]]],
+    tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]],
+]:
+    """Return the available attachment loader, or a no-op stub when unavailable."""
+
+    loader = globals().get("load_case_attachments")
+    if callable(loader):
+        return loader  # type: ignore[return-value]
+
+    logging.debug("Attachments loader missing; falling back to empty attachments")
+
+    def _noop_loader(
+        _case_id: str, _attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
+    ) -> tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]]:
+        return [], [], []
+
+    return _noop_loader
+
+
 def load_case_attachments(
     case_id: str, attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
 ) -> tuple[
@@ -7896,12 +7916,46 @@ def create_case_autosave_snapshot(case_id: str) -> Path | None:
         return None
 
 
+_recent_cases_cache: list[dict[str, object]] | None = None
+_recent_cases_mtime: float | None = None
+_recent_cases_path: str | None = None
+
+
+def _reset_recent_cases_cache() -> None:
+    global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
+    _recent_cases_cache = None
+    _recent_cases_mtime = None
+    _recent_cases_path = None
+
+
 def load_recent_cases() -> list:
+    global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
+    current_path = str(RECENT_CASES_PATH)
+    if _recent_cases_path and _recent_cases_path != current_path:
+        _reset_recent_cases_cache()
+    try:
+        current_mtime = RECENT_CASES_PATH.stat().st_mtime
+    except FileNotFoundError:
+        _reset_recent_cases_cache()
+        return []
+    except Exception:
+        return []
+
+    if (
+        _recent_cases_cache is not None
+        and _recent_cases_mtime is not None
+        and math.isclose(_recent_cases_mtime, current_mtime)
+    ):
+        return _recent_cases_cache
+
     try:
         payload = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
     except Exception:
+        _reset_recent_cases_cache()
         return []
+
     if not isinstance(payload, list):
+        _reset_recent_cases_cache()
         return []
     recent: list[dict[str, object]] = []
     for item in payload:
@@ -7914,10 +7968,14 @@ def load_recent_cases() -> list:
                 "last_modified": item.get("last_modified", ""),
             }
         )
+    _recent_cases_cache = recent
+    _recent_cases_mtime = current_mtime
+    _recent_cases_path = current_path
     return recent
 
 
 def update_recent_cases(case_id: str, path: str) -> None:
+    global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
     recents = [c for c in load_recent_cases() if c.get("path") != path]
     last_modified = ""
     try:
@@ -7936,7 +7994,14 @@ def update_recent_cases(case_id: str, path: str) -> None:
     except Exception:
         last_modified = ""
     recents.insert(0, {"case_id": case_id, "path": path, "last_modified": last_modified})
-    RECENT_CASES_PATH.write_text(json.dumps(recents[:10], indent=2), encoding="utf-8")
+    recents = recents[:10]
+    RECENT_CASES_PATH.write_text(json.dumps(recents, indent=2), encoding="utf-8")
+    try:
+        _recent_cases_cache = recents
+        _recent_cases_mtime = RECENT_CASES_PATH.stat().st_mtime
+        _recent_cases_path = str(RECENT_CASES_PATH)
+    except Exception:
+        _reset_recent_cases_cache()
 
 
 def normalize_priority(value) -> str:
@@ -8005,6 +8070,36 @@ def ensure_tracking_session_defaults(
         st.session_state[expected_key] = expected_value
 
 
+def _mapping_freshness_score(item: Mapping[str, object], position: int) -> float:
+    """Score mapping recency based on last_modified and original position."""
+
+    ts = None
+    try:
+        raw = item.get("last_modified")
+        if isinstance(raw, str):
+            ts = datetime.fromisoformat(raw).timestamp()
+    except Exception:
+        ts = None
+    # Prefer valid timestamps; otherwise, prefer later positions in the list.
+    if ts is None:
+        return float(position)
+    return ts
+
+
+def _select_latest_mapping(items: list[Mapping[str, object]]) -> Mapping[str, object]:
+    """Return the most recent mapping based on timestamp/position."""
+
+    if len(items) == 1:
+        return items[0]
+    best_item = items[0]
+    best_score = _mapping_freshness_score(best_item, 0)
+    for idx, item in enumerate(items[1:], start=1):
+        score = _mapping_freshness_score(item, idx)
+        if score >= best_score:
+            best_item, best_score = item, score
+    return best_item
+
+
 def _coerce_case_mapping(data: object) -> dict | None:
     """Return a dictionary representation from historical payloads."""
 
@@ -8012,18 +8107,51 @@ def _coerce_case_mapping(data: object) -> dict | None:
         return data
     if isinstance(data, list):
         dict_items = [item for item in data if isinstance(item, dict)]
-        if len(dict_items) == 1:
-            return dict_items[0]
         if dict_items:
-            logging.warning("Multiple dict entries found in list payload; using first item")
-            return dict_items[0]
+            return _select_latest_mapping(dict_items)
     return None
 
 
+_tracked_cases_cache: list[dict[str, object]] | None = None
+_tracked_cases_signature: tuple[float, int] | None = None
+_tracked_context: tuple[str, str] | None = None
+
+
+def _tracked_files_signature() -> tuple[float, int]:
+    latest_mtime = 0.0
+    file_count = 0
+    for path in itertools.chain(DATABASE_DIR.glob("*.json"), TRACKED_CASES_DIR.glob("*.json")):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        latest_mtime = max(latest_mtime, stat.st_mtime)
+        file_count += 1
+    return latest_mtime, file_count
+
+
+def _reset_tracked_cases_cache() -> None:
+    global _tracked_cases_cache, _tracked_cases_signature, _tracked_context
+    _tracked_cases_cache = None
+    _tracked_cases_signature = None
+    _tracked_context = None
+
+
 def load_tracked_cases() -> list:
+    global _tracked_cases_cache, _tracked_cases_signature, _tracked_context
+    current_context = (str(DATABASE_DIR), str(TRACKED_CASES_DIR))
+    if _tracked_context and _tracked_context != current_context:
+        _reset_tracked_cases_cache()
+    signature = _tracked_files_signature()
+    if _tracked_cases_cache is not None and _tracked_cases_signature == signature:
+        return _tracked_cases_cache
     cases = []
     # Load modern tracked cases directly from the database directory.
     for p in DATABASE_DIR.glob("*.json"):
+        try:
+            stat = p.stat()
+        except FileNotFoundError:
+            continue
         try:
             payload = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
@@ -8053,7 +8181,7 @@ def load_tracked_cases() -> list:
         last_modified = data.get("last_modified")
         if not last_modified:
             last_modified = (
-                datetime.fromtimestamp(p.stat().st_mtime)
+                datetime.fromtimestamp(stat.st_mtime)
                 .replace(microsecond=0)
                 .isoformat()
             )
@@ -8082,6 +8210,10 @@ def load_tracked_cases() -> list:
     # Include historical tracked JSON files for reference.
     for p in TRACKED_CASES_DIR.glob("*.json"):
         try:
+            stat = p.stat()
+        except FileNotFoundError:
+            continue
+        try:
             payload = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
@@ -8101,7 +8233,7 @@ def load_tracked_cases() -> list:
         last_modified = data.get("last_modified")
         if not last_modified:
             last_modified = (
-                datetime.fromtimestamp(p.stat().st_mtime)
+                datetime.fromtimestamp(stat.st_mtime)
                 .replace(microsecond=0)
                 .isoformat()
             )
@@ -8127,6 +8259,9 @@ def load_tracked_cases() -> list:
                 "last_modified": last_modified,
             }
         )
+    _tracked_cases_cache = cases
+    _tracked_cases_signature = signature
+    _tracked_context = current_context
     return cases
 
 
@@ -8155,18 +8290,24 @@ def update_tracked_case_file(
         if isinstance(data, Mapping):
             data["last_modified"] = timestamp
         if isinstance(payload, list):
-            replaced = False
-            for idx, item in enumerate(payload):
-                if isinstance(item, Mapping):
-                    payload[idx] = data
-                    replaced = True
-                    break
-            if not replaced:
+            mapping_positions = [
+                (idx, item)
+                for idx, item in enumerate(payload)
+                if isinstance(item, Mapping)
+            ]
+            if mapping_positions:
+                latest_idx, _ = max(
+                    mapping_positions,
+                    key=lambda pair: _mapping_freshness_score(pair[1], pair[0]),
+                )
+                payload[latest_idx] = data
+            else:
                 payload.append(data)
             to_write = payload
         else:
             to_write = data
         case_path.write_text(json.dumps(to_write, indent=2), encoding="utf-8")
+        _reset_tracked_cases_cache()
         return timestamp
     except Exception as exc:
         logging.exception("Failed to update tracked case %s", path)
@@ -8279,6 +8420,7 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
             logging.exception("Failed to persist updated case %s", path)
             st.error(f"Failed to update case: {exc}")
             return
+        _reset_tracked_cases_cache()
         if target_case_id:
             update_recent_cases(target_case_id, str(case_path))
         if D.case_id == target_case_id:
@@ -8309,9 +8451,10 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
             else:
                 dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         else:
-            dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
         case_path.unlink(missing_ok=True)
+        _reset_tracked_cases_cache()
         update_recent_cases(case_id_value, str(dest))
         st.toast("Case removed from tracking.") if hasattr(st, "toast") else st.success(
             "Case removed from tracking."
@@ -15249,11 +15392,13 @@ def render_case_ui(case_idx: int):
             st.session_state.include_escalations = st.toggle(
                 "Include escalations",
                 value=st.session_state.include_escalations,
+                key=case_widget_key("include_escalations", case_idx=case_idx),
             )
         with col_hw:
             st.session_state.include_hardware = st.toggle(
                 "Include hardware issues",
                 value=st.session_state.include_hardware,
+                key=case_widget_key("include_hardware", case_idx=case_idx),
             )
     cat_map = active_category_map()
     tab_labels = ["Case"]
@@ -18126,7 +18271,7 @@ End with: We look forward to your reply."""
 
     _reset_capture_footer_registry()
 
-visible_case_indices = list(range(1, len(st.session_state.case_sessions)))
+visible_case_indices = list(range(len(st.session_state.case_sessions)))
 case_labels = [
     st.session_state.case_sessions[idx].case.case_id or f"Case {idx+1}"
     for idx in visible_case_indices
