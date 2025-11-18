@@ -15340,11 +15340,13 @@ def render_case_ui(case_idx: int):
             st.session_state.include_escalations = st.toggle(
                 "Include escalations",
                 value=st.session_state.include_escalations,
+                key=case_widget_key("include_escalations", case_idx=case_idx),
             )
         with col_hw:
             st.session_state.include_hardware = st.toggle(
                 "Include hardware issues",
                 value=st.session_state.include_hardware,
+                key=case_widget_key("include_hardware", case_idx=case_idx),
             )
     cat_map = active_category_map()
     tab_labels = ["Case"]
