@@ -1,8 +1,24 @@
-# Kiroshi Desktop Prototype (Experimental Branch)
+# Kiroshi Desktop Client
 
-This branch hosts an experimental PySide6 rewrite of the Kiroshi desktop tools.
-The current goal is to validate the project structure and launch a minimal
-placeholder window that future phases will extend.
+A PySide6 front-end that mirrors the Streamlit tooling for documenting and
+tracking Kiroshi support cases. The desktop client uses a tabbed
+`QMainWindow` hosted in the `KiroshiApp` package and can be launched directly
+from the repository root.
+
+## Features
+
+- **Multi-tab case workspace:** Case, Email, Hardware Issues, Tables,
+  Save/Load, Dashboard, Debug, and Settings tabs wrap the shared business
+  logic from `KiroshiApp.core` so the desktop UI stays in sync with the
+  Streamlit experience.
+- **Hotkeys and clipboard parity:** Global shortcuts (Ctrl+Alt+1…8 and
+  Ctrl+Alt+C) mirror the Streamlit copy-to-clipboard behaviour and are scoped
+  to the active case.
+- **Productivity flows:** Autosave/autoload, tracked-case dashboards, database
+  snapshots, tutorial/tooltips, PDF export hooks, and second-line gating are
+  wired into the same JSON/TrackedCases formats used by the web app.
+- **AI copilot:** Integrated chat window and email drafting powered by the
+  bundled AI client, with responses tied to the active case context.
 
 ## Getting Started
 
@@ -17,16 +33,16 @@ placeholder window that future phases will extend.
 
    ```bash
    python -m venv .venv
-   source .venv/bin/activate  # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+   source .venv/bin/activate  # Windows PowerShell: .\\.venv\\Scripts\\Activate.ps1
    ```
 
-3. Install the desktop prototype dependencies from the repository root:
+3. Install the desktop client dependencies from the repository root:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Launch the prototype **from the repository root** so Python can resolve the
+4. Launch the application **from the repository root** so Python can resolve the
    `KiroshiApp` package:
 
    ```bash
@@ -34,8 +50,5 @@ placeholder window that future phases will extend.
    ```
 
    Running the module from inside the `KiroshiApp/` directory will raise
-   `ModuleNotFoundError: No module named 'KiroshiApp'` because the package is
-   no longer on `PYTHONPATH`.
-
-The application will open an empty main window while additional functionality
-is implemented in later phases.
+   `ModuleNotFoundError: No module named 'KiroshiApp'` because the package is on
+   `PYTHONPATH` only when executed from the repository root.
