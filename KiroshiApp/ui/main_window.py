@@ -322,12 +322,22 @@ class KiroshiMainWindow(QMainWindow):
     def _init_autosave_timer(self) -> None:
         self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
         self._autosave_timer.timeout.connect(self._handle_autosave_timeout)
-        self._autosave_timer.start()
+        self._autosave_timer.setSingleShot(False)
 
     def _handle_autosave_timeout(self) -> None:
         if not self.isVisible():  # Avoid writing if the window is closed.
             return
         self._trigger_autosave()
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        if not self._autosave_timer.isActive():
+            self._autosave_timer.start()
+        super().showEvent(event)
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        if self._autosave_timer.isActive():
+            self._autosave_timer.stop()
+        super().hideEvent(event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         if self._autosave_timer.isActive():
