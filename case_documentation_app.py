@@ -7297,12 +7297,12 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
 
         uploads: list[InMemoryUploadedFile] = []
         log_uploads: list[InMemoryUploadedFile] = []
-        screenshots: list[InMemoryUploadedFile] = []
+        screenshots: list[ScreenshotAsset] = []
         if case_obj.case_id:
             try:
-                uploads, log_uploads, screenshots = load_case_attachments(
-                    case_obj.case_id,
-                    attachments_index,
+                loader = _case_attachments_loader()
+                uploads, log_uploads, screenshots = loader(
+                    case_obj.case_id, attachments_index
                 )
             except Exception as exc:  # pragma: no cover - runtime environment specific
                 logging.warning(
@@ -7801,6 +7801,26 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
 
     _set_active_session_attachments_index(attachments_index)
     return attachments_index
+
+
+def _case_attachments_loader() -> Callable[
+    [str, Mapping[str, Iterable[Mapping[str, object]]]],
+    tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]],
+]:
+    """Return the available attachment loader, or a no-op stub when unavailable."""
+
+    loader = globals().get("load_case_attachments")
+    if callable(loader):
+        return loader  # type: ignore[return-value]
+
+    logging.debug("Attachments loader missing; falling back to empty attachments")
+
+    def _noop_loader(
+        _case_id: str, _attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
+    ) -> tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]]:
+        return [], [], []
+
+    return _noop_loader
 
 
 def load_case_attachments(
