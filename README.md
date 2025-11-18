@@ -11,6 +11,16 @@ generating PDF summaries, and creating email prompts or full emails via GPT-OSS 
 
 Coverage is actively tracked and the project receives daily updates.
 
+## Desktop (PySide6) shell
+
+A Qt-based desktop shell lives in the `KiroshiApp/` package to mirror the Streamlit experience with native widgets and keyboard shortcuts.
+
+```bash
+python -m KiroshiApp.main
+```
+
+The desktop UI exposes the same core tabs (Case, Email, Hardware Issues, Tables, Save/Load, Dashboard, Debug, Settings), per-section completion toggles, autosave/autoload via `autosave.json`, PDF export hooks, and global hotkeys for tab navigation (`Ctrl+Alt+1…8`) plus quick copy of the active section (`Ctrl+Alt+C`).
+
 ## Demo
 
 ![Kiroshi UI Demo](docs/demo.png)
