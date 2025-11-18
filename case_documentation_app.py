@@ -8050,6 +8050,36 @@ def ensure_tracking_session_defaults(
         st.session_state[expected_key] = expected_value
 
 
+def _mapping_freshness_score(item: Mapping[str, object], position: int) -> float:
+    """Score mapping recency based on last_modified and original position."""
+
+    ts = None
+    try:
+        raw = item.get("last_modified")
+        if isinstance(raw, str):
+            ts = datetime.fromisoformat(raw).timestamp()
+    except Exception:
+        ts = None
+    # Prefer valid timestamps; otherwise, prefer later positions in the list.
+    if ts is None:
+        return float(position)
+    return ts
+
+
+def _select_latest_mapping(items: list[Mapping[str, object]]) -> Mapping[str, object]:
+    """Return the most recent mapping based on timestamp/position."""
+
+    if len(items) == 1:
+        return items[0]
+    best_item = items[0]
+    best_score = _mapping_freshness_score(best_item, 0)
+    for idx, item in enumerate(items[1:], start=1):
+        score = _mapping_freshness_score(item, idx)
+        if score >= best_score:
+            best_item, best_score = item, score
+    return best_item
+
+
 def _coerce_case_mapping(data: object) -> dict | None:
     """Return a dictionary representation from historical payloads."""
 
@@ -8057,11 +8087,8 @@ def _coerce_case_mapping(data: object) -> dict | None:
         return data
     if isinstance(data, list):
         dict_items = [item for item in data if isinstance(item, dict)]
-        if len(dict_items) == 1:
-            return dict_items[0]
         if dict_items:
-            logging.warning("Multiple dict entries found in list payload; using first item")
-            return dict_items[0]
+            return _select_latest_mapping(dict_items)
     return None
 
 
@@ -8243,13 +8270,18 @@ def update_tracked_case_file(
         if isinstance(data, Mapping):
             data["last_modified"] = timestamp
         if isinstance(payload, list):
-            replaced = False
-            for idx, item in enumerate(payload):
-                if isinstance(item, Mapping):
-                    payload[idx] = data
-                    replaced = True
-                    break
-            if not replaced:
+            mapping_positions = [
+                (idx, item)
+                for idx, item in enumerate(payload)
+                if isinstance(item, Mapping)
+            ]
+            if mapping_positions:
+                latest_idx, _ = max(
+                    mapping_positions,
+                    key=lambda pair: _mapping_freshness_score(pair[1], pair[0]),
+                )
+                payload[latest_idx] = data
+            else:
                 payload.append(data)
             to_write = payload
         else:
