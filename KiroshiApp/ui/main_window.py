@@ -61,6 +61,7 @@ class GlobalHotkeyManager:
         self._keyboard_module: Any | None = None
         self._qhotkey_class: Any | None = None
         self._key_sequence_class: Any | None = None
+        self._unavailable_reason: str | None = None
         self._initialise_backend()
 
     def _initialise_backend(self) -> None:
@@ -70,6 +71,7 @@ class GlobalHotkeyManager:
             self._qhotkey_class = QHotkey
             self._key_sequence_class = QKeySequence
             self._backend = "qhotkey"
+            self._unavailable_reason = None
             return
         except ImportError:
             logging.debug("QHotkey not available; falling back to keyboard module if present.")
@@ -79,15 +81,23 @@ class GlobalHotkeyManager:
 
             self._keyboard_module = keyboard
             self._backend = "keyboard"
+            self._unavailable_reason = None
         except ImportError:
             logging.warning(
                 "Global hotkeys disabled: neither QHotkey nor keyboard modules are installed."
             )
             self._backend = None
+            self._unavailable_reason = (
+                "Atajos globales deshabilitados: instala qhotkey o keyboard para activarlos."
+            )
 
     @property
     def is_available(self) -> bool:
         return self._backend is not None
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        return self._unavailable_reason
 
     def register(self, sequence: str, callback: Callable[[], None]) -> None:
         if self._backend == "qhotkey":
@@ -155,6 +165,7 @@ class KiroshiMainWindow(QMainWindow):
         self._settings_tab: SettingsTab | None = None
         self._debug_tab: DebugTab | None = None
         self._autosave_timer = QTimer(self)
+        self._hotkey_manager = GlobalHotkeyManager(self)
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self._apply_branding()
         self._apply_theme_preference()
@@ -182,7 +193,12 @@ class KiroshiMainWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
-        self._case_tab = CaseTab(case=self.case, parent=self)
+        self._case_tab = CaseTab(
+            case=self.case,
+            parent=self,
+            hotkeys_available=self._hotkey_manager.is_available,
+            hotkey_unavailable_reason=self._hotkey_manager.unavailable_reason or "",
+        )
         self._case_tab.caseChanged.connect(self._handle_case_changed)
         self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
         tabs.addTab(self._case_tab, "Caso")

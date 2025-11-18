@@ -83,10 +83,19 @@ class CaseTab(QWidget):
     caseChanged = Signal(CaseData)
     hotkeySelectionChanged = Signal(bool)
 
-    def __init__(self, case: CaseData | None = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        case: CaseData | None = None,
+        parent: QWidget | None = None,
+        *,
+        hotkeys_available: bool = True,
+        hotkey_unavailable_reason: str = "",
+    ) -> None:
         super().__init__(parent)
         self._case = case or CaseData()
         self._syncing = False
+        self._hotkeys_available = hotkeys_available
+        self._hotkey_unavailable_reason = hotkey_unavailable_reason.strip()
 
         self._client_fields: dict[str, QWidget] = {}
         self._tracking_fields: dict[str, QWidget] = {}
@@ -107,6 +116,17 @@ class CaseTab(QWidget):
         header.addStretch(1)
         self._hotkey_checkbox = QCheckBox("Use this case for global clipboard hotkeys", self)
         self._hotkey_checkbox.toggled.connect(self._on_hotkey_toggled)
+        if not self._hotkeys_available:
+            label_suffix = " (no disponible)"
+            self._hotkey_checkbox.setText(
+                f"Use this case for global clipboard hotkeys{label_suffix}"
+            )
+            tooltip = (
+                self._hotkey_unavailable_reason
+                or "Los atajos globales requieren qhotkey o keyboard instalados."
+            )
+            self._hotkey_checkbox.setToolTip(tooltip)
+            self._hotkey_checkbox.setEnabled(False)
         header.addWidget(self._hotkey_checkbox)
         layout.addLayout(header)
 
