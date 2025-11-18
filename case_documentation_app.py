@@ -18217,7 +18217,7 @@ End with: We look forward to your reply."""
 
     _reset_capture_footer_registry()
 
-visible_case_indices = list(range(1, len(st.session_state.case_sessions)))
+visible_case_indices = list(range(len(st.session_state.case_sessions)))
 case_labels = [
     st.session_state.case_sessions[idx].case.case_id or f"Case {idx+1}"
     for idx in visible_case_indices
