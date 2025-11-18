@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
@@ -153,6 +154,7 @@ class KiroshiMainWindow(QMainWindow):
         self._tracking_tab: TrackingTab | None = None
         self._settings_tab: SettingsTab | None = None
         self._debug_tab: DebugTab | None = None
+        self._autosave_timer = QTimer(self)
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self._apply_branding()
         self._apply_theme_preference()
@@ -160,6 +162,7 @@ class KiroshiMainWindow(QMainWindow):
         tabs = self._build_tabs()
         self.setCentralWidget(tabs)
         self._init_menus()
+        self._init_autosave_timer()
         self._refresh_case_dependents(self.case)
 
     def _apply_branding(self) -> None:
@@ -315,6 +318,31 @@ class KiroshiMainWindow(QMainWindow):
     def _handle_preferences_updated(self, config: dict[str, Any]) -> None:
         self._config = dict(config)
         self._apply_theme_preference()
+
+    def _init_autosave_timer(self) -> None:
+        self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
+        self._autosave_timer.timeout.connect(self._handle_autosave_timeout)
+        self._autosave_timer.setSingleShot(False)
+
+    def _handle_autosave_timeout(self) -> None:
+        if not self.isVisible():  # Avoid writing if the window is closed.
+            return
+        self._trigger_autosave()
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        if not self._autosave_timer.isActive():
+            self._autosave_timer.start()
+        super().showEvent(event)
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        if self._autosave_timer.isActive():
+            self._autosave_timer.stop()
+        super().hideEvent(event)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._autosave_timer.isActive():
+            self._autosave_timer.stop()
+        super().closeEvent(event)
 
 
 # Backwards compatible alias used by older tests.
