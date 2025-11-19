@@ -8,10 +8,11 @@ from typing import Any, Callable, Iterable
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
-from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
+from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QTabWidget
 
 from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData
+from KiroshiApp.core.pdf_export import export_case_summary, validate_case_for_export
 from KiroshiApp.core.storage import get_database_root, save_autosave, save_case_to_db
 
 from .case_tab import CaseTab
@@ -193,6 +194,7 @@ class KiroshiMainWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget(self)
+        second_line_enabled = bool(self._config.get("second_line_mode", False))
         self._case_tab = CaseTab(
             case=self.case,
             parent=self,
@@ -201,8 +203,14 @@ class KiroshiMainWindow(QMainWindow):
         )
         self._case_tab.caseChanged.connect(self._handle_case_changed)
         self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
+        self._case_tab.exportRequested.connect(self._export_case_to_pdf)
         tabs.addTab(self._case_tab, "Caso")
-        self._email_tab = EmailTab(case=self.case, ai_client=self._ai_client, parent=self)
+        self._email_tab = EmailTab(
+            case=self.case,
+            ai_client=self._ai_client,
+            parent=self,
+            second_line_enabled=second_line_enabled,
+        )
         tabs.addTab(self._email_tab, "Email")
         self._tables_tab = TablesTab(case=self.case, parent=self)
         tabs.addTab(self._tables_tab, "Tablas")
@@ -212,7 +220,9 @@ class KiroshiMainWindow(QMainWindow):
             base_path=self._base_path,
         )
         tabs.addTab(self._save_load_tab, "Guardar/Cargar")
-        self._tracking_tab = TrackingTab(base_path=self._base_path)
+        self._tracking_tab = TrackingTab(
+            base_path=self._base_path, second_line_enabled=second_line_enabled
+        )
         tabs.addTab(self._tracking_tab, "Control Tower")
         self._settings_tab = SettingsTab(
             config=self._config,
@@ -235,6 +245,11 @@ class KiroshiMainWindow(QMainWindow):
         self._save_case_action.setShortcut(QKeySequence.StandardKey.Save)
         self._save_case_action.triggered.connect(self._save_case_to_database)
         archivo_menu.addAction(self._save_case_action)
+
+        self._export_pdf_action = QAction("Exportar a PDF", self)
+        self._export_pdf_action.setShortcut(QKeySequence("Ctrl+E"))
+        self._export_pdf_action.triggered.connect(lambda: self._export_case_to_pdf())
+        archivo_menu.addAction(self._export_pdf_action)
 
         self._save_autosave_action = QAction("Guardar borrador (autosave)", self)
         self._save_autosave_action.triggered.connect(self._trigger_autosave)
@@ -303,6 +318,44 @@ class KiroshiMainWindow(QMainWindow):
         self._chat_window = ChatWindow(self._ai_client, self._case_tab.case, self)
         self._chat_window.show()
 
+    def _export_case_to_pdf(self, case: CaseData | None = None) -> None:
+        case_to_export = case or self._case_tab.case()
+        missing = validate_case_for_export(case_to_export)
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Datos incompletos",
+                "\n".join(
+                    [
+                        "Completa los siguientes campos antes de exportar:",
+                        *[f"• {field}" for field in missing],
+                    ]
+                ),
+            )
+            return
+
+        start_directory = str(get_database_root(self._base_path))
+        suggested_name = case_to_export.case_id or "caso"
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Guardar resumen en PDF",
+            str(Path(start_directory) / f"{suggested_name}.pdf"),
+            "Archivos PDF (*.pdf)",
+        )
+        if not filename:
+            return
+
+        try:
+            destination = export_case_summary(case_to_export, output_path=Path(filename))
+        except Exception as exc:  # pragma: no cover - visual feedback
+            logging.exception("Error al exportar PDF")
+            QMessageBox.critical(self, "Error", f"No se pudo exportar el PDF: {exc}")
+            self.statusBar().showMessage("Error al exportar el PDF", 5000)
+            return
+
+        self.statusBar().showMessage(f"PDF exportado en {destination}", 5000)
+        QMessageBox.information(self, "Exportación completada", f"Archivo guardado en:\n{destination}")
+
     def _quit_application(self) -> None:
         app = QApplication.instance()
         if app is not None:
@@ -334,6 +387,11 @@ class KiroshiMainWindow(QMainWindow):
     def _handle_preferences_updated(self, config: dict[str, Any]) -> None:
         self._config = dict(config)
         self._apply_theme_preference()
+        second_line_enabled = bool(self._config.get("second_line_mode", False))
+        if self._email_tab is not None:
+            self._email_tab.update_settings(second_line_enabled=second_line_enabled)
+        if self._tracking_tab is not None:
+            self._tracking_tab.set_second_line_enabled(second_line_enabled)
 
     def _init_autosave_timer(self) -> None:
         self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)

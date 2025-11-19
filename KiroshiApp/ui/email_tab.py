@@ -8,7 +8,6 @@ from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -86,6 +85,7 @@ def _default_email_prompt(case: CaseData, tone: str, audience: str) -> str:
     additional = case.additional_info or "Sin notas adicionales"
     return (
         "Compose a professional email update for the following support case.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Company: {case.company_name or 'N/A'}\n"
         f"Issue: {description}\n"
@@ -132,6 +132,7 @@ def _customer_reply_prompt(case: CaseData, tone: str, audience: str) -> str:
         " issue, and lists the next steps you will take."
         f" Start the email with the standard greeting: '{greeting}'."
         f" Use a {tone} tone targeting a {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case reference: {case.case_id or 'N/A'}\n"
         f"Company: {case.company_name or 'N/A'}\n"
         f"Problem summary: {case.brief_description or case.description or 'No summary provided'}\n"
@@ -150,6 +151,7 @@ def _broken_tip_prompt(case: CaseData, tone: str, audience: str) -> str:
         " troubleshooting already performed."
         f" Start with the standard greeting: '{greeting}'."
         f" Keep the tone {tone} for a {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Clinic: {case.company_name or 'N/A'}\n"
         f"Reported issue: {case.brief_description or case.description or 'No description'}\n"
@@ -175,6 +177,7 @@ def _escalation_prompt(case: CaseData, tone: str, audience: str) -> str:
         f"Technical summary:\n{_format_remote_sessions(case)}\n"
         f"Key findings / root cause: {case.root_cause or 'Pendiente'}\n"
         f"Requested action: {case.third_line_troubleshoot_summary or case.additional_info or 'Asistencia prioritaria'}\n"
+        f"Service Tag: {case.service_tag or 'Sin service tag'}, PC Model: {case.pc_model or 'N/A'}, BIOS: {case.bios_version or 'N/A'}\n"
         "Structure the email with an opening context, detailed summary, and explicit next steps."
     )
 
@@ -185,6 +188,7 @@ def _tracking_prompt(case: CaseData, tone: str, audience: str) -> str:
         "Write an email that shares shipping or tracking information with the recipient."
         f" Include the greeting: '{greeting}'."
         f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Company: {case.company_name or 'N/A'}\n"
         f"Tracking number: {case.tracking.ticket_number or case.tracking.case_link or 'No tracking info'}\n"
@@ -200,6 +204,7 @@ def _callback_prompt(case: CaseData, tone: str, audience: str) -> str:
         "Draft an email confirming a scheduled callback or remote session."
         f" Begin with the greeting: '{greeting}'."
         f" Use a {tone} tone suitable for a {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Customer: {case.company_name or 'N/A'}\n"
         f"Contact: {case.contact_name or case.caller_name or 'Sin contacto'}\n"
@@ -327,6 +332,14 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         use_generate_email=True,
     ),
     TemplateDefinition(
+        value="Questionnaire Request",
+        label="Solicitud de cuestionarios",
+        description="Pedir cuestionarios/encuestas necesarios para continuar soporte.",
+        group="Customer follow-up",
+        icon="📝",
+        prompt_builder=_questionnaire_prompt,
+    ),
+    TemplateDefinition(
         value="Customer Reply",
         label="Customer Reply",
         description="Responder con confianza a un correo entrante del cliente.",
@@ -399,6 +412,15 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         group="Logística",
         icon="📦",
         second_line_only=True,
+        prompt_builder=_refurbished_prompt,
+    ),
+    TemplateDefinition(
+        value="Tracking Update",
+        label="Seguimiento (Tracking)",
+        description="Compartir número de guía, ETA y próximos pasos.",
+        group="Shipping & replacements",
+        icon="🚚",
+        second_line_only=True,
         prompt_builder=_tracking_prompt,
     ),
     TemplateDefinition(
@@ -412,7 +434,7 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
     ),
     TemplateDefinition(
         value="Dell Escalation Email",
-        label="Dell Escalation Email",
+        label="Escalación Dell",
         description="Escalar casos urgentes con contexto conciso y acciones esperadas.",
         group="Escalaciones",
         icon="🚀",
@@ -447,11 +469,13 @@ class EmailTab(QWidget):
         parent: QWidget | None = None,
         *,
         thread_pool: QThreadPool | None = None,
+        second_line_enabled: bool = False,
     ) -> None:
         super().__init__(parent)
         self._case = case
         self._ai_client = ai_client
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
+        self._second_line_enabled = bool(second_line_enabled)
         self._template_lookup = {t.value: t for t in TEMPLATE_DEFINITIONS}
         self._auto_prompt_text = ""
         self._setting_prompt = False
@@ -488,10 +512,14 @@ class EmailTab(QWidget):
         header.addWidget(title)
         header.addStretch()
 
-        self._second_line_checkbox = QCheckBox("Modo 2nd Line")
-        self._second_line_checkbox.toggled.connect(self._on_second_line_toggled)
-        header.addWidget(self._second_line_checkbox)
+        self._second_line_status = QLabel()
+        self._second_line_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(self._second_line_status)
         layout.addLayout(header)
+
+        self._second_line_hint = QLabel()
+        self._second_line_hint.setWordWrap(True)
+        layout.addWidget(self._second_line_hint)
 
         layout.addWidget(QLabel("Selecciona una plantilla"))
         self._template_list = QListWidget()
@@ -567,10 +595,20 @@ class EmailTab(QWidget):
         self._apply_case_state()
         self._refresh_template_list()
 
-    def _apply_case_state(self) -> None:
-        if not self._second_line_checkbox:
+    def update_settings(self, *, second_line_enabled: bool) -> None:
+        """Apply updated workspace settings coming from Configuración."""
+
+        enabled = bool(second_line_enabled)
+        if self._second_line_enabled == enabled:
             return
-        self._second_line_checkbox.setChecked(self._case.email_second_line_mode)
+        self._second_line_enabled = enabled
+        self._case.email_second_line_mode = enabled
+        self._update_second_line_message()
+        self._refresh_template_list()
+
+    def _apply_case_state(self) -> None:
+        self._case.email_second_line_mode = self._second_line_enabled
+        self._update_second_line_message()
 
         if self._tone_combo:
             tone = self._case.email_tone or TONE_OPTIONS[0][1]
@@ -589,15 +627,31 @@ class EmailTab(QWidget):
             if self._insert_button:
                 self._insert_button.setEnabled(True)
 
+    def _update_second_line_message(self) -> None:
+        if self._second_line_status:
+            status_text = "Modo 2nd Line activo" if self._second_line_enabled else "Modo 2nd Line desactivado"
+            self._second_line_status.setText(status_text)
+            self._second_line_status.setToolTip(
+                "Activa o desactiva el modo 2nd Line desde la pestaña de Configuración."
+            )
+        if self._second_line_hint:
+            if self._second_line_enabled:
+                self._second_line_hint.hide()
+            else:
+                self._second_line_hint.setText(
+                    "Activa el modo 2nd Line en Configuración para habilitar las plantillas restringidas."
+                )
+                self._second_line_hint.setToolTip(
+                    "Algunas plantillas solo aparecen cuando el modo 2nd Line está activo en Configuración."
+                )
+                self._second_line_hint.show()
+
     def _refresh_template_list(self) -> None:
         if not self._template_list:
             return
 
-        second_line = self._second_line_checkbox.isChecked() if self._second_line_checkbox else False
-        available = [
-            t
-            for t in TEMPLATE_DEFINITIONS
-            if second_line or not t.second_line_only
+        enabled_templates = [
+            t for t in TEMPLATE_DEFINITIONS if self._second_line_enabled or not t.second_line_only
         ]
         hidden = [t for t in TEMPLATE_DEFINITIONS if t.second_line_only and not second_line]
 
@@ -654,10 +708,6 @@ class EmailTab(QWidget):
                 return
 
     # ───────────────────── Event handlers ───────────────────────
-    def _on_second_line_toggled(self, checked: bool) -> None:
-        self._case.email_second_line_mode = bool(checked)
-        self._refresh_template_list()
-
     def _on_template_changed(self, current: QListWidgetItem | None, _: QListWidgetItem | None) -> None:
         if not current or not self._prompt_editor:
             return
