@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Sequence
+from typing import Callable, Dict, List, Sequence
 
 from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QFont
@@ -105,6 +105,7 @@ def _recap_prompt(case: CaseData, tone: str, audience: str) -> str:
         if survey
         else ""
     )
+    greeting = _standard_salutation(case)
     return (
         f"{intro}\n"
         f"{_salutation_instruction(case)}\n"
@@ -122,10 +123,12 @@ def _recap_prompt(case: CaseData, tone: str, audience: str) -> str:
 
 
 def _customer_reply_prompt(case: CaseData, tone: str, audience: str) -> str:
+    greeting = _standard_salutation(case)
     return (
         "You received a follow-up email from the customer for an active support case."
         " Draft a reply that acknowledges their concerns, confirms understanding of the"
         " issue, and lists the next steps you will take."
+        f" Start the email with the standard greeting: '{greeting}'."
         f" Use a {tone} tone targeting a {audience}.\n"
         f"{_salutation_instruction(case)}\n"
         f"Case reference: {case.case_id or 'N/A'}\n"
@@ -139,15 +142,18 @@ def _customer_reply_prompt(case: CaseData, tone: str, audience: str) -> str:
 
 
 def _broken_tip_prompt(case: CaseData, tone: str, audience: str) -> str:
+    greeting = _standard_salutation(case)
     return (
         "Craft an instructional email explaining how to handle a broken scanner tip."
         " Provide safety guidance, shipping or replacement steps, and highlight any"
         " troubleshooting already performed."
+        f" Start with the standard greeting: '{greeting}'."
         f" Keep the tone {tone} for a {audience}.\n"
         f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Clinic: {case.company_name or 'N/A'}\n"
         f"Reported issue: {case.brief_description or case.description or 'No description'}\n"
+        f"Scanner serial: {case.scanner_sn or 'Sin serie'}\n"
         f"Steps already tried:\n{_format_remote_sessions(case)}\n"
         f"Current resolution plan: {case.solution or 'Replacement pending'}\n"
         "Clearly list the actions the clinic must perform next and any packaging or"
@@ -156,6 +162,7 @@ def _broken_tip_prompt(case: CaseData, tone: str, audience: str) -> str:
 
 
 def _escalation_prompt(case: CaseData, tone: str, audience: str) -> str:
+    greeting = _standard_salutation(case)
     return (
         "Prepare an escalation email for a hardware vendor. Summarise the customer impact,"
         " troubleshooting completed, and any logs gathered."
@@ -163,6 +170,7 @@ def _escalation_prompt(case: CaseData, tone: str, audience: str) -> str:
         f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Customer: {case.company_name or 'N/A'}\n"
+        f"Service tag: {case.service_tag or case.tracking.service_tag or 'Sin service tag'}\n"
         f"Escalation contact: {case.esc_name or 'Sin asignar'} ({case.esc_email or 'sin email'})\n"
         f"Technical summary:\n{_format_remote_sessions(case)}\n"
         f"Key findings / root cause: {case.root_cause or 'Pendiente'}\n"
@@ -173,8 +181,10 @@ def _escalation_prompt(case: CaseData, tone: str, audience: str) -> str:
 
 
 def _tracking_prompt(case: CaseData, tone: str, audience: str) -> str:
+    greeting = _standard_salutation(case)
     return (
         "Write an email that shares shipping or tracking information with the recipient."
+        f" Include the greeting: '{greeting}'."
         f" Tone: {tone}. Audience: {audience}.\n"
         f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
@@ -187,8 +197,10 @@ def _tracking_prompt(case: CaseData, tone: str, audience: str) -> str:
 
 
 def _callback_prompt(case: CaseData, tone: str, audience: str) -> str:
+    greeting = _standard_salutation(case)
     return (
         "Draft an email confirming a scheduled callback or remote session."
+        f" Begin with the greeting: '{greeting}'."
         f" Use a {tone} tone suitable for a {audience}.\n"
         f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
@@ -296,7 +308,7 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         value="Recap (Customer)",
         label="Recap (Customer)",
         description="Recap cálido con invitación a encuesta y siguientes pasos claros.",
-        group="Customer follow-up",
+        group="Seguimiento al cliente",
         icon="💌",
         prompt_builder=_recap_prompt,
         use_generate_email=True,
@@ -313,7 +325,7 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         value="Customer Reply",
         label="Customer Reply",
         description="Responder con confianza a un correo entrante del cliente.",
-        group="Customer follow-up",
+        group="Seguimiento al cliente",
         icon="✉️",
         prompt_builder=_customer_reply_prompt,
     ),
@@ -329,7 +341,7 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         value="Broken Tip",
         label="Broken Tip",
         description="Guía para problemas con puntas dañadas y próximos pasos.",
-        group="Hardware fixes",
+        group="Diagnóstico",
         icon="🧰",
         prompt_builder=_broken_tip_prompt,
     ),
@@ -394,8 +406,6 @@ AUDIENCE_OPTIONS: Sequence[tuple[str, str]] = (
     ("Reseller", "reseller"),
     ("Interno", "internal"),
 )
-
-from KiroshiApp.core.model import CaseData
 
 
 class EmailTab(QWidget):
@@ -469,6 +479,13 @@ class EmailTab(QWidget):
         self._template_description = QLabel()
         self._template_description.setWordWrap(True)
         layout.addWidget(self._template_description)
+
+        self._availability_label = QLabel()
+        self._availability_label.setWordWrap(True)
+        availability_font = QFont()
+        availability_font.setPointSize(9)
+        self._availability_label.setFont(availability_font)
+        layout.addWidget(self._availability_label)
 
         tone_row = QHBoxLayout()
         tone_row.addWidget(QLabel("Tono"))
@@ -585,6 +602,11 @@ class EmailTab(QWidget):
         enabled_templates = [
             t for t in TEMPLATE_DEFINITIONS if self._second_line_enabled or not t.second_line_only
         ]
+        hidden = [t for t in TEMPLATE_DEFINITIONS if t.second_line_only and not second_line]
+
+        grouped: Dict[str, list[TemplateDefinition]] = {}
+        for template in available:
+            grouped.setdefault(template.group, []).append(template)
 
         self._template_list.blockSignals(True)
         self._template_list.clear()
@@ -602,6 +624,8 @@ class EmailTab(QWidget):
                     first_enabled_row = self._template_list.count()
             self._template_list.addItem(item)
         self._template_list.blockSignals(False)
+
+        self._update_availability_message(second_line, hidden)
 
         desired = self._case.email_selected_template
         enabled_values = {t.value for t in enabled_templates}
@@ -741,6 +765,26 @@ class EmailTab(QWidget):
             return None
         template = item.data(Qt.UserRole + 1)
         return template if isinstance(template, TemplateDefinition) else None
+
+    def _update_availability_message(
+        self, second_line_enabled: bool, hidden: Sequence[TemplateDefinition]
+    ) -> None:
+        if not self._availability_label:
+            return
+        if second_line_enabled:
+            self._availability_label.setText(
+                "Modo 2nd Line activo: plantillas internas disponibles."
+            )
+            return
+        if hidden:
+            hidden_names = ", ".join(t.label for t in hidden[:3])
+            suffix = "..." if len(hidden) > 3 else ""
+            self._availability_label.setText(
+                f"Activa Modo 2nd Line para acceder a {len(hidden)} plantillas internas "
+                f"({hidden_names}{suffix})."
+            )
+            return
+        self._availability_label.clear()
 
     def _build_prompt(self, template: TemplateDefinition) -> str:
         tone = self._tone_combo.currentData() if self._tone_combo else "neutral"
