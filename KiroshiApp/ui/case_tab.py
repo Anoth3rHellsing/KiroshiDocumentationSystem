@@ -97,7 +97,11 @@ class CaseTab(QWidget):
         self._hotkeys_available = hotkeys_available
         self._hotkey_unavailable_reason = hotkey_unavailable_reason.strip()
 
-        self._client_fields: dict[str, QWidget] = {}
+        self._header_fields: dict[str, QWidget] = {}
+        self._call_fields: dict[str, QWidget] = {}
+        self._internal_fields: dict[str, QWidget] = {}
+        self._conclusion_fields: dict[str, QWidget] = {}
+        self._survey_fields: dict[str, QWidget] = {}
         self._tracking_fields: dict[str, QWidget] = {}
         self._hardware_fields: dict[str, QWidget] = {}
         self._remote_session_widgets: List[RemoteSessionWidget] = []
@@ -140,38 +144,35 @@ class CaseTab(QWidget):
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(16)
 
-        container_layout.addWidget(self._build_client_section())
-        container_layout.addWidget(self._build_tracking_section())
+        container_layout.addWidget(self._build_header_section())
+        container_layout.addWidget(self._build_call_section())
+        container_layout.addWidget(self._build_internal_notes_section())
+        container_layout.addWidget(self._build_conclusion_section())
+        container_layout.addWidget(self._build_survey_section())
         container_layout.addWidget(self._build_remote_sessions_section())
+        container_layout.addWidget(self._build_tracking_section())
         container_layout.addWidget(self._build_hardware_section())
         container_layout.addStretch(1)
 
-    def _build_client_section(self) -> QWidget:
-        group = QGroupBox("Client information", self)
+    def _build_header_section(self) -> QWidget:
+        group = QGroupBox("Cabecera", self)
         form = QFormLayout(group)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        client_fields: list[tuple[str, str, bool]] = [
+        header_fields: list[tuple[str, str, bool]] = [
             ("company_name", "Company name", False),
             ("case_id", "Case ID", False),
             ("subscription_id", "Subscription ID", False),
             ("application_version", "Application version", False),
             ("brief_description", "Brief description", True),
             ("description", "Full description", True),
-            ("caller_name", "Caller name", False),
-            ("phone_number", "Phone number", False),
-            ("phone_description", "Phone description", True),
             ("dongle_number", "Dongle number", False),
+            ("email", "Email", False),
             ("teamviewer_id", "TeamViewer ID", False),
             ("teamviewer_password", "TeamViewer password", False),
-            ("email", "Email", False),
-            ("internal_helpjuice", "Internal Helpjuice", False),
-            ("internal_logs", "Internal logs", True),
-            ("additional_info", "Additional info", True),
-            ("solution", "Solution", True),
         ]
 
-        for field_name, label, multiline in client_fields:
+        for field_name, label, multiline in header_fields:
             widget: QWidget
             if multiline:
                 editor = QPlainTextEdit(group)
@@ -181,7 +182,130 @@ class CaseTab(QWidget):
                 editor = QLineEdit(group)
                 editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
                 widget = editor
-            self._client_fields[field_name] = widget
+            self._header_fields[field_name] = widget
+            form.addRow(label + ":", widget)
+
+        return group
+
+    def _build_call_section(self) -> QWidget:
+        group = QGroupBox("Llamada", self)
+        form = QFormLayout(group)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        call_fields: list[tuple[str, str, bool]] = [
+            ("caller_name", "Caller name", False),
+            ("phone_number", "Phone number", False),
+            ("phone_description", "Phone description", True),
+            ("request_issue", "Reported issue", True),
+            ("contact_name", "Contact name", False),
+            ("office_ph", "Office phone", False),
+            ("direct_ph", "Direct phone", False),
+            ("best_time", "Best time", False),
+        ]
+
+        for field_name, label, multiline in call_fields:
+            widget: QWidget
+            if multiline:
+                editor = QPlainTextEdit(group)
+                editor.textChanged.connect(partial(self._on_multiline_changed, field_name, editor))
+                widget = editor
+            else:
+                editor = QLineEdit(group)
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+                widget = editor
+            self._call_fields[field_name] = widget
+            form.addRow(label + ":", widget)
+
+        return group
+
+    def _build_internal_notes_section(self) -> QWidget:
+        group = QGroupBox("Notas internas", self)
+        form = QFormLayout(group)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        internal_fields: list[tuple[str, str, bool]] = [
+            ("internal_helpjuice", "Internal Helpjuice", True),
+            ("internal_logs", "Internal logs", True),
+            ("additional_info", "Additional info", True),
+            ("third_line_hj_article", "3rd line HJ article", False),
+            ("third_line_troubleshoot_summary", "3rd line troubleshoot summary", True),
+            ("third_line_comments", "3rd line comments", True),
+            ("third_line_reseller_name", "Reseller name", False),
+            ("third_line_reseller_phone", "Reseller phone", False),
+            ("third_line_reseller_phone_alt", "Reseller phone (alt)", False),
+            ("third_line_reseller_email", "Reseller email", False),
+            ("third_line_clinic_rep_name", "Clinic rep name", False),
+            ("third_line_clinic_rep_phone", "Clinic rep phone", False),
+            ("third_line_clinic_rep_phone_alt", "Clinic rep phone (alt)", False),
+            ("third_line_tv_id", "3rd line TV ID", False),
+            ("third_line_tv_password", "3rd line TV password", False),
+            ("third_line_unite_pin", "3rd line Unite PIN", False),
+        ]
+
+        for field_name, label, multiline in internal_fields:
+            widget: QWidget
+            if multiline:
+                editor = QPlainTextEdit(group)
+                editor.textChanged.connect(partial(self._on_multiline_changed, field_name, editor))
+                widget = editor
+            else:
+                editor = QLineEdit(group)
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+                widget = editor
+            self._internal_fields[field_name] = widget
+            form.addRow(label + ":", widget)
+
+        return group
+
+    def _build_conclusion_section(self) -> QWidget:
+        group = QGroupBox("Conclusión", self)
+        form = QFormLayout(group)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        conclusion_fields: list[tuple[str, str, bool]] = [
+            ("solution", "Solution", True),
+            ("root_cause", "Root cause", True),
+            ("repro_steps", "Repro steps", True),
+        ]
+
+        for field_name, label, multiline in conclusion_fields:
+            widget: QWidget
+            editor = QPlainTextEdit(group) if multiline else QLineEdit(group)
+            if isinstance(editor, QPlainTextEdit):
+                editor.textChanged.connect(partial(self._on_multiline_changed, field_name, editor))
+            else:
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+            widget = editor
+            self._conclusion_fields[field_name] = widget
+            form.addRow(label + ":", widget)
+
+        return group
+
+    def _build_survey_section(self) -> QWidget:
+        group = QGroupBox("Encuesta", self)
+        form = QFormLayout(group)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        survey_fields: list[tuple[str, str, bool]] = [
+            ("survey_link", "Survey link", False),
+            ("patterson", "Patterson", False),
+            ("straumann", "Straumann", False),
+            ("esc_name", "ESC name", False),
+            ("esc_ph", "ESC phone", False),
+            ("esc_email", "ESC email", False),
+        ]
+
+        for field_name, label, multiline in survey_fields:
+            widget: QWidget
+            if multiline:
+                editor = QPlainTextEdit(group)
+                editor.textChanged.connect(partial(self._on_multiline_changed, field_name, editor))
+                widget = editor
+            else:
+                editor = QLineEdit(group)
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+                widget = editor
+            self._survey_fields[field_name] = widget
             form.addRow(label + ":", widget)
 
         return group
@@ -223,7 +347,7 @@ class CaseTab(QWidget):
         return group
 
     def _build_remote_sessions_section(self) -> QWidget:
-        group = QGroupBox("Remote sessions", self)
+        group = QGroupBox("Sesiones remotas", self)
         layout = QVBoxLayout(group)
         layout.setSpacing(8)
 
@@ -329,7 +453,13 @@ class CaseTab(QWidget):
     def _populate_from_case(self) -> None:
         self._syncing = True
 
-        for field_name, widget in self._client_fields.items():
+        for field_name, widget in (
+            list(self._header_fields.items())
+            + list(self._call_fields.items())
+            + list(self._internal_fields.items())
+            + list(self._conclusion_fields.items())
+            + list(self._survey_fields.items())
+        ):
             value = getattr(self._case, field_name, "") or ""
             if isinstance(widget, QLineEdit):
                 widget.setText(value)
