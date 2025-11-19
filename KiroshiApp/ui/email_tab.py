@@ -8,7 +8,6 @@ from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -64,6 +63,18 @@ def _format_remote_sessions(case: CaseData) -> str:
     return "\n".join(lines)
 
 
+def _salutation_instruction(case: CaseData) -> str:
+    """Return a consistent greeting directive based on case details."""
+
+    contact = case.contact_name or case.caller_name or "cliente"
+    company = case.company_name or "cliente"
+    reference = case.case_id or "sin referencia"
+    return (
+        f"Start the email with 'Hola {contact},' and mention case {reference} for {company} "
+        "in the opening line."
+    )
+
+
 def _default_email_prompt(case: CaseData, tone: str, audience: str) -> str:
     """Return the default prompt used by :meth:`AIClient.generate_email_body`."""
 
@@ -72,6 +83,7 @@ def _default_email_prompt(case: CaseData, tone: str, audience: str) -> str:
     additional = case.additional_info or "Sin notas adicionales"
     return (
         "Compose a professional email update for the following support case.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Company: {case.company_name or 'N/A'}\n"
         f"Issue: {description}\n"
@@ -95,6 +107,7 @@ def _recap_prompt(case: CaseData, tone: str, audience: str) -> str:
     )
     return (
         f"{intro}\n"
+        f"{_salutation_instruction(case)}\n"
         f"Write in a {tone} tone for a {audience}.\n"
         "Summarise the situation, highlight the solution, and clearly state next actions.\n"
         f"Case ID: {case.case_id or 'Sin ID'}\n"
@@ -114,6 +127,7 @@ def _customer_reply_prompt(case: CaseData, tone: str, audience: str) -> str:
         " Draft a reply that acknowledges their concerns, confirms understanding of the"
         " issue, and lists the next steps you will take."
         f" Use a {tone} tone targeting a {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case reference: {case.case_id or 'N/A'}\n"
         f"Company: {case.company_name or 'N/A'}\n"
         f"Problem summary: {case.brief_description or case.description or 'No summary provided'}\n"
@@ -130,6 +144,7 @@ def _broken_tip_prompt(case: CaseData, tone: str, audience: str) -> str:
         " Provide safety guidance, shipping or replacement steps, and highlight any"
         " troubleshooting already performed."
         f" Keep the tone {tone} for a {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Clinic: {case.company_name or 'N/A'}\n"
         f"Reported issue: {case.brief_description or case.description or 'No description'}\n"
@@ -145,12 +160,14 @@ def _escalation_prompt(case: CaseData, tone: str, audience: str) -> str:
         "Prepare an escalation email for a hardware vendor. Summarise the customer impact,"
         " troubleshooting completed, and any logs gathered."
         f" Tone should be {tone} and audience is {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Customer: {case.company_name or 'N/A'}\n"
         f"Escalation contact: {case.esc_name or 'Sin asignar'} ({case.esc_email or 'sin email'})\n"
         f"Technical summary:\n{_format_remote_sessions(case)}\n"
         f"Key findings / root cause: {case.root_cause or 'Pendiente'}\n"
         f"Requested action: {case.third_line_troubleshoot_summary or case.additional_info or 'Asistencia prioritaria'}\n"
+        f"Service Tag: {case.service_tag or 'Sin service tag'}, PC Model: {case.pc_model or 'N/A'}, BIOS: {case.bios_version or 'N/A'}\n"
         "Structure the email with an opening context, detailed summary, and explicit next steps."
     )
 
@@ -159,6 +176,7 @@ def _tracking_prompt(case: CaseData, tone: str, audience: str) -> str:
     return (
         "Write an email that shares shipping or tracking information with the recipient."
         f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Company: {case.company_name or 'N/A'}\n"
         f"Tracking number: {case.tracking.ticket_number or case.tracking.case_link or 'No tracking info'}\n"
@@ -172,6 +190,7 @@ def _callback_prompt(case: CaseData, tone: str, audience: str) -> str:
     return (
         "Draft an email confirming a scheduled callback or remote session."
         f" Use a {tone} tone suitable for a {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Customer: {case.company_name or 'N/A'}\n"
         f"Contact: {case.contact_name or case.caller_name or 'Sin contacto'}\n"
@@ -179,6 +198,96 @@ def _callback_prompt(case: CaseData, tone: str, audience: str) -> str:
         f"Phone numbers: {case.phone_number or case.direct_ph or 'Sin teléfono'}\n"
         f"Troubleshooting performed:\n{_format_remote_sessions(case)}\n"
         "Clarify what will happen during the callback and how the customer can reschedule."
+    )
+
+
+def _questionnaire_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Guide clinics to complete diagnostic questionnaires."""
+
+    return (
+        "Draft an email requesting that the clinic complete the diagnostic questionnaires"
+        " required to continue troubleshooting."
+        f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
+        f"Case reference: {case.case_id or 'N/A'} for {case.company_name or 'cliente'}\n"
+        f"Primary contact: {case.contact_name or case.caller_name or 'Sin contacto'} ({case.email or 'sin email'})\n"
+        f"Pending forms or links: {case.additional_info or case.survey_link or 'Indica cuestionarios clínicos y operativos'}\n"
+        f"Notes on issue: {case.brief_description or case.description or 'No summary provided'}\n"
+        "Ask for confirmation once the questionnaires are sent back and list any deadlines or"
+        " files that must accompany the response."
+    )
+
+
+def _refurbished_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Share shipping status for refurbished replacements."""
+
+    tracking_number = case.tracking.ticket_number or case.tracking.case_link or "Sin tracking"
+    expected_date = case.tracking.expected_arrival_date or "Sin fecha confirmada"
+    return (
+        "Compose an update about a refurbished or FedEx-shipped replacement device."
+        f" Keep the tone {tone} for a {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
+        f"Case: {case.case_id or 'N/A'} — {case.company_name or 'Cliente'}\n"
+        f"Tracking: {tracking_number}\n"
+        f"Expected delivery: {expected_date}\n"
+        f"Replacement type: {'Refurbished' if case.warranty else 'Standard'}\n"
+        f"Service Tag / Serial: {case.service_tag or case.scanner_sn or 'No disponible'}\n"
+        "Explain what the clinic should prepare, how to package the existing unit, and"
+        " how to reach support if delivery is delayed."
+    )
+
+
+def _replacement_setup_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Instructions for configuring a replacement unit."""
+
+    return (
+        "Generate an email with clear setup instructions for a replacement unit that has"
+        " arrived or is arriving soon."
+        f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
+        f"Case ID: {case.case_id or 'N/A'}\n"
+        f"Clinic: {case.company_name or 'Sin clínica'}\n"
+        f"Replacement serials: Scanner {case.scanner_sn or 'N/A'}, Base {case.base_sn or 'N/A'}, Service Tag {case.service_tag or 'N/A'}\n"
+        f"Installation contact: {case.clinic_contact_name or case.contact_name or 'Sin contacto'} ({case.clinic_contact_email or case.email or 'sin email'})\n"
+        f"Clinic address: {case.clinic_address_line_1 or 'sin dirección'}, {case.clinic_city or ''} {case.clinic_state or ''} {case.clinic_postal_code or ''}\n"
+        "Include steps to connect the device, confirm firmware/software versions, verify"
+        " calibration, and notify support once setup is complete."
+    )
+
+
+def _replacement_closure_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Close-the-loop note after a replacement is completed."""
+
+    return (
+        "Prepare a closure email confirming that the replacement was completed and summarising"
+        " the outcome."
+        f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
+        f"Case ID: {case.case_id or 'N/A'}\n"
+        f"Work summary:\n{_format_remote_sessions(case)}\n"
+        f"Resolution applied: {case.solution or 'Pendiente de confirmar'}\n"
+        f"Tracking status: {case.tracking.status or 'N/A'} (ticket {case.tracking.ticket_number or 'sin ticket'})\n"
+        f"Outstanding actions for the clinic: {case.additional_info or 'Ninguno'}\n"
+        "Close with gratitude, invitation to reach out if issues return, and mention any"
+        " survey link or follow-up call that will happen."
+    )
+
+
+def _custom_callback_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Personalised callback or custom request confirmation."""
+
+    return (
+        "Write a personalised email acknowledging a callback request or custom assistance"
+        " asked by the clinic."
+        f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
+        f"Case reference: {case.case_id or 'N/A'}\n"
+        f"Preferred time window: {case.best_time or 'Sin preferencia'}\n"
+        f"Contact numbers: {case.phone_number or case.direct_ph or case.office_ph or 'Sin teléfono'}\n"
+        f"Context from customer: {case.request_issue or case.additional_info or 'No se proporcionó contexto'}\n"
+        f"Latest troubleshooting notes:\n{_format_remote_sessions(case)}\n"
+        "Confirm what will happen during the call, what information should be at hand,"
+        " and how to update the time if needed."
     )
 
 
@@ -193,12 +302,28 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         use_generate_email=True,
     ),
     TemplateDefinition(
+        value="Questionnaire Request",
+        label="Solicitud de cuestionarios",
+        description="Pedir cuestionarios/encuestas necesarios para continuar soporte.",
+        group="Customer follow-up",
+        icon="📝",
+        prompt_builder=_questionnaire_prompt,
+    ),
+    TemplateDefinition(
         value="Customer Reply",
         label="Customer Reply",
         description="Responder con confianza a un correo entrante del cliente.",
         group="Customer follow-up",
         icon="✉️",
         prompt_builder=_customer_reply_prompt,
+    ),
+    TemplateDefinition(
+        value="Callback Email",
+        label="Callback/Personalizado",
+        description="Confirmar callback o solicitud personalizada con contexto claro.",
+        group="Customer follow-up",
+        icon="📞",
+        prompt_builder=_custom_callback_prompt,
     ),
     TemplateDefinition(
         value="Broken Tip",
@@ -209,28 +334,46 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         prompt_builder=_broken_tip_prompt,
     ),
     TemplateDefinition(
-        value="FedEx Tracking Email",
-        label="FedEx Tracking Email",
-        description="Compartir actualizaciones de envío y expectativas con el cliente.",
-        group="Internal sync",
+        value="Refurbished/Tracking",
+        label="FedEx/Refurbished",
+        description="Actualizar sobre envíos FedEx o unidades refurbished.",
+        group="Shipping & replacements",
         icon="📦",
+        second_line_only=True,
+        prompt_builder=_refurbished_prompt,
+    ),
+    TemplateDefinition(
+        value="Tracking Update",
+        label="Seguimiento (Tracking)",
+        description="Compartir número de guía, ETA y próximos pasos.",
+        group="Shipping & replacements",
+        icon="🚚",
         second_line_only=True,
         prompt_builder=_tracking_prompt,
     ),
     TemplateDefinition(
-        value="Callback Email",
-        label="Callback Email",
-        description="Confirmar un callback programado con instrucciones claras.",
-        group="Internal sync",
-        icon="📞",
+        value="Replacement Setup",
+        label="Configuración de repuesto",
+        description="Instrucciones para instalar/configurar un equipo de reemplazo.",
+        group="Shipping & replacements",
+        icon="🛠️",
         second_line_only=True,
-        prompt_builder=_callback_prompt,
+        prompt_builder=_replacement_setup_prompt,
+    ),
+    TemplateDefinition(
+        value="Replacement Closure",
+        label="Cierre de repuesto",
+        description="Cerrar el caso tras un reemplazo y confirmar resultado.",
+        group="Shipping & replacements",
+        icon="✅",
+        second_line_only=True,
+        prompt_builder=_replacement_closure_prompt,
     ),
     TemplateDefinition(
         value="Dell Escalation Email",
-        label="Dell Escalation Email",
+        label="Escalación Dell",
         description="Escalar casos urgentes con contexto conciso y acciones esperadas.",
-        group="Internal sync",
+        group="Escalations",
         icon="🚀",
         second_line_only=True,
         prompt_builder=_escalation_prompt,
@@ -265,11 +408,13 @@ class EmailTab(QWidget):
         parent: QWidget | None = None,
         *,
         thread_pool: QThreadPool | None = None,
+        second_line_enabled: bool = False,
     ) -> None:
         super().__init__(parent)
         self._case = case
         self._ai_client = ai_client
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
+        self._second_line_enabled = bool(second_line_enabled)
         self._template_lookup = {t.value: t for t in TEMPLATE_DEFINITIONS}
         self._auto_prompt_text = ""
         self._setting_prompt = False
@@ -284,7 +429,8 @@ class EmailTab(QWidget):
         self._insert_button: QPushButton | None = None
         self._result_view: QTextEdit | None = None
         self._status_label: QLabel | None = None
-        self._second_line_checkbox: QCheckBox | None = None
+        self._second_line_status: QLabel | None = None
+        self._second_line_hint: QLabel | None = None
 
         self._build_ui()
         self._apply_case_state()
@@ -305,10 +451,14 @@ class EmailTab(QWidget):
         header.addWidget(title)
         header.addStretch()
 
-        self._second_line_checkbox = QCheckBox("Modo 2nd Line")
-        self._second_line_checkbox.toggled.connect(self._on_second_line_toggled)
-        header.addWidget(self._second_line_checkbox)
+        self._second_line_status = QLabel()
+        self._second_line_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(self._second_line_status)
         layout.addLayout(header)
+
+        self._second_line_hint = QLabel()
+        self._second_line_hint.setWordWrap(True)
+        layout.addWidget(self._second_line_hint)
 
         layout.addWidget(QLabel("Selecciona una plantilla"))
         self._template_list = QListWidget()
@@ -377,10 +527,20 @@ class EmailTab(QWidget):
         self._apply_case_state()
         self._refresh_template_list()
 
-    def _apply_case_state(self) -> None:
-        if not self._second_line_checkbox:
+    def update_settings(self, *, second_line_enabled: bool) -> None:
+        """Apply updated workspace settings coming from Configuración."""
+
+        enabled = bool(second_line_enabled)
+        if self._second_line_enabled == enabled:
             return
-        self._second_line_checkbox.setChecked(self._case.email_second_line_mode)
+        self._second_line_enabled = enabled
+        self._case.email_second_line_mode = enabled
+        self._update_second_line_message()
+        self._refresh_template_list()
+
+    def _apply_case_state(self) -> None:
+        self._case.email_second_line_mode = self._second_line_enabled
+        self._update_second_line_message()
 
         if self._tone_combo:
             tone = self._case.email_tone or TONE_OPTIONS[0][1]
@@ -399,49 +559,72 @@ class EmailTab(QWidget):
             if self._insert_button:
                 self._insert_button.setEnabled(True)
 
+    def _update_second_line_message(self) -> None:
+        if self._second_line_status:
+            status_text = "Modo 2nd Line activo" if self._second_line_enabled else "Modo 2nd Line desactivado"
+            self._second_line_status.setText(status_text)
+            self._second_line_status.setToolTip(
+                "Activa o desactiva el modo 2nd Line desde la pestaña de Configuración."
+            )
+        if self._second_line_hint:
+            if self._second_line_enabled:
+                self._second_line_hint.hide()
+            else:
+                self._second_line_hint.setText(
+                    "Activa el modo 2nd Line en Configuración para habilitar las plantillas restringidas."
+                )
+                self._second_line_hint.setToolTip(
+                    "Algunas plantillas solo aparecen cuando el modo 2nd Line está activo en Configuración."
+                )
+                self._second_line_hint.show()
+
     def _refresh_template_list(self) -> None:
         if not self._template_list:
             return
 
-        second_line = self._second_line_checkbox.isChecked() if self._second_line_checkbox else False
-        available = [
-            t
-            for t in TEMPLATE_DEFINITIONS
-            if second_line or not t.second_line_only
+        enabled_templates = [
+            t for t in TEMPLATE_DEFINITIONS if self._second_line_enabled or not t.second_line_only
         ]
 
         self._template_list.blockSignals(True)
         self._template_list.clear()
-        for template in available:
+        first_enabled_row: int | None = None
+        for template in TEMPLATE_DEFINITIONS:
             item = QListWidgetItem(f"{template.icon} {template.label}\n{template.description}")
             item.setData(Qt.UserRole, template.value)
             item.setData(Qt.UserRole + 1, template)
+            if template.second_line_only and not self._second_line_enabled:
+                item.setFlags(item.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsEnabled)
+                item.setToolTip("Requiere modo 2nd Line activo en Configuración.")
+            else:
+                item.setToolTip(template.description)
+                if first_enabled_row is None:
+                    first_enabled_row = self._template_list.count()
             self._template_list.addItem(item)
         self._template_list.blockSignals(False)
 
         desired = self._case.email_selected_template
-        if desired not in {t.value for t in available} and available:
-            desired = available[0].value
-        self._select_template(desired)
+        enabled_values = {t.value for t in enabled_templates}
+        if desired not in enabled_values:
+            desired = enabled_templates[0].value if enabled_templates else ""
+        self._select_template(desired, fallback_row=first_enabled_row)
 
-    def _select_template(self, value: str) -> None:
-        if not self._template_list or not value:
-            if self._template_list and self._template_list.count():
-                self._template_list.setCurrentRow(0)
+    def _select_template(self, value: str, fallback_row: int | None = None) -> None:
+        if not self._template_list or not self._template_list.count():
             return
         for row in range(self._template_list.count()):
             item = self._template_list.item(row)
+            if not item.flags() & Qt.ItemIsEnabled:
+                continue
             if item.data(Qt.UserRole) == value:
                 self._template_list.setCurrentRow(row)
                 return
-        if self._template_list.count():
-            self._template_list.setCurrentRow(0)
+            if fallback_row is None:
+                fallback_row = row
+        if fallback_row is not None:
+            self._template_list.setCurrentRow(fallback_row)
 
     # ───────────────────── Event handlers ───────────────────────
-    def _on_second_line_toggled(self, checked: bool) -> None:
-        self._case.email_second_line_mode = bool(checked)
-        self._refresh_template_list()
-
     def _on_template_changed(self, current: QListWidgetItem | None, _: QListWidgetItem | None) -> None:
         if not current or not self._prompt_editor:
             return
