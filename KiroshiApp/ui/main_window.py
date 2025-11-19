@@ -4,11 +4,19 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
-from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from KiroshiApp.core.ai_client import AIClient
 from KiroshiApp.core.model import CaseData
@@ -150,10 +158,6 @@ class KiroshiMainWindow(QMainWindow):
 
     def __init__(self, *, case: CaseData | None = None, base_path: Path | None = None) -> None:
         super().__init__()
-        self.case = case or CaseData()
-        self._active_case_for_hotkeys: CaseData | None = (
-            self.case if getattr(self.case, "active_for_hotkeys", False) else None
-        )
         self._base_path = base_path
         self._config = load_global_config(base_path=base_path)
         self._ai_client = AIClient()
@@ -166,15 +170,20 @@ class KiroshiMainWindow(QMainWindow):
         self._debug_tab: DebugTab | None = None
         self._autosave_timer = QTimer(self)
         self._hotkey_manager = GlobalHotkeyManager(self)
+        self._case_tabs: QTabWidget | None = None
+        self._case_dirty: dict[CaseTab, bool] = {}
+        self._active_case_for_hotkeys: CaseData | None = None
+        self._initial_cases: list[CaseData] = self._load_initial_cases(case)
         self.setWindowTitle("Kiroshi Desktop Prototype")
         self._apply_branding()
         self._apply_theme_preference()
         self.resize(1024, 720)
-        tabs = self._build_tabs()
-        self.setCentralWidget(tabs)
+        self.setCentralWidget(self._build_layout())
         self._init_menus()
         self._init_autosave_timer()
-        self._refresh_case_dependents(self.case)
+        if getattr(self.active_case, "active_for_hotkeys", False):
+            self._active_case_for_hotkeys = self.active_case
+        self._refresh_case_dependents(self.active_case)
 
     def _apply_branding(self) -> None:
         logo_path = Path(__file__).resolve().parents[2] / "Kiroshi_Logo.png"
@@ -191,29 +200,51 @@ class KiroshiMainWindow(QMainWindow):
             stylesheet = load_stylesheet("light")
         app.setStyleSheet(stylesheet)
 
-    def _build_tabs(self) -> QTabWidget:
-        tabs = QTabWidget(self)
-        self._case_tab = CaseTab(
-            case=self.case,
-            parent=self,
-            hotkeys_available=self._hotkey_manager.is_available,
-            hotkey_unavailable_reason=self._hotkey_manager.unavailable_reason or "",
-        )
-        self._case_tab.caseChanged.connect(self._handle_case_changed)
-        self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
-        tabs.addTab(self._case_tab, "Caso")
-        self._email_tab = EmailTab(case=self.case, ai_client=self._ai_client, parent=self)
-        tabs.addTab(self._email_tab, "Email")
-        self._tables_tab = TablesTab(case=self.case, parent=self)
-        tabs.addTab(self._tables_tab, "Tablas")
+    def _build_layout(self) -> QWidget:
+        wrapper = QWidget(self)
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        actions_row = QVBoxLayout()
+        new_case_button = QPushButton("Nuevo caso", wrapper)
+        new_case_button.clicked.connect(self._handle_new_case_requested)
+        actions_row.addWidget(new_case_button)
+        layout.addLayout(actions_row)
+
+        self._case_tabs = QTabWidget(wrapper)
+        self._case_tabs.setTabsClosable(True)
+        self._case_tabs.tabCloseRequested.connect(self._handle_case_tab_close_requested)
+        self._case_tabs.currentChanged.connect(self._handle_active_tab_changed)
+        layout.addWidget(self._case_tabs)
+
+        self._build_tool_tabs(wrapper)
+        layout.addWidget(self._tool_tabs)
+
+        for case_data in self._initial_cases:
+            self._add_case_tab(case_data, make_current=False)
+        if self._case_tabs.count() == 0:
+            self._add_case_tab(CaseData(), make_current=True)
+        if self._case_tabs.count():
+            self._case_tabs.setCurrentIndex(0)
+
+        return wrapper
+
+    def _build_tool_tabs(self, parent: QWidget) -> None:
+        self._tool_tabs = QTabWidget(parent)
+        active_case = self._initial_cases[0] if self._initial_cases else CaseData()
+        self._email_tab = EmailTab(case=active_case, ai_client=self._ai_client, parent=self)
+        self._tool_tabs.addTab(self._email_tab, "Email")
+        self._tables_tab = TablesTab(case=active_case, parent=self)
+        self._tool_tabs.addTab(self._tables_tab, "Tablas")
         self._save_load_tab = SaveLoadTab(
-            case_getter=self._case_tab.case,
+            case_getter=lambda: self.active_case,
             case_loader=self._handle_case_loaded_from_storage,
             base_path=self._base_path,
         )
-        tabs.addTab(self._save_load_tab, "Guardar/Cargar")
+        self._tool_tabs.addTab(self._save_load_tab, "Guardar/Cargar")
         self._tracking_tab = TrackingTab(base_path=self._base_path)
-        tabs.addTab(self._tracking_tab, "Control Tower")
+        self._tool_tabs.addTab(self._tracking_tab, "Control Tower")
         self._settings_tab = SettingsTab(
             config=self._config,
             base_path=self._base_path,
@@ -221,15 +252,50 @@ class KiroshiMainWindow(QMainWindow):
             save_config=save_global_config,
             on_preferences_changed=self._handle_preferences_updated,
         )
-        tabs.addTab(self._settings_tab, "Configuración")
+        self._tool_tabs.addTab(self._settings_tab, "Configuración")
         self._debug_tab = DebugTab()
-        tabs.addTab(self._debug_tab, "Debug")
-        return tabs
+        self._tool_tabs.addTab(self._debug_tab, "Debug")
+
+    def _load_initial_cases(self, explicit_case: CaseData | None) -> list[CaseData]:
+        stored_cases: list[CaseData] = []
+        raw_cases = self._config.get("open_cases")
+        if isinstance(raw_cases, list):
+            for payload in raw_cases:
+                if isinstance(payload, dict):
+                    try:
+                        stored_cases.append(CaseData.from_dict(payload))
+                    except Exception:
+                        continue
+        if stored_cases:
+            return stored_cases
+        if explicit_case:
+            return [explicit_case]
+        return [CaseData()]
+
+    @property
+    def active_case_tab(self) -> CaseTab | None:
+        if self._case_tabs is None:
+            return None
+        widget = self._case_tabs.currentWidget()
+        return widget if isinstance(widget, CaseTab) else None
+
+    @property
+    def active_case(self) -> CaseData:
+        tab = self.active_case_tab
+        if tab is not None:
+            return tab.case()
+        return CaseData()
 
     def _init_menus(self) -> None:
         menu_bar = self.menuBar()
 
         archivo_menu = menu_bar.addMenu("Archivo")
+
+        self._new_case_action = QAction("Nuevo caso", self)
+        self._new_case_action.setShortcut(QKeySequence.StandardKey.New)
+        self._new_case_action.triggered.connect(self._handle_new_case_requested)
+        archivo_menu.addAction(self._new_case_action)
+        archivo_menu.addSeparator()
 
         self._save_case_action = QAction("Guardar caso", self)
         self._save_case_action.setShortcut(QKeySequence.StandardKey.Save)
@@ -256,51 +322,108 @@ class KiroshiMainWindow(QMainWindow):
 
         menu_bar.addMenu("Ayuda")
 
-    def _handle_case_changed(self, case: CaseData) -> None:
-        self.case = case
-        self._refresh_case_dependents(case)
-        try:
-            save_autosave(case, base_path=self._base_path)
-        except OSError as exc:
-            logging.warning("No se pudo guardar el autosave del caso: %s", exc)
+    def _add_case_tab(self, case: CaseData, *, make_current: bool = True) -> None:
+        if self._case_tabs is None:
+            return
+        tab = CaseTab(
+            case=case,
+            parent=self,
+            hotkeys_available=self._hotkey_manager.is_available,
+            hotkey_unavailable_reason=self._hotkey_manager.unavailable_reason or "",
+        )
+        tab.caseChanged.connect(lambda updated: self._handle_case_changed(tab, updated))
+        tab.hotkeySelectionChanged.connect(
+            lambda active: self._handle_hotkey_selection(tab, active)
+        )
+        index = self._case_tabs.addTab(tab, self._case_tab_title(case, self._case_tabs.count()))
+        self._case_dirty[tab] = False
+        if make_current:
+            self._case_tabs.setCurrentIndex(index)
+        self._persist_open_cases()
 
-    def _handle_hotkey_selection(self, active: bool) -> None:
-        self.case.active_for_hotkeys = active
-        self._active_case_for_hotkeys = self.case if active else None
+    def _handle_case_changed(self, tab: CaseTab, case: CaseData) -> None:
+        self._case_dirty[tab] = True
+        self._update_case_tab_title(tab)
+        if tab is self.active_case_tab:
+            self._refresh_case_dependents(case)
+            self._active_case_for_hotkeys = (
+                case if getattr(case, "active_for_hotkeys", False) else None
+            )
+            try:
+                save_autosave(case, base_path=self._base_path)
+                self._case_dirty[tab] = False
+            except OSError as exc:
+                logging.warning("No se pudo guardar el autosave del caso: %s", exc)
+        self._persist_open_cases()
+
+    def _handle_hotkey_selection(self, tab: CaseTab, active: bool) -> None:
+        if tab is not self.active_case_tab:
+            return
+        case = tab.case()
+        case.active_for_hotkeys = active
+        self._active_case_for_hotkeys = case if active else None
+
+    def _handle_active_tab_changed(self, index: int) -> None:  # noqa: ARG002
+        case = self.active_case
+        self._refresh_case_dependents(case)
+        self._active_case_for_hotkeys = (
+            case if getattr(case, "active_for_hotkeys", False) else None
+        )
+
+    def _handle_new_case_requested(self) -> None:
+        self._add_case_tab(CaseData(), make_current=True)
 
     def _handle_case_loaded_from_storage(self, case: CaseData, source: str) -> None:
-        self.case = case
-        self._case_tab.set_case(case)
+        if self._case_tabs is None:
+            return
+        current_tab = self.active_case_tab
+        if current_tab is None:
+            self._add_case_tab(case, make_current=True)
+            current_tab = self.active_case_tab
+        if current_tab is not None:
+            current_tab.set_case(case)
+            self._case_dirty[current_tab] = False
         self._refresh_case_dependents(case)
         self.statusBar().showMessage(f"Caso cargado desde {source}", 5000)
+        self._persist_open_cases()
 
     def _save_case_to_database(self) -> None:
+        case = self.active_case
         try:
-            destination = save_case_to_db(self.case, base_path=self._base_path)
+            destination = save_case_to_db(case, base_path=self._base_path)
         except OSError as exc:
             logging.warning("No se pudo guardar el caso: %s", exc)
             self.statusBar().showMessage(f"Error al guardar el caso: {exc}", 5000)
             return
         if self._save_load_tab is not None:
             self._save_load_tab.refresh_recent_files()
-            self._save_load_tab.refresh_case(self.case)
+            self._save_load_tab.refresh_case(case)
         self.statusBar().showMessage(f"Caso guardado en {destination}", 5000)
+        tab = self.active_case_tab
+        if tab is not None:
+            self._case_dirty[tab] = False
+        self._persist_open_cases()
 
     def _trigger_autosave(self) -> None:
+        case = self.active_case
         try:
-            path = save_autosave(self.case, base_path=self._base_path)
+            path = save_autosave(case, base_path=self._base_path)
         except OSError as exc:
             logging.warning("No se pudo crear el autosave: %s", exc)
             self.statusBar().showMessage(f"Error al crear autosave: {exc}", 5000)
             return
         self.statusBar().showMessage(f"Autosave guardado en {path}", 5000)
+        tab = self.active_case_tab
+        if tab is not None:
+            self._case_dirty[tab] = False
+        self._persist_open_cases()
 
     def _open_chat_window(self) -> None:
         if self._chat_window is not None and self._chat_window.isVisible():
             self._chat_window.activateWindow()
             self._chat_window.raise_()
             return
-        self._chat_window = ChatWindow(self._ai_client, self._case_tab.case, self)
+        self._chat_window = ChatWindow(self._ai_client, self.active_case, self)
         self._chat_window.show()
 
     def _quit_application(self) -> None:
@@ -334,6 +457,7 @@ class KiroshiMainWindow(QMainWindow):
     def _handle_preferences_updated(self, config: dict[str, Any]) -> None:
         self._config = dict(config)
         self._apply_theme_preference()
+        self._persist_open_cases()
 
     def _init_autosave_timer(self) -> None:
         self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
@@ -358,7 +482,69 @@ class KiroshiMainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         if self._autosave_timer.isActive():
             self._autosave_timer.stop()
+        self._persist_open_cases()
         super().closeEvent(event)
+
+    def _update_case_tab_title(self, tab: CaseTab) -> None:
+        if self._case_tabs is None:
+            return
+        index = self._case_tabs.indexOf(tab)
+        if index < 0:
+            return
+        case = tab.case()
+        title = self._case_tab_title(case, index)
+        if self._case_dirty.get(tab):
+            title += " *"
+        self._case_tabs.setTabText(index, title)
+
+    def _case_tab_title(self, case: CaseData, index: int) -> str:
+        title = (case.case_id or case.company_name or "").strip()
+        if title:
+            return title
+        return f"Caso {index + 1}"
+
+    def _handle_case_tab_close_requested(self, index: int) -> None:
+        if self._case_tabs is None:
+            return
+        widget = self._case_tabs.widget(index)
+        if not isinstance(widget, CaseTab):
+            return
+        if self._case_dirty.get(widget):
+            choice = QMessageBox(self)
+            choice.setWindowTitle("Cerrar pestaña")
+            choice.setText("El caso tiene cambios sin guardar. ¿Deseas cerrarlo?")
+            choice.setStandardButtons(
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel
+            )
+            choice.setDefaultButton(QMessageBox.StandardButton.Save)
+            result = choice.exec()
+            if result == QMessageBox.StandardButton.Cancel:
+                return
+            if result == QMessageBox.StandardButton.Save:
+                self._case_tabs.setCurrentIndex(index)
+                self._save_case_to_database()
+        self._case_tabs.removeTab(index)
+        self._case_dirty.pop(widget, None)
+        widget.deleteLater()
+        if self._case_tabs.count() == 0:
+            self._add_case_tab(CaseData(), make_current=True)
+        self._persist_open_cases()
+
+    def _persist_open_cases(self) -> None:
+        if self._case_tabs is None:
+            return
+        cases: list[dict[str, object]] = []
+        for idx in range(self._case_tabs.count()):
+            tab = self._case_tabs.widget(idx)
+            if isinstance(tab, CaseTab):
+                try:
+                    cases.append(tab.case().to_dict())
+                except Exception:
+                    continue
+        self._config["open_cases"] = cases
+        save_global_config(self._config, base_path=self._base_path)
 
 
 # Backwards compatible alias used by older tests.
