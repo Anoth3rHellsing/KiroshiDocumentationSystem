@@ -82,6 +82,7 @@ class CaseTab(QWidget):
 
     caseChanged = Signal(CaseData)
     hotkeySelectionChanged = Signal(bool)
+    exportRequested = Signal(CaseData)
 
     def __init__(
         self,
@@ -114,6 +115,9 @@ class CaseTab(QWidget):
         header = QHBoxLayout()
         header.addWidget(QLabel("Case overview", self))
         header.addStretch(1)
+        export_button = QPushButton("Exportar a PDF", self)
+        export_button.clicked.connect(lambda: self.exportRequested.emit(self._case))
+        header.addWidget(export_button)
         self._hotkey_checkbox = QCheckBox("Use this case for global clipboard hotkeys", self)
         self._hotkey_checkbox.toggled.connect(self._on_hotkey_toggled)
         if not self._hotkeys_available:
