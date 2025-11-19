@@ -7085,8 +7085,11 @@ def _update_case_milestones_for_session(
     anchor_created_at: datetime | None = None,
 ) -> None:
     state = _ensure_case_milestone_state(session)
-    session_created_at = _parse_utc_timestamp(state.created_at)
-    created_at = session_created_at or anchor_created_at or now
+    created_at = (
+        anchor_created_at
+        or _parse_utc_timestamp(state.created_at)
+        or now
+    )
     for milestone_id in MILESTONE_ID_ORDER:
         progress = state.statuses[milestone_id]
         if milestone_id in {"case_id", "document_case"}:
@@ -14770,13 +14773,16 @@ def render_case_milestone_tracker(container, case_idx: int, *, compact_mode: boo
         description = milestone_def.get("description", "")
         label = milestone_def.get("label", milestone_id.title())
         items_html.append(
-            "".join(
-                (
-                    f"<div class=\"{css_class}\" title=\"{escape(description)}\">",
-                    f"<span class=\"case-milestones__icon\">{icon}</span>",
-                    f"<span>{escape(label)}</span>",
-                    "</div>",
-                )
+            """
+            <div class="{css}" title="{title}">
+                <span class="case-milestones__icon">{icon}</span>
+                <span>{label}</span>
+            </div>
+            """.format(
+                css=css_class,
+                title=escape(description),
+                icon=icon,
+                label=escape(label),
             )
         )
 
@@ -14784,7 +14790,7 @@ def render_case_milestone_tracker(container, case_idx: int, *, compact_mode: boo
         return
 
     container.markdown(
-        "<div class=\"case-milestones\">" + "".join(items_html) + "</div>",
+        "<div class='case-milestones'>" + "".join(items_html) + "</div>",
         unsafe_allow_html=True,
     )
 
