@@ -220,51 +220,37 @@ class KiroshiMainWindow(QMainWindow):
             stylesheet = load_stylesheet("light")
         app.setStyleSheet(stylesheet)
 
-    def _build_layout(self) -> QWidget:
-        wrapper = QWidget(self)
-        layout = QVBoxLayout(wrapper)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        actions_row = QVBoxLayout()
-        new_case_button = QPushButton("Nuevo caso", wrapper)
-        new_case_button.clicked.connect(self._handle_new_case_requested)
-        actions_row.addWidget(new_case_button)
-        layout.addLayout(actions_row)
-
-        self._case_tabs = QTabWidget(wrapper)
-        self._case_tabs.setTabsClosable(True)
-        self._case_tabs.tabCloseRequested.connect(self._handle_case_tab_close_requested)
-        self._case_tabs.currentChanged.connect(self._handle_active_tab_changed)
-        layout.addWidget(self._case_tabs)
-
-        self._build_tool_tabs(wrapper)
-        layout.addWidget(self._tool_tabs)
-
-        for case_data in self._initial_cases:
-            self._add_case_tab(case_data, make_current=False)
-        if self._case_tabs.count() == 0:
-            self._add_case_tab(CaseData(), make_current=True)
-        if self._case_tabs.count():
-            self._case_tabs.setCurrentIndex(0)
-
-        return wrapper
-
-    def _build_tool_tabs(self, parent: QWidget) -> None:
-        self._tool_tabs = QTabWidget(parent)
-        active_case = self._initial_cases[0] if self._initial_cases else CaseData()
-        self._email_tab = EmailTab(case=active_case, ai_client=self._ai_client, parent=self)
-        self._tool_tabs.addTab(self._email_tab, "Email")
-        self._tables_tab = TablesTab(case=active_case, parent=self)
-        self._tool_tabs.addTab(self._tables_tab, "Tablas")
+    def _build_tabs(self) -> QTabWidget:
+        tabs = QTabWidget(self)
+        second_line_enabled = bool(self._config.get("second_line_mode", False))
+        self._case_tab = CaseTab(
+            case=self.case,
+            parent=self,
+            hotkeys_available=self._hotkey_manager.is_available,
+            hotkey_unavailable_reason=self._hotkey_manager.unavailable_reason or "",
+        )
+        self._case_tab.caseChanged.connect(self._handle_case_changed)
+        self._case_tab.hotkeySelectionChanged.connect(self._handle_hotkey_selection)
+        tabs.addTab(self._case_tab, "Caso")
+        self._email_tab = EmailTab(
+            case=self.case,
+            ai_client=self._ai_client,
+            parent=self,
+            second_line_enabled=second_line_enabled,
+        )
+        tabs.addTab(self._email_tab, "Email")
+        self._tables_tab = TablesTab(case=self.case, parent=self)
+        tabs.addTab(self._tables_tab, "Tablas")
         self._save_load_tab = SaveLoadTab(
             case_getter=lambda: self.active_case,
             case_loader=self._handle_case_loaded_from_storage,
             base_path=self._base_path,
         )
-        self._tool_tabs.addTab(self._save_load_tab, "Guardar/Cargar")
-        self._tracking_tab = TrackingTab(base_path=self._base_path)
-        self._tool_tabs.addTab(self._tracking_tab, "Control Tower")
+        tabs.addTab(self._save_load_tab, "Guardar/Cargar")
+        self._tracking_tab = TrackingTab(
+            base_path=self._base_path, second_line_enabled=second_line_enabled
+        )
+        tabs.addTab(self._tracking_tab, "Control Tower")
         self._settings_tab = SettingsTab(
             config=self._config,
             base_path=self._base_path,
@@ -540,7 +526,11 @@ class KiroshiMainWindow(QMainWindow):
     def _handle_preferences_updated(self, config: dict[str, Any]) -> None:
         self._config = dict(config)
         self._apply_theme_preference()
-        self._persist_open_cases()
+        second_line_enabled = bool(self._config.get("second_line_mode", False))
+        if self._email_tab is not None:
+            self._email_tab.update_settings(second_line_enabled=second_line_enabled)
+        if self._tracking_tab is not None:
+            self._tracking_tab.set_second_line_enabled(second_line_enabled)
 
     def _init_autosave_timer(self) -> None:
         self._autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)

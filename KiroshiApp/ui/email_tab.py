@@ -63,18 +63,16 @@ def _format_remote_sessions(case: CaseData) -> str:
     return "\n".join(lines)
 
 
-def _standard_salutation(case: CaseData) -> str:
-    """Return a friendly salutation based on the available contact fields."""
+def _salutation_instruction(case: CaseData) -> str:
+    """Return a consistent greeting directive based on case details."""
 
-    name = (
-        case.contact_name
-        or case.caller_name
-        or case.clinic_contact_name
-        or case.company_name
+    contact = case.contact_name or case.caller_name or "cliente"
+    company = case.company_name or "cliente"
+    reference = case.case_id or "sin referencia"
+    return (
+        f"Start the email with 'Hola {contact},' and mention case {reference} for {company} "
+        "in the opening line."
     )
-    if name:
-        return f"Hola {name},"
-    return "Hola,"  # Fallback when no contact name is available
 
 
 def _default_email_prompt(case: CaseData, tone: str, audience: str) -> str:
@@ -110,7 +108,7 @@ def _recap_prompt(case: CaseData, tone: str, audience: str) -> str:
     greeting = _standard_salutation(case)
     return (
         f"{intro}\n"
-        f"Start the email with the standard greeting: '{greeting}'.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Write in a {tone} tone for a {audience}.\n"
         "Summarise the situation, highlight the solution, and clearly state next actions.\n"
         f"Case ID: {case.case_id or 'Sin ID'}\n"
@@ -169,7 +167,7 @@ def _escalation_prompt(case: CaseData, tone: str, audience: str) -> str:
         "Prepare an escalation email for a hardware vendor. Summarise the customer impact,"
         " troubleshooting completed, and any logs gathered."
         f" Tone should be {tone} and audience is {audience}.\n"
-        f"Start the email with the standard greeting: '{greeting}'.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
         f"Customer: {case.company_name or 'N/A'}\n"
         f"Service tag: {case.service_tag or case.tracking.service_tag or 'Sin service tag'}\n"
@@ -215,109 +213,93 @@ def _callback_prompt(case: CaseData, tone: str, audience: str) -> str:
     )
 
 
-def _scanner_questionnaire_prompt(case: CaseData, tone: str, audience: str) -> str:
-    greeting = _standard_salutation(case)
+def _questionnaire_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Guide clinics to complete diagnostic questionnaires."""
+
     return (
-        "Write an email that asks the clinic to complete a scanner questionnaire."
-        f" Start with the greeting: '{greeting}'."
-        f" Maintain a {tone} tone for a {audience}.\n"
-        f"Case ID: {case.case_id or 'N/A'}\n"
-        f"Clinic: {case.company_name or 'N/A'}\n"
-        f"Scanner serial: {case.scanner_sn or 'Desconocido'}\n"
-        f"Base serial: {case.base_sn or 'Desconocido'}\n"
-        f"TRIOS Module version: {case.trios_module_version or 'No registrado'}\n"
-        f"Dongle deployment date: {case.dongle_deployment_date or 'No proporcionada'}\n"
-        "Explain the reason for the questionnaire and request details about issue symptoms,"
-        " frequency, environment, cleaning habits, and recent changes. Mention any current"
-        " resolution plan and provide a clear list of questions the clinic should answer."
-    )
-
-
-def _broken_tip_questionnaire_prompt(case: CaseData, tone: str, audience: str) -> str:
-    greeting = _standard_salutation(case)
-    return (
-        "Compose an email requesting information for a broken tip investigation."
-        f" Begin with the greeting: '{greeting}'."
-        f" Use a {tone} tone for a {audience}.\n"
-        f"Case ID: {case.case_id or 'N/A'}\n"
-        f"Clinic: {case.company_name or 'N/A'}\n"
-        f"Scanner serial: {case.scanner_sn or 'No registrado'}\n"
-        f"Base serial: {case.base_sn or 'No registrado'}\n"
-        f"Previous replacements: {case.scanner_previous_replacements or 0}\n"
-        f"Accidental damage noted: {case.scanner_accidental_damage or 'No indicado'}\n"
-        "Ask the customer to share photos, usage conditions, when the break occurred,"
-        " and any alerts seen. Summarise steps already taken and set expectations for"
-        " shipping or replacement options."
-    )
-
-
-def _fedex_refurbished_prompt(case: CaseData, tone: str, audience: str) -> str:
-    greeting = _standard_salutation(case)
-    return (
-        "Generate a logistics email about a FedEx refurbished shipment."
-        f" Start with: '{greeting}'."
+        "Draft an email requesting that the clinic complete the diagnostic questionnaires"
+        " required to continue troubleshooting."
         f" Tone: {tone}. Audience: {audience}.\n"
-        f"Case ID: {case.case_id or 'N/A'}\n"
-        f"Clinic: {case.company_name or 'N/A'}\n"
-        f"Service tag: {case.service_tag or case.tracking.service_tag or 'Sin service tag'}\n"
-        f"Tracking number: {case.tracking.ticket_number or 'Pendiente'}\n"
-        f"Expected arrival date: {case.tracking.expected_arrival_date or 'No confirmada'}\n"
-        f"Carrier case link: {case.tracking.case_link or 'No disponible'}\n"
-        "Explain what refurbished part was shipped, how to receive it, packaging instructions,"
-        " and how to report issues with delivery. Reinforce the next follow-up date."
+        f"{_salutation_instruction(case)}\n"
+        f"Case reference: {case.case_id or 'N/A'} for {case.company_name or 'cliente'}\n"
+        f"Primary contact: {case.contact_name or case.caller_name or 'Sin contacto'} ({case.email or 'sin email'})\n"
+        f"Pending forms or links: {case.additional_info or case.survey_link or 'Indica cuestionarios clínicos y operativos'}\n"
+        f"Notes on issue: {case.brief_description or case.description or 'No summary provided'}\n"
+        "Ask for confirmation once the questionnaires are sent back and list any deadlines or"
+        " files that must accompany the response."
     )
 
 
-def _move_plus_setup_prompt(case: CaseData, tone: str, audience: str) -> str:
-    greeting = _standard_salutation(case)
+def _refurbished_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Share shipping status for refurbished replacements."""
+
+    tracking_number = case.tracking.ticket_number or case.tracking.case_link or "Sin tracking"
+    expected_date = case.tracking.expected_arrival_date or "Sin fecha confirmada"
     return (
-        "Draft an email guiding the customer through Move+ setup and scheduling."
-        f" Begin with: '{greeting}'."
+        "Compose an update about a refurbished or FedEx-shipped replacement device."
         f" Keep the tone {tone} for a {audience}.\n"
-        f"Case ID: {case.case_id or 'N/A'}\n"
-        f"Clinic: {case.company_name or 'N/A'}\n"
-        f"TeamViewer ID: {case.teamviewer_id or 'No proporcionado'}\n"
-        f"TeamViewer password: {case.teamviewer_password or 'No proporcionada'}\n"
-        f"Best time for session: {case.best_time or 'No indicado'}\n"
-        "Provide a short checklist (power, cables, scanner readiness) and confirm what the"
-        " remote session will cover. Include alternative contact numbers if provided and"
-        " confirm timezone if relevant."
+        f"{_salutation_instruction(case)}\n"
+        f"Case: {case.case_id or 'N/A'} — {case.company_name or 'Cliente'}\n"
+        f"Tracking: {tracking_number}\n"
+        f"Expected delivery: {expected_date}\n"
+        f"Replacement type: {'Refurbished' if case.warranty else 'Standard'}\n"
+        f"Service Tag / Serial: {case.service_tag or case.scanner_sn or 'No disponible'}\n"
+        "Explain what the clinic should prepare, how to package the existing unit, and"
+        " how to reach support if delivery is delayed."
     )
 
 
-def _closure_prompt(case: CaseData, tone: str, audience: str) -> str:
-    greeting = _standard_salutation(case)
-    survey = case.survey_link or ""
-    survey_line = (
-        f"Invite them to the satisfaction survey at {survey}.\n" if survey else ""
-    )
+def _replacement_setup_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Instructions for configuring a replacement unit."""
+
     return (
-        "Compose a closure email confirming that the case is resolved."
-        f" Start with: '{greeting}'."
+        "Generate an email with clear setup instructions for a replacement unit that has"
+        " arrived or is arriving soon."
         f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
-        f"Summary of issue: {case.brief_description or case.description or 'Sin resumen'}\n"
-        f"Solution applied: {case.solution or 'No documentada'}\n"
-        f"Key troubleshooting steps:\n{_format_remote_sessions(case)}\n"
-        f"Additional notes: {case.additional_info or 'Sin notas'}\n"
-        f"{survey_line}Thank them for their time, outline how to reopen the case, and end with"
-        " a friendly sign-off."
+        f"Clinic: {case.company_name or 'Sin clínica'}\n"
+        f"Replacement serials: Scanner {case.scanner_sn or 'N/A'}, Base {case.base_sn or 'N/A'}, Service Tag {case.service_tag or 'N/A'}\n"
+        f"Installation contact: {case.clinic_contact_name or case.contact_name or 'Sin contacto'} ({case.clinic_contact_email or case.email or 'sin email'})\n"
+        f"Clinic address: {case.clinic_address_line_1 or 'sin dirección'}, {case.clinic_city or ''} {case.clinic_state or ''} {case.clinic_postal_code or ''}\n"
+        "Include steps to connect the device, confirm firmware/software versions, verify"
+        " calibration, and notify support once setup is complete."
     )
 
 
-def _custom_request_prompt(case: CaseData, tone: str, audience: str) -> str:
-    greeting = _standard_salutation(case)
+def _replacement_closure_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Close-the-loop note after a replacement is completed."""
+
     return (
-        "Create a tailored email based on the specific customer request."
-        f" Start with: '{greeting}'."
-        f" Keep the tone {tone} for a {audience}.\n"
+        "Prepare a closure email confirming that the replacement was completed and summarising"
+        " the outcome."
+        f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
         f"Case ID: {case.case_id or 'N/A'}\n"
-        f"Customer: {case.company_name or 'N/A'}\n"
-        f"Request details: {case.request_issue or case.brief_description or 'Sin detalles claros'}\n"
-        f"Helpful context:\n{_format_remote_sessions(case)}\n"
-        f"Notes from case: {case.additional_info or 'Sin notas adicionales'}\n"
-        "Reflect the request faithfully, propose next steps, and explicitly ask the"
-        " customer to confirm acceptance or add more details."
+        f"Work summary:\n{_format_remote_sessions(case)}\n"
+        f"Resolution applied: {case.solution or 'Pendiente de confirmar'}\n"
+        f"Tracking status: {case.tracking.status or 'N/A'} (ticket {case.tracking.ticket_number or 'sin ticket'})\n"
+        f"Outstanding actions for the clinic: {case.additional_info or 'Ninguno'}\n"
+        "Close with gratitude, invitation to reach out if issues return, and mention any"
+        " survey link or follow-up call that will happen."
+    )
+
+
+def _custom_callback_prompt(case: CaseData, tone: str, audience: str) -> str:
+    """Personalised callback or custom request confirmation."""
+
+    return (
+        "Write a personalised email acknowledging a callback request or custom assistance"
+        " asked by the clinic."
+        f" Tone: {tone}. Audience: {audience}.\n"
+        f"{_salutation_instruction(case)}\n"
+        f"Case reference: {case.case_id or 'N/A'}\n"
+        f"Preferred time window: {case.best_time or 'Sin preferencia'}\n"
+        f"Contact numbers: {case.phone_number or case.direct_ph or case.office_ph or 'Sin teléfono'}\n"
+        f"Context from customer: {case.request_issue or case.additional_info or 'No se proporcionó contexto'}\n"
+        f"Latest troubleshooting notes:\n{_format_remote_sessions(case)}\n"
+        "Confirm what will happen during the call, what information should be at hand,"
+        " and how to update the time if needed."
     )
 
 
@@ -348,54 +330,12 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         prompt_builder=_customer_reply_prompt,
     ),
     TemplateDefinition(
-        value="Closure Email",
-        label="Closure Email",
-        description="Cerrar el caso con resumen, encuesta y canales de contacto.",
-        group="Seguimiento al cliente",
-        icon="✅",
-        prompt_builder=_closure_prompt,
-    ),
-    TemplateDefinition(
-        value="Custom Request",
-        label="Custom Request",
-        description="Correo a medida basado en la solicitud específica del cliente.",
-        group="Seguimiento al cliente",
-        icon="📝",
-        prompt_builder=_custom_request_prompt,
-    ),
-    TemplateDefinition(
         value="Callback Email",
-        label="Callback Email",
-        description="Confirmar un callback programado con instrucciones claras.",
-        group="Coordinación",
+        label="Callback/Personalizado",
+        description="Confirmar callback o solicitud personalizada con contexto claro.",
+        group="Customer follow-up",
         icon="📞",
-        second_line_only=True,
-        prompt_builder=_callback_prompt,
-    ),
-    TemplateDefinition(
-        value="Move+ Setup",
-        label="Move+ Setup",
-        description="Organizar la configuración de Move+ y la sesión remota.",
-        group="Coordinación",
-        icon="🛠️",
-        second_line_only=True,
-        prompt_builder=_move_plus_setup_prompt,
-    ),
-    TemplateDefinition(
-        value="Scanner Questionnaire",
-        label="Scanner Questionnaire",
-        description="Solicitar información completa sobre el escáner y el entorno.",
-        group="Diagnóstico",
-        icon="🧾",
-        prompt_builder=_scanner_questionnaire_prompt,
-    ),
-    TemplateDefinition(
-        value="Broken Tip Questionnaire",
-        label="Broken Tip Questionnaire",
-        description="Preguntas guiadas para investigar puntas rotas.",
-        group="Diagnóstico",
-        icon="🔍",
-        prompt_builder=_broken_tip_questionnaire_prompt,
+        prompt_builder=_custom_callback_prompt,
     ),
     TemplateDefinition(
         value="Broken Tip",
@@ -406,10 +346,10 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         prompt_builder=_broken_tip_prompt,
     ),
     TemplateDefinition(
-        value="FedEx Tracking Email",
-        label="FedEx Tracking Email",
-        description="Compartir actualizaciones de envío y expectativas con el cliente.",
-        group="Logística",
+        value="Refurbished/Tracking",
+        label="FedEx/Refurbished",
+        description="Actualizar sobre envíos FedEx o unidades refurbished.",
+        group="Shipping & replacements",
         icon="📦",
         second_line_only=True,
         prompt_builder=_refurbished_prompt,
@@ -424,19 +364,28 @@ TEMPLATE_DEFINITIONS: Sequence[TemplateDefinition] = (
         prompt_builder=_tracking_prompt,
     ),
     TemplateDefinition(
-        value="FedEx Refurbished",
-        label="FedEx Refurbished",
-        description="Comunicar envíos refurbished con tracking y service tag.",
-        group="Logística",
-        icon="🚚",
+        value="Replacement Setup",
+        label="Configuración de repuesto",
+        description="Instrucciones para instalar/configurar un equipo de reemplazo.",
+        group="Shipping & replacements",
+        icon="🛠️",
         second_line_only=True,
-        prompt_builder=_fedex_refurbished_prompt,
+        prompt_builder=_replacement_setup_prompt,
+    ),
+    TemplateDefinition(
+        value="Replacement Closure",
+        label="Cierre de repuesto",
+        description="Cerrar el caso tras un reemplazo y confirmar resultado.",
+        group="Shipping & replacements",
+        icon="✅",
+        second_line_only=True,
+        prompt_builder=_replacement_closure_prompt,
     ),
     TemplateDefinition(
         value="Dell Escalation Email",
         label="Escalación Dell",
         description="Escalar casos urgentes con contexto conciso y acciones esperadas.",
-        group="Escalaciones",
+        group="Escalations",
         icon="🚀",
         second_line_only=True,
         prompt_builder=_escalation_prompt,
@@ -490,8 +439,8 @@ class EmailTab(QWidget):
         self._insert_button: QPushButton | None = None
         self._result_view: QTextEdit | None = None
         self._status_label: QLabel | None = None
-        self._availability_label: QLabel | None = None
-        self._second_line_checkbox: QCheckBox | None = None
+        self._second_line_status: QLabel | None = None
+        self._second_line_hint: QLabel | None = None
 
         self._build_ui()
         self._apply_case_state()
@@ -661,51 +610,43 @@ class EmailTab(QWidget):
 
         self._template_list.blockSignals(True)
         self._template_list.clear()
-        header_font = QFont()
-        header_font.setBold(True)
-        for group_name in sorted(grouped.keys()):
-            header_item = QListWidgetItem(group_name)
-            header_item.setFlags(Qt.NoItemFlags)
-            header_item.setFont(header_font)
-            self._template_list.addItem(header_item)
-            for template in grouped[group_name]:
-                item = QListWidgetItem(
-                    f"{template.icon} {template.label}\n{template.description}"
-                )
-                item.setData(Qt.UserRole, template.value)
-                item.setData(Qt.UserRole + 1, template)
-                self._template_list.addItem(item)
+        first_enabled_row: int | None = None
+        for template in TEMPLATE_DEFINITIONS:
+            item = QListWidgetItem(f"{template.icon} {template.label}\n{template.description}")
+            item.setData(Qt.UserRole, template.value)
+            item.setData(Qt.UserRole + 1, template)
+            if template.second_line_only and not self._second_line_enabled:
+                item.setFlags(item.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsEnabled)
+                item.setToolTip("Requiere modo 2nd Line activo en Configuración.")
+            else:
+                item.setToolTip(template.description)
+                if first_enabled_row is None:
+                    first_enabled_row = self._template_list.count()
+            self._template_list.addItem(item)
         self._template_list.blockSignals(False)
 
         self._update_availability_message(second_line, hidden)
 
         desired = self._case.email_selected_template
-        if desired not in {t.value for t in available} and available:
-            desired = available[0].value
-        self._select_template(desired)
+        enabled_values = {t.value for t in enabled_templates}
+        if desired not in enabled_values:
+            desired = enabled_templates[0].value if enabled_templates else ""
+        self._select_template(desired, fallback_row=first_enabled_row)
 
-    def _select_template(self, value: str) -> None:
-        if not self._template_list:
-            return
-        if not value:
-            self._select_first_template_row()
+    def _select_template(self, value: str, fallback_row: int | None = None) -> None:
+        if not self._template_list or not self._template_list.count():
             return
         for row in range(self._template_list.count()):
             item = self._template_list.item(row)
-            template = item.data(Qt.UserRole + 1)
-            if isinstance(template, TemplateDefinition) and item.data(Qt.UserRole) == value:
+            if not item.flags() & Qt.ItemIsEnabled:
+                continue
+            if item.data(Qt.UserRole) == value:
                 self._template_list.setCurrentRow(row)
                 return
-        self._select_first_template_row()
-
-    def _select_first_template_row(self) -> None:
-        if not self._template_list:
-            return
-        for row in range(self._template_list.count()):
-            item = self._template_list.item(row)
-            if isinstance(item.data(Qt.UserRole + 1), TemplateDefinition):
-                self._template_list.setCurrentRow(row)
-                return
+            if fallback_row is None:
+                fallback_row = row
+        if fallback_row is not None:
+            self._template_list.setCurrentRow(fallback_row)
 
     # ───────────────────── Event handlers ───────────────────────
     def _on_template_changed(self, current: QListWidgetItem | None, _: QListWidgetItem | None) -> None:
