@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Iterable, List, Sequence
+from typing import Dict, List
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
@@ -23,8 +23,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QTableWidget,
-    QTableWidgetItem,
+    QProgressBar,
     QVBoxLayout,
     QWidget,
 )
@@ -96,6 +95,16 @@ class RemoteSessionWidget(QGroupBox):
         self.changed.emit()
 
 
+@dataclass
+class _SectionState:
+    name: str
+    group: QGroupBox
+    content: QWidget
+    progress_bar: QProgressBar
+    fields: List[str]
+    minimum_required: int
+
+
 class CaseTab(QWidget):
     """Form-based widget that captures case information."""
 
@@ -117,19 +126,11 @@ class CaseTab(QWidget):
         self._hotkeys_available = hotkeys_available
         self._hotkey_unavailable_reason = hotkey_unavailable_reason.strip()
 
-        self._fields: dict[str, QWidget] = {}
+        self._case_fields: dict[str, QWidget] = {}
         self._tracking_fields: dict[str, QWidget] = {}
         self._remote_session_widgets: List[RemoteSessionWidget] = []
-        self._hardware_group: QGroupBox | None = None
-        self._section_order = [
-            "header",
-            "call",
-            "notes",
-            "conclusion",
-            "survey",
-            "remote",
-        ]
-        self._sections: dict[str, dict[str, object]] = {}
+        self._sections: Dict[str, _SectionState] = {}
+        self._section_order: List[str] = []
 
         self._build_ui()
         self._populate_from_case()
@@ -141,9 +142,18 @@ class CaseTab(QWidget):
         layout.setSpacing(12)
 
         header = QHBoxLayout()
-        header.addWidget(QLabel("Caso", self))
+        title_label = QLabel("Case overview", self)
+        title_label.setToolTip(
+            "Completa cada sección en orden: cabecera, llamada, notas internas,\n"
+            "conclusión, encuesta y sesiones remotas. Las siguientes secciones\n"
+            "se habilitarán cuando la previa tenga la información mínima."
+        )
+        header.addWidget(title_label)
         header.addStretch(1)
-        self._hotkey_checkbox = QCheckBox("Usar para atajos de portapapeles", self)
+        self._hotkey_checkbox = QCheckBox("Use this case for global clipboard hotkeys", self)
+        self._hotkey_checkbox.setToolTip(
+            "Activa el caso para los atajos globales de portapapeles."
+        )
         self._hotkey_checkbox.toggled.connect(self._on_hotkey_toggled)
         if not self._hotkeys_available:
             suffix = " (no disponible)"
@@ -167,125 +177,332 @@ class CaseTab(QWidget):
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(16)
 
-        section_builders: list[tuple[str, str, Callable[[], QWidget]]] = [
-            ("header", "Cabecera", self._build_header_section),
-            ("call", "Llamada telefónica", self._build_call_section),
-            ("notes", "Notas internas", self._build_notes_section),
-            ("conclusion", "Conclusión", self._build_conclusion_section),
-            ("survey", "Encuesta y cuestionarios", self._build_survey_section),
-            ("remote", "Sesiones remotas", self._build_remote_section),
-        ]
-
-        for key, title, builder in section_builders:
-            group = self._wrap_section(title, key, builder())
-            self._sections[key] = {
-                "group": group,
-                "progress": group.findChild(QProgressBar),
-                "copy": group.findChild(QPushButton, f"copy-{key}"),
-                "hotkey": group.findChild(QPushButton, f"hotkey-{key}"),
-                "fields": [],
-            }
-            container_layout.addWidget(group)
-
+        container_layout.addWidget(
+            self._build_header_section(
+                title="Cabecera",
+                subtitle="Identificación del caso y resumen rápido.",
+                name="header",
+                minimum_required=3,
+            )
+        )
+        container_layout.addWidget(
+            self._build_call_section(
+                title="Llamada",
+                subtitle="Datos de contacto y contexto de la llamada inicial.",
+                name="call",
+                minimum_required=2,
+            )
+        )
+        container_layout.addWidget(
+            self._build_internal_notes_section(
+                title="Notas internas",
+                subtitle="Bitácora interna, enlaces y hallazgos previos.",
+                name="internal_notes",
+                minimum_required=1,
+            )
+        )
+        container_layout.addWidget(
+            self._build_conclusion_section(
+                title="Conclusión",
+                subtitle="Cierre técnico, RCA y resumen para terceros.",
+                name="conclusion",
+                minimum_required=1,
+            )
+        )
+        container_layout.addWidget(
+            self._build_survey_section(
+                title="Encuesta / Cuestionario",
+                subtitle="Seguimiento con el cliente y notas de cuestionarios.",
+                name="survey",
+                minimum_required=1,
+            )
+        )
+        container_layout.addWidget(
+            self._build_remote_sessions_section(
+                title="Sesiones remotas",
+                subtitle="Historial de accesos remotos y observaciones.",
+                name="remote_sessions",
+                minimum_required=1,
+            )
+        )
+        container_layout.addWidget(self._build_tracking_section())
+        container_layout.addWidget(self._build_hardware_section())
         container_layout.addStretch(1)
 
-    def _wrap_section(self, title: str, key: str, content: QWidget) -> QWidget:
+    def _create_section(
+        self, title: str, subtitle: str, name: str, *, minimum_required: int
+    ) -> tuple[QGroupBox, QWidget, QVBoxLayout]:
         group = QGroupBox(title, self)
         layout = QVBoxLayout(group)
         layout.setSpacing(8)
 
+        header_row = QHBoxLayout()
+        subtitle_label = QLabel(subtitle, group)
+        subtitle_label.setObjectName("subtitle")
+        subtitle_label.setStyleSheet("color: #666; font-size: 11px;")
+        subtitle_label.setToolTip(subtitle)
+        header_row.addWidget(subtitle_label, stretch=1)
+
         progress = QProgressBar(group)
-        progress.setRange(0, 1)
-        progress.setValue(0)
-        progress.setFormat("Completado: %v/%m")
-        layout.addWidget(progress)
+        progress.setMinimum(0)
+        progress.setMaximum(100)
+        progress.setFormat("%p% completado")
+        progress.setFixedHeight(14)
+        header_row.addWidget(progress)
+        layout.addLayout(header_row)
 
-        control_row = QHBoxLayout()
-        control_row.addStretch(1)
-        copy_button = QPushButton("Copiar sección", group)
-        copy_button.setObjectName(f"copy-{key}")
-        copy_button.clicked.connect(lambda: self._copy_section_to_clipboard(key))
-        control_row.addWidget(copy_button)
-
-        hotkey_button = QPushButton("Copiar (hotkey)", group)
-        hotkey_button.setObjectName(f"hotkey-{key}")
-        hotkey_button.setToolTip(
-            "Disponible cuando el caso está marcado para atajos globales."
-        )
-        hotkey_button.clicked.connect(lambda: self._copy_section_to_clipboard(key))
-        control_row.addWidget(hotkey_button)
-        layout.addLayout(control_row)
-
+        content = QWidget(group)
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
         layout.addWidget(content)
+
+        section_state = _SectionState(
+            name=name,
+            group=group,
+            content=content,
+            progress_bar=progress,
+            fields=[],
+            minimum_required=minimum_required,
+        )
+        self._sections[name] = section_state
+        self._section_order.append(name)
+        return group, content, content_layout
+
+    def _register_field(self, section_name: str, field_name: str, widget: QWidget) -> None:
+        self._case_fields[field_name] = widget
+        self._sections[section_name].fields.append(field_name)
+
+    def _build_header_section(
+        self, *, title: str, subtitle: str, name: str, minimum_required: int
+    ) -> QWidget:
+        group, content, content_layout = self._create_section(title, subtitle, name, minimum_required=minimum_required)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        content_layout.addLayout(form)
+
+        header_fields: list[tuple[str, str, bool]] = [
+            ("company_name", "Company name", False),
+            ("case_id", "Case ID", False),
+            ("subscription_id", "Subscription ID", False),
+            ("application_version", "Application version", False),
+            ("kiroshi_version", "Kiroshi version", False),
+            ("brief_description", "Brief description", True),
+            ("description", "Full description", True),
+        ]
+
+        for field_name, label, multiline in header_fields:
+            widget: QWidget
+            if multiline:
+                editor = QPlainTextEdit(group)
+                editor.setPlaceholderText("Añade contexto o una descripción ampliada")
+                editor.textChanged.connect(
+                    partial(self._on_multiline_changed, field_name, editor)
+                )
+                widget = editor
+            else:
+                editor = QLineEdit(group)
+                editor.setPlaceholderText("Completa el campo de cabecera")
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+                widget = editor
+            self._register_field(name, field_name, widget)
+            form.addRow(label + ":", widget)
+
         return group
 
-    def _build_header_section(self) -> QWidget:
-        container = QWidget(self)
-        form = QFormLayout(container)
+    def _build_call_section(
+        self, *, title: str, subtitle: str, name: str, minimum_required: int
+    ) -> QWidget:
+        group, content, content_layout = self._create_section(title, subtitle, name, minimum_required=minimum_required)
+
+        form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        content_layout.addLayout(form)
 
-        configs = [
-            FieldConfig("company_name", "Empresa/Clínica"),
-            FieldConfig("subscription_id", "ID de suscripción"),
-            FieldConfig("case_id", "ID del caso"),
-            FieldConfig("application_version", "Versión de la aplicación"),
-            FieldConfig("kiroshi_version", "Versión de Kiroshi"),
-            FieldConfig("last_modified", "Última modificación"),
-            FieldConfig("brief_description", "Resumen breve", kind="multiline"),
-            FieldConfig("description", "Descripción completa", kind="multiline"),
-            FieldConfig("contact_name", "Nombre de contacto"),
-            FieldConfig("caller_name", "Persona que llama"),
-            FieldConfig("email", "Email"),
-            FieldConfig("phone_number", "Teléfono principal"),
-            FieldConfig("teamviewer_id", "TeamViewer ID"),
-            FieldConfig("teamviewer_password", "TeamViewer password"),
-            FieldConfig("dongle_number", "Número de dongle"),
-            FieldConfig("dongle_deployment_date", "Fecha despliegue dongle"),
-            FieldConfig("patterson", "Patterson"),
-            FieldConfig("straumann", "Straumann"),
+        call_fields: list[tuple[str, str, bool]] = [
+            ("caller_name", "Caller name", False),
+            ("phone_number", "Phone number", False),
+            ("phone_description", "Phone description", True),
+            ("dongle_number", "Dongle number", False),
+            ("teamviewer_id", "TeamViewer ID", False),
+            ("teamviewer_password", "TeamViewer password", False),
+            ("email", "Email", False),
+            ("contact_name", "Contact name", False),
+            ("office_ph", "Office phone", False),
+            ("direct_ph", "Direct phone", False),
+            ("best_time", "Best time to call", False),
         ]
 
-        self._create_fields(form, configs, section="header")
+        for field_name, label, multiline in call_fields:
+            if multiline:
+                editor = QPlainTextEdit(group)
+                editor.setPlaceholderText("Detalles relevantes de la llamada")
+                editor.textChanged.connect(
+                    partial(self._on_multiline_changed, field_name, editor)
+                )
+                widget: QWidget = editor
+            else:
+                editor = QLineEdit(group)
+                editor.setPlaceholderText("Información de contacto y llamada")
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+                widget = editor
+            self._register_field(name, field_name, widget)
+            form.addRow(label + ":", widget)
 
-        tracking_group = QGroupBox("Seguimiento", container)
-        tracking_layout = QFormLayout(tracking_group)
-        tracking_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        tracking_configs = [
-            FieldConfig("active", "Activar seguimiento", kind="bool", target="tracking"),
-            FieldConfig("type", "Tipo", target="tracking"),
-            FieldConfig("category", "Categoría", target="tracking"),
-            FieldConfig("status", "Estado", target="tracking"),
-            FieldConfig("ticket_number", "Número de ticket", target="tracking"),
-            FieldConfig("creation_day", "Fecha de creación", target="tracking"),
-            FieldConfig("case_link", "Enlace del caso", target="tracking"),
-            FieldConfig("expected_arrival_date", "Fecha estimada", target="tracking"),
-            FieldConfig("service_tag", "Service tag", target="tracking"),
-            FieldConfig("priority", "Prioridad", kind="combo", options=PRIORITY_OPTIONS, target="tracking"),
+        return group
+
+    def _build_internal_notes_section(
+        self, *, title: str, subtitle: str, name: str, minimum_required: int
+    ) -> QWidget:
+        group, content, content_layout = self._create_section(title, subtitle, name, minimum_required=minimum_required)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        content_layout.addLayout(form)
+
+        notes_fields: list[tuple[str, str]] = [
+            ("internal_helpjuice", "Internal Helpjuice"),
+            ("internal_logs", "Internal logs"),
+            ("additional_info", "Additional info"),
+            ("remote_steps", "Remote steps summary"),
         ]
-        self._create_fields(tracking_layout, tracking_configs, section="header")
-        form.addRow(tracking_group)
 
-        return container
+        for field_name, label in notes_fields:
+            editor = QPlainTextEdit(group)
+            editor.setPlaceholderText("Notas internas y enlaces de referencia")
+            if field_name == "remote_steps":
+                editor.setReadOnly(True)
+                editor.setToolTip(
+                    "Se genera automáticamente a partir de las sesiones remotas."
+                )
+            editor.textChanged.connect(
+                partial(self._on_multiline_changed, field_name, editor)
+            )
+            self._register_field(name, field_name, editor)
+            form.addRow(label + ":", editor)
+
+        return group
+
+    def _build_conclusion_section(
+        self, *, title: str, subtitle: str, name: str, minimum_required: int
+    ) -> QWidget:
+        group, content, content_layout = self._create_section(title, subtitle, name, minimum_required=minimum_required)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        content_layout.addLayout(form)
+
+        conclusion_fields: list[tuple[str, str, bool]] = [
+            ("solution", "Solution", True),
+            ("root_cause", "Root cause", True),
+            ("repro_steps", "Repro steps", True),
+            ("third_line_hj_article", "3rd line HJ article", False),
+            (
+                "third_line_troubleshoot_summary",
+                "3rd line troubleshoot summary",
+                True,
+            ),
+            ("third_line_comments", "3rd line comments", True),
+            ("third_line_reseller_name", "Reseller name", False),
+            ("third_line_reseller_phone", "Reseller phone", False),
+            ("third_line_reseller_phone_alt", "Reseller phone (alt)", False),
+            ("third_line_reseller_email", "Reseller email", False),
+            ("third_line_clinic_rep_name", "Clinic rep name", False),
+            ("third_line_clinic_rep_phone", "Clinic rep phone", False),
+            ("third_line_clinic_rep_phone_alt", "Clinic rep phone (alt)", False),
+            ("third_line_tv_id", "Clinic TV ID", False),
+            ("third_line_tv_password", "Clinic TV password", False),
+            ("third_line_unite_pin", "Unite PIN", False),
+        ]
+
+        for field_name, label, multiline in conclusion_fields:
+            if multiline:
+                editor = QPlainTextEdit(group)
+                editor.setPlaceholderText("Conclusiones y RCA detallada")
+                editor.textChanged.connect(
+                    partial(self._on_multiline_changed, field_name, editor)
+                )
+                widget: QWidget = editor
+            else:
+                editor = QLineEdit(group)
+                editor.setPlaceholderText("Dato de cierre o contacto externo")
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+                widget = editor
+            self._register_field(name, field_name, widget)
+            form.addRow(label + ":", widget)
+
+        return group
+
+    def _build_survey_section(
+        self, *, title: str, subtitle: str, name: str, minimum_required: int
+    ) -> QWidget:
+        group, content, content_layout = self._create_section(title, subtitle, name, minimum_required=minimum_required)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        content_layout.addLayout(form)
+
+        survey_fields: list[tuple[str, str, str]] = [
+            ("survey_link", "Survey link", "text"),
+            ("request_issue", "Request issue", "multiline"),
+            ("patterson", "Patterson", "text"),
+            ("straumann", "Straumann", "text"),
+            ("esc_name", "ESC name", "text"),
+            ("esc_ph", "ESC phone", "text"),
+            ("esc_email", "ESC email", "text"),
+            ("email_selected_template", "Email template", "text"),
+            ("email_custom_prompt", "Email custom prompt", "multiline"),
+            ("email_last_body", "Last email body", "multiline"),
+            ("email_draft", "Email draft", "multiline"),
+        ]
+
+        for field_name, label, kind in survey_fields:
+            if kind == "multiline":
+                editor = QPlainTextEdit(group)
+                editor.setPlaceholderText("Detalles de seguimiento o cuestionario")
+                editor.textChanged.connect(
+                    partial(self._on_multiline_changed, field_name, editor)
+                )
+                widget: QWidget = editor
+            else:
+                editor = QLineEdit(group)
+                editor.setPlaceholderText("Enlace o dato de seguimiento")
+                editor.textChanged.connect(partial(self._on_text_changed, field_name, editor))
+                widget = editor
+            self._register_field(name, field_name, widget)
+            form.addRow(label + ":", widget)
+
+        email_tone_combo = QComboBox(group)
+        email_tone_combo.addItems(["neutral", "friendly", "formal", "concise"])
+        email_tone_combo.currentTextChanged.connect(self._on_email_tone_changed)
+        self._register_field(name, "email_tone", email_tone_combo)
+        form.addRow("Email tone:", email_tone_combo)
+
+        email_audience_combo = QComboBox(group)
+        email_audience_combo.addItems(["customer", "reseller", "internal"])
+        email_audience_combo.currentTextChanged.connect(self._on_email_audience_changed)
+        self._register_field(name, "email_audience", email_audience_combo)
+        form.addRow("Email audience:", email_audience_combo)
+
+        email_second_line_checkbox = QCheckBox("Second line mode", group)
+        email_second_line_checkbox.toggled.connect(self._on_email_second_line_toggled)
+        self._register_field(name, "email_second_line_mode", email_second_line_checkbox)
+        form.addRow(email_second_line_checkbox)
+
+        return group
 
     def _build_call_section(self) -> QWidget:
         container = QWidget(self)
         form = QFormLayout(container)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        configs = [
-            FieldConfig("request_issue", "Motivo de la solicitud", kind="multiline"),
-            FieldConfig("phone_description", "Resumen de la llamada", kind="multiline"),
-            FieldConfig("office_ph", "Teléfono oficina"),
-            FieldConfig("direct_ph", "Teléfono directo"),
-            FieldConfig("best_time", "Mejor horario"),
-        ]
-        self._create_fields(form, configs, section="call")
-        return container
-
-    def _build_notes_section(self) -> QWidget:
-        container = QWidget(self)
-        layout = QVBoxLayout(container)
-        layout.setSpacing(8)
+        self._tracking_active_checkbox = QCheckBox("Track this case", group)
+        self._tracking_active_checkbox.setToolTip(
+            "Activa el seguimiento solo si el caso debe aparecer en reportes."
+        )
+        self._tracking_active_checkbox.toggled.connect(self._on_tracking_active_toggled)
+        layout.addWidget(self._tracking_active_checkbox)
 
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
@@ -383,23 +600,10 @@ class CaseTab(QWidget):
         form = QFormLayout(container)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        configs = [
-            FieldConfig("survey_link", "Enlace de encuesta"),
-            FieldConfig("email_selected_template", "Plantilla de correo"),
-            FieldConfig("email_tone", "Tono del correo"),
-            FieldConfig("email_audience", "Audiencia del correo"),
-            FieldConfig("email_custom_prompt", "Prompt personalizado", kind="multiline"),
-            FieldConfig("email_last_body", "Último cuerpo generado", kind="multiline"),
-            FieldConfig("email_draft", "Borrador", kind="multiline"),
-            FieldConfig("email_second_line_mode", "Modo segunda línea", kind="bool"),
-        ]
-        self._create_fields(form, configs, section="survey")
-        return container
-
-    def _build_remote_section(self) -> QWidget:
-        container = QWidget(self)
-        layout = QVBoxLayout(container)
-        layout.setSpacing(8)
+    def _build_remote_sessions_section(
+        self, *, title: str, subtitle: str, name: str, minimum_required: int
+    ) -> QWidget:
+        group, content, content_layout = self._create_section(title, subtitle, name, minimum_required=minimum_required)
 
         info = QLabel(
             "Completa las sesiones en orden. Se habilitarán cuando las secciones previas estén completas.",
@@ -412,39 +616,76 @@ class CaseTab(QWidget):
         self._remote_sessions_layout = QVBoxLayout(self._remote_sessions_container)
         self._remote_sessions_layout.setContentsMargins(0, 0, 0, 0)
         self._remote_sessions_layout.setSpacing(8)
-        layout.addWidget(self._remote_sessions_container)
+        content_layout.addWidget(self._remote_sessions_container)
 
-        add_button = QPushButton("Añadir sesión remota", container)
+        add_button = QPushButton("Add remote session", group)
+        add_button.setToolTip("Registra nuevas conexiones remotas y apuntes.")
         add_button.clicked.connect(self._add_remote_session)
-        layout.addWidget(add_button, alignment=Qt.AlignmentFlag.AlignLeft)
-        return container
+        content_layout.addWidget(add_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
-    def _create_fields(self, layout: QFormLayout, configs: Iterable[FieldConfig], *, section: str) -> None:
-        for config in configs:
-            widget: QWidget
-            if config.kind == "multiline":
-                editor = QPlainTextEdit(self)
-                editor.setPlaceholderText(config.placeholder or config.label)
-                editor.textChanged.connect(
-                    partial(self._on_multiline_changed, config.name, editor, config.target)
-                )
-                widget = editor
-            elif config.kind == "bool":
-                checkbox = QCheckBox(config.label, self)
-                checkbox.toggled.connect(
-                    partial(self._on_bool_changed, config.name, checkbox, config.target)
-                )
-                widget = checkbox
-                layout.addRow(widget)
-            elif config.kind == "combo":
-                combo = QComboBox(self)
-                combo.addItems(list(config.options or []))
-                combo.currentTextChanged.connect(
-                    partial(self._on_combo_changed, config.name, combo, config.target)
-                )
-                widget = combo
-            elif config.kind == "spin":
-                spin = QSpinBox(self)
+        self._register_field(name, "remote_sessions", self._remote_sessions_container)
+        return group
+
+    def _build_hardware_section(self) -> QWidget:
+        group = QGroupBox("Hardware diagnostics", self)
+        layout = QVBoxLayout(group)
+
+        self._include_hardware_checkbox = QCheckBox("Include hardware issue fields", group)
+        self._include_hardware_checkbox.toggled.connect(self._on_include_hardware_toggled)
+        layout.addWidget(self._include_hardware_checkbox)
+
+        self._hardware_fields_container = QWidget(group)
+        hardware_form = QFormLayout(self._hardware_fields_container)
+        hardware_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        hardware_config: list[tuple[str, str, str]] = [
+            ("hardware_test", "Hardware test", "multiline"),
+            ("service_tag", "Dell service tag", "text"),
+            ("pc_model", "PC model", "text"),
+            ("windows_version", "Windows version", "text"),
+            ("bios_version", "BIOS version", "text"),
+            ("graphics_card", "Graphics card", "text"),
+            ("processor", "Processor", "text"),
+            ("warranty", "Warranty", "text"),
+            ("scanner_sn", "Scanner S/N", "text"),
+            ("base_sn", "Base S/N", "text"),
+            ("trios_module_version", "TRIOS module version", "text"),
+            ("dongle_deployment_date", "Dongle deployment date", "text"),
+            ("scanner_previous_replacements", "Scanner replacements", "spin"),
+            ("scanner_accidental_damage", "Scanner accidental damage", "text"),
+            ("dell_issue_start_date", "Issue start date", "text"),
+            ("dell_command_updates_status", "Command Updates status", "text"),
+            ("dell_power_options_setup", "Power options setup", "text"),
+            ("dell_optimizer_setup", "Optimizer setup", "text"),
+            ("dell_intel_ppm_installed", "Intel PPM installed", "text"),
+            ("dell_cpu_speed_or_throttling", "CPU speed/throttling", "text"),
+            ("dell_gpu_usage_integrated", "GPU usage (integrated)", "text"),
+            ("dell_gpu_usage_dedicated", "GPU usage (dedicated)", "text"),
+            ("dell_cpu_utilization", "CPU utilisation", "text"),
+            ("dell_benchmark_results", "Benchmark results", "multiline"),
+            ("dell_ultra_resolution_support", "Ultra resolution support", "text"),
+            ("dell_gpu_driver_versions", "GPU driver versions", "text"),
+            ("dell_reliability_monitor_results", "Reliability monitor", "multiline"),
+            ("dell_diagnostics_results", "Diagnostics results", "multiline"),
+            ("dell_windows_reimaged", "Windows reimaged", "text"),
+            ("clinic_name", "Clinic name", "text"),
+            ("clinic_contact_name", "Clinic contact name", "text"),
+            ("clinic_contact_phone", "Clinic contact phone", "text"),
+            ("clinic_contact_email", "Clinic contact email", "text"),
+            ("clinic_address_line_1", "Clinic address line 1", "text"),
+            ("clinic_address_line_2", "Clinic address line 2", "text"),
+            ("clinic_city", "Clinic city", "text"),
+            ("clinic_state", "Clinic state", "text"),
+            ("clinic_postal_code", "Clinic postal code", "text"),
+        ]
+
+        for field_name, label, kind in hardware_config:
+            if kind == "multiline":
+                editor = QPlainTextEdit(self._hardware_fields_container)
+                editor.textChanged.connect(partial(self._on_hardware_multiline_changed, field_name, editor))
+                widget: QWidget = editor
+            elif kind == "spin":
+                spin = QSpinBox(self._hardware_fields_container)
                 spin.setMinimum(0)
                 spin.setMaximum(999)
                 spin.valueChanged.connect(
@@ -485,19 +726,17 @@ class CaseTab(QWidget):
     def _populate_from_case(self) -> None:
         self._syncing = True
 
-        for field_name, widget in self._fields.items():
-            value = getattr(self._case, field_name, "") or ""
+        for field_name, widget in self._case_fields.items():
+            value = getattr(self._case, field_name, "")
             if isinstance(widget, QLineEdit):
-                widget.setText(value)
+                widget.setText(value or "")
             elif isinstance(widget, QPlainTextEdit):
-                widget.setPlainText(value)
+                widget.setPlainText(value or "")
             elif isinstance(widget, QCheckBox):
                 widget.setChecked(bool(value))
-            elif isinstance(widget, QSpinBox):
-                try:
-                    widget.setValue(int(value))
-                except (TypeError, ValueError):
-                    widget.setValue(0)
+            elif isinstance(widget, QComboBox):
+                index = max(0, widget.findText(str(value or "")))
+                widget.setCurrentIndex(index)
 
         tracking = self._case.tracking if isinstance(self._case.tracking, TrackingData) else TrackingData()
         for field_name, widget in self._tracking_fields.items():
@@ -526,7 +765,8 @@ class CaseTab(QWidget):
                 self._add_remote_session(entry, emit_changed=False)
         else:
             self._add_remote_session(RemoteSessionEntry(), emit_changed=False)
-        self._update_remote_session_titles()
+        self._sync_remote_sessions_from_widgets(emit_changed=False)
+        self._update_sections_state()
 
         self._syncing = False
         self._update_remote_steps_summary()
@@ -538,22 +778,14 @@ class CaseTab(QWidget):
     def _on_text_changed(self, field_name: str, editor: QLineEdit, target: str) -> None:
         if self._syncing:
             return
-        if target == "tracking":
-            tracking = self._ensure_tracking()
-            setattr(tracking, field_name, editor.text())
-        else:
-            setattr(self._case, field_name, editor.text())
-        self._emit_case_changed()
+        setattr(self._case, field_name, editor.text())
+        self._after_field_change()
 
     def _on_multiline_changed(self, field_name: str, editor: QPlainTextEdit, target: str) -> None:
         if self._syncing:
             return
-        if target == "tracking":
-            tracking = self._ensure_tracking()
-            setattr(tracking, field_name, editor.toPlainText())
-        else:
-            setattr(self._case, field_name, editor.toPlainText())
-        self._emit_case_changed()
+        setattr(self._case, field_name, editor.toPlainText())
+        self._after_field_change()
 
     def _on_combo_changed(self, field_name: str, combo: QComboBox, target: str, value: str) -> None:
         if self._syncing:
@@ -568,72 +800,72 @@ class CaseTab(QWidget):
     def _on_spin_changed(self, field_name: str, spin: QSpinBox, target: str, value: int) -> None:
         if self._syncing:
             return
-        if target == "tracking":
-            tracking = self._ensure_tracking()
-            setattr(tracking, field_name, int(value))
-        else:
-            setattr(self._case, field_name, int(value))
-        self._emit_case_changed()
+        tracking = self._ensure_tracking()
+        setattr(tracking, field_name, editor.text())
+        self._after_field_change()
 
     def _on_bool_changed(self, field_name: str, checkbox: QCheckBox, target: str, checked: bool) -> None:
         if self._syncing:
             return
-        if target == "tracking":
-            tracking = self._ensure_tracking()
-            setattr(tracking, field_name, bool(checked))
-        else:
-            setattr(self._case, field_name, bool(checked))
-        if field_name == "include_hardware_fields":
-            self._toggle_hardware_visibility()
-        self._emit_case_changed()
+        tracking = self._ensure_tracking()
+        tracking.priority = value
+        self._after_field_change()
 
     def _on_hotkey_toggled(self, checked: bool) -> None:
         if self._syncing:
             return
         self._case.active_for_hotkeys = checked
         self.hotkeySelectionChanged.emit(checked)
-        self._emit_case_changed()
-        self._update_hotkey_buttons()
+        self._after_field_change()
 
-    def _copy_hardware_table(self, table: QTableWidget) -> None:
-        rows: list[str] = []
-        for row in range(table.rowCount()):
-            label = table.item(row, 0).text() if table.item(row, 0) else ""
-            value = table.item(row, 1).text() if table.item(row, 1) else ""
-            rows.append(f"{label}\t{value}")
-        QGuiApplication.clipboard().setText("\n".join(rows))
-
-    def _refresh_hardware_tables(self) -> None:
-        for field_name in self._hardware_table_rows:
-            value = getattr(self._case, field_name, "")
-            self._update_hardware_table_field(field_name, value)
-
-    def _update_hardware_table_field(self, field_name: str, value: object) -> None:
-        if field_name not in self._hardware_table_rows:
+    def _on_include_hardware_toggled(self, checked: bool) -> None:
+        if self._syncing:
             return
-        table, row = self._hardware_table_rows[field_name]
-        display_value = self._normalize_hardware_value(value)
-        item = table.item(row, 1)
-        if item is None:
-            item = QTableWidgetItem()
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            table.setItem(row, 1, item)
-        item.setText(display_value)
+        self._case.include_hardware_fields = checked
+        self._hardware_fields_container.setVisible(checked)
+        self._after_field_change()
 
-        critical_fields = {"scanner_sn", "base_sn", "service_tag"}
-        if field_name in critical_fields and not display_value:
-            item.setBackground(table.palette().alternateBase())
-            item.setToolTip("Falta un campo crítico: completa este dato antes de cerrar el caso.")
-        else:
-            item.setBackground(table.palette().base())
-            item.setToolTip(table.item(row, 0).toolTip())
+    def _on_hardware_text_changed(self, field_name: str, editor: QLineEdit) -> None:
+        if self._syncing:
+            return
+        setattr(self._case, field_name, editor.text())
+        self._after_field_change()
 
-    def _normalize_hardware_value(self, value: object) -> str:
-        if isinstance(value, bool):
-            return "Yes" if value else "No"
-        if value is None:
-            return ""
-        return str(value).strip()
+    def _on_hardware_multiline_changed(self, field_name: str, editor: QPlainTextEdit) -> None:
+        if self._syncing:
+            return
+        setattr(self._case, field_name, editor.toPlainText())
+        self._after_field_change()
+
+    def _on_hardware_spin_changed(self, field_name: str, spin: QSpinBox, value: int) -> None:
+        if self._syncing:
+            return
+        setattr(self._case, field_name, int(value))
+        self._after_field_change()
+
+    def _set_case_flag(self, field_name: str, value: bool) -> None:
+        if self._syncing:
+            return
+        setattr(self._case, field_name, bool(value))
+        self._after_field_change()
+
+    def _on_email_tone_changed(self, value: str) -> None:
+        if self._syncing:
+            return
+        self._case.email_tone = value
+        self._after_field_change()
+
+    def _on_email_audience_changed(self, value: str) -> None:
+        if self._syncing:
+            return
+        self._case.email_audience = value
+        self._after_field_change()
+
+    def _on_email_second_line_toggled(self, checked: bool) -> None:
+        if self._syncing:
+            return
+        self._case.email_second_line_mode = checked
+        self._after_field_change()
 
     def _ensure_tracking(self) -> TrackingData:
         if not isinstance(self._case.tracking, TrackingData):
@@ -653,7 +885,7 @@ class CaseTab(QWidget):
         widget.removed.connect(self._on_remote_session_removed)
         self._remote_sessions_layout.addWidget(widget)
         self._remote_session_widgets.append(widget)
-        if not self._syncing and emit_changed:
+        if emit_changed:
             self._sync_remote_sessions_from_widgets()
 
     def _clear_remote_session_widgets(self) -> None:
@@ -678,11 +910,12 @@ class CaseTab(QWidget):
         self._update_remote_session_titles()
         self._sync_remote_sessions_from_widgets()
 
-    def _sync_remote_sessions_from_widgets(self) -> None:
+    def _sync_remote_sessions_from_widgets(self, *, emit_changed: bool = True) -> None:
         self._case.remote_sessions = [widget.entry for widget in self._remote_session_widgets]
         self._update_remote_session_titles()
         self._update_remote_steps_summary()
-        self._emit_case_changed()
+        if emit_changed and not self._syncing:
+            self._after_field_change()
 
     def _update_remote_session_titles(self) -> None:
         for idx, widget in enumerate(self._remote_session_widgets, start=1):
@@ -695,6 +928,71 @@ class CaseTab(QWidget):
             notes = entry.notes.strip()
             lines.append(f"{title}: {notes}" if notes else title)
         self._case.remote_steps = "\n\n".join(lines).strip()
+        remote_widget = self._case_fields.get("remote_steps")
+        if isinstance(remote_widget, QPlainTextEdit):
+            previous_syncing = self._syncing
+            self._syncing = True
+            remote_widget.setPlainText(self._case.remote_steps)
+            self._syncing = previous_syncing
+
+    def _after_field_change(self) -> None:
+        if self._syncing:
+            return
+        self._update_sections_state()
+        self._emit_case_changed()
+
+    def _update_sections_state(self) -> None:
+        previous_complete = True
+        for name in self._section_order:
+            section = self._sections[name]
+            filled, total = self._compute_section_completion(section)
+            percent = int((filled / total) * 100) if total else 0
+            section.progress_bar.setValue(percent)
+            is_complete = filled >= section.minimum_required
+            allowed = previous_complete
+            section.group.setEnabled(allowed)
+            section.content.setVisible(allowed)
+            status_tooltip = (
+                "Se habilita al completar la sección previa con información mínima."
+            )
+            section.group.setToolTip(status_tooltip)
+            previous_complete = is_complete
+
+    def _compute_section_completion(self, section: _SectionState) -> tuple[int, int]:
+        filled = 0
+        total = 0
+        for field_name in section.fields:
+            widget = self._case_fields.get(field_name)
+            if widget is None:
+                continue
+            if field_name == "remote_sessions":
+                filled += self._remote_sessions_completion_count()
+                total += max(1, len(self._case.remote_sessions))
+                continue
+            total += 1
+            if isinstance(widget, QLineEdit):
+                if bool(widget.text().strip()):
+                    filled += 1
+            elif isinstance(widget, QPlainTextEdit):
+                if bool(widget.toPlainText().strip()):
+                    filled += 1
+            elif isinstance(widget, QCheckBox):
+                if widget.isChecked():
+                    filled += 1
+            elif isinstance(widget, QComboBox):
+                if bool(widget.currentText().strip()):
+                    filled += 1
+            elif isinstance(widget, QSpinBox):
+                if widget.value() > 0:
+                    filled += 1
+        return filled, total
+
+    def _remote_sessions_completion_count(self) -> int:
+        completed = 0
+        for entry in self._case.remote_sessions:
+            if entry.title.strip() or entry.notes.strip():
+                completed += 1
+        return completed
 
     # ──────────────────── Section helpers ────────────────────
     def _toggle_hardware_visibility(self) -> None:
