@@ -15393,7 +15393,7 @@ def render_case_ui(case_idx: int):
     CURRENT_CASE_IDX = case_idx
     _sync_case_text_state(case_idx)
     # ──────────── TABS ───────────
-    if case_idx <= 1:
+    if case_idx == 0:
         col_escal, col_hw = st.columns(2)
         with col_escal:
             st.session_state.include_escalations = st.toggle(
