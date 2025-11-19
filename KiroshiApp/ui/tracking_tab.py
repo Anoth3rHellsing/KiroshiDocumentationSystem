@@ -167,6 +167,15 @@ class TrackingTab(QWidget):
         self._reload_records()
         self._update_actions_state()
 
+    def set_second_line_enabled(self, enabled: bool) -> None:
+        """Enable or disable tracking actions based on global settings."""
+
+        enabled_flag = bool(enabled)
+        if self._second_line_enabled == enabled_flag:
+            return
+        self._second_line_enabled = enabled_flag
+        self._update_actions_state()
+
     def refresh_case(self, case: CaseData) -> None:
         """Update the placeholder with the active case."""
 
