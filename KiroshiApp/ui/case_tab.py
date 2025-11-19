@@ -6,12 +6,14 @@ from functools import partial
 from typing import Callable, Iterable, List, Sequence
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,6 +23,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -97,6 +101,7 @@ class CaseTab(QWidget):
 
     caseChanged = Signal(CaseData)
     hotkeySelectionChanged = Signal(bool)
+    exportRequested = Signal(CaseData)
 
     def __init__(
         self,
@@ -446,6 +451,16 @@ class CaseTab(QWidget):
                     partial(self._on_spin_changed, config.name, spin, config.target)
                 )
                 widget = spin
+            elif kind == "checkbox":
+                checkbox = QCheckBox(label, group)
+                checkbox.setToolTip(tooltip)
+                checkbox.toggled.connect(
+                    partial(self._on_hardware_checkbox_toggled, field_name, checkbox)
+                )
+                widget = checkbox
+                form.addRow(checkbox)
+                self._hardware_fields[field_name] = widget
+                continue
             else:
                 editor = QLineEdit(self)
                 editor.setPlaceholderText(config.placeholder or config.label)
@@ -579,6 +594,46 @@ class CaseTab(QWidget):
         self.hotkeySelectionChanged.emit(checked)
         self._emit_case_changed()
         self._update_hotkey_buttons()
+
+    def _copy_hardware_table(self, table: QTableWidget) -> None:
+        rows: list[str] = []
+        for row in range(table.rowCount()):
+            label = table.item(row, 0).text() if table.item(row, 0) else ""
+            value = table.item(row, 1).text() if table.item(row, 1) else ""
+            rows.append(f"{label}\t{value}")
+        QGuiApplication.clipboard().setText("\n".join(rows))
+
+    def _refresh_hardware_tables(self) -> None:
+        for field_name in self._hardware_table_rows:
+            value = getattr(self._case, field_name, "")
+            self._update_hardware_table_field(field_name, value)
+
+    def _update_hardware_table_field(self, field_name: str, value: object) -> None:
+        if field_name not in self._hardware_table_rows:
+            return
+        table, row = self._hardware_table_rows[field_name]
+        display_value = self._normalize_hardware_value(value)
+        item = table.item(row, 1)
+        if item is None:
+            item = QTableWidgetItem()
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            table.setItem(row, 1, item)
+        item.setText(display_value)
+
+        critical_fields = {"scanner_sn", "base_sn", "service_tag"}
+        if field_name in critical_fields and not display_value:
+            item.setBackground(table.palette().alternateBase())
+            item.setToolTip("Falta un campo crítico: completa este dato antes de cerrar el caso.")
+        else:
+            item.setBackground(table.palette().base())
+            item.setToolTip(table.item(row, 0).toolTip())
+
+    def _normalize_hardware_value(self, value: object) -> str:
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        if value is None:
+            return ""
+        return str(value).strip()
 
     def _ensure_tracking(self) -> TrackingData:
         if not isinstance(self._case.tracking, TrackingData):
