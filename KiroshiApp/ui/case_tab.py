@@ -5,11 +5,14 @@ from functools import partial
 from typing import List
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -18,6 +21,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -100,6 +105,7 @@ class CaseTab(QWidget):
         self._client_fields: dict[str, QWidget] = {}
         self._tracking_fields: dict[str, QWidget] = {}
         self._hardware_fields: dict[str, QWidget] = {}
+        self._hardware_table_rows: dict[str, tuple[QTableWidget, int]] = {}
         self._remote_session_widgets: List[RemoteSessionWidget] = []
 
         self._build_ui()
@@ -244,85 +250,352 @@ class CaseTab(QWidget):
         layout = QVBoxLayout(group)
 
         self._include_hardware_checkbox = QCheckBox("Include hardware issue fields", group)
+        self._include_hardware_checkbox.setToolTip(
+            "Muestra u oculta los datos de hardware cuando sean relevantes para el caso."
+        )
         self._include_hardware_checkbox.toggled.connect(self._on_include_hardware_toggled)
         layout.addWidget(self._include_hardware_checkbox)
 
         self._hardware_fields_container = QWidget(group)
-        hardware_form = QFormLayout(self._hardware_fields_container)
-        hardware_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        hardware_layout = QVBoxLayout(self._hardware_fields_container)
+        hardware_layout.setContentsMargins(0, 0, 0, 0)
+        hardware_layout.setSpacing(12)
 
-        hardware_config: list[tuple[str, str, str]] = [
-            ("hardware_test", "Hardware test", "multiline"),
-            ("service_tag", "Dell service tag", "text"),
-            ("pc_model", "PC model", "text"),
-            ("windows_version", "Windows version", "text"),
-            ("bios_version", "BIOS version", "text"),
-            ("graphics_card", "Graphics card", "text"),
-            ("processor", "Processor", "text"),
-            ("warranty", "Warranty", "text"),
-            ("scanner_sn", "Scanner S/N", "text"),
-            ("base_sn", "Base S/N", "text"),
-            ("trios_module_version", "TRIOS module version", "text"),
-            ("dongle_deployment_date", "Dongle deployment date", "text"),
-            ("scanner_previous_replacements", "Scanner replacements", "spin"),
-            ("scanner_accidental_damage", "Scanner accidental damage", "text"),
-            ("dell_issue_start_date", "Issue start date", "text"),
-            ("dell_command_updates_status", "Command Updates status", "text"),
-            ("dell_power_options_setup", "Power options setup", "text"),
-            ("dell_optimizer_setup", "Optimizer setup", "text"),
-            ("dell_intel_ppm_installed", "Intel PPM installed", "text"),
-            ("dell_cpu_speed_or_throttling", "CPU speed/throttling", "text"),
-            ("dell_gpu_usage_integrated", "GPU usage (integrated)", "text"),
-            ("dell_gpu_usage_dedicated", "GPU usage (dedicated)", "text"),
-            ("dell_cpu_utilization", "CPU utilisation", "text"),
-            ("dell_benchmark_results", "Benchmark results", "multiline"),
-            ("dell_ultra_resolution_support", "Ultra resolution support", "text"),
-            ("dell_gpu_driver_versions", "GPU driver versions", "text"),
-            ("dell_reliability_monitor_results", "Reliability monitor", "multiline"),
-            ("dell_diagnostics_results", "Diagnostics results", "multiline"),
-            ("dell_windows_reimaged", "Windows reimaged", "text"),
-            ("clinic_name", "Clinic name", "text"),
-            ("clinic_contact_name", "Clinic contact name", "text"),
-            ("clinic_contact_phone", "Clinic contact phone", "text"),
-            ("clinic_contact_email", "Clinic contact email", "text"),
-            ("clinic_address_line_1", "Clinic address line 1", "text"),
-            ("clinic_address_line_2", "Clinic address line 2", "text"),
-            ("clinic_city", "Clinic city", "text"),
-            ("clinic_state", "Clinic state", "text"),
-            ("clinic_postal_code", "Clinic postal code", "text"),
+        pc_fields: list[tuple[str, str, str, bool, str]] = [
+            (
+                "hardware_test",
+                "Hardware test",
+                "multiline",
+                False,
+                "Resumen de pruebas realizadas y resultados en el PC.",
+            ),
+            (
+                "service_tag",
+                "Dell service tag",
+                "text",
+                True,
+                "Etiqueta necesaria para reclamaciones y soporte de Dell.",
+            ),
+            ("pc_model", "PC model", "text", False, "Modelo exacto del PC en revisión."),
+            ("windows_version", "Windows version", "text", False, "Versión y build instaladas."),
+            ("bios_version", "BIOS version", "text", False, "Versión de BIOS/UEFI."),
+            ("graphics_card", "Graphics card", "text", False, "Modelo de GPU presente."),
+            ("processor", "Processor", "text", False, "Modelo de CPU."),
+            ("warranty", "Warranty", "text", False, "Cobertura y fecha de garantía."),
+            (
+                "dongle_deployment_date",
+                "Dongle deployment date",
+                "text",
+                False,
+                "Fecha aproximada de activación del dongle.",
+            ),
+            (
+                "dell_issue_start_date",
+                "Issue start date",
+                "text",
+                False,
+                "Cuándo comenzaron los síntomas en el PC.",
+            ),
+            (
+                "dell_command_updates_status",
+                "Command Updates status",
+                "text",
+                False,
+                "Estado de Dell Command/Updates y parches aplicados.",
+            ),
+            (
+                "dell_power_options_setup",
+                "Power options setup",
+                "text",
+                False,
+                "Perfil de energía configurado (alto rendimiento, etc.).",
+            ),
+            (
+                "dell_optimizer_setup",
+                "Optimizer setup",
+                "text",
+                False,
+                "Ajustes o perfiles aplicados en Dell Optimizer.",
+            ),
+            (
+                "dell_intel_ppm_installed",
+                "Intel PPM installed",
+                "text",
+                False,
+                "Estado del controlador Intel PPM o parches relacionados.",
+            ),
+            (
+                "dell_cpu_speed_or_throttling",
+                "CPU speed/throttling",
+                "text",
+                False,
+                "Velocidad observada y si hubo estrangulamiento.",
+            ),
+            (
+                "dell_gpu_usage_integrated",
+                "GPU usage (integrated)",
+                "text",
+                False,
+                "Consumo o carga de la GPU integrada.",
+            ),
+            (
+                "dell_gpu_usage_dedicated",
+                "GPU usage (dedicated)",
+                "text",
+                False,
+                "Consumo o carga de la GPU dedicada.",
+            ),
+            (
+                "dell_cpu_utilization",
+                "CPU utilisation",
+                "text",
+                False,
+                "Promedio y picos de uso de CPU durante las pruebas.",
+            ),
+            (
+                "dell_benchmark_results",
+                "Benchmark results",
+                "multiline",
+                False,
+                "Resultados relevantes de benchmarks o pruebas de estrés.",
+            ),
+            (
+                "dell_ultra_resolution_support",
+                "Ultra resolution support",
+                "text",
+                False,
+                "Compatibilidad con resoluciones ultra o 4K.",
+            ),
+            (
+                "dell_gpu_driver_versions",
+                "GPU driver versions",
+                "text",
+                False,
+                "Versiones de drivers instaladas (Intel/NVIDIA/AMD).",
+            ),
+            (
+                "dell_reliability_monitor_results",
+                "Reliability monitor",
+                "multiline",
+                False,
+                "Eventos destacados del monitor de confiabilidad.",
+            ),
+            (
+                "dell_diagnostics_results",
+                "Diagnostics results",
+                "multiline",
+                False,
+                "Resultados de ePSA u otras pruebas de diagnóstico.",
+            ),
+            (
+                "dell_windows_reimaged",
+                "Windows reimaged",
+                "text",
+                False,
+                "Indicar si Windows fue reinstalado o reimaginado.",
+            ),
         ]
 
-        for field_name, label, kind in hardware_config:
-            if kind == "multiline":
-                editor = QPlainTextEdit(self._hardware_fields_container)
-                editor.textChanged.connect(partial(self._on_hardware_multiline_changed, field_name, editor))
-                widget: QWidget = editor
-            elif kind == "spin":
-                spin = QSpinBox(self._hardware_fields_container)
-                spin.setMinimum(0)
-                spin.setMaximum(999)
-                spin.valueChanged.connect(partial(self._on_hardware_spin_changed, field_name, spin))
-                widget = spin
-            else:
-                editor = QLineEdit(self._hardware_fields_container)
-                editor.textChanged.connect(partial(self._on_hardware_text_changed, field_name, editor))
-                widget = editor
-            self._hardware_fields[field_name] = widget
-            hardware_form.addRow(label + ":", widget)
+        scanner_fields: list[tuple[str, str, str, bool, str]] = [
+            (
+                "scanner_sn",
+                "Scanner S/N",
+                "text",
+                True,
+                "Número de serie del escáner; imprescindible para reemplazos.",
+            ),
+            (
+                "base_sn",
+                "Base S/N",
+                "text",
+                True,
+                "Número de serie de la base o cradle del escáner.",
+            ),
+            (
+                "trios_module_version",
+                "TRIOS module version",
+                "text",
+                False,
+                "Versión del módulo TRIOS instalado.",
+            ),
+            (
+                "scanner_previous_replacements",
+                "Scanner replacements",
+                "spin",
+                False,
+                "Cantidad de reemplazos previos registrados.",
+            ),
+            (
+                "scanner_accidental_damage",
+                "Scanner accidental damage",
+                "text",
+                False,
+                "Notas sobre daño accidental reportado.",
+            ),
+            (
+                "clinic_name",
+                "Clinic name",
+                "text",
+                False,
+                "Nombre comercial de la clínica involucrada.",
+            ),
+            (
+                "clinic_contact_name",
+                "Clinic contact name",
+                "text",
+                False,
+                "Persona de contacto principal.",
+            ),
+            (
+                "clinic_contact_phone",
+                "Clinic contact phone",
+                "text",
+                False,
+                "Teléfono directo del contacto.",
+            ),
+            (
+                "clinic_contact_email",
+                "Clinic contact email",
+                "text",
+                False,
+                "Correo del contacto; útil para envíos RMA.",
+            ),
+            (
+                "clinic_address_line_1",
+                "Clinic address line 1",
+                "text",
+                False,
+                "Dirección principal para envíos.",
+            ),
+            (
+                "clinic_address_line_2",
+                "Clinic address line 2",
+                "text",
+                False,
+                "Complemento de dirección (suite, piso).",
+            ),
+            ("clinic_city", "Clinic city", "text", False, "Ciudad de la clínica."),
+            ("clinic_state", "Clinic state", "text", False, "Estado o provincia."),
+            (
+                "clinic_postal_code",
+                "Clinic postal code",
+                "text",
+                False,
+                "Código postal verificado para envíos.",
+            ),
+            (
+                "customer_trios_only",
+                "Customer TRIOS only",
+                "checkbox",
+                False,
+                "Marca si el cliente solo utiliza TRIOS sin otras unidades.",
+            ),
+            (
+                "support_fee_accepted",
+                "Support fee accepted",
+                "checkbox",
+                False,
+                "Confirma si se aprobó la tarifa de soporte.",
+            ),
+        ]
 
-        self._customer_trios_only = QCheckBox("Customer TRIOS only", self._hardware_fields_container)
-        self._customer_trios_only.toggled.connect(
-            lambda checked: self._set_case_flag("customer_trios_only", checked)
+        hardware_layout.addWidget(
+            self._build_hardware_group(
+                "PC Hardware", pc_fields, self._hardware_fields_container
+            )
         )
-        hardware_form.addRow(self._customer_trios_only)
-
-        self._support_fee_accepted = QCheckBox("Support fee accepted", self._hardware_fields_container)
-        self._support_fee_accepted.toggled.connect(
-            lambda checked: self._set_case_flag("support_fee_accepted", checked)
+        hardware_layout.addWidget(
+            self._build_hardware_group(
+                "Scanner Hardware", scanner_fields, self._hardware_fields_container
+            )
         )
-        hardware_form.addRow(self._support_fee_accepted)
 
         layout.addWidget(self._hardware_fields_container)
+        return group
+
+    def _build_hardware_group(
+        self,
+        title: str,
+        fields: list[tuple[str, str, str, bool, str]],
+        parent: QWidget,
+    ) -> QWidget:
+        group = QGroupBox(title, parent)
+        group.setCheckable(False)
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
+
+        table = QTableWidget(len(fields), 2, group)
+        table.setHorizontalHeaderLabels(["Campo", "Valor"])
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        table.setToolTip("Vista rápida de campos de hardware en modo solo lectura.")
+
+        for row, (field_name, label, _kind, _critical, tooltip) in enumerate(fields):
+            label_item = QTableWidgetItem(label)
+            label_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            label_item.setToolTip(tooltip)
+            value_item = QTableWidgetItem("")
+            value_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            value_item.setToolTip(tooltip)
+            table.setItem(row, 0, label_item)
+            table.setItem(row, 1, value_item)
+            self._hardware_table_rows[field_name] = (table, row)
+
+        layout.addWidget(table)
+
+        controls = QHBoxLayout()
+        controls.addStretch(1)
+        copy_button = QPushButton("Copiar tabla", group)
+        copy_button.setToolTip("Copia la tabla en formato TSV al portapapeles.")
+        copy_button.clicked.connect(lambda: self._copy_hardware_table(table))
+        controls.addWidget(copy_button)
+        layout.addLayout(controls)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        for field_name, label, kind, _critical, tooltip in fields:
+            widget: QWidget
+            if kind == "multiline":
+                editor = QPlainTextEdit(group)
+                editor.setToolTip(tooltip)
+                editor.textChanged.connect(
+                    partial(self._on_hardware_multiline_changed, field_name, editor)
+                )
+                widget = editor
+            elif kind == "spin":
+                spin = QSpinBox(group)
+                spin.setMinimum(0)
+                spin.setMaximum(999)
+                spin.setToolTip(tooltip)
+                spin.valueChanged.connect(
+                    partial(self._on_hardware_spin_changed, field_name, spin)
+                )
+                widget = spin
+            elif kind == "checkbox":
+                checkbox = QCheckBox(label, group)
+                checkbox.setToolTip(tooltip)
+                checkbox.toggled.connect(
+                    partial(self._on_hardware_checkbox_toggled, field_name, checkbox)
+                )
+                widget = checkbox
+                form.addRow(checkbox)
+                self._hardware_fields[field_name] = widget
+                continue
+            else:
+                editor = QLineEdit(group)
+                editor.setToolTip(tooltip)
+                editor.textChanged.connect(
+                    partial(self._on_hardware_text_changed, field_name, editor)
+                )
+                widget = editor
+            self._hardware_fields[field_name] = widget
+            form.addRow(label + ":", widget)
+
+        layout.addLayout(form)
         return group
 
     # ──────────────────── Population helpers ────────────────────
@@ -361,9 +634,10 @@ class CaseTab(QWidget):
                     widget.setValue(int(value))
                 except (TypeError, ValueError):
                     widget.setValue(0)
+            elif isinstance(widget, QCheckBox):
+                widget.setChecked(bool(value))
 
-        self._customer_trios_only.setChecked(bool(self._case.customer_trios_only))
-        self._support_fee_accepted.setChecked(bool(self._case.support_fee_accepted))
+        self._refresh_hardware_tables()
 
         self._clear_remote_session_widgets()
         sessions = list(self._case.remote_sessions or [])
@@ -428,25 +702,69 @@ class CaseTab(QWidget):
         if self._syncing:
             return
         setattr(self._case, field_name, editor.text())
+        self._update_hardware_table_field(field_name, editor.text())
         self._emit_case_changed()
 
     def _on_hardware_multiline_changed(self, field_name: str, editor: QPlainTextEdit) -> None:
         if self._syncing:
             return
         setattr(self._case, field_name, editor.toPlainText())
+        self._update_hardware_table_field(field_name, editor.toPlainText())
         self._emit_case_changed()
 
     def _on_hardware_spin_changed(self, field_name: str, spin: QSpinBox, value: int) -> None:
         if self._syncing:
             return
         setattr(self._case, field_name, int(value))
+        self._update_hardware_table_field(field_name, value)
         self._emit_case_changed()
 
-    def _set_case_flag(self, field_name: str, value: bool) -> None:
+    def _on_hardware_checkbox_toggled(self, field_name: str, checkbox: QCheckBox) -> None:
         if self._syncing:
             return
-        setattr(self._case, field_name, bool(value))
+        setattr(self._case, field_name, bool(checkbox.isChecked()))
+        self._update_hardware_table_field(field_name, checkbox.isChecked())
         self._emit_case_changed()
+
+    def _copy_hardware_table(self, table: QTableWidget) -> None:
+        rows: list[str] = []
+        for row in range(table.rowCount()):
+            label = table.item(row, 0).text() if table.item(row, 0) else ""
+            value = table.item(row, 1).text() if table.item(row, 1) else ""
+            rows.append(f"{label}\t{value}")
+        QGuiApplication.clipboard().setText("\n".join(rows))
+
+    def _refresh_hardware_tables(self) -> None:
+        for field_name in self._hardware_table_rows:
+            value = getattr(self._case, field_name, "")
+            self._update_hardware_table_field(field_name, value)
+
+    def _update_hardware_table_field(self, field_name: str, value: object) -> None:
+        if field_name not in self._hardware_table_rows:
+            return
+        table, row = self._hardware_table_rows[field_name]
+        display_value = self._normalize_hardware_value(value)
+        item = table.item(row, 1)
+        if item is None:
+            item = QTableWidgetItem()
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            table.setItem(row, 1, item)
+        item.setText(display_value)
+
+        critical_fields = {"scanner_sn", "base_sn", "service_tag"}
+        if field_name in critical_fields and not display_value:
+            item.setBackground(table.palette().alternateBase())
+            item.setToolTip("Falta un campo crítico: completa este dato antes de cerrar el caso.")
+        else:
+            item.setBackground(table.palette().base())
+            item.setToolTip(table.item(row, 0).toolTip())
+
+    def _normalize_hardware_value(self, value: object) -> str:
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        if value is None:
+            return ""
+        return str(value).strip()
 
     def _ensure_tracking(self) -> TrackingData:
         if not isinstance(self._case.tracking, TrackingData):
