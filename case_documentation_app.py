@@ -7085,11 +7085,8 @@ def _update_case_milestones_for_session(
     anchor_created_at: datetime | None = None,
 ) -> None:
     state = _ensure_case_milestone_state(session)
-    created_at = (
-        anchor_created_at
-        or _parse_utc_timestamp(state.created_at)
-        or now
-    )
+    session_created_at = _parse_utc_timestamp(state.created_at)
+    created_at = session_created_at or anchor_created_at or now
     for milestone_id in MILESTONE_ID_ORDER:
         progress = state.statuses[milestone_id]
         if milestone_id in {"case_id", "document_case"}:
@@ -14773,11 +14770,13 @@ def render_case_milestone_tracker(container, case_idx: int, *, compact_mode: boo
         description = milestone_def.get("description", "")
         label = milestone_def.get("label", milestone_id.title())
         items_html.append(
-            (
-                f"<div class=\"{css_class}\" title=\"{escape(description)}\">"
-                f"<span class=\"case-milestones__icon\">{icon}</span>"
-                f"<span>{escape(label)}</span>"
-                "</div>"
+            "".join(
+                (
+                    f"<div class=\"{css_class}\" title=\"{escape(description)}\">",
+                    f"<span class=\"case-milestones__icon\">{icon}</span>",
+                    f"<span>{escape(label)}</span>",
+                    "</div>",
+                )
             )
         )
 
