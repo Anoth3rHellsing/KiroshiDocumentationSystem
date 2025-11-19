@@ -6845,6 +6845,51 @@ def _normalise_attachments_index(
     return normalised
 
 
+MILESTONE_TICK_INTERVAL = timedelta(minutes=3)
+
+MILESTONE_DEFINITIONS = [
+    {
+        "id": "case_id",
+        "label": "Create case",
+        "description": "Add the Case ID to mark the case as created.",
+        "due": timedelta(minutes=3),
+    },
+    {
+        "id": "document_case",
+        "label": "Document case",
+        "description": "Share the survey URL and CRM case link.",
+        "due": timedelta(hours=2),
+    },
+    {
+        "id": "resolution",
+        "label": "Resolve",
+        "description": "Close the case or log a replacement within four hours.",
+        "due": timedelta(hours=4),
+    },
+]
+MILESTONE_ID_ORDER = [entry["id"] for entry in MILESTONE_DEFINITIONS]
+
+
+@dataclass
+class MilestoneProgressState:
+    completed_at: str | None = None
+    alerted_at: str | None = None
+    completion_actions_done: bool = False
+    overdue_actions_done: bool = False
+
+
+def _default_milestone_progress() -> dict[str, MilestoneProgressState]:
+    return {milestone_id: MilestoneProgressState() for milestone_id in MILESTONE_ID_ORDER}
+
+
+@dataclass
+class CaseMilestoneState:
+    created_at: str = field(default_factory=_utc_now_z)
+    statuses: dict[str, MilestoneProgressState] = field(
+        default_factory=_default_milestone_progress
+    )
+
+
 @dataclass
 class CaseSession:
     """Container for per-case session state."""
@@ -6858,6 +6903,277 @@ class CaseSession:
     attachments_index: dict[str, list[dict[str, str]]] = field(
         default_factory=_default_attachments_index
     )
+    milestones: CaseMilestoneState = field(default_factory=CaseMilestoneState)
+
+
+MILESTONE_DEFINITION_LOOKUP = {
+    entry["id"]: entry for entry in MILESTONE_DEFINITIONS
+}
+
+
+def _parse_utc_timestamp(value: object | None) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_case_milestone_state(payload: object | None) -> CaseMilestoneState:
+    if isinstance(payload, CaseMilestoneState):
+        state = payload
+    elif isinstance(payload, Mapping):
+        created_at = str(payload.get("created_at") or _utc_now_z())
+        statuses_payload = payload.get("statuses")
+        statuses: dict[str, MilestoneProgressState] = {}
+        if isinstance(statuses_payload, Mapping):
+            for milestone_id, entry in statuses_payload.items():
+                if not isinstance(entry, Mapping):
+                    continue
+                statuses[milestone_id] = MilestoneProgressState(
+                    completed_at=str(entry.get("completed_at"))
+                    if entry.get("completed_at")
+                    else None,
+                    alerted_at=str(entry.get("alerted_at"))
+                    if entry.get("alerted_at")
+                    else None,
+                    completion_actions_done=bool(entry.get("completion_actions_done")),
+                    overdue_actions_done=bool(entry.get("overdue_actions_done")),
+                )
+        state = CaseMilestoneState(created_at=created_at, statuses=statuses)
+    else:
+        state = CaseMilestoneState()
+
+    if not isinstance(state.statuses, dict):
+        state.statuses = _default_milestone_progress()
+
+    for milestone_id in MILESTONE_ID_ORDER:
+        if milestone_id not in state.statuses:
+            state.statuses[milestone_id] = MilestoneProgressState()
+    return state
+
+
+def _ensure_case_milestone_state(session: CaseSession) -> CaseMilestoneState:
+    state = _coerce_case_milestone_state(getattr(session, "milestones", None))
+    session.milestones = state
+    return state
+
+
+def _milestone_condition_met(
+    milestone_id: str, session: CaseSession
+) -> bool:
+    case = session.case
+    tracking = case.tracking
+    if milestone_id == "case_id":
+        return bool((case.case_id or "").strip())
+    if milestone_id == "document_case":
+        return bool((case.survey_link or "").strip()) and bool(
+            (tracking.case_link or "").strip()
+        )
+    if milestone_id == "resolution":
+        progress = session.milestones.statuses.get(milestone_id)
+        return bool(progress and progress.completed_at)
+    return False
+
+
+def _trigger_milestone_alert(case_idx: int, milestone_id: str) -> None:
+    label = _case_display_name(case_idx)
+    milestone = MILESTONE_DEFINITION_LOOKUP.get(milestone_id, {})
+    message = (
+        f"⚠️ {label}: {milestone.get('label', milestone_id.title())} overdue. "
+        "Complete this milestone ASAP."
+    )
+    if hasattr(st, "toast"):
+        st.toast(message)
+    else:
+        st.warning(message)
+
+
+def _auto_track_case_for_documentation(session: CaseSession, case_idx: int) -> None:
+    tracking = session.case.tracking
+    changed = False
+    if tracking.ticket_number != (session.case.case_id or ""):
+        tracking.ticket_number = session.case.case_id or ""
+        changed = True
+    if tracking.category != "Kiroshi Auto Track":
+        tracking.category = "Kiroshi Auto Track"
+        changed = True
+    if tracking.priority != "On Time":
+        tracking.priority = "On Time"
+        changed = True
+    if tracking.type != "Custom":
+        tracking.type = "Custom"
+        changed = True
+    if not tracking.creation_day:
+        tracking.creation_day = datetime.now().date().isoformat()
+        changed = True
+    if not tracking.active:
+        tracking.active = True
+        changed = True
+    if changed:
+        st.session_state.track_case = True
+        if case_idx == CURRENT_CASE_IDX:
+            st.session_state.case.tracking = tracking
+        touch_case_last_modified()
+        autosave()
+
+
+def _mark_case_tracking_out_of_timeframe(session: CaseSession, case_idx: int) -> None:
+    tracking = session.case.tracking
+    changed = False
+    if tracking.category != "Out of Timeframe":
+        tracking.category = "Out of Timeframe"
+        changed = True
+    if tracking.priority != "High":
+        tracking.priority = "High"
+        changed = True
+    if not tracking.type:
+        tracking.type = "Custom"
+        changed = True
+    if not tracking.active:
+        tracking.active = True
+        changed = True
+    if changed:
+        st.session_state.track_case = True
+        if case_idx == CURRENT_CASE_IDX:
+            st.session_state.case.tracking = tracking
+        touch_case_last_modified()
+        autosave()
+
+
+def _apply_milestone_completion(
+    milestone_id: str,
+    session: CaseSession,
+    case_idx: int,
+    progress: MilestoneProgressState,
+) -> None:
+    if progress.completion_actions_done:
+        return
+    if milestone_id == "document_case":
+        _auto_track_case_for_documentation(session, case_idx)
+    progress.completion_actions_done = True
+
+
+def _apply_milestone_overdue(
+    milestone_id: str,
+    session: CaseSession,
+    case_idx: int,
+    progress: MilestoneProgressState,
+) -> None:
+    if progress.overdue_actions_done:
+        return
+    if milestone_id == "resolution":
+        _mark_case_tracking_out_of_timeframe(session, case_idx)
+    progress.overdue_actions_done = True
+
+
+def _update_case_milestones_for_session(
+    session: CaseSession,
+    case_idx: int,
+    now: datetime,
+    *,
+    anchor_created_at: datetime | None = None,
+) -> None:
+    state = _ensure_case_milestone_state(session)
+    session_created_at = _parse_utc_timestamp(state.created_at)
+    created_at = session_created_at or anchor_created_at or now
+    for milestone_id in MILESTONE_ID_ORDER:
+        progress = state.statuses[milestone_id]
+        if milestone_id in {"case_id", "document_case"}:
+            if _milestone_condition_met(milestone_id, session):
+                if not progress.completed_at:
+                    progress.completed_at = _utc_now_z()
+                    _apply_milestone_completion(
+                        milestone_id, session, case_idx, progress
+                    )
+                continue
+        if progress.completed_at:
+            continue
+        milestone_def = MILESTONE_DEFINITION_LOOKUP.get(milestone_id, {})
+        due: timedelta | None = milestone_def.get("due")
+        if due and now - created_at >= due and not progress.alerted_at:
+            progress.alerted_at = _utc_now_z()
+            _trigger_milestone_alert(case_idx, milestone_id)
+            _apply_milestone_overdue(milestone_id, session, case_idx, progress)
+
+
+def _maybe_tick_case_milestones() -> None:
+    sessions = st.session_state.get("case_sessions")
+    if not isinstance(sessions, list) or not sessions:
+        return
+    visible_indices = [idx for idx in range(len(sessions)) if idx != HIDDEN_CASE_INDEX]
+    if not visible_indices:
+        return
+    anchor_index = visible_indices[0]
+    anchor_state = _ensure_case_milestone_state(sessions[anchor_index])
+    anchor_created_at = _parse_utc_timestamp(anchor_state.created_at)
+    last_tick = _parse_utc_timestamp(st.session_state.get("milestone_last_tick"))
+    now = datetime.now(timezone.utc)
+    if last_tick and now - last_tick < MILESTONE_TICK_INTERVAL:
+        return
+    st.session_state["milestone_last_tick"] = _utc_now_z()
+    for idx, session in enumerate(sessions):
+        if idx == HIDDEN_CASE_INDEX:
+            continue
+        _update_case_milestones_for_session(
+            session,
+            idx,
+            now,
+            anchor_created_at=anchor_created_at,
+        )
+
+
+def _mark_milestone_completed(case_idx: int, milestone_id: str) -> bool:
+    sessions = st.session_state.get("case_sessions")
+    if not isinstance(sessions, list) or not (0 <= case_idx < len(sessions)):
+        return False
+    session = sessions[case_idx]
+    state = _ensure_case_milestone_state(session)
+    progress = state.statuses.get(milestone_id)
+    if progress is None:
+        progress = MilestoneProgressState()
+        state.statuses[milestone_id] = progress
+    if not progress.completed_at:
+        progress.completed_at = _utc_now_z()
+        _apply_milestone_completion(milestone_id, session, case_idx, progress)
+        touch_case_last_modified()
+        autosave()
+    return True
+
+
+def _handle_resolution_action(case_idx: int, *, replacement: bool = False) -> None:
+    if not _mark_milestone_completed(case_idx, "resolution"):
+        return
+    sessions = st.session_state.get("case_sessions")
+    if not isinstance(sessions, list) or not (0 <= case_idx < len(sessions)):
+        return
+    case_obj = sessions[case_idx].case
+    tracking = getattr(case_obj, "tracking", None)
+    if isinstance(tracking, TrackingData):
+        if replacement:
+            tracking.status = "Replacement"
+        else:
+            tracking.status = "Resolved"
+            tracking.priority = normalize_priority("On Time")
+            tracking.active = False
+    save_case_to_database(case_obj, notify=not replacement)
+    if replacement:
+        st.success("Replacement recorded. Milestone marked as completed.")
+        return
+    case_label = _case_display_name(case_idx)
+    close_case_tab(case_idx)
+    st.session_state["_milestone_resolution_notice"] = f"{case_label} resolved and closed."
+    st.rerun()
 
 
 DELL_ESCALATION_OVERVIEW_FIELDS = [
@@ -6994,6 +7310,7 @@ def active_category_map():
 
 
 CURRENT_CASE_IDX = 0
+HIDDEN_CASE_INDEX = 0
 HOTKEY_TARGET_SESSION_KEY = "hotkey_target_idx"
 
 
@@ -7066,7 +7383,7 @@ def _case_metadata_snapshot(active_index: int | None = None) -> list[dict[str, s
             priority = tracking.priority
         snapshot.append(
             {
-                "Case": case.case_id or f"Case {idx + 1}",
+                "Case": case.case_id or _case_display_name(idx),
                 "Company": case.company_name or "",
                 "Summary": case.brief_description or "",
                 "Priority": priority,
@@ -7267,6 +7584,30 @@ def _write_case_tab_memory(entries: list[dict[str, object]]) -> None:
         logging.warning("Failed to persist case tab memory: %s", exc)
 
 
+def _attachments_loader() -> Callable[
+    [str, Mapping[str, Iterable[Mapping[str, object]]]],
+    tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]],
+]:
+    """Return the available attachment loader, or a no-op stub when unavailable."""
+
+    try:
+        loader = globals().get("load_case_attachments")
+        if callable(loader):
+            return loader  # type: ignore[return-value]
+    except Exception:
+        # If globals lookup itself fails, fall back to the stub below.
+        logging.debug("Attachment loader lookup failed; using fallback stub")
+
+    logging.debug("Attachments loader missing; falling back to empty attachments")
+
+    def _noop_loader(
+        _case_id: str, _attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
+    ) -> tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]]:
+        return [], [], []
+
+    return _noop_loader
+
+
 def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
     sessions: list[CaseSession] = []
     for entry in _load_case_tab_memory():
@@ -7274,6 +7615,7 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
         scratch_value = str(entry.get("scratch", "")) if entry else ""
         case_payload = entry.get("case") if isinstance(entry, Mapping) else {}
         attachments_payload = entry.get("attachments_index") if isinstance(entry, Mapping) else {}
+        milestone_payload = entry.get("milestones") if isinstance(entry, Mapping) else {}
         attachments_index = _normalise_attachments_index(attachments_payload)
 
         if source_path:
@@ -7300,7 +7642,7 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
         screenshots: list[ScreenshotAsset] = []
         if case_obj.case_id:
             try:
-                loader = _case_attachments_loader()
+                loader = _attachments_loader()
                 uploads, log_uploads, screenshots = loader(
                     case_obj.case_id, attachments_index
                 )
@@ -7321,6 +7663,7 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
                 screenshots=screenshots,
                 source_path=source_path,
                 attachments_index=attachments_index,
+                milestones=_coerce_case_milestone_state(milestone_payload),
             )
         )
     return sessions
@@ -7350,12 +7693,19 @@ def _sync_case_memory_from_sessions() -> None:
             and not has_attachments
         ):
             continue
+        milestone_state = getattr(session, "milestones", None)
+        milestone_payload = (
+            asdict(milestone_state)
+            if isinstance(milestone_state, CaseMilestoneState)
+            else asdict(_ensure_case_milestone_state(session))
+        )
         entries.append(
             {
                 "case": case_payload,
                 "source_path": source_path,
                 "scratch": scratch_value,
                 "attachments_index": attachments_index,
+                "milestones": milestone_payload,
             }
         )
     _write_case_tab_memory(entries)
@@ -7450,6 +7800,7 @@ def save_case_state(idx: int) -> None:
     scratch_key = widget_state_key("scratch", idx)
     scratch_value = st.session_state.get(scratch_key, st.session_state.get("scratch", ""))
     existing_session = st.session_state.case_sessions[idx]
+    milestone_state = _ensure_case_milestone_state(existing_session)
     st.session_state.case_sessions[idx] = CaseSession(
         case=st.session_state.case,
         scratch=scratch_value,
@@ -7460,6 +7811,7 @@ def save_case_state(idx: int) -> None:
         attachments_index=_normalise_attachments_index(
             st.session_state.get("attachments_index", getattr(existing_session, "attachments_index", {}))
         ),
+        milestones=milestone_state,
     )
     _sync_case_memory_from_sessions()
     _refresh_hotkey_snapshot()
@@ -7801,28 +8153,6 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
 
     _set_active_session_attachments_index(attachments_index)
     return attachments_index
-
-
-def _case_attachments_loader() -> Callable[
-    [str, Mapping[str, Iterable[Mapping[str, object]]]],
-    tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]],
-]:
-    """Return the available attachment loader, or a no-op stub when unavailable."""
-
-    loader = globals().get("load_case_attachments")
-    if callable(loader):
-        return loader  # type: ignore[return-value]
-
-    logging.debug("Attachments loader missing; falling back to empty attachments")
-
-    def _noop_loader(
-        _case_id: str, _attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
-    ) -> tuple[list[InMemoryUploadedFile], list[InMemoryUploadedFile], list[ScreenshotAsset]]:
-        return [], [], []
-
-    return _noop_loader
-
-
 def load_case_attachments(
     case_id: str, attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
 ) -> tuple[
@@ -7899,6 +8229,11 @@ def load_case_attachments(
                 target.append(InMemoryUploadedFile(display_name, data))
 
     return uploads, log_uploads, screenshots
+
+
+# Preserve a backwards-compatible alias for environments that still reference
+# the old loader name during cached reloads (e.g., Streamlit session restores).
+_case_attachments_loader = load_case_attachments
 
 
 def create_case_autosave_snapshot(case_id: str) -> Path | None:
@@ -10803,7 +11138,7 @@ def _render_case_tab(idx: int) -> None:
 
     load_case_state(idx)
 
-    case_label = st.session_state.case.case_id or f"Case {idx + 1}"
+    case_label = _case_display_name(idx)
     if idx > 0:
         col_label, col_close = st.columns([10, 1])
         with col_label:
@@ -11423,7 +11758,7 @@ def render_debug_panel() -> None:
                 case = getattr(session, "case", None)
                 case_id = getattr(case, "case_id", "") if case else ""
                 company = getattr(case, "company_name", "") if case else ""
-                label = case_id or f"Case {idx + 1}"
+                label = case_id or _case_display_name(idx)
                 return f"{label} – {company}" if company else label
 
             selected_case_idx = st.selectbox(
@@ -13724,6 +14059,31 @@ def auto_text_input(
     return _commit_text_widget_state(field, state_key, widget_value)
 
 
+def auto_tracking_text_input(label: str, field: str, container=st, **kwargs) -> str:
+    """Render a tracking text input that keeps CaseData.tracking in sync."""
+
+    widget_identifier = widget_key(f"tracking_{field}", CURRENT_CASE_IDX)
+    text_kwargs = dict(kwargs)
+    state_key = text_kwargs.get("key") or widget_identifier
+    text_kwargs["key"] = state_key
+
+    tracking = getattr(D, "tracking", None)
+    current_value = ""
+    if isinstance(tracking, TrackingData):
+        current_value = _normalize_text_value(getattr(tracking, field, ""))
+
+    if state_key not in st.session_state:
+        st.session_state[state_key] = current_value
+
+    widget_value = container.text_input(label, **text_kwargs)
+    normalized_value = _normalize_text_value(widget_value)
+    if normalized_value != current_value and isinstance(tracking, TrackingData):
+        setattr(tracking, field, normalized_value)
+        touch_case_last_modified()
+        autosave()
+    return normalized_value
+
+
 def auto_text_area(label: str, field: str, container=st, **kwargs):
     """Render a text area bound to a CaseData field with autosave semantics."""
 
@@ -13981,6 +14341,36 @@ def _inject_case_tab_theme() -> None:
             .case-hero__progress-meta {
                 font-size: 0.9rem;
                 color: rgba(15, 23, 42, 0.65);
+            }
+            .case-milestones {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.75rem;
+                margin-top: 1rem;
+            }
+            .case-milestones__item {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.65rem 0.9rem;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.85);
+                border: 1px solid rgba(148, 163, 184, 0.3);
+                font-weight: 600;
+                color: #1f2937;
+            }
+            .case-milestones__item--done {
+                background: rgba(34, 197, 94, 0.12);
+                border-color: rgba(34, 197, 94, 0.45);
+                color: #15803d;
+            }
+            .case-milestones__item--alert {
+                background: rgba(248, 113, 113, 0.15);
+                border-color: rgba(239, 68, 68, 0.45);
+                color: #991b1b;
+            }
+            .case-milestones__icon {
+                font-size: 1.25rem;
             }
             @keyframes progressPulse {
                 0% { filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0.0)); }
@@ -14351,6 +14741,72 @@ def sync_autohotkey_script(script: str) -> Path | None:
         return None
 
 
+def render_case_milestone_tracker(container, case_idx: int, *, compact_mode: bool) -> None:
+    sessions = st.session_state.get("case_sessions")
+    if not isinstance(sessions, list) or not (0 <= case_idx < len(sessions)):
+        return
+    session = sessions[case_idx]
+    state = _ensure_case_milestone_state(session)
+    now = datetime.now(timezone.utc)
+    created_at = _parse_utc_timestamp(state.created_at) or now
+    items_html: list[str] = []
+    for milestone_id in MILESTONE_ID_ORDER:
+        milestone_def = MILESTONE_DEFINITION_LOOKUP.get(milestone_id, {})
+        progress = state.statuses.get(milestone_id)
+        if progress is None:
+            progress = MilestoneProgressState()
+            state.statuses[milestone_id] = progress
+        completed = bool(progress.completed_at)
+        due: timedelta | None = milestone_def.get("due")
+        overdue = bool(
+            due and not completed and (now - created_at) >= due
+        )
+        icon = "✅" if completed else "❌"
+        css_class = "case-milestones__item"
+        if completed:
+            css_class += " case-milestones__item--done"
+        elif overdue:
+            css_class += " case-milestones__item--alert"
+        description = milestone_def.get("description", "")
+        label = milestone_def.get("label", milestone_id.title())
+        items_html.append(
+            "".join(
+                (
+                    f"<div class=\"{css_class}\" title=\"{escape(description)}\">",
+                    f"<span class=\"case-milestones__icon\">{icon}</span>",
+                    f"<span>{escape(label)}</span>",
+                    "</div>",
+                )
+            )
+        )
+
+    if not items_html:
+        return
+
+    container.markdown(
+        "<div class=\"case-milestones\">" + "".join(items_html) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    resolution_progress = state.statuses.get("resolution")
+    completed_resolution = bool(resolution_progress and resolution_progress.completed_at)
+    action_cols = container.columns(2)
+    resolve_key = case_widget_key("milestones", "resolve", case_idx=case_idx)
+    replacement_key = case_widget_key("milestones", "replacement", case_idx=case_idx)
+    if action_cols[0].button(
+        "Resolve & Close",
+        key=resolve_key,
+        disabled=completed_resolution,
+    ):
+        _handle_resolution_action(case_idx)
+    if action_cols[1].button(
+        "Replacement",
+        key=replacement_key,
+        disabled=completed_resolution,
+    ):
+        _handle_resolution_action(case_idx, replacement=True)
+
+
 def render_case_header_section(container, case_idx: int, compact_mode: bool) -> None:
     if not compact_mode:
         cat_map = active_category_map()
@@ -14431,6 +14887,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             """,
             unsafe_allow_html=True,
         )
+
+    render_case_milestone_tracker(container, case_idx, compact_mode=compact_mode)
 
     with case_tab_card(container, "case-card--header", compact_mode) as card:
         header_text = "🗂️ Case Header" if not compact_mode else "Case Header"
@@ -14617,6 +15075,12 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
             "Customer satisfaction survey URL",
             "survey_link",
             container=conclusion_right,
+        )
+        auto_tracking_text_input(
+            "CRM case link",
+            "case_link",
+            container=conclusion_right,
+            placeholder="Paste the CRM case link here",
         )
 
         if compact_mode:
@@ -15286,6 +15750,20 @@ def _case_chat_meta(case_idx: int) -> dict[str, object]:
     return meta
 
 
+def _visible_case_index_list() -> list[int]:
+    sessions = st.session_state.get("case_sessions")
+    if not isinstance(sessions, list):
+        return []
+    return [idx for idx in range(len(sessions)) if idx != HIDDEN_CASE_INDEX]
+
+
+def _visible_case_position(case_idx: int) -> int | None:
+    indices = _visible_case_index_list()
+    if case_idx in indices:
+        return indices.index(case_idx) + 1
+    return None
+
+
 def _case_display_name(case_idx: int) -> str:
     """Return a human-friendly label for the case."""
 
@@ -15301,6 +15779,9 @@ def _case_display_name(case_idx: int) -> str:
                 text = str(candidate or "").strip()
                 if text:
                     return text
+    position = _visible_case_position(case_idx)
+    if position is not None:
+        return f"Case {position}"
     return f"Case {case_idx + 1}"
 
 
@@ -17148,9 +17629,6 @@ End with: We look forward to your reply."""
             elif tracking_type == "FedEx":
                 st.date_input("Expected arrival date", key=expected_key)
 
-            case_link_key = tracking_tab_key("track_case_link")
-            st.text_input("Case link (CRM)", key=case_link_key)
-
             if st.button("Save and track", key=tracking_tab_key("save_and_track")):
                 if not D.case_id:
                     st.error("Case ID is required before tracking can be enabled.")
@@ -17165,9 +17643,7 @@ End with: We look forward to your reply."""
                     D.tracking.ticket_number = (
                         st.session_state.get(ticket_key, "") or ""
                     ).strip()
-                    D.tracking.case_link = (
-                        st.session_state.get(case_link_key, "") or ""
-                    ).strip()
+                    D.tracking.case_link = (D.tracking.case_link or "").strip()
                     if not D.tracking.creation_day:
                         D.tracking.creation_day = datetime.now().date().isoformat()
                     if tracking_type == "Dell":
@@ -17923,6 +18399,18 @@ End with: We look forward to your reply."""
                 tab_slug="remote_attachments",
             )
 
+        st.markdown("---")
+        st.markdown("### How to reproduce it")
+        st.caption(
+            "These steps stay visible in the remote workspace and continue to appear in the 3Q escalation form."
+        )
+        auto_text_area(
+            "How to reproduce it",
+            "repro_steps",
+            height=180,
+            container=st,
+        )
+
     # ================== TABLES TAB =================
     with case_tab(tab_tables, case_idx=case_idx, slug=CASE_TAB_SLUGS["Tables"]):
         tables_tab_key = partial(
@@ -18270,10 +18758,15 @@ End with: We look forward to your reply."""
     render_wellness_alert(reminder_state)
 
     _reset_capture_footer_registry()
+    _maybe_tick_case_milestones()
 
-visible_case_indices = list(range(len(st.session_state.case_sessions)))
+resolution_notice = st.session_state.pop("_milestone_resolution_notice", None)
+if resolution_notice:
+    st.success(resolution_notice)
+
+visible_case_indices = _visible_case_index_list()
 case_labels = [
-    st.session_state.case_sessions[idx].case.case_id or f"Case {idx+1}"
+    _case_display_name(idx)
     for idx in visible_case_indices
 ] + ["+ New Case"]
 tab_labels: list[str] = ["Dashboard", "Saved Cases", "Settings"]
