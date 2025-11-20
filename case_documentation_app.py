@@ -14788,16 +14788,11 @@ def render_case_milestone_tracker(container, case_idx: int, *, compact_mode: boo
         description = milestone_def.get("description", "")
         label = milestone_def.get("label", milestone_id.title())
         items_html.append(
-            """
-            <div class="{css}" title="{title}">
-                <span class="case-milestones__icon">{icon}</span>
-                <span>{label}</span>
-            </div>
-            """.format(
-                css=css_class,
-                title=escape(description),
-                icon=icon,
-                label=escape(label),
+            (
+                f'<div class="{css_class}" title="{escape(description)}">'
+                f'<span class="case-milestones__icon">{icon}</span>'
+                f"<span>{escape(label)}</span>"
+                "</div>"
             )
         )
 
