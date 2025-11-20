@@ -31,6 +31,7 @@ import sys
 import math
 import calendar
 import uuid
+import threading
 from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -8048,6 +8049,14 @@ for key, value in asdict(D).items():
 _init_state("survey_link", D.survey_link)
 
 # Button to clear all case data and reset form
+AUTOSAVE_THROTTLE_SECONDS = 0.75
+_last_autosave_hash: str | None = None
+_last_autosave_timestamp: float = 0.0
+_pending_autosave: tuple[str, str, dict] | None = None
+_pending_autosave_timer: threading.Timer | None = None
+_autosave_lock = threading.Lock()
+
+
 def autosave_payload() -> dict:
     return {
         "case": asdict(D),
@@ -8055,8 +8064,62 @@ def autosave_payload() -> dict:
 
 
 def autosave():
+    global _pending_autosave, _pending_autosave_timer
+
+    payload = autosave_payload()
+    serialized_payload = json.dumps(payload, indent=2)
+    payload_hash = hashlib.sha1(serialized_payload.encode("utf-8")).hexdigest()
+
+    with _autosave_lock:
+        global _last_autosave_hash, _last_autosave_timestamp
+
+        if payload_hash == _last_autosave_hash:
+            return
+
+        now = time.monotonic()
+        elapsed = now - _last_autosave_timestamp
+
+        if elapsed < AUTOSAVE_THROTTLE_SECONDS:
+            _pending_autosave = (serialized_payload, payload_hash, payload)
+            if _pending_autosave_timer is None:
+                delay = max(AUTOSAVE_THROTTLE_SECONDS - elapsed, 0.05)
+                _pending_autosave_timer = threading.Timer(delay, _flush_pending_autosave)
+                _pending_autosave_timer.daemon = True
+                _pending_autosave_timer.start()
+            return
+
+        _pending_autosave = None
+        if _pending_autosave_timer:
+            _pending_autosave_timer.cancel()
+            _pending_autosave_timer = None
+
+        _write_autosave(serialized_payload, payload_hash, payload)
+
+
+def _flush_pending_autosave() -> None:
+    global _pending_autosave, _pending_autosave_timer
+
+    with _autosave_lock:
+        if not _pending_autosave:
+            _pending_autosave_timer = None
+            return
+
+        serialized_payload, payload_hash, payload = _pending_autosave
+        _pending_autosave = None
+        _pending_autosave_timer = None
+
+        _write_autosave(serialized_payload, payload_hash, payload)
+
+
+def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -> None:
+    global _last_autosave_hash, _last_autosave_timestamp
+
     with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
-        json.dump(autosave_payload(), f, indent=2)
+        f.write(serialized_payload)
+
+    _last_autosave_timestamp = time.monotonic()
+    _last_autosave_hash = payload_hash
+
     if st.session_state.get("autosave_to_database"):
         case_obj = st.session_state.get("case")
         case_cls = globals().get("CaseData")
