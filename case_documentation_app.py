@@ -5841,11 +5841,18 @@ def tail_log(path: str | Path, lines: int = 100) -> str:
 # ───────────────── DATA MODEL ──────────────────
 
 
+def _format_utc_timestamp(value: datetime) -> str:
+    """Serialize a :class:`datetime` to an ISO-8601 string with a ``Z`` suffix."""
+
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
 def _utc_now_z() -> str:
     """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
 
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    return now.isoformat().replace("+00:00", "Z")
+    return _format_utc_timestamp(datetime.now(timezone.utc))
 
 
 def _normalize_hardware_test_text(value: object) -> str:
@@ -7120,8 +7127,13 @@ def _maybe_tick_case_milestones() -> None:
     anchor_index = visible_indices[0]
     anchor_state = _ensure_case_milestone_state(sessions[anchor_index])
     anchor_created_at = _parse_utc_timestamp(anchor_state.created_at)
-    last_tick = _parse_utc_timestamp(st.session_state.get("milestone_last_tick"))
     now = datetime.now(timezone.utc)
+    if anchor_created_at is None:
+        anchor_created_at = now
+    st.session_state["milestone_anchor_created_at"] = _format_utc_timestamp(
+        anchor_created_at
+    )
+    last_tick = _parse_utc_timestamp(st.session_state.get("milestone_last_tick"))
     if last_tick and now - last_tick < MILESTONE_TICK_INTERVAL:
         return
     st.session_state["milestone_last_tick"] = _utc_now_z()
@@ -14751,7 +14763,10 @@ def render_case_milestone_tracker(container, case_idx: int, *, compact_mode: boo
     session = sessions[case_idx]
     state = _ensure_case_milestone_state(session)
     now = datetime.now(timezone.utc)
-    created_at = _parse_utc_timestamp(state.created_at) or now
+    anchor_created_at = _parse_utc_timestamp(
+        st.session_state.get("milestone_anchor_created_at")
+    )
+    created_at = anchor_created_at or _parse_utc_timestamp(state.created_at) or now
     items_html: list[str] = []
     for milestone_id in MILESTONE_ID_ORDER:
         milestone_def = MILESTONE_DEFINITION_LOOKUP.get(milestone_id, {})
