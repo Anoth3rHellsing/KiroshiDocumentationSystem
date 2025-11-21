@@ -36,7 +36,7 @@ from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import partial
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 from html import escape
 import textwrap
 import inspect
@@ -8055,20 +8055,74 @@ _last_autosave_timestamp: float = 0.0
 _pending_autosave: tuple[str, str, dict] | None = None
 _pending_autosave_timer: threading.Timer | None = None
 _autosave_lock = threading.Lock()
+_autosave_cached_payload: dict | None = None
+_autosave_cached_serialized: str | None = None
+_autosave_field_fingerprints: dict[str, str] = {}
+
+
+def _compact_json_dumps(obj: Any) -> str:
+    return json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
 
 
 def autosave_payload() -> dict:
-    return {
-        "case": asdict(D),
+    case_payload = asdict(D)
+    cached_case = st.session_state.get("_autosave_cached_case")
+
+    if cached_case is not None and cached_case == case_payload:
+        st.session_state["_autosave_case_dirty"] = False
+        return {"case": cached_case}
+
+    st.session_state["_autosave_cached_case"] = case_payload
+    st.session_state["_autosave_case_dirty"] = True
+
+    return {"case": case_payload}
+
+
+def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
+    global _autosave_cached_payload, _autosave_cached_serialized
+
+    case_payload: dict[str, Any] = payload.get("case", {})
+    previous_case: dict[str, Any] | None = None
+    if _autosave_cached_payload:
+        previous_case = _autosave_cached_payload.get("case")
+
+    known_keys = set(case_payload.keys())
+    if previous_case:
+        known_keys.update(previous_case.keys())
+
+    dirty_fields = {
+        key
+        for key in known_keys
+        if previous_case is None or case_payload.get(key) != previous_case.get(key)
     }
+
+    for field in dirty_fields:
+        _autosave_field_fingerprints[field] = hashlib.blake2s(
+            _compact_json_dumps(case_payload.get(field)).encode("utf-8")
+        ).hexdigest()
+
+    checksum = hashlib.blake2s()
+    for field_name in sorted(_autosave_field_fingerprints):
+        checksum.update(field_name.encode("utf-8"))
+        checksum.update(_autosave_field_fingerprints[field_name].encode("utf-8"))
+
+    payload_hash = checksum.hexdigest()
+
+    _autosave_cached_payload = payload
+
+    if not dirty_fields and _autosave_cached_serialized:
+        return _autosave_cached_serialized, payload_hash
+
+    serialized_payload = _compact_json_dumps(payload)
+    _autosave_cached_serialized = serialized_payload
+    return serialized_payload, payload_hash
 
 
 def autosave():
     global _pending_autosave, _pending_autosave_timer
 
     payload = autosave_payload()
-    serialized_payload = json.dumps(payload, indent=2)
-    payload_hash = hashlib.sha1(serialized_payload.encode("utf-8")).hexdigest()
+    serialized_payload, payload_hash = _serialize_autosave_payload(payload)
 
     with _autosave_lock:
         global _last_autosave_hash, _last_autosave_timestamp
