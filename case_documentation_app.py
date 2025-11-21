@@ -36,7 +36,7 @@ from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import partial
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 from html import escape
 import textwrap
 import inspect
@@ -5911,6 +5911,8 @@ def cleanup_case_autosaves(case_id: str | None) -> None:
 
 
 def load_autosave():
+    global _last_autosave_hash, _last_autosave_timestamp
+
     if st.session_state._autosave_loaded:
         return
     case_id = _get_active_case_id()
@@ -8163,21 +8165,68 @@ _last_autosave_hash: str | None = None
 _last_autosave_timestamp: float = 0.0
 _pending_autosave: tuple[str, str, dict] | None = None
 _pending_autosave_timer: threading.Timer | None = None
-_autosave_lock = threading.Lock()
+_autosave_lock = threading.RLock()
 
 
 def autosave_payload() -> dict:
-    return {
-        "case": asdict(D),
+    case_payload = asdict(D)
+    cached_case = st.session_state.get("_autosave_cached_case")
+
+    if cached_case is not None and cached_case == case_payload:
+        st.session_state["_autosave_case_dirty"] = False
+        return {"case": cached_case}
+
+    st.session_state["_autosave_cached_case"] = case_payload
+    st.session_state["_autosave_case_dirty"] = True
+
+    return {"case": case_payload}
+
+
+def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
+    global _autosave_cached_payload, _autosave_cached_serialized
+
+    case_payload: dict[str, Any] = payload.get("case", {})
+    previous_case: dict[str, Any] | None = None
+    if _autosave_cached_payload:
+        previous_case = _autosave_cached_payload.get("case")
+
+    known_keys = set(case_payload.keys())
+    if previous_case:
+        known_keys.update(previous_case.keys())
+
+    dirty_fields = {
+        key
+        for key in known_keys
+        if previous_case is None or case_payload.get(key) != previous_case.get(key)
     }
+
+    for field in dirty_fields:
+        _autosave_field_fingerprints[field] = hashlib.blake2s(
+            _compact_json_dumps(case_payload.get(field)).encode("utf-8")
+        ).hexdigest()
+
+    checksum = hashlib.blake2s()
+    for field_name in sorted(_autosave_field_fingerprints):
+        checksum.update(field_name.encode("utf-8"))
+        checksum.update(_autosave_field_fingerprints[field_name].encode("utf-8"))
+
+    payload_hash = checksum.hexdigest()
+
+    _autosave_cached_payload = payload
+
+    if not dirty_fields and _autosave_cached_serialized:
+        return _autosave_cached_serialized, payload_hash
+
+    serialized_payload = _compact_json_dumps(payload)
+    _autosave_cached_serialized = serialized_payload
+    return serialized_payload, payload_hash
 
 
 def autosave():
     global _pending_autosave, _pending_autosave_timer
 
     payload = autosave_payload()
-    serialized_payload = json.dumps(payload, indent=2)
-    payload_hash = hashlib.sha1(serialized_payload.encode("utf-8")).hexdigest()
+    serialized_payload, payload_hash = _serialize_autosave_payload(payload)
 
     with _autosave_lock:
         global _last_autosave_hash, _last_autosave_timestamp
@@ -8229,34 +8278,68 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
     with autosave_path.open("w", encoding="utf-8") as f:
         f.write(serialized_payload)
 
-    _last_autosave_timestamp = time.monotonic()
-    _last_autosave_hash = payload_hash
+    with _autosave_lock:
+        existing_hash = _last_autosave_hash
+        try:
+            if existing_hash is None and autosave_path.exists():
+                existing_hash = hashlib.sha1(
+                    autosave_path.read_text(encoding="utf-8").encode("utf-8")
+                ).hexdigest()
+        except Exception as exc:
+            logging.debug("Unable to hash existing autosave file: %s", exc)
 
-    if st.session_state.get("autosave_to_database"):
-        case_obj = st.session_state.get("case")
-        case_cls = globals().get("CaseData")
-        if (
-            case_cls
-            and isinstance(case_obj, case_cls)
-            and "save_case_to_database" in globals()
-        ):
-            case_id_value = getattr(case_obj, "case_id", "")
-            if isinstance(case_id_value, str) and case_id_value.strip():
-                try:
-                    save_case_to_database(case_obj, notify=False)
-                except Exception as exc:  # pragma: no cover - streamlit runtime specific
-                    logging.warning(
-                        "Failed to autosave case %s to database: %s",
-                        case_id_value,
-                        exc,
-                    )
+        db_saved = False
+        if st.session_state.get("autosave_to_database"):
+            case_obj = st.session_state.get("case")
+            case_cls = globals().get("CaseData")
+            if (
+                case_cls
+                and isinstance(case_obj, case_cls)
+                and "save_case_to_database" in globals()
+            ):
+                case_id_value = getattr(case_obj, "case_id", "")
+                if isinstance(case_id_value, str) and case_id_value.strip():
                     try:
-                        st.warning(
-                            "Autosave could not write to the shared database. "
-                            "Check connectivity or permissions before relying on the backup."
+                        save_case_to_database(case_obj, notify=False)
+                        db_saved = True
+                    except Exception as exc:  # pragma: no cover - streamlit runtime specific
+                        logging.warning(
+                            "Failed to autosave case %s to database: %s",
+                            case_id_value,
+                            exc,
                         )
-                    except Exception:  # pragma: no cover - Streamlit unavailable during tests
-                        logging.debug("Streamlit warning unavailable for autosave alert")
+                        try:
+                            st.warning(
+                                "Autosave could not write to the shared database. "
+                                "Check connectivity or permissions before relying on the backup."
+                            )
+                        except Exception:  # pragma: no cover - Streamlit unavailable during tests
+                            logging.debug("Streamlit warning unavailable for autosave alert")
+
+        if db_saved and existing_hash == payload_hash:
+            _last_autosave_timestamp = time.monotonic()
+            _last_autosave_hash = payload_hash
+            return
+
+        try:
+            with temp_path.open("w", encoding="utf-8") as f:
+                f.write(serialized_payload)
+            os.replace(temp_path, autosave_path)
+            _last_autosave_timestamp = time.monotonic()
+            _last_autosave_hash = payload_hash
+        except Exception as exc:
+            logging.exception("Failed to persist autosave to %s", autosave_path)
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception as cleanup_exc:  # pragma: no cover - best-effort cleanup
+                logging.debug(
+                    "Unable to remove temporary autosave file %s: %s", temp_path, cleanup_exc
+                )
+
+            if existing_hash:
+                _last_autosave_hash = existing_hash
+            return
 
 
 def get_case_attachments_dir(case_id: str) -> Path:
