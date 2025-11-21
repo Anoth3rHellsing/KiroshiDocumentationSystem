@@ -1,5 +1,7 @@
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -31,8 +33,11 @@ def fake_state(monkeypatch, tmp_path):
     state._autosave_loaded = False
     state.autosave_notice = None
 
-    autosave_path = tmp_path / "autosave.json"
-    monkeypatch.setattr(app, "AUTOSAVE_FILE", str(autosave_path))
+    autosave_dir = tmp_path / "autosaves"
+    monkeypatch.setattr(app, "AUTOSAVE_DIR", autosave_dir)
+    monkeypatch.setattr(app, "AUTOSAVE_FILE", str(tmp_path / "autosave.json"))
+    monkeypatch.setattr(app, "_AUTOSAVE_SESSION_ID", "session")
+    autosave_path = app._autosave_path("case", session_id="session")
     monkeypatch.setattr(app.st, "session_state", state, raising=False)
 
     return state, autosave_path
@@ -69,6 +74,20 @@ def test_load_autosave_handles_invalid_inputs(description, setup_file, fake_stat
     app.load_autosave()
 
     assert state.case == {}
+    assert state._autosave_loaded is True
+
+
+def test_load_autosave_prefers_newest_for_case(fake_state):
+    state, _ = fake_state
+    old_path = app._autosave_path("case", session_id="older")
+    new_path = app._autosave_path("case", session_id="newer")
+    old_path.write_text(json.dumps({"case": {"number": 1}}), encoding="utf-8")
+    os.utime(old_path, (time.time() - 10, time.time() - 10))
+    new_path.write_text(json.dumps({"case": {"number": 2}}), encoding="utf-8")
+
+    app.load_autosave()
+
+    assert state.case == {"number": 2}
     assert state._autosave_loaded is True
 
 
@@ -203,6 +222,48 @@ def test_auto_text_area_refreshes_from_dataclass(fake_state, monkeypatch):
     assert refreshed == "Updated diagnostics"
     assert state[state_key] == "Updated diagnostics"
     assert state[f"{state_key}__seed"] == "Updated diagnostics"
+
+
+def test_close_case_tab_cleans_autosave_files(fake_state, monkeypatch):
+    state, _ = fake_state
+    case_one = app.CaseData(case_id="C-1")
+    case_two = app.CaseData(case_id="C-2")
+    state[app.HOTKEY_TARGET_SESSION_KEY] = None
+    state.case_sessions = [app.CaseSession(case_one), app.CaseSession(case_two)]
+
+    cleaned_ids: list[str | None] = []
+
+    def fake_cleanup(case_id):
+        cleaned_ids.append(case_id)
+
+    monkeypatch.setattr(app, "cleanup_case_autosaves", fake_cleanup)
+
+    app.close_case_tab(1)
+
+    assert cleaned_ids == ["C-2"]
+
+
+def test_save_case_to_database_cleans_autosaves(fake_state, monkeypatch, tmp_path):
+    state, _ = fake_state
+    case = app.CaseData(case_id="DB-1")
+    state.case = case
+    app.D = case
+
+    monkeypatch.setattr(app, "DATABASE_DIR", tmp_path)
+    monkeypatch.setattr(app, "persist_case_attachments", lambda _case_id: {})
+
+    cleaned_ids: list[str] = []
+    monkeypatch.setattr(app, "cleanup_case_autosaves", lambda case_id: cleaned_ids.append(case_id))
+
+    result = app.save_case_to_database(
+        case,
+        notify=False,
+        update_history=False,
+        touch_last_modified=False,
+    )
+
+    assert cleaned_ids == ["DB-1"]
+    assert result == tmp_path / "DB-1.json"
 
 
 def test_auto_text_input_honors_state_labels_for_booleans(fake_state, monkeypatch):

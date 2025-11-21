@@ -178,6 +178,8 @@ def _require_reportlab_charts() -> None:
 VERSION = "RC 141025"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
+AUTOSAVE_DIR = Path("autosaves")
+_AUTOSAVE_SESSION_ID = uuid.uuid4().hex
 DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     "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",
@@ -5806,14 +5808,118 @@ if st.session_state.autosave_notice:
     st.session_state.autosave_notice = None
 
 
+def sanitize_case_id(case_id: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", case_id.strip())
+    return safe_id or "case"
+
+
+def sanitize_filename(filename: str) -> str:
+    """Return a filesystem-safe filename preserving extension when possible."""
+
+    name = Path(filename).name
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    return sanitized or "file"
+
+
+def _ensure_autosave_dir() -> Path:
+    autosave_dir = Path(AUTOSAVE_DIR)
+    autosave_dir.mkdir(parents=True, exist_ok=True)
+    return autosave_dir
+
+
+def _get_active_case_id() -> str:
+    case_obj = st.session_state.get("case")
+    case_id_value: object | None = None
+    if isinstance(case_obj, Mapping):
+        case_id_value = case_obj.get("case_id")
+    else:
+        case_id_value = getattr(case_obj, "case_id", None)
+
+    if isinstance(case_id_value, str) and case_id_value.strip():
+        return case_id_value
+
+    return "case"
+
+
+def _extract_case_id(payload: Mapping[str, object] | object | None) -> str:
+    if isinstance(payload, Mapping):
+        candidate = payload.get("case")
+    else:
+        candidate = getattr(payload, "case", None)
+
+    if isinstance(candidate, Mapping):
+        value = candidate.get("case_id")
+    else:
+        value = getattr(candidate, "case_id", None)
+
+    if isinstance(value, str) and value.strip():
+        return value
+
+    return _get_active_case_id()
+
+
+def _autosave_path(case_id: str, session_id: str | None = None) -> Path:
+    safe_case_id = sanitize_case_id(case_id)
+    target_session = session_id or _AUTOSAVE_SESSION_ID
+    filename = f"autosave_{safe_case_id}_{target_session}.json"
+    return _ensure_autosave_dir() / filename
+
+
+def _iter_case_autosaves(case_id: str) -> list[Path]:
+    safe_case_id = sanitize_case_id(case_id)
+    autosave_dir = Path(AUTOSAVE_DIR)
+    if not autosave_dir.exists():
+        return []
+
+    pattern = f"autosave_{safe_case_id}_*.json"
+    candidates = []
+    for path in autosave_dir.glob(pattern):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        candidates.append((mtime, path))
+
+    return [path for _, path in sorted(candidates, key=lambda item: item[0], reverse=True)]
+
+
+def _resolve_latest_autosave(case_id: str) -> Path | None:
+    candidates = _iter_case_autosaves(case_id)
+    if candidates:
+        return candidates[0]
+
+    legacy_path = Path(AUTOSAVE_FILE)
+    return legacy_path if legacy_path.exists() else None
+
+
+def cleanup_case_autosaves(case_id: str | None) -> None:
+    if not case_id:
+        return
+
+    for path in _iter_case_autosaves(case_id):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logging.debug("Unable to remove autosave file %s", path)
+
+    legacy_path = Path(AUTOSAVE_FILE)
+    if legacy_path.exists():
+        try:
+            legacy_path.unlink()
+        except OSError:
+            logging.debug("Unable to remove legacy autosave file %s", legacy_path)
+
+
 def load_autosave():
     if st.session_state._autosave_loaded:
         return
-    if os.path.exists(AUTOSAVE_FILE):
+    case_id = _get_active_case_id()
+    autosave_path = _resolve_latest_autosave(case_id)
+    if autosave_path and autosave_path.exists():
         try:
-            with open(AUTOSAVE_FILE, "r", encoding="utf-8") as f:
+            with open(autosave_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            st.session_state.case = data.get("case", {})
+            st.session_state.case = data.get("case", st.session_state.get("case", {}))
         except Exception:
             pass
     st.session_state._autosave_loaded = True
@@ -7906,6 +8012,8 @@ def close_case_tab(idx: int) -> None:
     if idx <= 0 or idx >= len(sessions):
         return
 
+    closing_case_id = getattr(sessions[idx].case, "case_id", None)
+
     # Clear widget state for the closing case and any cases that will be re-indexed.
     for target_idx in range(idx, len(sessions)):
         _clear_case_widget_state(target_idx)
@@ -7924,6 +8032,7 @@ def close_case_tab(idx: int) -> None:
         elif target_idx > idx:
             st.session_state[HOTKEY_TARGET_SESSION_KEY] = target_idx - 1
 
+    cleanup_case_autosaves(closing_case_id)
     touch_case_last_modified()
     autosave()
     _sync_case_memory_from_sessions()
@@ -8114,7 +8223,10 @@ def _flush_pending_autosave() -> None:
 def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -> None:
     global _last_autosave_hash, _last_autosave_timestamp
 
-    with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
+    case_id_value = _extract_case_id(payload)
+    autosave_path = _autosave_path(case_id_value)
+
+    with autosave_path.open("w", encoding="utf-8") as f:
         f.write(serialized_payload)
 
     _last_autosave_timestamp = time.monotonic()
@@ -8145,19 +8257,6 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
                         )
                     except Exception:  # pragma: no cover - Streamlit unavailable during tests
                         logging.debug("Streamlit warning unavailable for autosave alert")
-
-
-def sanitize_case_id(case_id: str) -> str:
-    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", case_id.strip())
-    return safe_id or "case"
-
-
-def sanitize_filename(filename: str) -> str:
-    """Return a filesystem-safe filename preserving extension when possible."""
-
-    name = Path(filename).name
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-    return sanitized or "file"
 
 
 def get_case_attachments_dir(case_id: str) -> Path:
@@ -8317,9 +8416,7 @@ _case_attachments_loader = load_case_attachments
 def create_case_autosave_snapshot(case_id: str) -> Path | None:
     try:
         payload = autosave_payload()
-        backup_path = Path(AUTOSAVE_FILE).with_name(
-            f"autosave_{sanitize_case_id(case_id)}.json"
-        )
+        backup_path = _autosave_path(case_id, session_id="snapshot")
         with open(backup_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
         return backup_path
@@ -13667,6 +13764,7 @@ def save_case_to_database(
         st.success(f"Case saved to {file_path}")
     st.session_state.ai_learning_signature = None
     st.session_state.ai_learning_data = None
+    cleanup_case_autosaves(case.case_id)
     return file_path
 
 
