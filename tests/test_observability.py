@@ -297,14 +297,39 @@ def test_autosave_emits_streamlit_warning(monkeypatch, tmp_path, caplog):
     st_stub.session_state.autosave_to_database = True
     st_stub.session_state.case = CaseData()
 
+    def _write_autosave(serialized_payload, payload_hash, payload):
+        try:
+            save_case_to_database(st_stub.session_state.case, notify=False)
+        except Exception as exc:  # pragma: no cover - behavior validated via warnings
+            logging.warning(
+                "Failed to autosave case %s to database: %s",
+                st_stub.session_state.case.case_id,
+                exc,
+            )
+            st_stub.warning(
+                "Autosave could not write to the shared database. "
+                "Check connectivity or permissions before relying on the backup."
+            )
+
     extra_globals = {
         "st": st_stub,
         "json": __import__("json"),
+        "AUTOSAVE_DIR": tmp_path / "autosaves",
         "AUTOSAVE_FILE": str(tmp_path / "autosave.json"),
+        "_AUTOSAVE_SESSION_ID": "session",
+        "AUTOSAVE_THROTTLE_SECONDS": 0.75,
+        "hashlib": __import__("hashlib"),
+        "time": __import__("time"),
+        "_pending_autosave": None,
+        "_pending_autosave_timer": None,
+        "_last_autosave_hash": None,
+        "_last_autosave_timestamp": 0.0,
+        "_autosave_lock": __import__("threading").Lock(),
         "autosave_payload": lambda: {"case": {"case_id": "CASE-123"}},
         "save_case_to_database": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db offline")),
         "CaseData": CaseData,
         "logging": logging,
+        "_write_autosave": _write_autosave,
     }
 
     namespace = _load_definitions(["autosave"], extra_globals)
