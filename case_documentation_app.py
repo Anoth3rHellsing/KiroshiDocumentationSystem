@@ -8185,6 +8185,18 @@ def autosave_payload() -> dict:
     return {"case": case_payload}
 
 
+def _compact_json_dumps(value: Any) -> str:
+    """Serialize ``value`` with stable, compact JSON output."""
+
+    return json.dumps(
+        value,
+        separators=(",", ":"),
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+
+
 def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
     global _autosave_cached_payload, _autosave_cached_serialized
 
