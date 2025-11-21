@@ -8063,14 +8063,7 @@ _last_autosave_hash: str | None = None
 _last_autosave_timestamp: float = 0.0
 _pending_autosave: tuple[str, str, dict] | None = None
 _pending_autosave_timer: threading.Timer | None = None
-_autosave_lock = threading.Lock()
-_autosave_cached_payload: dict | None = None
-_autosave_cached_serialized: str | None = None
-_autosave_field_fingerprints: dict[str, str] = {}
-
-
-def _compact_json_dumps(obj: Any) -> str:
-    return json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+_autosave_lock = threading.RLock()
 
 
 def autosave_payload() -> dict:
