@@ -8166,6 +8166,9 @@ _last_autosave_timestamp: float = 0.0
 _pending_autosave: tuple[str, str, dict] | None = None
 _pending_autosave_timer: threading.Timer | None = None
 _autosave_lock = threading.RLock()
+_autosave_cached_payload: dict[str, Any] | None = None
+_autosave_cached_serialized: str | None = None
+_autosave_field_fingerprints: dict[str, str] = {}
 
 
 def autosave_payload() -> dict:
@@ -8180,6 +8183,18 @@ def autosave_payload() -> dict:
     st.session_state["_autosave_case_dirty"] = True
 
     return {"case": case_payload}
+
+
+def _compact_json_dumps(value: Any) -> str:
+    """Serialize ``value`` with stable, compact JSON output."""
+
+    return json.dumps(
+        value,
+        separators=(",", ":"),
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
 
 
 def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
@@ -8274,6 +8289,7 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
 
     case_id_value = _extract_case_id(payload)
     autosave_path = _autosave_path(case_id_value)
+    temp_path = autosave_path.with_suffix(autosave_path.suffix + ".tmp")
 
     with autosave_path.open("w", encoding="utf-8") as f:
         f.write(serialized_payload)
