@@ -8166,6 +8166,9 @@ _last_autosave_timestamp: float = 0.0
 _pending_autosave: tuple[str, str, dict] | None = None
 _pending_autosave_timer: threading.Timer | None = None
 _autosave_lock = threading.RLock()
+_autosave_cached_payload: dict[str, Any] | None = None
+_autosave_cached_serialized: str | None = None
+_autosave_field_fingerprints: dict[str, str] = {}
 
 
 def autosave_payload() -> dict:
