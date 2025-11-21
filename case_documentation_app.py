@@ -8289,6 +8289,7 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
 
     case_id_value = _extract_case_id(payload)
     autosave_path = _autosave_path(case_id_value)
+    temp_path = autosave_path.with_suffix(autosave_path.suffix + ".tmp")
 
     with autosave_path.open("w", encoding="utf-8") as f:
         f.write(serialized_payload)
