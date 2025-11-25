@@ -5654,6 +5654,9 @@ _init_state("categorizer_summary", {})
 _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
+_init_state("ai_autocorrect_result", "")
+_init_state("qa_verification", {})
+_init_state("qa_verification_score", None)
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
 _init_state("dashboard_load_notice", None)
@@ -16209,6 +16212,9 @@ def render_case_ui(case_idx: int):
             if educate_enabled and advanced_enabled:
                 ai_learning_dataset = ensure_ai_learning_dataset()
 
+            ai_assist_summary = st.session_state.get("ai_assist_result") or ""
+            ai_autocorrect_summary = st.session_state.get("ai_autocorrect_result") or ""
+
             if st.button("Save case", key=case_tab_key("quick_save"), width="stretch"):
                 save_case_to_database(D)
             if st.button(
@@ -16348,6 +16354,52 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ai_assist_result = reply
+            autocorrect_disabled = not bool(ai_assist_summary)
+            autocorrect_help = None
+            if autocorrect_disabled:
+                autocorrect_help = "Run AI Assistance first to enable AI Autocorrection."
+            if st.button(
+                "AI Autocorrection",
+                key=case_tab_key("ai_autocorrect_button"),
+                width="stretch",
+                disabled=autocorrect_disabled,
+                help=autocorrect_help,
+            ):
+                logging.info("AI Autocorrection button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = asdict(D)
+                    tone_directive = build_kiroshi_tone_directive()
+                    user_message = (
+                        "You are Kiroshi, auto-correcting this case for perfect QA compliance. "
+                        "Use the prior AI Assistance guidance, the QA framework for 3Shape support, and the case data to rewrite"
+                        " the documentation so it meets every checklist item. "
+                        f"{tone_directive}"
+                        " Respond in concise Markdown with sections for: Opening/Hold/Transfer notes, empathy & soft-skills phrasing,"
+                        " recap & closure language (with Case ID and survey), CRM fields (Description, Identification, Numbers, Categorization,"
+                        " conclusion, disposition), notes/help-juice links/remote steps, and an updated QA SIM note. "
+                        "Preserve factual troubleshooting while tightening language to earn 100% QA."
+                        f"\n\nAI Assistance summary:\n{ai_assist_summary}\n\nCASE DATA:\n"
+                        f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
+                    )
+                    try:
+                        reply = invoke_gpt(
+                            user_message,
+                            st.session_state.kiroshi_chat_history,
+                            api_key,
+                            model,
+                            base_url,
+                            source="ai_autocorrect",
+                        )
+                    except Exception as e:
+                        logging.error("AI Autocorrection request failed: %s", e)
+                        st.error(str(e))
+                    else:
+                        st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.kiroshi_chat_history)
+                        st.session_state.ai_autocorrect_result = reply
             if educate_enabled and advanced_enabled:
                 matches = st.session_state.get("ai_learning_matches", [])
                 if matches:
@@ -16512,15 +16564,24 @@ def render_case_ui(case_idx: int):
                         ]:
                             case_dict.pop(fld, None)
                     tone_directive = build_kiroshi_tone_directive()
+                    qa_framework_context = (
+                        "Score the case against the 3Shape Case AI Assistance QA framework: "
+                        "Call Control (10%), Soft Skills (40%), Communication (20%), Closure (30%). "
+                        "Also check case procedures/background, troubleshooting/root cause, notes (general/customer/remote), "
+                        "and CRM documentation (Description, Identification, Numbers, Categorization, conclusion, disposition)."
+                    )
+                    ai_assist_context = st.session_state.get("ai_assist_result") or ""
+                    ai_autocorrect_context = st.session_state.get("ai_autocorrect_result") or ""
                     user_message = (
                         f"You are Kiroshi, an experienced support case reviewer. {tone_directive} "
-                        "Examine the case information below and help the agent finish the documentation.\n"
-                        "Provide a plain-language response (no JSON) that includes:\n"
-                        "- Specific fields that are missing, incomplete, or contradictory.\n"
-                        "- Questions to ask the customer or reseller to gather the gaps.\n"
-                        "- Clearer terminology or phrasing to replace confusing wording.\n"
-                        "- Any reminders about mandatory fields, evidence, or follow-up actions.\n"
-                        "Keep everything concise and under 200 words.\n\n"
+                        "Evaluate QA readiness using the framework and return a JSON object only. The JSON must include: "
+                        "scores (call_control, soft_skills, communication, closure, procedures, notes, crm, qa_sim), "
+                        "overall (weighted percent using the listed weights), gaps (list of missing items), "
+                        "recommendations (list), and pass (true if overall >= 80). "
+                        f"Use any AI Assistance or Autocorrection output when scoring.\n\n"
+                        f"Framework:\n{qa_framework_context}\n\n"
+                        f"AI Assistance summary:\n{ai_assist_context}\n\n"
+                        f"AI Autocorrection updates:\n{ai_autocorrect_context}\n\n"
                         "CASE DATA:\n"
                         f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
@@ -16540,7 +16601,47 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
-                        st.session_state.verify_result = reply
+                        def _extract_json_object(block: str) -> dict[str, object] | None:
+                            if not isinstance(block, str):
+                                return None
+                            start = block.find("{")
+                            end = block.rfind("}")
+                            if start == -1 or end == -1 or end <= start:
+                                return None
+                            fragment = block[start : end + 1]
+                            try:
+                                return json.loads(fragment)
+                            except Exception:
+                                return None
+
+                        qa_result = _extract_json_object(reply)
+                        st.session_state.qa_verification = qa_result or {}
+                        st.session_state.qa_verification_score = None
+                        if qa_result:
+                            st.session_state.verify_result = json.dumps(
+                                qa_result, indent=2, ensure_ascii=False
+                            )
+                            overall = qa_result.get("overall") if isinstance(qa_result, dict) else None
+                            if isinstance(overall, (int, float)):
+                                st.session_state.qa_verification_score = float(overall)
+                                if overall >= 80:
+                                    if st.session_state.track_case and getattr(D.tracking, "active", False):
+                                        D.tracking.active = False
+                                        save_case_to_database(D, notify=False)
+                                        st.session_state.track_case = False
+                                        st.success(
+                                            "QA score meets threshold (>=80%). Case removed from tracking."
+                                        )
+                                    else:
+                                        st.success(
+                                            "QA score meets threshold (>=80%). Case is eligible to stay untracked."
+                                        )
+                                else:
+                                    st.warning(
+                                        "QA score is below 80%. Keep tracking the case until gaps are closed."
+                                    )
+                        else:
+                            st.session_state.verify_result = reply
 
         popover_fn = getattr(st, "popover", None)
 
@@ -16610,7 +16711,28 @@ def render_case_ui(case_idx: int):
         st.markdown("</div>", unsafe_allow_html=True)
 
         compact_mode = st.session_state.get("case_compact_mode", False)
-        if st.session_state.verify_result:
+        qa_result = st.session_state.get("qa_verification") or {}
+        qa_score = st.session_state.get("qa_verification_score")
+        if qa_result:
+            st.markdown("#### QA Verification")
+            if isinstance(qa_score, (int, float)):
+                st.markdown(f"**Overall QA score:** {qa_score:.1f}%")
+            scores = qa_result.get("scores") if isinstance(qa_result, dict) else None
+            if isinstance(scores, dict) and scores:
+                st.markdown("**Area scores**")
+                for area, score in scores.items():
+                    st.markdown(f"- {area.replace('_', ' ').title()}: {score}")
+            gaps = qa_result.get("gaps") if isinstance(qa_result, dict) else None
+            if isinstance(gaps, list) and gaps:
+                st.markdown("**Gaps to fix**")
+                for gap in gaps:
+                    st.markdown(f"- {gap}")
+            recommendations = qa_result.get("recommendations") if isinstance(qa_result, dict) else None
+            if isinstance(recommendations, list) and recommendations:
+                st.markdown("**Recommendations**")
+                for rec in recommendations:
+                    st.markdown(f"- {rec}")
+        elif st.session_state.verify_result:
             st.markdown("#### Kiroshi Verification")
             st.markdown(st.session_state.verify_result)
         if st.session_state.ask_result:
@@ -16619,6 +16741,9 @@ def render_case_ui(case_idx: int):
         if st.session_state.ai_assist_result:
             st.markdown("#### AI Assistance")
             st.markdown(st.session_state.ai_assist_result)
+        if st.session_state.ai_autocorrect_result:
+            st.markdown("#### AI Autocorrection")
+            st.markdown(st.session_state.ai_autocorrect_result)
         prog, miss = compute_progress(D, cat_map)
         if compact_mode:
             right = st.container()
