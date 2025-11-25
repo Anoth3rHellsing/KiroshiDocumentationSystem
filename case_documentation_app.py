@@ -5654,6 +5654,9 @@ _init_state("categorizer_summary", {})
 _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
+_init_state("ai_autocorrect_result", "")
+_init_state("qa_verification", {})
+_init_state("qa_verification_score", None)
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
 _init_state("signals_config", DEFAULT_SIGNALS_CONFIG)
 _init_state("dashboard_load_notice", None)
@@ -6233,6 +6236,11 @@ class CaseData:
     dongle_deployment_date: str = ""
     scanner_previous_replacements: int = 0
     scanner_accidental_damage: str = ""
+    hardware_dongle_replaced: str = ""
+    hardware_latest_deployment_date: str = ""
+    hardware_scanner_replaced: str = ""
+    hardware_scanner_sn_summary: str = ""
+    hardware_subscription_type: str = ""
     # Dell escalation specifics
     dell_issue_start_date: str = ""
     dell_command_updates_status: str = ""
@@ -7419,6 +7427,30 @@ HW_CATEGORY_MAP = {
 
 OPTIONAL_PROGRESS_CATEGORIES = {"DELL ESCALATION"}
 
+ESCALATION_TOGGLE_FIELDS = [
+    "request_issue",
+    "contact_name",
+    "office_ph",
+    "direct_ph",
+    "best_time",
+    "patterson",
+    "straumann",
+    "esc_name",
+    "esc_ph",
+    "esc_email",
+] + DELL_ESCALATION_FIELDS
+
+HARDWARE_TOGGLE_FIELDS = sorted(
+    {field for fields in HW_CATEGORY_MAP.values() for field in fields}
+    | {
+        "hardware_dongle_replaced",
+        "hardware_latest_deployment_date",
+        "hardware_scanner_replaced",
+        "hardware_scanner_sn_summary",
+        "hardware_subscription_type",
+    }
+)
+
 
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
@@ -7431,6 +7463,32 @@ def active_category_map():
     if st.session_state.get("include_hardware"):
         cm.update(HW_CATEGORY_MAP)
     return cm
+
+
+def _build_case_ai_dict(case: CaseData) -> dict[str, object]:
+    case_dict = asdict(case)
+    if not st.session_state.get("include_escalations", True):
+        for field in ESCALATION_TOGGLE_FIELDS:
+            case_dict.pop(field, None)
+    if not st.session_state.get("include_hardware", False):
+        for field in HARDWARE_TOGGLE_FIELDS:
+            case_dict.pop(field, None)
+    return case_dict
+
+
+def _disabled_tab_note() -> str:
+    disabled_sections = []
+    if not st.session_state.get("include_escalations", True):
+        disabled_sections.append("Escalations tab")
+    if not st.session_state.get("include_hardware", False):
+        disabled_sections.append("Hardware issues tab")
+    if not disabled_sections:
+        return ""
+    return (
+        "The following tabs are disabled and should not be verified or referenced until they are turned on: "
+        + ", ".join(disabled_sections)
+        + ".\n\n"
+    )
 
 
 CURRENT_CASE_IDX = 0
@@ -14735,6 +14793,44 @@ def build_email_intro(d: CaseData) -> str:
     )
 
 
+def _derive_recap_recommendation(case: CaseData) -> str:
+    """Suggest a simple customer-facing recommendation for recap emails."""
+
+    def _has_any(text: str, needles: tuple[str, ...]) -> bool:
+        lowered = text.lower()
+        return any(needle in lowered for needle in needles)
+
+    if case.internal_helpjuice.strip():
+        return (
+            "Review this Helpjuice guide and follow its steps: "
+            f"{case.internal_helpjuice.strip()}"
+        )
+
+    combined_notes = " ".join(
+        filter(
+            None,
+            [
+                case.additional_info,
+                case.description,
+                case.brief_description,
+                case.root_cause,
+                case.solution,
+            ],
+        )
+    )
+
+    if _has_any(combined_notes, ("thermal", "overheat", "fan", "hot")):
+        return "Place the laptop on a cooling pad and keep vents clear to avoid overheating."
+    if _has_any(combined_notes, ("scanner", "scan")):
+        return "Clean the scanner tip, run a quick calibration, and retry the scan."
+    if _has_any(combined_notes, ("update", "patch", "windows")):
+        return "Run Windows Update, install pending patches, and restart the computer."
+    if _has_any(combined_notes, ("network", "wi-fi", "wifi", "internet")):
+        return "Restart the router and reconnect the PC to a stable wired or Wi‑Fi network."
+
+    return "Restart the computer daily and keep Windows updates installed for best performance."
+
+
 def build_case_data_block(d: CaseData) -> str:
     """Return a newline separated list with every tracked case field."""
 
@@ -16209,6 +16305,9 @@ def render_case_ui(case_idx: int):
             if educate_enabled and advanced_enabled:
                 ai_learning_dataset = ensure_ai_learning_dataset()
 
+            ai_assist_summary = st.session_state.get("ai_assist_result") or ""
+            ai_autocorrect_summary = st.session_state.get("ai_autocorrect_result") or ""
+
             if st.button("Save case", key=case_tab_key("quick_save"), width="stretch"):
                 save_case_to_database(D)
             if st.button(
@@ -16256,21 +16355,7 @@ def render_case_ui(case_idx: int):
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    case_dict = _build_case_ai_dict(D)
                     _, miss = compute_progress(D, cat_map)
                     missing = [f for flds in miss.values() for f in flds]
                     learning_context = ""
@@ -16313,8 +16398,10 @@ def render_case_ui(case_idx: int):
                     else:
                         st.session_state.ai_learning_matches = []
                     tone_directive = build_kiroshi_tone_directive()
+                    disabled_tab_note = _disabled_tab_note()
                     user_message = (
                         learning_context
+                        + disabled_tab_note
                         + "You are Kiroshi, an experienced support case assistant."
                         " Review the case details below and provide a concise, human-readable guidance summary."
                         f" {tone_directive}"
@@ -16348,6 +16435,54 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ai_assist_result = reply
+            autocorrect_disabled = not bool(ai_assist_summary)
+            autocorrect_help = None
+            if autocorrect_disabled:
+                autocorrect_help = "Run AI Assistance first to enable AI Autocorrection."
+            if st.button(
+                "AI Autocorrection",
+                key=case_tab_key("ai_autocorrect_button"),
+                width="stretch",
+                disabled=autocorrect_disabled,
+                help=autocorrect_help,
+            ):
+                logging.info("AI Autocorrection button clicked")
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = _build_case_ai_dict(D)
+                    tone_directive = build_kiroshi_tone_directive()
+                    disabled_tab_note = _disabled_tab_note()
+                    user_message = (
+                        disabled_tab_note
+                        + "You are Kiroshi, auto-correcting this case for perfect QA compliance. "
+                        "Use the prior AI Assistance guidance, the QA framework for 3Shape support, and the case data to rewrite"
+                        " the documentation so it meets every checklist item. "
+                        f"{tone_directive}"
+                        " Respond in concise Markdown with sections for: Opening/Hold/Transfer notes, empathy & soft-skills phrasing,"
+                        " recap & closure language (with Case ID and survey), CRM fields (Description, Identification, Numbers, Categorization,"
+                        " conclusion, disposition), notes/help-juice links/remote steps, and an updated QA SIM note. "
+                        "Preserve factual troubleshooting while tightening language to earn 100% QA."
+                        f"\n\nAI Assistance summary:\n{ai_assist_summary}\n\nCASE DATA:\n"
+                        f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
+                    )
+                    try:
+                        reply = invoke_gpt(
+                            user_message,
+                            st.session_state.kiroshi_chat_history,
+                            api_key,
+                            model,
+                            base_url,
+                            source="ai_autocorrect",
+                        )
+                    except Exception as e:
+                        logging.error("AI Autocorrection request failed: %s", e)
+                        st.error(str(e))
+                    else:
+                        st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
+                        save_memory(st.session_state.kiroshi_chat_history)
+                        st.session_state.ai_autocorrect_result = reply
             if educate_enabled and advanced_enabled:
                 matches = st.session_state.get("ai_learning_matches", [])
                 if matches:
@@ -16376,7 +16511,7 @@ def render_case_ui(case_idx: int):
                     if not taxonomy_block or not signals_config:
                         st.error("Please provide taxonomy and signals config in the Debug tab.")
                     else:
-                        case_dict = asdict(D)
+                        case_dict = _build_case_ai_dict(D)
                         case_input = {
                             "title": D.brief_description,
                             "description": D.description,
@@ -16435,21 +16570,7 @@ def render_case_ui(case_idx: int):
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    case_dict = _build_case_ai_dict(D)
                     findings = st.session_state.verify_result
                     tone_directive = build_kiroshi_tone_directive()
                     findings_context = (
@@ -16496,31 +16617,28 @@ def render_case_ui(case_idx: int):
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    case_dict = _build_case_ai_dict(D)
                     tone_directive = build_kiroshi_tone_directive()
+                    qa_framework_context = (
+                        "Score the case against the 3Shape Case AI Assistance QA framework: "
+                        "Call Control (10%), Soft Skills (40%), Communication (20%), Closure (30%). "
+                        "Also check case procedures/background, troubleshooting/root cause, notes (general/customer/remote), "
+                        "and CRM documentation (Description, Identification, Numbers, Categorization, conclusion, disposition)."
+                    )
+                    ai_assist_context = st.session_state.get("ai_assist_result") or ""
+                    ai_autocorrect_context = st.session_state.get("ai_autocorrect_result") or ""
+                    disabled_tab_note = _disabled_tab_note()
                     user_message = (
                         f"You are Kiroshi, an experienced support case reviewer. {tone_directive} "
-                        "Examine the case information below and help the agent finish the documentation.\n"
-                        "Provide a plain-language response (no JSON) that includes:\n"
-                        "- Specific fields that are missing, incomplete, or contradictory.\n"
-                        "- Questions to ask the customer or reseller to gather the gaps.\n"
-                        "- Clearer terminology or phrasing to replace confusing wording.\n"
-                        "- Any reminders about mandatory fields, evidence, or follow-up actions.\n"
-                        "Keep everything concise and under 200 words.\n\n"
+                        "Evaluate QA readiness using the framework and return a JSON object only. The JSON must include: "
+                        "scores (call_control, soft_skills, communication, closure, procedures, notes, crm, qa_sim), "
+                        "overall (weighted percent using the listed weights), gaps (list of missing items), "
+                        "recommendations (list), and pass (true if overall >= 80). "
+                        f"Use any AI Assistance or Autocorrection output when scoring.\n\n"
+                        f"{disabled_tab_note}"
+                        f"Framework:\n{qa_framework_context}\n\n"
+                        f"AI Assistance summary:\n{ai_assist_context}\n\n"
+                        f"AI Autocorrection updates:\n{ai_autocorrect_context}\n\n"
                         "CASE DATA:\n"
                         f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
@@ -16540,7 +16658,47 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
-                        st.session_state.verify_result = reply
+                        def _extract_json_object(block: str) -> dict[str, object] | None:
+                            if not isinstance(block, str):
+                                return None
+                            start = block.find("{")
+                            end = block.rfind("}")
+                            if start == -1 or end == -1 or end <= start:
+                                return None
+                            fragment = block[start : end + 1]
+                            try:
+                                return json.loads(fragment)
+                            except Exception:
+                                return None
+
+                        qa_result = _extract_json_object(reply)
+                        st.session_state.qa_verification = qa_result or {}
+                        st.session_state.qa_verification_score = None
+                        if qa_result:
+                            st.session_state.verify_result = json.dumps(
+                                qa_result, indent=2, ensure_ascii=False
+                            )
+                            overall = qa_result.get("overall") if isinstance(qa_result, dict) else None
+                            if isinstance(overall, (int, float)):
+                                st.session_state.qa_verification_score = float(overall)
+                                if overall >= 80:
+                                    if st.session_state.track_case and getattr(D.tracking, "active", False):
+                                        D.tracking.active = False
+                                        save_case_to_database(D, notify=False)
+                                        st.session_state.track_case = False
+                                        st.success(
+                                            "QA score meets threshold (>=80%). Case removed from tracking."
+                                        )
+                                    else:
+                                        st.success(
+                                            "QA score meets threshold (>=80%). Case is eligible to stay untracked."
+                                        )
+                                else:
+                                    st.warning(
+                                        "QA score is below 80%. Keep tracking the case until gaps are closed."
+                                    )
+                        else:
+                            st.session_state.verify_result = reply
 
         popover_fn = getattr(st, "popover", None)
 
@@ -16610,7 +16768,28 @@ def render_case_ui(case_idx: int):
         st.markdown("</div>", unsafe_allow_html=True)
 
         compact_mode = st.session_state.get("case_compact_mode", False)
-        if st.session_state.verify_result:
+        qa_result = st.session_state.get("qa_verification") or {}
+        qa_score = st.session_state.get("qa_verification_score")
+        if qa_result:
+            st.markdown("#### QA Verification")
+            if isinstance(qa_score, (int, float)):
+                st.markdown(f"**Overall QA score:** {qa_score:.1f}%")
+            scores = qa_result.get("scores") if isinstance(qa_result, dict) else None
+            if isinstance(scores, dict) and scores:
+                st.markdown("**Area scores**")
+                for area, score in scores.items():
+                    st.markdown(f"- {area.replace('_', ' ').title()}: {score}")
+            gaps = qa_result.get("gaps") if isinstance(qa_result, dict) else None
+            if isinstance(gaps, list) and gaps:
+                st.markdown("**Gaps to fix**")
+                for gap in gaps:
+                    st.markdown(f"- {gap}")
+            recommendations = qa_result.get("recommendations") if isinstance(qa_result, dict) else None
+            if isinstance(recommendations, list) and recommendations:
+                st.markdown("**Recommendations**")
+                for rec in recommendations:
+                    st.markdown(f"- {rec}")
+        elif st.session_state.verify_result:
             st.markdown("#### Kiroshi Verification")
             st.markdown(st.session_state.verify_result)
         if st.session_state.ask_result:
@@ -16619,6 +16798,9 @@ def render_case_ui(case_idx: int):
         if st.session_state.ai_assist_result:
             st.markdown("#### AI Assistance")
             st.markdown(st.session_state.ai_assist_result)
+        if st.session_state.ai_autocorrect_result:
+            st.markdown("#### AI Autocorrection")
+            st.markdown(st.session_state.ai_autocorrect_result)
         prog, miss = compute_progress(D, cat_map)
         if compact_mode:
             right = st.container()
@@ -16979,12 +17161,32 @@ def render_case_ui(case_idx: int):
             if email_type == "Recap (Customer)":
                 intro = build_email_intro(D)
                 steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
+                recommendation_key = email_tab_key("recap_recommendation")
+                auto_recommendation = _derive_recap_recommendation(D)
+                existing_recommendation = (ext.get("recap_recommendation", "") or "").strip()
+                if not existing_recommendation:
+                    existing_recommendation = auto_recommendation
+                    ext["recap_recommendation"] = existing_recommendation
+                    st.session_state[recommendation_key] = existing_recommendation
+                recommendation_value = st.text_input(
+                    "Recommendation for the recap email",
+                    existing_recommendation,
+                    help="Required for recap emails. Suggest a simple next step or helpful resource for the customer.",
+                    key=recommendation_key,
+                    placeholder="e.g., Run Windows Update, restart the PC, and retry the scan.",
+                )
+                if not recommendation_value.strip():
+                    recommendation_value = auto_recommendation
+                    st.session_state[recommendation_key] = recommendation_value
+                ext["recap_recommendation"] = recommendation_value.strip()
+                recap_recommendation = ext["recap_recommendation"]
                 prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
         motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
         Start the email exactly with the following lines (do not paraphrase or omit them):
         {intro}
         Include: Case ID, a brief summary of what happened, and the solution.
         Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
+        Always include this simple recommendation for the customer: {recap_recommendation}
         Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
 
         Return only the email body.
@@ -18345,6 +18547,55 @@ End with: We look forward to your reply."""
                 "Hardware test performed?",
                 "hardware_test",
                 container=col_sc1,
+            )
+            st.subheader("Hardware replacement history")
+            hr_col1, hr_col2 = st.columns(2)
+            auto_text_input(
+                "Dongle Replaced",
+                "hardware_dongle_replaced",
+                container=hr_col1,
+            )
+            auto_text_input(
+                "Latest Deployment Date",
+                "hardware_latest_deployment_date",
+                container=hr_col2,
+            )
+            auto_text_input(
+                "Scanner replaced",
+                "hardware_scanner_replaced",
+                container=hr_col1,
+            )
+            auto_text_input(
+                "Scanner S/N",
+                "hardware_scanner_sn_summary",
+                container=hr_col2,
+            )
+            auto_text_input(
+                "Subscription Type",
+                "hardware_subscription_type",
+            )
+            st.table(
+                pd.DataFrame(
+                    [
+                        ("Dongle Replaced", D.hardware_dongle_replaced or "Not recorded"),
+                        (
+                            "Latest Deployment Date",
+                            D.hardware_latest_deployment_date or "Not recorded",
+                        ),
+                        ("Scanner replaced", D.hardware_scanner_replaced or "Not recorded"),
+                        (
+                            "Scanner S/N",
+                            D.hardware_scanner_sn_summary
+                            or D.scanner_sn
+                            or "Not recorded",
+                        ),
+                        (
+                            "Subscription Type",
+                            D.hardware_subscription_type or "Not recorded",
+                        ),
+                    ],
+                    columns=["Detail", "Value"],
+                )
             )
             st.dataframe(
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
