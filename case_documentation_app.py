@@ -14793,6 +14793,44 @@ def build_email_intro(d: CaseData) -> str:
     )
 
 
+def _derive_recap_recommendation(case: CaseData) -> str:
+    """Suggest a simple customer-facing recommendation for recap emails."""
+
+    def _has_any(text: str, needles: tuple[str, ...]) -> bool:
+        lowered = text.lower()
+        return any(needle in lowered for needle in needles)
+
+    if case.internal_helpjuice.strip():
+        return (
+            "Review this Helpjuice guide and follow its steps: "
+            f"{case.internal_helpjuice.strip()}"
+        )
+
+    combined_notes = " ".join(
+        filter(
+            None,
+            [
+                case.additional_info,
+                case.description,
+                case.brief_description,
+                case.root_cause,
+                case.solution,
+            ],
+        )
+    )
+
+    if _has_any(combined_notes, ("thermal", "overheat", "fan", "hot")):
+        return "Place the laptop on a cooling pad and keep vents clear to avoid overheating."
+    if _has_any(combined_notes, ("scanner", "scan")):
+        return "Clean the scanner tip, run a quick calibration, and retry the scan."
+    if _has_any(combined_notes, ("update", "patch", "windows")):
+        return "Run Windows Update, install pending patches, and restart the computer."
+    if _has_any(combined_notes, ("network", "wi-fi", "wifi", "internet")):
+        return "Restart the router and reconnect the PC to a stable wired or Wi‑Fi network."
+
+    return "Restart the computer daily and keep Windows updates installed for best performance."
+
+
 def build_case_data_block(d: CaseData) -> str:
     """Return a newline separated list with every tracked case field."""
 
@@ -17123,12 +17161,32 @@ def render_case_ui(case_idx: int):
             if email_type == "Recap (Customer)":
                 intro = build_email_intro(D)
                 steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
+                recommendation_key = email_tab_key("recap_recommendation")
+                auto_recommendation = _derive_recap_recommendation(D)
+                existing_recommendation = (ext.get("recap_recommendation", "") or "").strip()
+                if not existing_recommendation:
+                    existing_recommendation = auto_recommendation
+                    ext["recap_recommendation"] = existing_recommendation
+                    st.session_state[recommendation_key] = existing_recommendation
+                recommendation_value = st.text_input(
+                    "Recommendation for the recap email",
+                    existing_recommendation,
+                    help="Required for recap emails. Suggest a simple next step or helpful resource for the customer.",
+                    key=recommendation_key,
+                    placeholder="e.g., Run Windows Update, restart the PC, and retry the scan.",
+                )
+                if not recommendation_value.strip():
+                    recommendation_value = auto_recommendation
+                    st.session_state[recommendation_key] = recommendation_value
+                ext["recap_recommendation"] = recommendation_value.strip()
+                recap_recommendation = ext["recap_recommendation"]
                 prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
         motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
         Start the email exactly with the following lines (do not paraphrase or omit them):
         {intro}
         Include: Case ID, a brief summary of what happened, and the solution.
         Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
+        Always include this simple recommendation for the customer: {recap_recommendation}
         Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
 
         Return only the email body.
