@@ -16619,6 +16619,20 @@ def render_case_ui(case_idx: int):
                 else:
                     case_dict = _build_case_ai_dict(D)
                     tone_directive = build_kiroshi_tone_directive()
+                    qa_training_content = (
+                        "Comprehensive QA training (apply rigorously):\n"
+                        "Criteria A – Call Control (CX 10%): greeting, ID, consent, set agenda, hold/transfer etiquette, recap.\n"
+                        "Criteria B – Soft Skills (CX 40%): empathy, ownership, tone, confidence, proactive reassurance, bias-free phrasing.\n"
+                        "Criteria C – Communication (CX 20%): clear/simple language, structure, avoids jargon, confirms understanding, summarizes next steps.\n"
+                        "Criteria D – Closure (CX 30%): confirms resolution, lists actions/results, tickets closed or follow-up scheduled, surveys offered.\n"
+                        "Criteria E – Case Procedures/Background (CP): device/OS/app versions, configurations, logs/screenshots, environment context.\n"
+                        "Criteria F – Troubleshooting/Root Cause (CP): steps attempted, diagnostics, hypotheses, fixes, validation evidence, escalation notes.\n"
+                        "Criteria G – Notes & CRM (CP): internal/general notes, customer-facing notes, remote steps, SIM/QA notes, CRM Description/Identification/Numbers/Categorization/conclusion/disposition filled.\n"
+                        "Definitions: Yes = met, No = missing/incorrect, Super Pro = exemplary beyond standard.\n"
+                        "Channel adjustments: phone requires vocal warmth, holds/transfers handled explicitly; email/chat needs brevity, formatting, and acknowledgement of wait times; convert call flows to equivalent written assurances when not on voice.\n"
+                        "Customer type adjustments: consumer/external prioritize CX tone and clarity; partner/reseller/advanced users emphasize precision and CP depth while keeping CX acceptable.\n"
+                        "Scoring: blend CX (A–D weights listed) with CP (E–G completeness). Track Super Pro as Yes but note excellence; mark N/A only when a criterion truly does not apply.\n"
+                    )
                     qa_framework_context = (
                         "Score the case against the 3Shape Case AI Assistance QA framework: "
                         "Call Control (10%), Soft Skills (40%), Communication (20%), Closure (30%). "
@@ -16634,8 +16648,14 @@ def render_case_ui(case_idx: int):
                         "scores (call_control, soft_skills, communication, closure, procedures, notes, crm, qa_sim), "
                         "overall (weighted percent using the listed weights), gaps (list of missing items), "
                         "recommendations (list), and pass (true if overall >= 80). "
+                        "Follow this instruction list so the model applies all KPIs: "
+                        "1) Apply Criteria A–G with the channel and customer-type rules from the QA training content. "
+                        "2) Balance CX-heavy items (A–D weights given) against CP completeness (E–G) when judging overall readiness. "
+                        "3) Map each criterion to the structured JSON scores and short comments highlighting Yes/No/Super Pro evidence. "
+                        "4) Explicitly mark any N/A criteria and explain why they do not apply. "
                         f"Use any AI Assistance or Autocorrection output when scoring.\n\n"
                         f"{disabled_tab_note}"
+                        f"QA Training:\n{qa_training_content}\n"
                         f"Framework:\n{qa_framework_context}\n\n"
                         f"AI Assistance summary:\n{ai_assist_context}\n\n"
                         f"AI Autocorrection updates:\n{ai_autocorrect_context}\n\n"
