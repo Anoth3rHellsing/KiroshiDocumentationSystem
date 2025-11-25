@@ -5126,7 +5126,7 @@ def _render_tutorial_visual(kind: str) -> None:
                 },
                 {
                     "Section": "AI Helpers",
-                    "Highlights": "Verify, Ask Kiroshi, Categorizer, AI Assist, and database search shortcuts.",
+                    "Highlights": "QA Verify, Ask Kiroshi, Categorizer, AI Assist, and database search shortcuts.",
                 },
                 {
                     "Section": "Escalation",
@@ -5337,7 +5337,7 @@ def _render_tutorial_visual(kind: str) -> None:
         col_chat, col_manual, col_reference = st.columns(3)
         with col_chat:
             st.markdown(
-                "<div class='tutorial-visual-card'><strong>Kiroshi Chat</strong><br><span class='tutorial-footnote'>Persistent conversation history, Verify button context, and personality modes.</span></div>",
+                "<div class='tutorial-visual-card'><strong>Kiroshi Chat</strong><br><span class='tutorial-footnote'>Persistent conversation history, QA Verify button context, and personality modes.</span></div>",
                 unsafe_allow_html=True,
             )
         with col_manual:
@@ -16612,8 +16612,8 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ask_result = reply
-            if st.button("Verify", key=case_tab_key("verify_button"), width="stretch"):
-                logging.info("Verify button clicked")
+            if st.button("QA Verify", key=case_tab_key("verify_button"), width="stretch"):
+                logging.info("QA Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
@@ -16652,7 +16652,7 @@ def render_case_ui(case_idx: int):
                             source="verify",
                         )
                     except Exception as e:
-                        logging.error("Verify request failed: %s", e)
+                        logging.error("QA Verify request failed: %s", e)
                         st.error(str(e))
                     else:
                         st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
@@ -16771,7 +16771,7 @@ def render_case_ui(case_idx: int):
         qa_result = st.session_state.get("qa_verification") or {}
         qa_score = st.session_state.get("qa_verification_score")
         if qa_result:
-            st.markdown("#### QA Verification")
+            st.markdown("#### QA Verify")
             if isinstance(qa_score, (int, float)):
                 st.markdown(f"**Overall QA score:** {qa_score:.1f}%")
             scores = qa_result.get("scores") if isinstance(qa_result, dict) else None
@@ -16790,7 +16790,7 @@ def render_case_ui(case_idx: int):
                 for rec in recommendations:
                     st.markdown(f"- {rec}")
         elif st.session_state.verify_result:
-            st.markdown("#### Kiroshi Verification")
+            st.markdown("#### Kiroshi QA Verify")
             st.markdown(st.session_state.verify_result)
         if st.session_state.ask_result:
             st.markdown("#### Kiroshi Suggestions")
