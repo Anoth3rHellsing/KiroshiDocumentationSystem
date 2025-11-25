@@ -39,3 +39,7 @@ placeholder window that future phases will extend.
 
 The application will open an empty main window while additional functionality
 is implemented in later phases.
+
+## Knowledge updates
+
+- See `docs/ai_research_notes.md` for a curated digest of 3Shape Help Center highlights and community-sourced troubleshooting themes (Facebook, Reddit) with Dell/IT context for AI-assisted responses.
