@@ -17187,7 +17187,7 @@ def render_case_ui(case_idx: int):
                 if not existing_recommendation:
                     existing_recommendation = auto_recommendation
                     ext["recap_recommendation"] = existing_recommendation
-                    st.session_state[recommendation_key] = existing_recommendation
+                st.session_state.setdefault(recommendation_key, existing_recommendation)
                 recommendation_value = st.text_input(
                     "Recommendation for the recap email",
                     existing_recommendation,
@@ -17195,10 +17195,10 @@ def render_case_ui(case_idx: int):
                     key=recommendation_key,
                     placeholder="e.g., Run Windows Update, restart the PC, and retry the scan.",
                 )
-                if not recommendation_value.strip():
+                recommendation_value = recommendation_value.strip()
+                if not recommendation_value:
                     recommendation_value = auto_recommendation
-                    st.session_state[recommendation_key] = recommendation_value
-                ext["recap_recommendation"] = recommendation_value.strip()
+                ext["recap_recommendation"] = recommendation_value
                 recap_recommendation = ext["recap_recommendation"]
                 prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
         motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
