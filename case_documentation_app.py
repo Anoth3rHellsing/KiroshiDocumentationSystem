@@ -6236,6 +6236,11 @@ class CaseData:
     dongle_deployment_date: str = ""
     scanner_previous_replacements: int = 0
     scanner_accidental_damage: str = ""
+    hardware_dongle_replaced: str = ""
+    hardware_latest_deployment_date: str = ""
+    hardware_scanner_replaced: str = ""
+    hardware_scanner_sn_summary: str = ""
+    hardware_subscription_type: str = ""
     # Dell escalation specifics
     dell_issue_start_date: str = ""
     dell_command_updates_status: str = ""
@@ -7437,6 +7442,13 @@ ESCALATION_TOGGLE_FIELDS = [
 
 HARDWARE_TOGGLE_FIELDS = sorted(
     {field for fields in HW_CATEGORY_MAP.values() for field in fields}
+    | {
+        "hardware_dongle_replaced",
+        "hardware_latest_deployment_date",
+        "hardware_scanner_replaced",
+        "hardware_scanner_sn_summary",
+        "hardware_subscription_type",
+    }
 )
 
 
@@ -18477,6 +18489,55 @@ End with: We look forward to your reply."""
                 "Hardware test performed?",
                 "hardware_test",
                 container=col_sc1,
+            )
+            st.subheader("Hardware replacement history")
+            hr_col1, hr_col2 = st.columns(2)
+            auto_text_input(
+                "Dongle Replaced",
+                "hardware_dongle_replaced",
+                container=hr_col1,
+            )
+            auto_text_input(
+                "Latest Deployment Date",
+                "hardware_latest_deployment_date",
+                container=hr_col2,
+            )
+            auto_text_input(
+                "Scanner replaced",
+                "hardware_scanner_replaced",
+                container=hr_col1,
+            )
+            auto_text_input(
+                "Scanner S/N",
+                "hardware_scanner_sn_summary",
+                container=hr_col2,
+            )
+            auto_text_input(
+                "Subscription Type",
+                "hardware_subscription_type",
+            )
+            st.table(
+                pd.DataFrame(
+                    [
+                        ("Dongle Replaced", D.hardware_dongle_replaced or "Not recorded"),
+                        (
+                            "Latest Deployment Date",
+                            D.hardware_latest_deployment_date or "Not recorded",
+                        ),
+                        ("Scanner replaced", D.hardware_scanner_replaced or "Not recorded"),
+                        (
+                            "Scanner S/N",
+                            D.hardware_scanner_sn_summary
+                            or D.scanner_sn
+                            or "Not recorded",
+                        ),
+                        (
+                            "Subscription Type",
+                            D.hardware_subscription_type or "Not recorded",
+                        ),
+                    ],
+                    columns=["Detail", "Value"],
+                )
             )
             st.dataframe(
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
