@@ -7422,6 +7422,23 @@ HW_CATEGORY_MAP = {
 
 OPTIONAL_PROGRESS_CATEGORIES = {"DELL ESCALATION"}
 
+ESCALATION_TOGGLE_FIELDS = [
+    "request_issue",
+    "contact_name",
+    "office_ph",
+    "direct_ph",
+    "best_time",
+    "patterson",
+    "straumann",
+    "esc_name",
+    "esc_ph",
+    "esc_email",
+] + DELL_ESCALATION_FIELDS
+
+HARDWARE_TOGGLE_FIELDS = sorted(
+    {field for fields in HW_CATEGORY_MAP.values() for field in fields}
+)
+
 
 def active_category_map():
     cm = BASE_CATEGORY_MAP.copy()
@@ -7434,6 +7451,32 @@ def active_category_map():
     if st.session_state.get("include_hardware"):
         cm.update(HW_CATEGORY_MAP)
     return cm
+
+
+def _build_case_ai_dict(case: CaseData) -> dict[str, object]:
+    case_dict = asdict(case)
+    if not st.session_state.get("include_escalations", True):
+        for field in ESCALATION_TOGGLE_FIELDS:
+            case_dict.pop(field, None)
+    if not st.session_state.get("include_hardware", False):
+        for field in HARDWARE_TOGGLE_FIELDS:
+            case_dict.pop(field, None)
+    return case_dict
+
+
+def _disabled_tab_note() -> str:
+    disabled_sections = []
+    if not st.session_state.get("include_escalations", True):
+        disabled_sections.append("Escalations tab")
+    if not st.session_state.get("include_hardware", False):
+        disabled_sections.append("Hardware issues tab")
+    if not disabled_sections:
+        return ""
+    return (
+        "The following tabs are disabled and should not be verified or referenced until they are turned on: "
+        + ", ".join(disabled_sections)
+        + ".\n\n"
+    )
 
 
 CURRENT_CASE_IDX = 0
@@ -16262,21 +16305,7 @@ def render_case_ui(case_idx: int):
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    case_dict = _build_case_ai_dict(D)
                     _, miss = compute_progress(D, cat_map)
                     missing = [f for flds in miss.values() for f in flds]
                     learning_context = ""
@@ -16319,8 +16348,10 @@ def render_case_ui(case_idx: int):
                     else:
                         st.session_state.ai_learning_matches = []
                     tone_directive = build_kiroshi_tone_directive()
+                    disabled_tab_note = _disabled_tab_note()
                     user_message = (
                         learning_context
+                        + disabled_tab_note
                         + "You are Kiroshi, an experienced support case assistant."
                         " Review the case details below and provide a concise, human-readable guidance summary."
                         f" {tone_directive}"
@@ -16369,10 +16400,12 @@ def render_case_ui(case_idx: int):
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    case_dict = asdict(D)
+                    case_dict = _build_case_ai_dict(D)
                     tone_directive = build_kiroshi_tone_directive()
+                    disabled_tab_note = _disabled_tab_note()
                     user_message = (
-                        "You are Kiroshi, auto-correcting this case for perfect QA compliance. "
+                        disabled_tab_note
+                        + "You are Kiroshi, auto-correcting this case for perfect QA compliance. "
                         "Use the prior AI Assistance guidance, the QA framework for 3Shape support, and the case data to rewrite"
                         " the documentation so it meets every checklist item. "
                         f"{tone_directive}"
@@ -16428,7 +16461,7 @@ def render_case_ui(case_idx: int):
                     if not taxonomy_block or not signals_config:
                         st.error("Please provide taxonomy and signals config in the Debug tab.")
                     else:
-                        case_dict = asdict(D)
+                        case_dict = _build_case_ai_dict(D)
                         case_input = {
                             "title": D.brief_description,
                             "description": D.description,
@@ -16487,21 +16520,7 @@ def render_case_ui(case_idx: int):
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    case_dict = _build_case_ai_dict(D)
                     findings = st.session_state.verify_result
                     tone_directive = build_kiroshi_tone_directive()
                     findings_context = (
@@ -16548,21 +16567,7 @@ def render_case_ui(case_idx: int):
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
-                    case_dict = asdict(D)
-                    if not st.session_state.include_escalations:
-                        for fld in [
-                            "request_issue",
-                            "contact_name",
-                            "office_ph",
-                            "direct_ph",
-                            "best_time",
-                            "patterson",
-                            "straumann",
-                            "esc_name",
-                            "esc_ph",
-                            "esc_email",
-                        ]:
-                            case_dict.pop(fld, None)
+                    case_dict = _build_case_ai_dict(D)
                     tone_directive = build_kiroshi_tone_directive()
                     qa_framework_context = (
                         "Score the case against the 3Shape Case AI Assistance QA framework: "
@@ -16572,6 +16577,7 @@ def render_case_ui(case_idx: int):
                     )
                     ai_assist_context = st.session_state.get("ai_assist_result") or ""
                     ai_autocorrect_context = st.session_state.get("ai_autocorrect_result") or ""
+                    disabled_tab_note = _disabled_tab_note()
                     user_message = (
                         f"You are Kiroshi, an experienced support case reviewer. {tone_directive} "
                         "Evaluate QA readiness using the framework and return a JSON object only. The JSON must include: "
@@ -16579,6 +16585,7 @@ def render_case_ui(case_idx: int):
                         "overall (weighted percent using the listed weights), gaps (list of missing items), "
                         "recommendations (list), and pass (true if overall >= 80). "
                         f"Use any AI Assistance or Autocorrection output when scoring.\n\n"
+                        f"{disabled_tab_note}"
                         f"Framework:\n{qa_framework_context}\n\n"
                         f"AI Assistance summary:\n{ai_assist_context}\n\n"
                         f"AI Autocorrection updates:\n{ai_autocorrect_context}\n\n"
