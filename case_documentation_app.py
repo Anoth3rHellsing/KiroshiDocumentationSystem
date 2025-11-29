@@ -2729,6 +2729,25 @@ DARK_THEME = ThemePalette(
 
 
 HOLIDAY_THEMES: dict[str, ThemePalette] = {
+    "day_of_liberty": ThemePalette(
+        key="day_of_liberty",
+        name="Day of Liberty",
+        primary="#1f6feb",
+        accent="#f1c40f",
+        background="#0b1224",
+        surface="#111827",
+        text="#e5e7eb",
+        muted_text="#94a3b8",
+        glados_messages=[
+            "Super Earth salutes your spotless documentation—spread managed democracy across every ticket.",
+            "Pull the pin on unclear cases with a well-timed Stratagem of context and repro steps.",
+            "Swat bugs like Terminids, troubleshoot bots like Automatons—victory requires precision notes.",
+            "Keep the Helldivers 2 supply lines flowing: attachments, logs, and timelines are your requisitions.",
+            "Hold the objective! Close the loop with clients before reinforcements—er, follow-ups—arrive.",
+            "Extract only after confirming the scanners are liberated from errors—leave no clinic behind.",
+            "Freedom isn’t free; it’s earned with disciplined checklists and post-mission summaries.",
+        ],
+    ),
     "new_year": ThemePalette(
         key="new_year",
         name="New Year's Day",
@@ -2913,6 +2932,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
 
 HOLIDAY_NAME_TO_KEY = {
     "New Year's Day": "new_year",
+    "Day of Liberty": "day_of_liberty",
     "Martin Luther King Jr. Day": "mlk_day",
     "Presidents' Day": "presidents_day",
     "Memorial Day": "memorial_day",
@@ -2972,6 +2992,7 @@ def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
 def compute_us_holidays(year: int) -> list[tuple[date, str]]:
     holidays: list[tuple[date, str]] = [
         (date(year, 1, 1), "New Year's Day"),
+        (date(year, 2, 8), "Day of Liberty"),
         (_nth_weekday_of_month(year, 1, calendar.MONDAY, 3), "Martin Luther King Jr. Day"),
         (_nth_weekday_of_month(year, 2, calendar.MONDAY, 3), "Presidents' Day"),
         (_last_weekday_of_month(year, 5, calendar.MONDAY), "Memorial Day"),
