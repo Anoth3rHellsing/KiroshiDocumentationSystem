@@ -2728,6 +2728,24 @@ DARK_THEME = ThemePalette(
 )
 
 
+HELLDIVER_THEME = ThemePalette(
+    key="helldiver",
+    name="Helldiver Uplink",
+    primary="#facc15",
+    accent="#f59e0b",
+    background="#0a0a0a",
+    surface="#141414",
+    text="#fefce8",
+    muted_text="#fde68a",
+    glados_messages=[
+        "Super Earth thanks you for your continued compliance.",
+        "Managed democracy requires your flawless stratagem execution.",
+        "Remember: a well-documented bug is a bug ready for orbital fire.",
+        "Spill coffee, not liberty. Upload the evidence, Helldiver.",
+    ],
+)
+
+
 HOLIDAY_THEMES: dict[str, ThemePalette] = {
     "new_year": ThemePalette(
         key="new_year",
@@ -2909,6 +2927,7 @@ HOLIDAY_THEMES: dict[str, ThemePalette] = {
             "Spellbinding support, zero jump scares.",
         ],
     ),
+    "helldiver": HELLDIVER_THEME,
 }
 
 HOLIDAY_NAME_TO_KEY = {
@@ -3053,8 +3072,9 @@ def apply_theme_palette(theme: ThemePalette) -> None:
     button_shadow_color = _blend_hex_colors(theme.primary, "#000000", 0.55)
     text_on_surface = _preferred_text_for_background(theme.surface, theme.text)
     text_on_white = _preferred_text_for_background("#ffffff", theme.text)
-    is_dark_theme = theme.key == DARK_THEME.key
-    is_holiday_theme = theme.key not in {DEFAULT_THEME.key, DARK_THEME.key}
+    dark_theme_keys = {DARK_THEME.key, HELLDIVER_THEME.key}
+    is_dark_theme = theme.key in dark_theme_keys
+    is_holiday_theme = theme.key not in {DEFAULT_THEME.key, DARK_THEME.key, HELLDIVER_THEME.key}
     if is_holiday_theme:
         pastel_primary = _blend_hex_colors(theme.primary, "#ffffff", 0.75)
         pastel_accent = _blend_hex_colors(theme.accent, "#ffffff", 0.78)
@@ -3151,6 +3171,82 @@ def apply_theme_palette(theme: ThemePalette) -> None:
         html[data-kiroshi-theme="dark"] .stApp [data-testid="stSidebar"] > div:first-child {{
             box-shadow: inset -8px 0 28px {_rgba('#020617', 0.65)};
         }}
+    """
+
+    helldiver_button_script = ""
+    if theme.key == HELLDIVER_THEME.key:
+        helldiver_button_script = """
+        <script>
+        (() => {
+            const stratagems = [
+                { match: 'save', label: 'Deploy Stratagem (Save)' },
+                { match: 'load', label: 'Call Reinforcement' },
+                { match: 'export', label: 'Request Eagle Uplink' },
+                { match: 'download', label: 'Summon Supply Drop' },
+                { match: 'upload', label: 'Launch Orbital Relay' },
+                { match: 'generate', label: 'Orbital Precision Strike' },
+                { match: 'verify', label: 'Super Earth Compliance Check' },
+                { match: 'copy', label: 'Broadcast Managed Democracy' },
+                { match: 'track', label: 'Ping Bug Nest' },
+                { match: 'close', label: 'Initiate Extraction' },
+                { match: 'send', label: 'Transmit Liberation Orders' },
+                { match: 'submit', label: 'Confirm Mission Data' },
+                { match: 'run', label: 'Commence Operation' },
+                { match: 'start', label: 'Begin Helldive' },
+                { match: 'stop', label: 'Abort Drop' },
+                { match: 'refresh', label: 'Reload Magazine' },
+            ];
+
+            const fallback = [
+                'Stratagem Ready',
+                'Eagle En Route',
+                'For Super Earth!',
+                'Managed Democracy Online',
+                'Glory to the Helldivers',
+            ];
+
+            const chooseFallback = (label) => {
+                let score = 0;
+                for (const char of label) {
+                    score += char.charCodeAt(0);
+                }
+                return fallback[score % fallback.length];
+            };
+
+            const renameButton = (button) => {
+                const original = (button.innerText || '').trim();
+                if (!original) return;
+                const lowered = original.toLowerCase();
+                for (const stratagem of stratagems) {
+                    if (lowered.includes(stratagem.match)) {
+                        button.innerText = stratagem.label;
+                        return;
+                    }
+                }
+                button.innerText = `${chooseFallback(original)} (${original})`;
+            };
+
+            const scan = () => {
+                document.querySelectorAll('button').forEach(renameButton);
+            };
+
+            const observer = new MutationObserver(() => {
+                scan();
+            });
+
+            if (document.body) {
+                observer.observe(document.body, { childList: true, subtree: true });
+                scan();
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    if (document.body) {
+                        observer.observe(document.body, { childList: true, subtree: true });
+                    }
+                    scan();
+                }, { once: true });
+            }
+        })();
+        </script>
     """
 
     theme_marker_script = f"""
@@ -3355,7 +3451,8 @@ def apply_theme_palette(theme: ThemePalette) -> None:
         }}
 {dark_css}
         </style>
-{theme_marker_script}
+        {theme_marker_script}
+        {helldiver_button_script}
         """,
         unsafe_allow_html=True,
     )
