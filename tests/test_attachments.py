@@ -124,6 +124,16 @@ def test_persist_case_attachments_handles_read_and_write_failures(
     assert any("Failed to write attachment" in message for message in messages)
 
 
+def test_persist_evidence_bundle_zip(attachments_root, session_state):
+    archive_bytes = b"zip-bits"
+
+    saved_path = app.persist_evidence_bundle_zip("Case-99", "bundle.zip", archive_bytes)
+
+    assert saved_path is not None
+    assert saved_path.read_bytes() == archive_bytes
+    assert saved_path.parent == attachments_root / app.sanitize_case_id("Case-99")
+
+
 def test_load_case_attachments_reconstructs_files(attachments_root):
     case_id = "Case-55"
     case_dir = attachments_root / app.sanitize_case_id(case_id)

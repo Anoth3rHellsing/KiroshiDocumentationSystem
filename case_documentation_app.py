@@ -467,6 +467,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "ai_educate_advanced": False,
     "agent_first_name": "",
     "agent_last_name": "",
+    "attachments_directory": str(CASE_ATTACHMENTS_ROOT),
     "tutorial_completed": False,
     "tutorial_completed_at": "",
     "tutorial_completion_type": "",
@@ -8487,6 +8488,31 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
 
     _set_active_session_attachments_index(attachments_index)
     return attachments_index
+
+
+def persist_evidence_bundle_zip(
+    case_id: str, archive_name: str, payload: bytes
+) -> Path | None:
+    """Persist a generated evidence ZIP alongside other case attachments."""
+
+    safe_case_id = case_id or "case"
+    try:
+        base_dir = get_case_attachments_dir(safe_case_id)
+    except Exception as exc:  # pragma: no cover - UI guardrail
+        logging.exception(
+            "Unable to prepare attachments directory for %s", safe_case_id
+        )
+        return None
+
+    safe_name = sanitize_filename(archive_name) or f"{safe_case_id}_evidence.zip"
+    target_path = base_dir / safe_name
+
+    try:
+        target_path.write_bytes(payload)
+        return target_path
+    except Exception as exc:  # pragma: no cover - filesystem errors
+        logging.warning("Failed to persist evidence bundle %s: %s", target_path, exc)
+        return None
 def load_case_attachments(
     case_id: str, attachments_data: Mapping[str, Iterable[Mapping[str, object]]]
 ) -> tuple[
@@ -16037,13 +16063,19 @@ def render_case_attachments_panel(
             if st.session_state.get(include_case_json_key, True):
                 z.writestr("case.json", json.dumps(asdict(case), indent=2))
         zbuf.seek(0)
-        st.download_button(
+        archive_name = f"{case.case_id or 'case'}_evidence.zip"
+        archive_bytes = zbuf.getvalue()
+        download_clicked = st.download_button(
             "Download evidence.zip",
-            zbuf,
-            file_name=f"{case.case_id or 'case'}_evidence.zip",
+            archive_bytes,
+            file_name=archive_name,
             mime="application/zip",
             key=attachments_key("attachments_download_zip"),
         )
+        if download_clicked:
+            saved_path = persist_evidence_bundle_zip(case.case_id or "case", archive_name, archive_bytes)
+            if saved_path:
+                st.info(f"Saved a copy to {saved_path}")
 
 
 CASE_TAB_SLUGS = {
