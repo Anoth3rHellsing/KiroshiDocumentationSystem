@@ -5656,6 +5656,7 @@ _init_state("system_prompt", SYSTEM_PROMPT)
 _init_state("personality_mode", "utility")
 _init_state("ai_assist_result", "")
 _init_state("ai_autocorrect_result", "")
+_init_state("ai_autocorrect_case_json", {})
 _init_state("qa_verification", {})
 _init_state("qa_verification_score", None)
 _init_state("taxonomy_block", DEFAULT_TAXONOMY_BLOCK)
@@ -7477,6 +7478,20 @@ def _build_case_ai_dict(case: CaseData) -> dict[str, object]:
     return case_dict
 
 
+def _extract_json_object(block: str) -> dict[str, object] | None:
+    if not isinstance(block, str):
+        return None
+    start = block.find("{")
+    end = block.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    fragment = block[start : end + 1]
+    try:
+        return json.loads(fragment)
+    except Exception:
+        return None
+
+
 def _disabled_tab_note() -> str:
     disabled_sections = []
     if not st.session_state.get("include_escalations", True):
@@ -8037,6 +8052,8 @@ def clear_case_state(idx: int) -> None:
         st.session_state[widget_state_key("scratch", idx)] = ""
         for key in (
             "ai_assist_result",
+            "ai_autocorrect_result",
+            "ai_autocorrect_case_json",
             "verify_result",
             "ask_result",
             "categorizer_result",
@@ -16088,6 +16105,7 @@ CASE_TAB_SLUGS = {
     "Hardware Issues": "hardware",
     "Remote Session": "remote",
     "Tables": "tables",
+    "Corrected JSON": "corrected_json",
     "Save/Load": "save_load",
     "Kiroshi Chat": "kiroshi_chat",
     "I'm bored": "bored",
@@ -16297,6 +16315,7 @@ def render_case_ui(case_idx: int):
     tab_labels += [
         "Remote Session",
         "Tables",
+        "Corrected JSON",
         "Save/Load",
     ]
     show_case_chat = st.session_state.get("show_kiroshi_chat", True)
@@ -16314,6 +16333,7 @@ def render_case_ui(case_idx: int):
     tab_hw = next(tab_iter) if st.session_state.include_hardware else None
     tab_remote = next(tab_iter)
     tab_tables = next(tab_iter)
+    tab_corrected = next(tab_iter)
     tab_save_load = next(tab_iter)
     tab_chat = next(tab_iter) if show_case_chat else None
     tab_bored = next(tab_iter) if st.session_state.show_bored else None
@@ -16488,13 +16508,17 @@ def render_case_ui(case_idx: int):
                     user_message = (
                         disabled_tab_note
                         + "You are Kiroshi, auto-correcting this case for perfect QA compliance. "
-                        "Use the prior AI Assistance guidance, the QA framework for 3Shape support, and the case data to rewrite"
-                        " the documentation so it meets every checklist item. "
+                        "Use the prior AI Assistance guidance, the QA framework for 3Shape support, and the case data to produce a corrected JSON payload. "
                         f"{tone_directive}"
-                        " Respond in concise Markdown with sections for: Opening/Hold/Transfer notes, empathy & soft-skills phrasing,"
-                        " recap & closure language (with Case ID and survey), CRM fields (Description, Identification, Numbers, Categorization,"
-                        " conclusion, disposition), notes/help-juice links/remote steps, and an updated QA SIM note. "
-                        "Preserve factual troubleshooting while tightening language to earn 100% QA."
+                        " Return JSON only (no Markdown) using this structure:\n"
+                        "{\n"
+                        "  \"corrected_case\": <the CASE DATA with every key preserved; fix errors, fill missing notes, and polish language>,\n"
+                        "  \"corrections_applied\": [short bullet strings describing what you changed],\n"
+                        "  \"correct_steps\": [ordered steps that remain valid or should be documented],\n"
+                        "  \"qa_sim_note\": \"concise QA/SIM note ready for CRM\",\n"
+                        "  \"summary\": \"brief recap of the case and improvements\"\n"
+                        "}\n"
+                        "Keep troubleshooting facts intact, elevate clarity for QA, and leave any field untouched if uncertain rather than inventing details."
                         f"\n\nAI Assistance summary:\n{ai_assist_summary}\n\nCASE DATA:\n"
                         f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
@@ -16514,7 +16538,15 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
-                        st.session_state.ai_autocorrect_result = reply
+                        parsed_autocorrect = _extract_json_object(reply)
+                        if parsed_autocorrect:
+                            st.session_state.ai_autocorrect_case_json = parsed_autocorrect
+                            st.session_state.ai_autocorrect_result = json.dumps(
+                                parsed_autocorrect, indent=2, ensure_ascii=False
+                            )
+                        else:
+                            st.session_state.ai_autocorrect_case_json = {}
+                            st.session_state.ai_autocorrect_result = reply
             if educate_enabled and advanced_enabled:
                 matches = st.session_state.get("ai_learning_matches", [])
                 if matches:
@@ -16710,19 +16742,6 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "user", "content": user_message})
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
-                        def _extract_json_object(block: str) -> dict[str, object] | None:
-                            if not isinstance(block, str):
-                                return None
-                            start = block.find("{")
-                            end = block.rfind("}")
-                            if start == -1 or end == -1 or end <= start:
-                                return None
-                            fragment = block[start : end + 1]
-                            try:
-                                return json.loads(fragment)
-                            except Exception:
-                                return None
-
                         qa_result = _extract_json_object(reply)
                         st.session_state.qa_verification = qa_result or {}
                         st.session_state.qa_verification_score = None
@@ -19078,6 +19097,60 @@ End with: We look forward to your reply."""
                 category_dataframe(cat, D, cat_map),
                 width="stretch",
                 key=tables_tab_key(f"df_{copy_suffix}"),
+            )
+
+    # ================== CORRECTED JSON TAB =================
+    with case_tab(
+        tab_corrected, case_idx=case_idx, slug=CASE_TAB_SLUGS["Corrected JSON"]
+    ):
+        corrected_tab_key = partial(
+            case_widget_key, CASE_TAB_SLUGS["Corrected JSON"], case_idx=case_idx
+        )
+        st.subheader("AI Autocorrected case JSON")
+        st.caption(
+            "View and export the case payload after AI Autocorrection applies QA-focused fixes."
+        )
+        autocorrect_payload = (
+            st.session_state.get("ai_autocorrect_case_json") or {}
+        )
+        if autocorrect_payload:
+            corrected_case = autocorrect_payload.get("corrected_case")
+            if not corrected_case and isinstance(autocorrect_payload, Mapping):
+                corrected_case = autocorrect_payload
+            if corrected_case:
+                st.markdown("**Corrected case data**")
+                st.json(corrected_case)
+
+            corrections = autocorrect_payload.get("corrections_applied")
+            if isinstance(corrections, list) and corrections:
+                st.markdown("**What changed**")
+                for item in corrections:
+                    st.markdown(f"- {item}")
+
+            correct_steps = autocorrect_payload.get("correct_steps")
+            if isinstance(correct_steps, list) and correct_steps:
+                st.markdown("**Verified steps to keep**")
+                for step in correct_steps:
+                    st.markdown(f"- {step}")
+
+            qa_sim_note = autocorrect_payload.get("qa_sim_note")
+            if isinstance(qa_sim_note, str) and qa_sim_note.strip():
+                st.markdown("**QA SIM note**")
+                st.code(qa_sim_note.strip())
+
+            download_buffer = json.dumps(
+                autocorrect_payload, indent=2, ensure_ascii=False
+            )
+            st.download_button(
+                "Download corrected JSON",
+                download_buffer,
+                file_name=f"{D.case_id or 'case'}_corrected.json",
+                mime="application/json",
+                key=corrected_tab_key("download_corrected_json"),
+            )
+        else:
+            st.info(
+                "Run AI Autocorrection from the Case tab to generate a corrected JSON view."
             )
 
     # ================== SAVE/LOAD TAB =================
