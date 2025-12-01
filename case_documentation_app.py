@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiroshi Release 1.7.2 – IT Case Documentation Helper
+Kiroshi Release 1.8.0 – IT Case Documentation Helper
 Run:
     streamlit run case_documentation_app.py
 """
@@ -135,7 +135,7 @@ def safe_modal(title: str, key: str | None = None):
         st.markdown(f"### {title}")
         yield
 
-VERSION = "Release 1.7.2"
+VERSION = "Release 1.8.0"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 DEFAULT_OPENAI_API_KEY = os.environ.get(
@@ -1902,7 +1902,7 @@ logging.debug("Python executable: %s", sys.executable)
 logging.debug("Python version: %s", sys.version.replace("\n", " "))
 logging.debug("Platform: %s", sys.platform)
 
-INSTALLER_FILENAME = "KiroshiInstaller_Release-1.7.2.bat"
+INSTALLER_FILENAME = "KiroshiInstaller_Release-1.8.0.bat"
 
 
 def _resolve_installer_path() -> Path:
@@ -1947,7 +1947,7 @@ def _launch_installer_and_relaunch() -> None:
     if not installer_path.exists():
         st.error(
             "The bundled Kiroshi installer could not be found. Please run "
-            "KiroshiInstaller_Release-1.7.2.bat manually from the installation media."
+            "KiroshiInstaller_Release-1.8.0.bat manually from the installation media."
         )
         return
 
@@ -2016,7 +2016,7 @@ def _check_installation_status() -> None:
 
     st.info(
         "If the automatic launch does not start the installer, close this window "
-        "and run `KiroshiInstaller_Release-1.7.2.bat` manually."
+        "and run `KiroshiInstaller_Release-1.8.0.bat` manually."
     )
     st.stop()
 
