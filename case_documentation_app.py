@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kiroshi RC 141025 – IT Case Documentation Helper
+Kiroshi Release 1.8.0 – IT Case Documentation Helper
 Run:
     streamlit run case_documentation_app.py
 """
@@ -41,7 +41,6 @@ from html import escape
 import textwrap
 import inspect
 import traceback
-
 import pandas as pd
 import altair as alt
 import streamlit as st
@@ -164,6 +163,7 @@ def safe_modal(title: str, key: str | None = None):
         st.markdown(f"### {title}")
         yield
 
+<<<<<<< HEAD
 
 def _require_reportlab_charts() -> None:
     """Ensure ReportLab's chart modules are available before rendering graphics."""
@@ -176,6 +176,9 @@ def _require_reportlab_charts() -> None:
 
 
 VERSION = "RC 141025"
+=======
+VERSION = "Release 1.8.0"
+>>>>>>> main
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 AUTOSAVE_DIR = Path("autosaves")
@@ -2138,7 +2141,7 @@ logging.debug("Python executable: %s", sys.executable)
 logging.debug("Python version: %s", sys.version.replace("\n", " "))
 logging.debug("Platform: %s", sys.platform)
 
-INSTALLER_FILENAME = "KiroshiInstaller_RC-141025.bat"
+INSTALLER_FILENAME = "KiroshiInstaller_Release-1.8.0.bat"
 
 
 def _resolve_installer_path() -> Path:
@@ -2183,7 +2186,7 @@ def _launch_installer_and_relaunch() -> None:
     if not installer_path.exists():
         st.error(
             "The bundled Kiroshi installer could not be found. Please run "
-            "KiroshiInstaller_RC-141025.bat manually from the installation media."
+            "KiroshiInstaller_Release-1.8.0.bat manually from the installation media."
         )
         return
 
@@ -2252,7 +2255,7 @@ def _check_installation_status() -> None:
 
     st.info(
         "If the automatic launch does not start the installer, close this window "
-        "and run `KiroshiInstaller_RC-141025.bat` manually."
+        "and run `KiroshiInstaller_Release-1.8.0.bat` manually."
     )
     st.stop()
 

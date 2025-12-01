@@ -1,7 +1,7 @@
 # Kiroshi Documentation System
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
-[![Version](https://img.shields.io/badge/version-RC%20141025-blue)](#)
+[![Version](https://img.shields.io/badge/version-Release%201.8.0-blue)](#)
 [![Coverage](https://img.shields.io/badge/coverage-active-brightgreen)](#)
 [![Updates](https://img.shields.io/badge/updates-daily-blue)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -11,13 +11,22 @@ generating PDF summaries, and creating email prompts or full emails via GPT-OSS 
 
 Coverage is actively tracked and the project receives daily updates.
 
-## Demo
+## Installation on Windows
 
-![Kiroshi UI Demo](docs/demo.png)
-*Replace `docs/demo.png` with an actual screenshot or GIF demonstrating the interface.*
+### Prerequisites
 
-## Features
+1. **Install Python 3 (64-bit).** Download the latest 64-bit installer from [python.org](https://www.python.org/downloads/),
+   check **Add Python to PATH**, and complete the setup. The installer ships with `pip`, so no additional download is required.
+2. **Verify Python and `pip`.** Open *PowerShell* and confirm the tools are available:
+   ```powershell
+   python --version
+   pip --version
+   ```
+   If either command fails, reopen PowerShell so the updated `PATH` is loaded or rerun the installer to repair the setup.
+3. **Optional: install Git.** [Git for Windows](https://git-scm.com/download/win) simplifies downloading updates via `git clone`
+   instead of manually extracting ZIP archives.
 
+<<<<<<< HEAD
 - **Case tab** – capture customer information, notes, and track completion progress.
 - **2nd Line Mode Dashboard** – when 2nd Line mode is enabled, monitor active Dell and FedEx tracked cases, browse recent tracked files, and load or untrack any case directly from the tracking tables.
 - **Email tab** – generate prompts for different e‑mail templates such as customer recaps, escalation notes, or a flexible custom request. Every template automatically opens with the customer's name, company, case number, and a brief issue summary.
@@ -137,26 +146,49 @@ from the console transparently re-encrypts the payloads with the new key.
   snapshot.
 
 ## Installation
+=======
+### 1.a Kiroshi Client
 
-### Automated installation
+Once the prerequisites are in place you can choose between the bundled installer and a manual installation from source.
+>>>>>>> main
 
+#### Automated installation
+
+<<<<<<< HEAD
 1. Download the repository ZIP from GitHub.
 2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_RC-141025.bat`).
 3. Launch the app with **Kiroshi Launcher** (`KiroshiLauncher_RC-141025.bat`),
    which now boots the bundled Streamlit Desktop App build.
+=======
+1. Download the repository ZIP from GitHub or pull the latest release package.
+2. Extract the archive and run **Kiroshi Installer** (`KiroshiInstaller_Release-1.8.0.bat`).
+3. Launch the client with **Kiroshi Launcher** (`KiroshiLauncher_Release-1.8.0.bat`).
+>>>>>>> main
 4. To uninstall, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`).
 
-### Manual installation
+#### Manual installation
 
-Install the dependencies from the project directory. If you just cloned or downloaded the repository, first change into its folder
-with `cd` and then run `pip`:
-
-```bash
-cd /path/to/KiroshiDocumentationSystem
-pip install -r requirements.txt
-# Optional: install mini-game and local model dependencies
-pip install -r requirements-bored.txt
-```
+1. Open *PowerShell* in the project directory (for example
+   `cd C:\Users\you\Downloads\KiroshiDocumentationSystem`).
+2. (Optional) Create and activate a virtual environment so the dependencies remain isolated:
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   ```
+3. Install the runtime requirements:
+   ```powershell
+   pip install -r requirements.txt
+   # Optional: install mini-game and local model dependencies
+   pip install -r requirements-bored.txt
+   ```
+4. Run the application from source:
+   ```powershell
+   streamlit run case_documentation_app.py
+   ```
+   or launch the wrapper script:
+   ```powershell
+   python run_app.py
+   ```
 
 ### Instalador bash (Linux/macOS)
 
@@ -330,30 +362,24 @@ case until you toggle a different tab or turn the option off.
 
 #### Troubleshooting: `pyarrow` fails to install on Windows
 
-Streamlit depends on `pyarrow`, which is distributed as a pre-built wheel for
-64-bit versions of Python on Windows. If `pip` prints messages such as
-`building 'pyarrow.lib' extension` and ends with `Could not build wheels for
-pyarrow`, check the temporary build path in the log. A fragment like
-`build\lib.win32-3.11` indicates that the interpreter is 32-bit, and no wheel
-exists for that architecture. Install a 64-bit build of Python (for example the
-default installer from python.org) or recreate your virtual environment with a
-64-bit interpreter, then rerun `pip install -r requirements.txt`. Once `pip`
-detects a compatible interpreter it will download the official wheel instead of
-attempting a source build, and the installation completes successfully.
+Streamlit depends on `pyarrow`, which is distributed as a pre-built wheel for 64-bit versions of Python on Windows. If `pip`
+prints messages such as `building 'pyarrow.lib' extension` and ends with `Could not build wheels for pyarrow`, check the
+temporary build path in the log. A fragment like `build\lib.win32-3.11` indicates that the interpreter is 32-bit. Install a
+64-bit build of Python (for example the default installer from python.org) or recreate your virtual environment with a 64-bit
+interpreter, then rerun `pip install -r requirements.txt`. Once `pip` detects a compatible interpreter it will download the
+official wheel instead of attempting a source build.
 
-#### Troubleshooting: `Screenshot capture is unavailable in this environment`
+### 1.b Kiroshi Control Tower
 
-Compiled deployments need at least one screenshot backend bundled with the
-executable. The app will attempt `pyautogui`, fall back to Pillow's
-`ImageGrab`, and finally use the optional `mss` module for headless-friendly
-captures. When building with PyInstaller, include the relevant packages (for
-example `--hidden-import pyautogui`, `PIL.ImageGrab`, and `mss`) or install them
-in the runtime environment. If advanced region selection reports that Tkinter
-is required, add the standard `tkinter` runtime to the build or use the full
-screen capture button instead.
+The Control Tower dashboards ship with the standard client. After installing the client (via the installer or from source):
 
-### Updating
+1. Launch Kiroshi with **Kiroshi Launcher** or `streamlit run case_documentation_app.py`.
+2. Open the **Settings** tab and enable **2nd Line mode** to unlock the Escalation Control Tower and dashboard tracking panels.
+3. Populate your escalation drawers with queue IDs, SLA targets, and vendor notes so reminders surface on the dashboard.
+4. If you maintain shared settings, distribute the generated `config.json`, `settings.json`, and `recent_cases.json` files from
+   `C:\ProgramFiles\KiroshiDatabase` to keep every workstation aligned.
 
+<<<<<<< HEAD
 The `QuickUpdate.bat` script is intended for small incremental patches.
 Major updates such as **RC 141025** introduce new requirements and should be applied manually.
 To upgrade to these releases, run **Kiroshi Uninstaller** (`KiroshiUninstaller.bat`) and then reinstall using **Kiroshi Installer** (`KiroshiInstaller_RC-141025.bat`).
@@ -486,6 +512,9 @@ emit warnings for optional modules such as `langchain`, but they do not prevent 
 generated.
 
 ### Windows PATH helper
+=======
+### 1.c Known issues with the Streamlit path
+>>>>>>> main
 
 If the `streamlit` command is not recognized in a Windows terminal, the Python `Scripts` directory may be missing from your user
 `PATH`. The following PowerShell snippet adds it automatically:
