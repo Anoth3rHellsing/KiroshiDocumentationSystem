@@ -136,6 +136,65 @@ from kiroshi_cloud_sync import (
     overlay_guidance,
 )
 from kiroshi_hotkeys import ensure_hotkey_listener, update_hotkey_snapshot
+from KiroshiApp.constants import (
+    VERSION, TODAY_STR, AUTOSAVE_FILE, AUTOSAVE_DIR,
+    DEFAULT_OPENAI_API_KEY, DEFAULT_AI_BASE_URL, DEFAULT_AI_MODE,
+    LOG_FILE, ERROR_DIALOG_MESSAGES, PRIORITY_OPTIONS,
+    DEFAULT_TRACKING_PRIORITY, CASE_DEX_URL_TEMPLATE,
+    PROGRAM_DATA_DIR, DATABASE_DIR, PROGRAM_DATA_SENTINEL,
+    DATABASE_DIR_PREEXISTED,
+    PDF_FONT_REGULAR_NAME, PDF_FONT_BOLD_NAME,
+    STREAMLIT_FONT_STACK_CSS, STREAMLIT_HEADING_FONT_STACK,
+    STREAMLIT_FONT_FALLBACK, UTILITIES_DIR, UPDATES_DIR,
+    RECENT_CASES_PATH, TRACKED_CASES_DIR, CASE_TAB_MEMORY_FILE,
+    DOCUMENTS_DIR, CASE_ATTACHMENTS_ROOT, AUTOHOTKEY_SCRIPT_PATH,
+    APP_ROOT, DEFAULT_UPDATE_REPO, DEFAULT_UPDATE_BRANCH,
+    GITHUB_TOKEN_ENV_VAR, GITHUB_API_VERSION, UPDATE_CHECK_TIMEOUT,
+    SETTINGS_FILE, DEFAULT_WELLNESS_SETTINGS, WELLNESS_EVENT_METADATA,
+    WELLNESS_TIPS, PERSISTENT_SETTINGS_DEFAULTS,
+    REPORTLAB_CHARTS_AVAILABLE, VerticalBarChart, LinePlot,
+    PYAUTOGUI_AVAILABLE, pyautogui, TK_AVAILABLE, tk,
+    IMAGEGRAB_AVAILABLE, ImageGrab, MSS_AVAILABLE, mss,
+    ASSETS_DIR, KIROSHI_LOGO_PATH, KIROSHI_CHAT_LOGO_PATH,
+    KIROSHI_QUIPS_GENERAL, KIROSHI_QUIPS_AI_VOICE, KIROSHI_MESSAGES,
+    DEFAULT_THEME, DARK_THEME, HELLDIVER_THEME,
+    HOLIDAY_THEMES, HOLIDAY_NAME_TO_KEY, SPECIAL_THEME_PERIODS,
+    INSTALLER_FILENAME, STOPWORDS, WORD_PATTERN,
+    DEFAULT_TAXONOMY_BLOCK, DEFAULT_SIGNALS_CONFIG,
+    MILESTONE_TICK_INTERVAL, MILESTONE_DEFINITIONS,
+    MILESTONE_ID_ORDER, MILESTONE_DEFINITION_LOOKUP,
+    DELL_ESCALATION_OVERVIEW_FIELDS, DELL_ESCALATION_PC_FIELDS,
+    DELL_ESCALATION_CONTACT_FIELDS, DELL_ESCALATION_FIELD_LABELS,
+    DELL_ESCALATION_FIELDS, BASE_CATEGORY_MAP, HW_CATEGORY_MAP,
+    OPTIONAL_PROGRESS_CATEGORIES, ESCALATION_TOGGLE_FIELDS,
+    HARDWARE_TOGGLE_FIELDS,
+    HOTKEY_TARGET_SESSION_KEY, AUTOSAVE_THROTTLE_SECONDS,
+    CASE_TAB_SLUGS, _CAPTURE_FOOTER_REGISTRY_PREFIX,
+    _CAPTURE_FOOTER_RENDERED_PREFIX, AI_LEARNING_FILE,
+    TUTORIAL_VERSION, TUTORIAL_STEPS, ThemePalette
+)
+from KiroshiApp.utils import (
+    sanitize_case_id, sanitize_filename,
+    _format_utc_timestamp, _utc_now_z,
+    _normalize_hardware_test_text, _normalize_damage_classification,
+    _normalize_text_field, _coerce_int, _shorten_for_log,
+    _summarize_text, _extract_keywords,
+    format_tracking_date, parse_iso_datetime, format_last_modified,
+    _time_str_to_time, _time_to_string, _normalize_text_value,
+    determine_active_theme, apply_theme_palette, get_kiroshi_message,
+    merge_ai_learning_datasets, _normalize_agent_name
+)
+from KiroshiApp.models import (
+    UpdateCheckResult, RemoteSessionEntry,
+    TrackingData, CaseData, InMemoryUploadedFile, ScreenshotAsset,
+    MilestoneProgressState, CaseMilestoneState, CaseSession,
+    _default_milestone_progress, _default_attachments_index,
+    _coerce_remote_session_entry, _normalize_remote_session_list,
+    format_remote_sessions_summary, _coerce_case_milestone_state
+)
+
+CURRENT_CASE_IDX = 0
+HIDDEN_CASE_INDEX = 0
 
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
@@ -163,7 +222,6 @@ def safe_modal(title: str, key: str | None = None):
         st.markdown(f"### {title}")
         yield
 
-<<<<<<< HEAD
 
 def _require_reportlab_charts() -> None:
     """Ensure ReportLab's chart modules are available before rendering graphics."""
@@ -174,35 +232,7 @@ def _require_reportlab_charts() -> None:
             "with its graphics extras to enable PDF chart rendering."
         )
 
-
-VERSION = "RC 141025"
-=======
-VERSION = "Release 1.8.0"
->>>>>>> main
-TODAY_STR = datetime.now().strftime("%d%m%Y")
-AUTOSAVE_FILE = "autosave.json"
-AUTOSAVE_DIR = Path("autosaves")
 _AUTOSAVE_SESSION_ID = uuid.uuid4().hex
-DEFAULT_OPENAI_API_KEY = os.environ.get(
-    "OPENAI_API_KEY",
-    "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",
-)
-DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
-DEFAULT_AI_MODE = (
-    "Local Model"
-    if not DEFAULT_AI_BASE_URL
-    else (
-        "Cloud" if DEFAULT_AI_BASE_URL.startswith("https://api.openai.com") else "Local API"
-    )
-)
-LOG_FILE = "app.log"
-
-ERROR_DIALOG_MESSAGES = [
-    "Even cybernetic scribes trip sometimes. Give me a second to regroup.",
-    "That panel face-planted. Let's grab the logs before it pretends nothing happened.",
-    "Something went sideways. Want to tag in Support with a quick report?",
-    "Kiroshi hit a weird edge case. Capture it now so the engineers can slay it later.",
-]
 
 
 def _collect_recent_logs(max_bytes: int = 65536) -> str:
@@ -228,36 +258,6 @@ def _collect_recent_logs(max_bytes: int = 65536) -> str:
     except OSError as exc:
         logging.error("Unable to read log file %s: %s", log_path, exc)
         return f"Unable to read logs: {exc}"
-
-PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
-DEFAULT_TRACKING_PRIORITY = "Normal"
-
-CASE_DEX_URL_TEMPLATE = os.environ.get(
-    "CASE_DEX_URL_TEMPLATE",
-    "https://case-dex.example.com/api/cases/{case_id}/dex",
-)
-
-if os.name == "nt":
-    PROGRAM_DATA_DIR = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Kiroshi Documentation"
-    DATABASE_DIR = Path("C:/ProgramFiles/KiroshiDatabase")
-else:
-    PROGRAM_DATA_DIR = Path.home() / "Kiroshi Documentation"
-    DATABASE_DIR = Path.home() / "KiroshiDatabase"
-
-DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
-PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
-
-PDF_FONT_REGULAR_NAME = "Helvetica"
-PDF_FONT_BOLD_NAME = "Helvetica-Bold"
-
-STREAMLIT_FONT_STACK_CSS = (
-    "var(--font, 'Space Grotesk', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif)"
-)
-STREAMLIT_HEADING_FONT_STACK = (
-    "'Space Grotesk', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
-)
-STREAMLIT_FONT_FALLBACK = "Space Grotesk"
-
 
 def _ensure_pdf_fonts() -> tuple[str, str]:
     """Return the Helvetica fonts used across generated PDFs."""
@@ -344,20 +344,6 @@ def _build_pdf_with_ghost_text(
 
     doc.build(elements)
 
-UTILITIES_DIR = DATABASE_DIR / "utilities"
-UPDATES_DIR = UTILITIES_DIR / "updates"
-RECENT_CASES_PATH = UTILITIES_DIR / "recent_cases.json"
-TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
-
-CASE_TAB_MEMORY_FILE = DATABASE_DIR / "case_tabs_memory.json"
-
-# Location for persisted case attachments
-DOCUMENTS_DIR = Path.home() / "Documents"
-CASE_ATTACHMENTS_ROOT = DOCUMENTS_DIR / "kiroshi"
-
-AUTOHOTKEY_SCRIPT_PATH = DATABASE_DIR / "kiroshi_tables_hotkeys.ahk"
-
-
 def _resolve_configured_attachments_directory() -> Path:
     """Return the attachments directory requested by the current settings."""
 
@@ -412,84 +398,6 @@ def _initialize_storage_paths() -> None:
         RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
     TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
     _ensure_case_attachments_root()
-
-APP_ROOT = Path(__file__).resolve().parent
-# The project repository was transferred from the ``KiroshiCorp`` GitHub
-# organisation to ``Anoth3rHellsing``.  The update checker still defaulted to
-# the previous location which meant fresh installations always hit a 404 when
-# trying to retrieve ``case_documentation_app.py`` for the version check.
-# Point the default to the new canonical repository and dynamically fall back to
-# the repository's configured default branch so users no longer see the
-# "Unable to retrieve remote version" warning on startup.
-DEFAULT_UPDATE_REPO = "Anoth3rHellsing/KiroshiDocumentationSystem"
-DEFAULT_UPDATE_BRANCH = "main"
-GITHUB_TOKEN_ENV_VAR = "KIROSHI_UPDATE_GITHUB_TOKEN"
-GITHUB_API_VERSION = "2022-11-28"
-try:
-    UPDATE_CHECK_TIMEOUT = float(os.environ.get("KIROSHI_UPDATE_TIMEOUT", "15"))
-except (TypeError, ValueError):
-    UPDATE_CHECK_TIMEOUT = 15.0
-
-
-SETTINGS_FILE = DATABASE_DIR / "settings.json"
-DEFAULT_WELLNESS_SETTINGS: dict[str, object] = {
-    "enabled": False,
-    "notification_lead": 10,
-    "schedule": {
-        "break_1": "10:30",
-        "lunch": "12:30",
-        "break_2": "15:00",
-    },
-}
-
-WELLNESS_EVENT_METADATA: dict[str, dict[str, object]] = {
-    "break_1": {"label": "First Break", "duration_minutes": 15},
-    "lunch": {"label": "Lunch", "duration_minutes": 60},
-    "break_2": {"label": "Second Break", "duration_minutes": 15},
-}
-
-WELLNESS_TIPS: list[str] = [
-    "Stand up, stretch, and let your eyes relax for a moment.",
-    "A quick walk to refill your water can reboot your focus.",
-    "Deep breaths in, slow breaths out — your circuits will thank you.",
-    "Jot down one win from today while you recharge.",
-    "Hydration check! Your brain runs smoother with water.",
-    "Silence notifications for a minute and enjoy the pause.",
-]
-
-PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
-    "second_line_mode": False,
-    "debug_mode": False,
-    "frutiger_aero_mode": False,
-    "case_compact_mode": False,
-    "show_kiroshi_chat": True,
-    "autosave_to_database": False,
-    "ai_assist_mode": "Standard",
-    "ai_educate_enabled": False,
-    "ai_educate_report_enabled": False,
-    "ai_educate_advanced": False,
-    "agent_first_name": "",
-    "agent_last_name": "",
-    "attachments_directory": str(CASE_ATTACHMENTS_ROOT),
-    "tutorial_completed": False,
-    "tutorial_completed_at": "",
-    "tutorial_completion_type": "",
-    "tutorial_metadata": {
-        "version": "",
-        "visited": [],
-        "last_step": 0,
-        "total_steps": 0,
-        "completed": False,
-        "completion_type": "",
-        "completed_at": "",
-        "furthest_step": 0,
-    },
-    "enable_holiday_theme": True,
-    "dark_mode_enabled": False,
-    "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
-    "kiroshi_sarcasm_mode": False,
-}
-
 
 def _load_persistent_settings() -> dict[str, object]:
     if not SETTINGS_FILE.exists():
@@ -1051,13 +959,6 @@ def _normalize_text_field(value: object) -> str:
     return re.sub(r"\s+", " ", value).strip().lower()
 
 
-def _coerce_int(value: object, default: int = 0) -> int:
-    try:
-        if value is None:
-            return default
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _infer_report_category(
@@ -1317,17 +1218,6 @@ def _persist_setting(key: str) -> None:
         logging.warning("Failed to persist setting %s: %s", key, exc)
 
 
-@dataclass
-class UpdateCheckResult:
-    repo: str
-    branch: str
-    current_version: str
-    latest_version: str | None = None
-    latest_commit: str | None = None
-    latest_published: str | None = None
-    has_update: bool = False
-    download_url: str | None = None
-    error: str | None = None
 
 
 def _discover_default_branch(repo: str) -> str | None:
@@ -1743,325 +1633,6 @@ ALTAIR_CHART_KWARGS = (
     else {}
 )
 
-AI_LEARNING_FILE = UTILITIES_DIR / "AILearning.json"
-
-TUTORIAL_VERSION = "2025.05"
-
-TUTORIAL_STEPS: list[dict[str, object]] = [
-    {
-        "id": "welcome",
-        "title": "Welcome to Kiroshi",
-        "visual": "layout_map",
-        "description": textwrap.dedent(
-            """
-            Welcome to your first launch of Kiroshi! This guided tour walks through every tab,
-            table, and input you will use to document cases. Follow the prompts, explore the
-            visuals, and use the navigation buttons to move between steps.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Which main tab gives you an instant view of workload and priorities?",
-            "options": ["Dashboard", "Settings", "Kiroshi Chat"],
-            "answer": "Dashboard",
-            "success": "Exactly — the Dashboard summarises tracked work at a glance.",
-            "failure": "Hint: it's the first tab filled with charts and case tables.",
-        },
-    },
-    {
-        "id": "dashboard",
-        "title": "Dashboard Tables",
-        "visual": "dashboard_tables",
-        "description": textwrap.dedent(
-            """
-            The Dashboard tab hosts every operational table:
-            • **Tracked Cases** – live statuses, ownership, and quick actions.
-            • **Dell Escalations & FedEx Replacements** – vendor-specific queues with ETAs.
-            • **All My Saved Cases** – browse and reload anything stored on disk.
-            Use the search bar to filter and the action buttons to load or stop tracking directly from the table rows.
-            """
-        ),
-        "interaction": {
-            "type": "checkbox_group",
-            "prompt": "Check each item after you review how the Dashboard tables work.",
-            "items": [
-                "I know where to search and filter tracked cases.",
-                "I understand the Dell/FedEx table highlights vendor priorities.",
-                "I can load a saved case from the All My Saved Cases table.",
-            ],
-            "success": "Great! You're ready to use the Dashboard tables day to day.",
-            "instruction": "Mark every checkbox once you've read the descriptions above.",
-        },
-    },
-    {
-        "id": "case_workspace",
-        "title": "Case Workspace & Inputs",
-        "visual": "case_sections",
-        "description": textwrap.dedent(
-            """
-            Every case tab is a full workspace that captures customer details, troubleshooting steps,
-            escalation information, optional hardware diagnostics, attachments, and AI helpers. Toggle
-            hardware or escalation fields when needed and use the Tables tab to copy a spreadsheet-ready
-            summary of every input.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Where do you find the Excel-style snapshot of every captured field?",
-            "options": [
-                "Tables tab inside the case workspace",
-                "Dashboard tab",
-                "Report tab",
-            ],
-            "answer": "Tables tab inside the case workspace",
-            "success": "Correct — each case includes a Tables tab for copy/paste exports.",
-            "failure": "Try again: the Tables tab lives inside each case workspace.",
-        },
-    },
-    {
-        "id": "issue_reporter",
-        "title": "Instant Issue Reporter",
-        "visual": "issue_reporter_flow",
-        "description": textwrap.dedent(
-            """
-            Launch the Issue Reporter from any case to bundle call notes, logs, and screenshots into a
-            single vendor-ready packet. Kiroshi maps your troubleshooting narrative into the structured
-            summary that partners expect, attaches the latest evidence, and stores a timestamped copy in
-            your database for follow-up.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "What does the Issue Reporter automatically include before you submit?",
-            "options": [
-                "Only the text from your root cause field",
-                "Screenshots, selected logs, and the troubleshooting summary",
-                "A blank template you must fill in manually",
-            ],
-            "answer": "Screenshots, selected logs, and the troubleshooting summary",
-            "success": "Yes — it packages artifacts and notes so vendors see the full story.",
-            "failure": "Remember, the Issue Reporter assembles evidence for you before sending.",
-        },
-    },
-    {
-        "id": "escalations",
-        "title": "Escalation Control Tower",
-        "visual": "escalation_matrix",
-        "description": textwrap.dedent(
-            """
-            Use the escalations drawer to track every hand-off. Capture vendor queue IDs, urgency, and
-            response targets, then pin critical follow-ups to the dashboard badge strip. Shared escalation
-            history keeps teams synchronized while automated reminders flag anything approaching its SLA.
-            """
-        ),
-        "interaction": {
-            "type": "checkbox_group",
-            "prompt": "Mark each checklist item once you have seen where to manage escalations.",
-            "items": [
-                "I can open the escalation drawer from a case tab.",
-                "I know where SLA timers appear on the dashboard.",
-                "I saw how vendor queue IDs are stored with the case.",
-            ],
-            "success": "Great — you can now coordinate escalations without losing context.",
-            "instruction": "Check every box after reviewing the escalation features above.",
-        },
-    },
-    {
-        "id": "reporting",
-        "title": "Reporting & Exports",
-        "visual": "report_overview",
-        "description": textwrap.dedent(
-            """
-            The Report tab turns AI Educate insights into visuals and downloadable PDFs. When AI Educate is enabled,
-            refresh the dataset, inspect root-cause metrics, run the Bug Detector, and export a polished report.
-            From any case you can also generate PDF summaries and ZIP bundles with attachments.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Which tab generates the AI Educate PDF analytics report?",
-            "options": ["Dashboard", "Report", "Kiroshi Chat"],
-            "answer": "Report",
-            "success": "Exactly — open the Report tab once AI Educate is enabled to export insights.",
-            "failure": "The analytics live in the Report tab right next to Settings.",
-        },
-    },
-    {
-        "id": "analytics",
-        "title": "Operations Analytics",
-        "visual": "analytics_suite",
-        "description": textwrap.dedent(
-            """
-            The analytics suite blends saved case metrics, Issue Reporter outcomes, and escalation load
-            into a unified view. Trendlines spotlight recurring failure types, while the resolution heat
-            map highlights where teams are beating or missing their targets.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Which visual helps you spot workload bottlenecks over the week?",
-            "options": [
-                "Resolution heat map",
-                "Issue Reporter draft list",
-                "Kiroshi Chat history",
-            ],
-            "answer": "Resolution heat map",
-            "success": "Exactly — the heat map shows when cases cluster above SLA thresholds.",
-            "failure": "Hint: look for the analytic that compares days to SLA performance.",
-        },
-    },
-    {
-        "id": "settings",
-        "title": "Settings & Personalisation",
-        "visual": "settings_overview",
-        "description": textwrap.dedent(
-            """
-            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding
-            history. Use this panel to toggle advanced assistance, import or export Educate datasets, and
-            relaunch this tutorial whenever you like. Completion metadata records when you finished the
-            tour and the version you saw.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Where can you replay the onboarding tutorial after today?",
-            "options": ["Dashboard", "Settings", "Case workspace"],
-            "answer": "Settings",
-            "success": "That's right — the Settings tab now includes a Repeat Tutorial button.",
-            "failure": "Look in Settings for the onboarding controls and status badge.",
-        },
-    },
-    {
-        "id": "ui_refresh",
-        "title": "Polished Interface & Shortcuts",
-        "visual": "ui_refresh",
-        "description": textwrap.dedent(
-            """
-            Subtle gradients, animated progress badges, and keyboard-aware navigation make the refreshed
-            UI easier to scan. Tutorial step selectors, card highlights, and quick access buttons guide new
-            users without getting in your way.
-            """
-        ),
-        "interaction": {
-            "type": "checkbox_group",
-            "prompt": "Tick the enhancements you noticed in the new interface.",
-            "items": [
-                "Animated progress badges in the tutorial",
-                "Improved contrast on cards and tables",
-                "Step selector for jumping around the tour",
-            ],
-            "success": "Nicely spotted — those touches keep the workflow feeling fast.",
-            "instruction": "Mark each enhancement after you've seen it in action.",
-        },
-    },
-    {
-        "id": "kiroshi_chat",
-        "title": "Kiroshi Chat & Resources",
-        "visual": "chat_resources",
-        "description": textwrap.dedent(
-            """
-            Kiroshi Chat keeps a searchable manual database, including a new quick-reference summary of the README
-            and Kiroshi workflow. Upload your own notes, search the knowledge base, or ask the assistant to cross-reference
-            the "Kiroshi Quick Reference" entry any time you need a refresher.
-            """
-        ),
-        "interaction": {
-            "type": "text_confirm",
-            "prompt": "Type READY to finish the tour and jump into Kiroshi.",
-            "answer": "READY",
-            "success": "Tutorial complete! You're ready to document real cases.",
-            "failure": "Enter READY in all caps to confirm you're set.",
-        },
-    },
-]
-
-STOPWORDS = {
-    "the",
-    "and",
-    "for",
-    "with",
-    "that",
-    "from",
-    "this",
-    "have",
-    "into",
-    "will",
-    "when",
-    "case",
-    "customer",
-    "issue",
-    "steps",
-    "they",
-    "their",
-    "been",
-    "were",
-    "after",
-    "before",
-    "about",
-    "also",
-    "while",
-    "should",
-    "could",
-    "there",
-    "where",
-    "using",
-    "used",
-    "need",
-    "your",
-    "each",
-    "them",
-    "than",
-    "then",
-    "once",
-    "only",
-    "very",
-    "make",
-    "made",
-    "through",
-    "over",
-    "more",
-    "less",
-    "much",
-    "many",
-    "take",
-    "taken",
-    "back",
-    "most",
-    "some",
-    "such",
-    "same",
-    "per",
-    "upon",
-    "done",
-    "time",
-}
-
-WORD_PATTERN = re.compile(r"[A-Za-z0-9']+")
-
-DEFAULT_TAXONOMY_BLOCK = (
-    "• 3Shape Unite / Login — issues with 3Shape Account, tokens, sign-in, credential errors. "
-    "Positives: \"sign in\", \"3Shape Account\", \"token\". Negatives: hardware calibration.\n"
-    "• 3Shape Unite / Case Submission / Timeout-Proxy — sending cases, timeouts, proxies, firewalls, TLS handshake. "
-    "Positives: \"Send Case\", \"proxy\", \"firewall\", \"TLS\". Negatives: scanner tips.\n"
-    "• TRIOS / Calibration — scanner calibration steps, tip issues, drift. Positives: \"calibrate\", \"tip\", \"firmware\". "
-    "Negatives: account login.\n"
-    "• TRIOS / Scan Quality — margins, occlusion, lack of detail, scanning workflow.\n"
-    "• Dental System / Performance — slow UI, freezing, crash stacktraces."
-)
-
-DEFAULT_SIGNALS_CONFIG = json.dumps(
-    {
-        "unite": {
-            "keywords": ["Unite", "App Store", "Send Case", "Lab Inbox", "Server"],
-            "logs": ["ApplicationInitializer", "TLS", "service start failed"],
-        },
-        "trios": {
-            "keywords": ["TRIOS", "calibrate", "scanner", "tip", "firmware", "dongle"],
-            "logs": ["USB", "driver", "HW", "low detail"],
-        },
-    },
-    indent=2,
-)
 
 
 # Configure logging to write to a user-writable directory inside the
@@ -2141,77 +1712,6 @@ logging.debug("Python executable: %s", sys.executable)
 logging.debug("Python version: %s", sys.version.replace("\n", " "))
 logging.debug("Platform: %s", sys.platform)
 
-INSTALLER_FILENAME = "KiroshiInstaller_Release-1.8.0.bat"
-
-
-def _resolve_installer_path() -> Path:
-    """Return the best-effort path to the bundled Windows installer."""
-
-    search_roots: list[Path] = []
-    if getattr(sys, "frozen", False):
-        search_roots.append(Path(getattr(sys, "_MEIPASS", APP_ROOT)))
-    search_roots.extend([APP_ROOT, PROGRAM_DATA_DIR])
-
-    for root in search_roots:
-        if not root:
-            continue
-        candidate = Path(root) / INSTALLER_FILENAME
-        if candidate.exists():
-            return candidate
-    return Path()
-
-
-def _relaunch_application() -> None:
-    """Attempt to relaunch Kiroshi after a successful installation."""
-
-    try:
-        if os.name == "nt" and getattr(sys, "frozen", False):
-            os.startfile(sys.executable)  # type: ignore[attr-defined]
-        else:
-            subprocess.Popen(
-                [sys.executable, "-m", "streamlit", "run", str(Path(__file__).resolve())],
-                close_fds=True,
-            )
-    except Exception as exc:  # pragma: no cover - user environment dependent
-        st.warning(f"Automatic relaunch failed: {exc}")
-    else:
-        if os.name == "nt" and getattr(sys, "frozen", False):
-            os._exit(0)
-
-
-def _launch_installer_and_relaunch() -> None:
-    """Run the bundled installer and relaunch the application when done."""
-
-    installer_path = _resolve_installer_path()
-    if not installer_path.exists():
-        st.error(
-            "The bundled Kiroshi installer could not be found. Please run "
-            "KiroshiInstaller_Release-1.8.0.bat manually from the installation media."
-        )
-        return
-
-    st.info("Launching the Kiroshi Installer. Accept the administrator prompt to continue.")
-    creation_flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-    try:
-        completed = subprocess.run(
-            ["cmd.exe", "/c", str(installer_path)],
-            check=False,
-            creationflags=creation_flags,
-        )
-    except Exception as exc:  # pragma: no cover - depends on OS environment
-        st.error(f"Failed to launch the installer: {exc}")
-        return
-
-    if completed.returncode != 0:
-        st.error(
-            "The installer exited with an error. Please rerun the installer manually "
-            "and relaunch Kiroshi."
-        )
-        return
-
-    st.success("Installation completed successfully. Relaunching Kiroshi…")
-    _relaunch_application()
-    st.stop()
 
 
 def _check_installation_status() -> None:
@@ -2260,13 +1760,6 @@ def _check_installation_status() -> None:
     st.stop()
 
 
-def _shorten_for_log(text: str, limit: int = 160) -> str:
-    if not text:
-        return ""
-    cleaned = " ".join(str(text).split())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 1] + "…"
 
 
 def invoke_gpt(
@@ -2625,85 +2118,16 @@ for neutral, ai_voice in zip(KIROSHI_QUIPS_GENERAL, KIROSHI_QUIPS_AI_VOICE):
     KIROSHI_MESSAGES.append(ai_voice)
 
 
-@dataclass(frozen=True)
-class ThemePalette:
-    key: str
-    name: str
-    primary: str
-    accent: str
-    background: str
-    surface: str
-    text: str
-    muted_text: str
-    glados_messages: list[str]
 
 
-def _normalize_hex_color(value: str) -> str:
-    """Return a normalized 6-digit hex color (prefixed with #)."""
-
-    color = (value or "").strip().lstrip("#")
-    if len(color) == 3:
-        color = "".join(ch * 2 for ch in color)
-    if len(color) != 6 or any(ch not in "0123456789abcdefABCDEF" for ch in color):
-        logging.debug("Received invalid hex color %r; defaulting to black", value)
-        return "#000000"
-    return f"#{color.lower()}"
 
 
-def _hex_to_rgb_tuple(value: str) -> tuple[int, int, int]:
-    color = _normalize_hex_color(value).lstrip("#")
-    return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def _blend_hex_colors(base: str, mix: str, ratio: float) -> str:
-    """Mix two colors together, clamping the ratio between 0 and 1."""
-
-    ratio = min(max(ratio, 0.0), 1.0)
-    base_rgb = _hex_to_rgb_tuple(base)
-    mix_rgb = _hex_to_rgb_tuple(mix)
-    blended = []
-    for base_channel, mix_channel in zip(base_rgb, mix_rgb):
-        value = round(base_channel * (1 - ratio) + mix_channel * ratio)
-        blended.append(max(0, min(255, value)))
-    return "#" + "".join(f"{channel:02x}" for channel in blended)
 
 
-def _rgba(color: str, alpha: float) -> str:
-    r, g, b = _hex_to_rgb_tuple(color)
-    alpha = min(max(alpha, 0.0), 1.0)
-    alpha_str = f"{alpha:.3f}".rstrip("0").rstrip(".")
-    return f"rgba({r}, {g}, {b}, {alpha_str})"
 
 
-def _relative_luminance(color: str) -> float:
-    """Return the W3C relative luminance for the provided hex color."""
-
-    r, g, b = _hex_to_rgb_tuple(color)
-
-    def _channel_luminance(channel: int) -> float:
-        normalized = channel / 255
-        if normalized <= 0.03928:
-            return normalized / 12.92
-        return ((normalized + 0.055) / 1.055) ** 2.4
-
-    return (
-        0.2126 * _channel_luminance(r)
-        + 0.7152 * _channel_luminance(g)
-        + 0.0722 * _channel_luminance(b)
-    )
-
-
-def _preferred_text_for_background(background: str, preferred: str) -> str:
-    """Return a text color with adequate contrast for the given background."""
-
-    background_luminance = _relative_luminance(background)
-    preferred_luminance = _relative_luminance(preferred)
-
-    if background_luminance >= 0.6 and preferred_luminance >= 0.55:
-        return "#111827"
-    if background_luminance <= 0.2 and preferred_luminance <= 0.35:
-        return "#f8fafc"
-    return preferred
 
 
 DEFAULT_THEME = ThemePalette(
@@ -2975,611 +2399,6 @@ SPECIAL_THEME_PERIODS = [
 
 CURRENT_THEME: ThemePalette = DEFAULT_THEME
 
-
-def get_kiroshi_message(theme: ThemePalette | None = None) -> str:
-    """Return a pseudo-random Kiroshi message aligned with the active theme."""
-
-    active_theme = theme or CURRENT_THEME
-    messages = active_theme.glados_messages or KIROSHI_MESSAGES
-    now = datetime.now()
-    seed = f"{active_theme.key}-{now.date().isoformat()}-{now.hour}"
-    rng = random.Random(seed)
-    return rng.choice(messages)
-
-
-def _nth_weekday_of_month(year: int, month: int, weekday_index: int, occurrence: int) -> date:
-    count = 0
-    for day in range(1, 32):
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            break
-        if candidate.weekday() == weekday_index:
-            count += 1
-            if count == occurrence:
-                return candidate
-    raise ValueError("Invalid weekday occurrence")
-
-
-def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
-    for day in range(31, 0, -1):
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            continue
-        if candidate.weekday() == weekday_index:
-            return candidate
-    raise ValueError("Invalid weekday for month")
-
-
-def compute_us_holidays(year: int) -> list[tuple[date, str]]:
-    holidays: list[tuple[date, str]] = [
-        (date(year, 1, 1), "New Year's Day"),
-        (date(year, 2, 8), "Day of Liberty"),
-        (_nth_weekday_of_month(year, 1, calendar.MONDAY, 3), "Martin Luther King Jr. Day"),
-        (_nth_weekday_of_month(year, 2, calendar.MONDAY, 3), "Presidents' Day"),
-        (_last_weekday_of_month(year, 5, calendar.MONDAY), "Memorial Day"),
-        (date(year, 6, 19), "Juneteenth National Independence Day"),
-        (date(year, 7, 4), "Independence Day"),
-        (_nth_weekday_of_month(year, 9, calendar.MONDAY, 1), "Labor Day"),
-        (_nth_weekday_of_month(year, 10, calendar.MONDAY, 2), "Columbus Day"),
-        (date(year, 11, 11), "Veterans Day"),
-        (_nth_weekday_of_month(year, 11, calendar.THURSDAY, 4), "Thanksgiving Day"),
-        (date(year, 12, 25), "Christmas Day"),
-    ]
-    return holidays
-
-
-def _is_within_period(target: date, start_tuple: tuple[int, int], end_tuple: tuple[int, int]) -> bool:
-    start = date(target.year, start_tuple[0], start_tuple[1])
-    end = date(target.year, end_tuple[0], end_tuple[1])
-    return start <= target <= end
-
-
-def _holiday_theme_for_week(target: date) -> ThemePalette | None:
-    week_start = target - timedelta(days=target.weekday())
-    week_end = week_start + timedelta(days=6)
-    relevant_years = {week_start.year, week_end.year, target.year}
-    holidays: list[tuple[date, str]] = []
-    for year in relevant_years:
-        holidays.extend(compute_us_holidays(year))
-    week_holidays = [
-        (holiday_date, name)
-        for holiday_date, name in holidays
-        if week_start <= holiday_date <= week_end
-    ]
-    if not week_holidays:
-        return None
-    week_holidays.sort(key=lambda item: item[0])
-    if target < week_holidays[0][0]:
-        key = HOLIDAY_NAME_TO_KEY.get(week_holidays[0][1])
-        return HOLIDAY_THEMES.get(key, DEFAULT_THEME) if key else DEFAULT_THEME
-    for holiday_date, name in week_holidays:
-        if target <= holiday_date:
-            key = HOLIDAY_NAME_TO_KEY.get(name)
-            return HOLIDAY_THEMES.get(key, DEFAULT_THEME) if key else DEFAULT_THEME
-    key = HOLIDAY_NAME_TO_KEY.get(week_holidays[-1][1])
-    return HOLIDAY_THEMES.get(key, DEFAULT_THEME) if key else DEFAULT_THEME
-
-
-def determine_active_theme(today: date | None = None) -> ThemePalette:
-    preview_key = st.session_state.get("theme_preview", "auto")
-    if preview_key and preview_key != "auto":
-        return HOLIDAY_THEMES.get(preview_key, DEFAULT_THEME)
-
-    if st.session_state.get("dark_mode_enabled", False):
-        return DARK_THEME
-
-    if not st.session_state.get("enable_holiday_theme", True):
-        return DEFAULT_THEME
-
-    current_day = today or date.today()
-    for period in SPECIAL_THEME_PERIODS:
-        if _is_within_period(current_day, period["start"], period["end"]):
-            key = period["key"]
-            return HOLIDAY_THEMES.get(key, DEFAULT_THEME)
-
-    holiday_theme = _holiday_theme_for_week(current_day)
-    return holiday_theme or DEFAULT_THEME
-
-
-def apply_theme_palette(theme: ThemePalette) -> None:
-    primary_glow = _blend_hex_colors(theme.primary, "#ffffff", 0.82)
-    accent_glow = _blend_hex_colors(theme.accent, "#ffffff", 0.8)
-    surface_soft = _blend_hex_colors(theme.surface, "#ffffff", 0.12)
-    surface_muted = _blend_hex_colors(theme.surface, theme.background, 0.5)
-    border_color = _blend_hex_colors(theme.primary, "#000000", 0.35)
-    chart_grid = _blend_hex_colors(theme.text, theme.background, 0.82)
-    chart_axis = _blend_hex_colors(theme.text, "#000000", 0.15)
-    input_background = _blend_hex_colors(theme.surface, theme.background, 0.35)
-    background_soft = _blend_hex_colors(theme.background, theme.surface, 0.25)
-    card_shadow_color = _blend_hex_colors(theme.background, "#000000", 0.6)
-    button_shadow_color = _blend_hex_colors(theme.primary, "#000000", 0.55)
-    text_on_surface = _preferred_text_for_background(theme.surface, theme.text)
-    text_on_white = _preferred_text_for_background("#ffffff", theme.text)
-    dark_theme_keys = {DARK_THEME.key, HELLDIVER_THEME.key}
-    is_dark_theme = theme.key in dark_theme_keys
-    is_holiday_theme = theme.key not in {DEFAULT_THEME.key, DARK_THEME.key, HELLDIVER_THEME.key}
-    if is_holiday_theme:
-        pastel_primary = _blend_hex_colors(theme.primary, "#ffffff", 0.75)
-        pastel_accent = _blend_hex_colors(theme.accent, "#ffffff", 0.78)
-        pastel_backdrop = _blend_hex_colors(theme.background, "#ffffff", 0.65)
-        pastel_overlay = _blend_hex_colors(theme.surface, "#ffffff", 0.55)
-        background_layers = "\n                ".join(
-            [
-                "radial-gradient(circle at 12% 18%, "
-                f"{pastel_primary} 0%, transparent 58%)",
-                "radial-gradient(circle at 88% 15%, "
-                f"{pastel_accent} 0%, transparent 60%)",
-                "linear-gradient(170deg, "
-                f"{pastel_overlay} 0%, {pastel_backdrop} 55%, {theme.background} 100%)",
-            ]
-        )
-    elif is_dark_theme:
-        dark_top = _blend_hex_colors(theme.background, "#1e293b", 0.4)
-        dark_mid = _blend_hex_colors(theme.surface, "#0b1120", 0.35)
-        dark_bottom = _blend_hex_colors(theme.background, "#020617", 0.65)
-        background_layers = "\n                ".join(
-            [
-                "radial-gradient(circle at 18% 20%, "
-                f"{_rgba(theme.primary, 0.32)} 0%, transparent 60%)",
-                "radial-gradient(circle at 82% 12%, "
-                f"{_rgba(theme.accent, 0.26)} 0%, transparent 62%)",
-                "linear-gradient(185deg, "
-                f"{dark_mid} 0%, {dark_top} 48%, {dark_bottom} 100%)",
-            ]
-        )
-    else:
-        background_layers = "\n                ".join(
-            [
-                "radial-gradient(circle at 15% 20%, var(--kiroshi-primary-glow) 0%, transparent 55%)",
-                "radial-gradient(circle at 85% 12%, var(--kiroshi-accent-glow) 0%, transparent 60%)",
-                f"linear-gradient(165deg, {background_soft} 0%, {theme.background} 100%)",
-            ]
-        )
-    dark_css = f"""
-        html[data-kiroshi-theme="dark"] .tutorial-wrapper {{
-            background: linear-gradient(160deg,
-                color-mix(in srgb, var(--kiroshi-surface) 88%, transparent) 0%,
-                color-mix(in srgb, var(--kiroshi-background) 85%, transparent) 100%);
-            border: 1px solid rgba(148, 163, 184, 0.28);
-            box-shadow: 0 24px 48px {_rgba('#020617', 0.55)};
-            color: var(--kiroshi-text);
-        }}
-        html[data-kiroshi-theme="dark"] .tutorial-step-badge {{
-            background: linear-gradient(140deg,
-                color-mix(in srgb, var(--kiroshi-background) 70%, transparent) 0%,
-                color-mix(in srgb, var(--kiroshi-surface) 80%, transparent) 100%);
-            border: 1px solid rgba(148, 163, 184, 0.3);
-            box-shadow: 0 12px 22px {_rgba('#020617', 0.45)};
-        }}
-        html[data-kiroshi-theme="dark"] .tutorial-step-badge__label {{
-            color: var(--kiroshi-text);
-        }}
-        html[data-kiroshi-theme="dark"] .tutorial-step-badge__label span {{
-            color: rgba(148, 163, 184, 0.85);
-        }}
-        html[data-kiroshi-theme="dark"] .tutorial-visual-card {{
-            background: linear-gradient(160deg,
-                color-mix(in srgb, var(--kiroshi-surface) 82%, transparent) 0%,
-                color-mix(in srgb, var(--kiroshi-background) 78%, transparent) 100%);
-            border: 1px solid rgba(100, 116, 139, 0.35);
-            color: var(--kiroshi-text);
-            box-shadow: 0 16px 32px {_rgba('#020617', 0.5)};
-        }}
-        html[data-kiroshi-theme="dark"] .tutorial-color-chip::after {{
-            color: rgba(226, 232, 240, 0.85);
-            background: rgba(15, 23, 42, 0.65);
-        }}
-        html[data-kiroshi-theme="dark"] .tutorial-insight-card {{
-            background: linear-gradient(155deg,
-                color-mix(in srgb, var(--kiroshi-surface) 82%, transparent) 0%,
-                color-mix(in srgb, var(--kiroshi-background) 90%, transparent) 100%);
-            box-shadow: 0 18px 36px {_rgba('#020617', 0.6)};
-        }}
-        html[data-kiroshi-theme="dark"] .case-card {{
-            background: linear-gradient(145deg,
-                color-mix(in srgb, var(--kiroshi-surface) 88%, transparent) 0%,
-                color-mix(in srgb, var(--kiroshi-background) 75%, transparent) 100%);
-            border: 1px solid rgba(71, 85, 105, 0.35);
-            color: var(--kiroshi-text);
-        }}
-        html[data-kiroshi-theme="dark"] .case-meta__label {{
-            color: rgba(148, 163, 184, 0.85);
-        }}
-        html[data-kiroshi-theme="dark"] .case-meta__value {{
-            color: var(--kiroshi-text);
-        }}
-        html[data-kiroshi-theme="dark"] .case-actions .crm-link {{
-            box-shadow: 0 16px 32px {_rgba('#020617', 0.5)};
-        }}
-        html[data-kiroshi-theme="dark"] .stApp [data-testid="stSidebar"] > div:first-child {{
-            box-shadow: inset -8px 0 28px {_rgba('#020617', 0.65)};
-        }}
-    """
-
-    helldiver_button_script = ""
-    if theme.key == HELLDIVER_THEME.key:
-        helldiver_button_script = """
-        <script>
-        (() => {
-            const stratagems = [
-                { match: 'save', label: 'Deploy Stratagem (Save)' },
-                { match: 'load', label: 'Call Reinforcement' },
-                { match: 'export', label: 'Request Eagle Uplink' },
-                { match: 'download', label: 'Summon Supply Drop' },
-                { match: 'upload', label: 'Launch Orbital Relay' },
-                { match: 'generate', label: 'Orbital Precision Strike' },
-                { match: 'verify', label: 'Super Earth Compliance Check' },
-                { match: 'copy', label: 'Broadcast Managed Democracy' },
-                { match: 'track', label: 'Ping Bug Nest' },
-                { match: 'close', label: 'Initiate Extraction' },
-                { match: 'send', label: 'Transmit Liberation Orders' },
-                { match: 'submit', label: 'Confirm Mission Data' },
-                { match: 'run', label: 'Commence Operation' },
-                { match: 'start', label: 'Begin Helldive' },
-                { match: 'stop', label: 'Abort Drop' },
-                { match: 'refresh', label: 'Reload Magazine' },
-            ];
-
-            const fallback = [
-                'Stratagem Ready',
-                'Eagle En Route',
-                'For Super Earth!',
-                'Managed Democracy Online',
-                'Glory to the Helldivers',
-            ];
-
-            const chooseFallback = (label) => {
-                let score = 0;
-                for (const char of label) {
-                    score += char.charCodeAt(0);
-                }
-                return fallback[score % fallback.length];
-            };
-
-            const renameButton = (button) => {
-                const original = (button.innerText || '').trim();
-                if (!original) return;
-                const lowered = original.toLowerCase();
-                for (const stratagem of stratagems) {
-                    if (lowered.includes(stratagem.match)) {
-                        button.innerText = stratagem.label;
-                        return;
-                    }
-                }
-                button.innerText = `${chooseFallback(original)} (${original})`;
-            };
-
-            const scan = () => {
-                document.querySelectorAll('button').forEach(renameButton);
-            };
-
-            const observer = new MutationObserver(() => {
-                scan();
-            });
-
-            if (document.body) {
-                observer.observe(document.body, { childList: true, subtree: true });
-                scan();
-            } else {
-                document.addEventListener('DOMContentLoaded', () => {
-                    if (document.body) {
-                        observer.observe(document.body, { childList: true, subtree: true });
-                    }
-                    scan();
-                }, { once: true });
-            }
-        })();
-        </script>
-    """
-
-    theme_marker_script = f"""
-        <script>
-        (function() {{
-            const themeKey = {theme.key!r};
-            const applyThemeMarker = () => {{
-                document.documentElement.setAttribute('data-kiroshi-theme', themeKey);
-                if (document.body) {{
-                    document.body.setAttribute('data-kiroshi-theme', themeKey);
-                }}
-            }};
-            if (document.readyState !== 'loading') {{
-                applyThemeMarker();
-            }} else {{
-                document.addEventListener('DOMContentLoaded', applyThemeMarker, {{ once: true }});
-            }}
-        }})();
-        </script>
-    """
-
-    st.markdown(
-        f"""
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
-        :root {{
-            --kiroshi-primary: {theme.primary};
-            --kiroshi-accent: {theme.accent};
-            --kiroshi-background: {theme.background};
-            --kiroshi-surface: {theme.surface};
-            --kiroshi-text: {theme.text};
-            --kiroshi-muted: {theme.muted_text};
-            --kiroshi-surface-soft: {surface_soft};
-            --kiroshi-surface-muted: {surface_muted};
-            --kiroshi-border: {border_color};
-            --kiroshi-primary-glow: {primary_glow};
-            --kiroshi-accent-glow: {accent_glow};
-            --kiroshi-chart-grid: {chart_grid};
-            --kiroshi-chart-axis: {chart_axis};
-            --kiroshi-input-background: {input_background};
-            --kiroshi-text-on-surface: {text_on_surface};
-            --kiroshi-text-on-white: {text_on_white};
-            --kiroshi-font-family: {STREAMLIT_FONT_STACK_CSS};
-            --kiroshi-heading-font-family: {STREAMLIT_HEADING_FONT_STACK};
-        }}
-        @keyframes kiroshiFadeIn {{
-            from {{
-                opacity: 0;
-                transform: translateY(12px) scale(0.99);
-            }}
-            to {{
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }}
-        }}
-        @keyframes kiroshiSoftDrift {{
-            0% {{ transform: translate3d(0, 0, 0); }}
-            50% {{ transform: translate3d(0, -4px, 0) scale(1.003); }}
-            100% {{ transform: translate3d(0, 0, 0); }}
-        }}
-        html, body {{
-            background:
-                {background_layers};
-            color: var(--kiroshi-text);
-            font-family: var(--kiroshi-font-family);
-            min-height: 100vh;
-        }}
-        body {{
-            margin: 0;
-        }}
-        .stApp {{
-            color: var(--kiroshi-text);
-        }}
-
-        h1, h2, h3, h4, h5, h6,
-        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
-        .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {{
-            font-family: var(--kiroshi-heading-font-family);
-            letter-spacing: 0.01em;
-        }}
-        .stApp > header {{
-            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
-            border-bottom: 1px solid color-mix(in srgb, var(--kiroshi-border) 45%, transparent);
-            padding: 0.35rem 0;
-        }}
-        .stApp > header * {{
-            color: #ffffff !important;
-        }}
-        .stApp [data-testid="stDecoration"] {{
-            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%) !important;
-        }}
-        .stApp [data-testid="stDecoration"] svg {{
-            display: none;
-        }}
-        .stApp .block-container {{
-            background: linear-gradient(180deg, var(--kiroshi-surface-soft) 0%, var(--kiroshi-surface) 80%);
-            border-radius: 1.6rem 1.6rem 0 0;
-            box-shadow: 0 26px 60px {_rgba(card_shadow_color, 0.36)};
-            padding: 2.2rem 2.4rem 2.4rem;
-            color: var(--kiroshi-text);
-            animation: kiroshiFadeIn 0.7s ease-out both;
-            transition: background 320ms ease, box-shadow 320ms ease, transform 260ms ease;
-        }}
-        .stApp .block-container:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 30px 70px {_rgba(card_shadow_color, 0.32)};
-        }}
-        .stApp [data-testid="stSidebar"] > div:first-child {{
-            background: linear-gradient(205deg, var(--kiroshi-surface) 0%, var(--kiroshi-surface-muted) 100%);
-            border-right: 1px solid color-mix(in srgb, var(--kiroshi-border) 60%, transparent);
-            box-shadow: inset -8px 0 24px rgba(15, 23, 42, 0.22);
-            color: var(--kiroshi-text);
-        }}
-        .stApp [data-testid="stSidebar"] * {{
-            color: var(--kiroshi-text);
-        }}
-        .stApp a {{
-            color: {accent_glow};
-        }}
-        .stApp a:hover {{
-            color: {theme.accent};
-        }}
-        .stApp input,
-        .stApp textarea,
-        .stApp select {{
-            background: var(--kiroshi-input-background);
-            color: var(--kiroshi-text);
-            border-radius: 0.85rem;
-            border: 1px solid color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-            transition: border-color 220ms ease, box-shadow 220ms ease;
-        }}
-        .stApp input::placeholder,
-        .stApp textarea::placeholder {{
-            color: color-mix(in srgb, var(--kiroshi-muted) 78%, var(--kiroshi-text) 22%);
-        }}
-        .stApp .stButton button {{
-            border-radius: 999px;
-            border: none;
-            padding: 0.65rem 1.9rem;
-            font-weight: 600;
-            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
-            color: #ffffff;
-            box-shadow: 0 14px 34px {_rgba(button_shadow_color, 0.42)};
-            transition: transform 120ms ease, filter 120ms ease;
-        }}
-        .stApp .stButton button:hover {{
-            filter: brightness(1.05);
-            transform: translateY(-1px);
-        }}
-        .stApp .stTabs [role="tablist"] button {{
-            border-radius: 999px !important;
-            color: color-mix(in srgb, var(--kiroshi-muted) 70%, var(--kiroshi-text) 30%);
-        }}
-        .stApp .stTabs [role="tablist"] button[aria-selected="true"] {{
-            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
-            color: #ffffff;
-            box-shadow: 0 10px 24px {_rgba(button_shadow_color, 0.35)};
-        }}
-        .stApp .stTabs [role="tablist"] button[aria-selected="true"] p {{
-            color: #ffffff !important;
-        }}
-        .stApp .stAlert > div {{
-            background: color-mix(in srgb, var(--kiroshi-surface) 78%, rgba(255, 255, 255, 0.1));
-            border: 1px solid color-mix(in srgb, var(--kiroshi-accent) 35%, transparent);
-            color: var(--kiroshi-text);
-        }}
-        .stApp div[data-testid="stSwitch"] {{
-            background: color-mix(in srgb, var(--kiroshi-surface) 82%, rgba(255, 255, 255, 0.18));
-            border-radius: 1rem;
-            border: 1px solid color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
-            padding: 0.85rem 1rem;
-            display: flex;
-            align-items: center;
-            transition: background 120ms ease, border-color 120ms ease;
-        }}
-        .stApp div[data-testid="stSwitch"]:hover {{
-            background: color-mix(in srgb, var(--kiroshi-surface) 92%, rgba(255, 255, 255, 0.24));
-            border-color: color-mix(in srgb, var(--kiroshi-primary) 45%, transparent);
-        }}
-        .stApp div[data-testid="stSwitch"] label {{
-            color: var(--kiroshi-text);
-            font-weight: 600;
-            font-size: 1rem;
-            gap: 0.65rem;
-        }}
-        .stApp div[data-testid="stSwitch"] label span,
-        .stApp div[data-testid="stSwitch"] label p {{
-            color: var(--kiroshi-text) !important;
-            font-weight: 600;
-        }}
-        .stApp div[data-testid="stTable"] table {{
-            color: var(--kiroshi-text);
-        }}
-        .stApp div[data-testid="stTable"] th {{
-            background: color-mix(in srgb, var(--kiroshi-primary) 18%, transparent);
-            color: #ffffff;
-        }}
-        .stApp div[data-testid="stTable"] td,
-        .stApp div[data-testid="stTable"] th {{
-            border-color: color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
-        }}
-{dark_css}
-        </style>
-        {theme_marker_script}
-        {helldiver_button_script}
-        """,
-        unsafe_allow_html=True,
-    )
-    if st.session_state.get("frutiger_aero_mode"):
-        st.markdown(
-            """
-            <style>
-            @keyframes frutigerGlow {
-                0% { opacity: 0.6; }
-                50% { opacity: 0.9; }
-                100% { opacity: 0.6; }
-            }
-            body::before {
-                content: "";
-                position: fixed;
-                inset: -12% -12% auto;
-                min-height: 120vh;
-                background:
-                    radial-gradient(circle at 20% 20%, rgba(120, 187, 255, 0.32), transparent 55%),
-                    radial-gradient(circle at 80% 10%, rgba(255, 255, 255, 0.35), transparent 60%),
-                    radial-gradient(circle at 65% 85%, rgba(164, 234, 212, 0.28), transparent 65%);
-                pointer-events: none;
-                z-index: -1;
-                animation: frutigerGlow 14s ease-in-out infinite;
-            }
-            .stApp .block-container {
-                backdrop-filter: blur(18px) saturate(130%);
-                background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.92));
-                border: 1px solid rgba(255, 255, 255, 0.55);
-            }
-            .dashboard-section {
-                background: linear-gradient(140deg, rgba(255, 255, 255, 0.92), rgba(212, 233, 255, 0.72));
-                border: 1px solid rgba(255, 255, 255, 0.65);
-                box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
-                animation: kiroshiSoftDrift 16s ease-in-out infinite;
-            }
-            .case-hero {
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(220, 243, 255, 0.75));
-                border: 1px solid rgba(255, 255, 255, 0.7);
-                box-shadow: 0 20px 45px rgba(30, 64, 175, 0.18);
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-    _enable_altair_theme(theme)
-
-
-def _enable_altair_theme(theme: ThemePalette) -> None:
-    category_palette = [
-        theme.primary,
-        theme.accent,
-        _blend_hex_colors(theme.primary, theme.accent, 0.4),
-        _blend_hex_colors(theme.accent, "#ffffff", 0.35),
-        _blend_hex_colors(theme.primary, "#ffffff", 0.45),
-        _blend_hex_colors(theme.accent, theme.background, 0.2),
-    ]
-    sequential_palette = [
-        _blend_hex_colors(theme.primary, "#ffffff", ratio)
-        for ratio in (0.85, 0.7, 0.5, 0.35, 0.2, 0.05)
-    ]
-    diverging_palette = [
-        _blend_hex_colors(theme.accent, "#ffffff", 0.55),
-        theme.accent,
-        theme.primary,
-        _blend_hex_colors(theme.primary, "#000000", 0.2),
-    ]
-    background_mix = _blend_hex_colors(theme.background, theme.surface, 0.35)
-    chart_grid = _blend_hex_colors(theme.text, theme.background, 0.82)
-    chart_axis = _blend_hex_colors(theme.text, "#000000", 0.15)
-
-    config = {
-        "background": background_mix,
-        "view": {"fill": background_mix, "stroke": "transparent"},
-        "axis": {
-            "labelColor": theme.text,
-            "titleColor": theme.text,
-            "domainColor": chart_axis,
-            "tickColor": chart_axis,
-            "gridColor": chart_grid,
-        },
-        "legend": {"labelColor": theme.text, "titleColor": theme.text},
-        "title": {
-            "color": theme.text,
-            "font": STREAMLIT_FONT_FALLBACK,
-            "fontSize": 18,
-            "fontWeight": 600,
-        },
-        "header": {"labelColor": theme.text, "titleColor": theme.text},
-        "mark": {"color": theme.primary, "fill": theme.primary},
-        "range": {
-            "category": category_palette,
-            "ordinal": category_palette,
-            "diverging": diverging_palette,
-            "heatmap": sequential_palette,
-            "ramp": sequential_palette,
-        },
-    }
-
-    if "kiroshi-active" not in alt.themes.names():
-        alt.themes.register("kiroshi-active", lambda config=config: config)
-    alt.themes.enable("kiroshi-active")
 
 # ────────────────────────── UTILITIES ───────────────────────────
 
@@ -3892,18 +2711,6 @@ def _normalize_wellness_settings(raw: object) -> dict[str, object]:
     return base
 
 
-def _time_str_to_time(value: str, *, fallback: datetime_time) -> datetime_time:
-    try:
-        hour_str, minute_str = value.split(":", 1)
-        hour = max(0, min(23, int(hour_str)))
-        minute = max(0, min(59, int(minute_str)))
-        return datetime_time(hour=hour, minute=minute)
-    except Exception:
-        return fallback
-
-
-def _time_to_string(value: datetime_time) -> str:
-    return f"{value.hour:02d}:{value.minute:02d}"
 
 
 def _calculate_next_wellness_event(
@@ -5934,17 +4741,6 @@ if st.session_state.autosave_notice:
     st.session_state.autosave_notice = None
 
 
-def sanitize_case_id(case_id: str) -> str:
-    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", case_id.strip())
-    return safe_id or "case"
-
-
-def sanitize_filename(filename: str) -> str:
-    """Return a filesystem-safe filename preserving extension when possible."""
-
-    name = Path(filename).name
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-    return sanitized or "file"
 
 
 def _ensure_autosave_dir() -> Path:
@@ -6076,370 +4872,14 @@ def tail_log(path: str | Path, lines: int = 100) -> str:
 # ───────────────── DATA MODEL ──────────────────
 
 
-def _format_utc_timestamp(value: datetime) -> str:
-    """Serialize a :class:`datetime` to an ISO-8601 string with a ``Z`` suffix."""
-
-    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
-    )
 
 
-def _utc_now_z() -> str:
-    """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
-
-    return _format_utc_timestamp(datetime.now(timezone.utc))
 
 
-def _normalize_hardware_test_text(value: object) -> str:
-    """Return a text representation for stored hardware test values."""
-
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-    if value is None:
-        return ""
-    text = str(value).strip()
-    return text
 
 
-@dataclass
-class RemoteSessionEntry:
-    """Structured representation of a remote troubleshooting session."""
-
-    session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
-    title: str = ""
-    notes: str = ""
-    created_at: str = field(default_factory=_utc_now_z)
-    updated_at: str = field(default_factory=_utc_now_z)
-
-    def display_title(self, index: int) -> str:
-        """Return a human-friendly title, falling back to an indexed label."""
-
-        title = (self.title or "").strip()
-        return title or f"Session {index}"
-
-    def touch(self) -> None:
-        """Refresh the ``updated_at`` timestamp to the current moment."""
-
-        self.updated_at = _utc_now_z()
 
 
-def _coerce_remote_session_entry(
-    payload: object, *, default_title: str
-) -> RemoteSessionEntry:
-    """Return a ``RemoteSessionEntry`` built from loose mapping data."""
-
-    if isinstance(payload, RemoteSessionEntry):
-        entry = RemoteSessionEntry(
-            session_id=(payload.session_id or uuid.uuid4().hex),
-            title=str(payload.title or default_title),
-            notes=str(payload.notes or ""),
-            created_at=str(payload.created_at or _utc_now_z()),
-            updated_at=str(payload.updated_at or payload.created_at or _utc_now_z()),
-        )
-    elif isinstance(payload, Mapping):
-        created = payload.get("created_at")
-        created_str = str(created or "")
-        if not created_str:
-            created_str = _utc_now_z()
-        updated = payload.get("updated_at")
-        updated_str = str(updated or "")
-        if not updated_str:
-            updated_str = created_str
-        entry = RemoteSessionEntry(
-            session_id=str(payload.get("session_id") or uuid.uuid4().hex),
-            title=str(payload.get("title") or default_title),
-            notes=str(payload.get("notes") or ""),
-            created_at=created_str,
-            updated_at=updated_str,
-        )
-    elif isinstance(payload, str):
-        entry = RemoteSessionEntry(title=default_title, notes=payload)
-    else:
-        entry = RemoteSessionEntry(title=default_title)
-
-    if not entry.title.strip():
-        entry.title = default_title
-
-    if not entry.created_at:
-        entry.created_at = _utc_now_z()
-    if not entry.updated_at:
-        entry.updated_at = entry.created_at
-
-    return entry
-
-
-def _normalize_remote_session_list(
-    raw_sessions: Iterable[object] | None,
-) -> list[RemoteSessionEntry]:
-    """Convert raw session payloads into dataclass entries."""
-
-    if not raw_sessions:
-        return []
-    if isinstance(raw_sessions, (str, bytes)):
-        return []
-
-    normalized: list[RemoteSessionEntry] = []
-    for payload in raw_sessions:
-        default_title = f"Session {len(normalized) + 1}"
-        normalized.append(
-            _coerce_remote_session_entry(payload, default_title=default_title)
-        )
-    return normalized
-
-
-def format_remote_sessions_summary(
-    sessions: Sequence[RemoteSessionEntry], *, include_timestamps: bool = True
-) -> str:
-    """Combine remote session notes into a readable multi-session summary."""
-
-    if not sessions:
-        return ""
-
-    show_titles = len(sessions) > 1 or any(
-        session.title.strip()
-        and session.title.strip().lower() != f"session {index}"
-        for index, session in enumerate(sessions, start=1)
-    )
-
-    blocks: list[str] = []
-    for idx, session in enumerate(sessions, start=1):
-        title = session.display_title(idx)
-        notes = (session.notes or "").strip()
-        if show_titles:
-            header = title
-            if include_timestamps:
-                created = (session.created_at or "").strip()
-                updated = (session.updated_at or "").strip()
-                timestamp_bits: list[str] = []
-                if created:
-                    timestamp_bits.append(f"started {created}")
-                if updated and updated != created:
-                    timestamp_bits.append(f"updated {updated}")
-                if timestamp_bits:
-                    header = f"{header} ({', '.join(timestamp_bits)})"
-            block = header if not notes else f"{header}\n{notes}"
-        else:
-            block = notes
-        blocks.append(block.strip())
-
-    return "\n\n".join(part for part in blocks if part).strip()
-
-
-@dataclass
-class TrackingData:
-    """Metadata stored for active tracking in a case JSON file."""
-
-    active: bool = False
-    type: str = ""
-    category: str = ""
-    status: str = ""
-    priority: str = DEFAULT_TRACKING_PRIORITY
-    ticket_number: str = ""
-    creation_day: str = ""
-    case_link: str = ""
-    expected_arrival_date: str = ""
-    service_tag: str = ""
-
-    def __post_init__(self) -> None:
-        if self.priority not in PRIORITY_OPTIONS:
-            self.priority = DEFAULT_TRACKING_PRIORITY
-        # Ensure text fields never contain ``None`` when loaded from legacy JSON.
-        for field_name in (
-            "type",
-            "category",
-            "status",
-            "ticket_number",
-            "creation_day",
-            "case_link",
-            "expected_arrival_date",
-            "service_tag",
-        ):
-            value = getattr(self, field_name)
-            if value is None:
-                setattr(self, field_name, "")
-
-
-def _normalize_damage_classification(value: object) -> str:
-    """Return a human readable scanner damage classification."""
-
-    if value is None:
-        return ""
-
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return ""
-        normalized = text.lower()
-        if normalized in {"accidental", "accidental damage", "y", "yes", "true", "1"}:
-            return "Accidental damage"
-        if normalized in {"internal", "internal damage", "n", "no", "false", "0", "none"}:
-            return "Internal damage"
-        return text
-
-    if isinstance(value, bool):
-        return "Accidental damage" if value else "Internal damage"
-
-    if isinstance(value, (int, float)):
-        return "Accidental damage" if value else "Internal damage"
-
-    text = str(value).strip()
-    return text if text else ""
-
-
-@dataclass
-class CaseData:
-    """Container for case details provided through the UI."""
-
-    # General case
-    company_name: str = ""
-    subscription_id: str = ""
-    brief_description: str = ""
-    case_id: str = ""
-    application_version: str = ""
-    description: str = ""
-    caller_name: str = ""
-    phone_description: str = ""
-    dongle_number: str = ""
-    phone_number: str = ""
-    teamviewer_id: str = ""
-    teamviewer_password: str = ""
-    email: str = ""
-    internal_helpjuice: str = ""
-    internal_logs: str = ""
-    remote_sessions: list[RemoteSessionEntry] = field(default_factory=list)
-    remote_steps: str = ""
-    root_cause: str = ""
-    repro_steps: str = ""
-    third_line_hj_article: str = ""
-    third_line_troubleshoot_summary: str = ""
-    third_line_comments: str = ""
-    third_line_reseller_name: str = ""
-    third_line_reseller_phone: str = ""
-    third_line_reseller_phone_alt: str = ""
-    third_line_reseller_email: str = ""
-    third_line_clinic_rep_name: str = ""
-    third_line_clinic_rep_phone: str = ""
-    third_line_clinic_rep_phone_alt: str = ""
-    third_line_tv_id: str = ""
-    third_line_tv_password: str = ""
-    third_line_unite_pin: str = ""
-
-    solution: str = ""
-    survey_link: str = ""
-    # Escalation details
-    request_issue: str = ""
-    contact_name: str = ""
-    office_ph: str = ""
-    direct_ph: str = ""
-    best_time: str = ""
-    patterson: str = ""
-    straumann: str = ""
-    esc_name: str = ""
-    esc_ph: str = ""
-    esc_email: str = ""
-    # Additional information
-    additional_info: str = ""
-    customer_trios_only: bool = False
-    support_fee_accepted: bool = False
-    hardware_test: str = ""
-    # PC hardware
-    service_tag: str = ""
-    pc_model: str = ""
-    windows_version: str = ""
-    bios_version: str = ""
-    graphics_card: str = ""
-    processor: str = ""
-    warranty: str = ""
-    # Scanner hardware
-    scanner_sn: str = ""
-    base_sn: str = ""
-    trios_module_version: str = ""
-    dongle_deployment_date: str = ""
-    scanner_previous_replacements: int = 0
-    scanner_accidental_damage: str = ""
-    hardware_dongle_replaced: str = ""
-    hardware_latest_deployment_date: str = ""
-    hardware_scanner_replaced: str = ""
-    hardware_scanner_sn_summary: str = ""
-    hardware_subscription_type: str = ""
-    # Dell escalation specifics
-    dell_issue_start_date: str = ""
-    dell_command_updates_status: str = ""
-    dell_power_options_setup: str = ""
-    dell_optimizer_setup: str = ""
-    dell_intel_ppm_installed: str = ""
-    dell_cpu_speed_or_throttling: str = ""
-    dell_gpu_usage_integrated: str = ""
-    dell_gpu_usage_dedicated: str = ""
-    dell_cpu_utilization: str = ""
-    dell_benchmark_results: str = ""
-    dell_ultra_resolution_support: str = ""
-    dell_gpu_driver_versions: str = ""
-    dell_reliability_monitor_results: str = ""
-    dell_diagnostics_results: str = ""
-    dell_windows_reimaged: str = ""
-    clinic_name: str = ""
-    clinic_contact_name: str = ""
-    clinic_contact_phone: str = ""
-    clinic_contact_email: str = ""
-    clinic_address_line_1: str = ""
-    clinic_address_line_2: str = ""
-    clinic_city: str = ""
-    clinic_state: str = ""
-    clinic_postal_code: str = ""
-    tracking: TrackingData = field(default_factory=TrackingData)
-    kiroshi_version: str = VERSION
-    last_modified: str = ""
-
-    def __post_init__(self) -> None:
-        self.hardware_test = _normalize_hardware_test_text(self.hardware_test)
-
-        if self.remote_steps is None:
-            self.remote_steps = ""
-        else:
-            self.remote_steps = str(self.remote_steps)
-
-        sessions_source: Iterable[object] | None
-        if isinstance(self.remote_sessions, Iterable) and not isinstance(
-            self.remote_sessions, (str, bytes)
-        ):
-            sessions_source = self.remote_sessions
-        else:
-            sessions_source = []
-        normalized_sessions = _normalize_remote_session_list(sessions_source)
-        if not normalized_sessions and self.remote_steps.strip():
-            now = _utc_now_z()
-            normalized_sessions = [
-                RemoteSessionEntry(
-                    title="Session 1",
-                    notes=self.remote_steps,
-                    created_at=now,
-                    updated_at=now,
-                )
-            ]
-        self.remote_sessions = normalized_sessions
-        self.remote_steps = format_remote_sessions_summary(
-            self.remote_sessions, include_timestamps=True
-        )
-        if not isinstance(self.tracking, TrackingData):
-            if isinstance(self.tracking, Mapping):
-                self.tracking = TrackingData(**self.tracking)  # type: ignore[arg-type]
-            else:
-                self.tracking = TrackingData()
-        if not self.kiroshi_version:
-            self.kiroshi_version = VERSION
-        if self.tracking.priority not in PRIORITY_OPTIONS:
-            self.tracking.priority = DEFAULT_TRACKING_PRIORITY
-        if self.last_modified is None:
-            self.last_modified = ""
-        elif not isinstance(self.last_modified, str):
-            self.last_modified = str(self.last_modified)
-
-        self.scanner_accidental_damage = _normalize_damage_classification(
-            getattr(self, "scanner_accidental_damage", "")
-        )
 
 
 def extract_remote_steps_from_mapping(record: object | None) -> str:
@@ -6524,53 +4964,6 @@ def ensure_single_remote_session(case: CaseData) -> RemoteSessionEntry:
     return case.remote_sessions[0]
 
 
-@dataclass
-class InMemoryUploadedFile:
-    """Simple file-like container for generated screenshots."""
-
-    name: str
-    data: bytes
-
-    def getvalue(self) -> bytes:
-        return self.data
-
-
-@dataclass
-class ScreenshotAsset(InMemoryUploadedFile):
-    """Rich metadata container for captured screenshots."""
-
-    label: str = ""
-    capture_mode: str = "full"
-    captured_at: str = field(default_factory=_utc_now_z)
-    origin: str = "capture"
-    content_type: str = "image/png"
-
-    def __post_init__(self) -> None:
-        safe_name = sanitize_filename(self.name)
-        if not safe_name.lower().endswith(".png"):
-            safe_name = f"{safe_name}.png"
-        object.__setattr__(self, "name", safe_name)
-        object.__setattr__(self, "label", (self.label or Path(safe_name).stem).strip())
-        if not self.label:
-            object.__setattr__(self, "label", Path(safe_name).stem)
-        mode = (self.capture_mode or "capture").strip().lower()
-        object.__setattr__(self, "capture_mode", mode or "capture")
-        object.__setattr__(self, "origin", (self.origin or "capture").strip() or "capture")
-        if not self.captured_at:
-            object.__setattr__(self, "captured_at", _utc_now_z())
-
-    def metadata(self, *, path: str) -> dict[str, str]:
-        record = {
-            "name": self.name,
-            "path": path,
-            "label": self.label,
-            "captured_at": self.captured_at,
-            "capture_mode": self.capture_mode,
-            "origin": self.origin,
-        }
-        if self.content_type:
-            record["content_type"] = self.content_type
-        return record
 
 
 class ScreenshotService:
@@ -7117,40 +5510,6 @@ MILESTONE_DEFINITIONS = [
 MILESTONE_ID_ORDER = [entry["id"] for entry in MILESTONE_DEFINITIONS]
 
 
-@dataclass
-class MilestoneProgressState:
-    completed_at: str | None = None
-    alerted_at: str | None = None
-    completion_actions_done: bool = False
-    overdue_actions_done: bool = False
-
-
-def _default_milestone_progress() -> dict[str, MilestoneProgressState]:
-    return {milestone_id: MilestoneProgressState() for milestone_id in MILESTONE_ID_ORDER}
-
-
-@dataclass
-class CaseMilestoneState:
-    created_at: str = field(default_factory=_utc_now_z)
-    statuses: dict[str, MilestoneProgressState] = field(
-        default_factory=_default_milestone_progress
-    )
-
-
-@dataclass
-class CaseSession:
-    """Container for per-case session state."""
-
-    case: CaseData
-    scratch: str = ""
-    uploads: list = field(default_factory=list)
-    log_uploads: list = field(default_factory=list)
-    screenshots: list[ScreenshotAsset] = field(default_factory=list)
-    source_path: str = ""
-    attachments_index: dict[str, list[dict[str, str]]] = field(
-        default_factory=_default_attachments_index
-    )
-    milestones: CaseMilestoneState = field(default_factory=CaseMilestoneState)
 
 
 MILESTONE_DEFINITION_LOOKUP = {
@@ -7628,9 +5987,6 @@ def _disabled_tab_note() -> str:
     )
 
 
-CURRENT_CASE_IDX = 0
-HIDDEN_CASE_INDEX = 0
-HOTKEY_TARGET_SESSION_KEY = "hotkey_target_idx"
 
 
 def _resolve_hotkey_target_index(
@@ -8357,7 +6713,6 @@ for key, value in asdict(D).items():
 _init_state("survey_link", D.survey_link)
 
 # Button to clear all case data and reset form
-AUTOSAVE_THROTTLE_SECONDS = 0.75
 _last_autosave_hash: str | None = None
 _last_autosave_timestamp: float = 0.0
 _pending_autosave: tuple[str, str, dict] | None = None
@@ -9296,37 +7651,6 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
         st.error(f"Failed to untrack case: {exc}")
 
 
-def format_tracking_date(value) -> str:
-    if not value:
-        return ""
-    try:
-        return datetime.fromisoformat(str(value)).strftime("%Y-%m-%d")
-    except Exception:
-        return str(value)
-
-
-def parse_iso_datetime(value) -> datetime | None:
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value
-    text = str(value)
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-        if parsed.tzinfo is not None:
-            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-        return parsed
-    except Exception:
-        return None
-
-
-def format_last_modified(value) -> str:
-    parsed = parse_iso_datetime(value)
-    if not parsed:
-        return ""
-    return parsed.strftime("%Y-%m-%d %H:%M")
 
 
 def list_saved_cases() -> list:
@@ -12320,27 +10644,6 @@ def recent_tracked_files(cases: list | None = None) -> list[Path]:
     return files[:20]
 
 
-def _summarize_text(text: str, width: int = 200) -> str:
-    if not text:
-        return ""
-    cleaned = " ".join(text.split())
-    try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
-    except Exception:
-        return cleaned[:width]
-
-
-def _extract_keywords(*texts: str) -> list[str]:
-    keywords: list[str] = []
-    for text in texts:
-        if not text:
-            continue
-        tokens = WORD_PATTERN.findall(text.lower())
-        for token in tokens:
-            if len(token) <= 3 or token in STOPWORDS or token.isdigit():
-                continue
-            keywords.append(token)
-    return sorted(set(keywords))
 
 
 def _saved_case_files_signature() -> tuple[tuple[str, float], ...]:
@@ -12369,12 +10672,6 @@ def iter_saved_case_records() -> Iterable[tuple[Path, Mapping[str, object]]]:
             logging.debug("Ignoring non-mapping payload for %s", path)
             continue
         yield path, payload
-
-
-def _normalize_agent_name(value: object) -> str:
-    if isinstance(value, str):
-        return value.strip()
-    return ""
 
 
 def _agent_identity_snapshot() -> dict[str, str]:
@@ -12411,166 +10708,6 @@ def _agent_identity_snapshot() -> dict[str, str]:
     }
 
 
-def _create_ai_learning_dataset_from_cases(
-    case_entries: Iterable[Mapping[str, object]],
-    *,
-    signature: Iterable[tuple[str, float]] | None = None,
-    merged_sources: Iterable[str] | None = None,
-    generated_at: str | None = None,
-    agent_identity: Mapping[str, str] | None = None,
-) -> dict[str, object] | None:
-    cases: list[dict[str, object]] = []
-    keyword_counter: Counter[str] = Counter()
-    root_cause_counter: Counter[str] = Counter()
-    solution_counter: Counter[str] = Counter()
-    version_counter: Counter[str] = Counter()
-    keyword_index: defaultdict[str, list[str]] = defaultdict(list)
-    root_cause_cases: defaultdict[str, list[str]] = defaultdict(list)
-    solution_cases: defaultdict[str, list[str]] = defaultdict(list)
-    root_cause_labels: dict[str, str] = {}
-    solution_labels: dict[str, str] = {}
-
-    for entry in case_entries:
-        if not isinstance(entry, Mapping):
-            continue
-        case_id = str(entry.get("case_id") or "").strip()
-        if not case_id:
-            continue
-        title = str(entry.get("title") or "").strip()
-        root_cause = str(entry.get("root_cause") or "").strip()
-        solution = str(entry.get("solution") or "").strip()
-        application_version = str(entry.get("application_version") or "").strip()
-        keywords = entry.get("keywords") or []
-        if not isinstance(keywords, list):
-            keywords = list(keywords)
-        keywords = [str(keyword) for keyword in keywords if keyword]
-
-        for keyword in keywords:
-            keyword_counter[keyword] += 1
-            if case_id not in keyword_index[keyword]:
-                keyword_index[keyword].append(case_id)
-
-        if root_cause:
-            norm_root = root_cause.lower()
-            root_cause_counter[norm_root] += 1
-            root_cause_labels.setdefault(norm_root, root_cause)
-            if case_id not in root_cause_cases[norm_root]:
-                root_cause_cases[norm_root].append(case_id)
-
-        if solution:
-            norm_solution = solution.lower()
-            solution_counter[norm_solution] += 1
-            solution_labels.setdefault(norm_solution, solution)
-            if case_id not in solution_cases[norm_solution]:
-                solution_cases[norm_solution].append(case_id)
-
-        if application_version:
-            version_counter[application_version] += 1
-
-        timestamp_raw = entry.get("timestamp")
-        try:
-            timestamp = float(timestamp_raw)
-        except (TypeError, ValueError):
-            timestamp = 0.0
-
-        saved_at = entry.get("saved_at")
-        if not saved_at and timestamp:
-            saved_at = datetime.fromtimestamp(timestamp).isoformat()
-
-        case_entry = {
-            "case_id": case_id,
-            "title": title or _summarize_text(entry.get("description", ""), width=120),
-            "application_version": application_version,
-            "root_cause": root_cause,
-            "solution": solution,
-            "solution_excerpt": entry.get("solution_excerpt")
-            or _summarize_text(solution, width=260),
-            "description_excerpt": entry.get("description_excerpt")
-            or _summarize_text(entry.get("description", ""), width=260),
-            "keywords": keywords,
-            "timestamp": timestamp,
-            "saved_at": saved_at,
-            "source_path": entry.get("source_path"),
-        }
-        if agent_identity:
-            agent_identifier = _normalize_agent_name(agent_identity.get("identifier"))
-            if agent_identifier:
-                case_entry["agent_id"] = agent_identifier
-            display_name = _normalize_agent_name(agent_identity.get("display_name"))
-            if display_name:
-                case_entry["agent_name"] = display_name
-        cases.append(case_entry)
-
-    if not cases:
-        return None
-
-    cases.sort(key=lambda item: item.get("timestamp", 0), reverse=True)
-
-    keyword_insights = [
-        {
-            "keyword": keyword,
-            "count": count,
-            "related_cases": keyword_index[keyword][:5],
-        }
-        for keyword, count in keyword_counter.most_common(20)
-    ]
-
-    root_cause_patterns = [
-        {
-            "root_cause": root_cause_labels[key],
-            "count": root_cause_counter[key],
-            "related_cases": root_cause_cases[key][:5],
-        }
-        for key in sorted(root_cause_counter, key=root_cause_counter.get, reverse=True)
-    ]
-
-    repeated_solutions = [
-        {
-            "solution": solution_labels[key],
-            "count": solution_counter[key],
-            "related_cases": solution_cases[key][:5],
-        }
-        for key in sorted(solution_counter, key=solution_counter.get, reverse=True)
-        if solution_counter[key] > 1
-    ]
-
-    dataset: dict[str, object] = {
-        "generated_at": generated_at or _utc_now_z(),
-        "case_count": len(cases),
-        "cases": cases,
-        "keyword_insights": keyword_insights,
-        "root_cause_patterns": root_cause_patterns,
-        "repeated_solutions": repeated_solutions,
-        "version_distribution": version_counter.most_common(),
-        "insight_summary": {
-            "top_keywords": [kw for kw, _ in keyword_counter.most_common(10)],
-            "dominant_versions": version_counter.most_common(5),
-        },
-    }
-
-    if signature is not None:
-        dataset["source_signature"] = [list(item) for item in signature]
-
-    merged_labels: set[str] = set()
-    if merged_sources:
-        merged_labels.update(str(label) for label in merged_sources if label)
-    if merged_labels:
-        dataset["merged_sources"] = sorted(merged_labels)
-
-    if agent_identity:
-        identity_payload = {
-            "first_name": _normalize_agent_name(agent_identity.get("first_name")),
-            "last_name": _normalize_agent_name(agent_identity.get("last_name")),
-            "display_name": _normalize_agent_name(agent_identity.get("display_name")),
-            "identifier": _normalize_agent_name(agent_identity.get("identifier")),
-        }
-        dataset["agent_identity"] = identity_payload
-        if identity_payload.get("display_name") and not dataset.get("shared_by"):
-            dataset["shared_by"] = identity_payload["display_name"]
-
-    return dataset
-
-
 def load_ai_learning_dataset() -> dict[str, object] | None:
     if not AI_LEARNING_FILE.exists():
         return None
@@ -12584,101 +10721,6 @@ def load_ai_learning_dataset() -> dict[str, object] | None:
         logging.error("AI learning dataset is not a JSON object")
         return None
     return dict(payload)
-
-
-def merge_ai_learning_datasets(
-    base_dataset: Mapping[str, object] | None,
-    imported_dataset: Mapping[str, object],
-    *,
-    collaborator: str | None = None,
-    local_signature: Iterable[tuple[str, float]] | None = None,
-) -> dict[str, object] | None:
-    if not isinstance(imported_dataset, Mapping):
-        logging.error("Imported dataset is not a JSON object")
-        return None
-
-    base_cases = []
-    if base_dataset and isinstance(base_dataset.get("cases"), list):
-        base_cases = [dict(entry) for entry in base_dataset["cases"] if isinstance(entry, Mapping)]
-
-    imported_cases_raw = imported_dataset.get("cases")
-    if not isinstance(imported_cases_raw, list):
-        logging.error("Imported dataset does not contain a cases list")
-        return None
-    imported_cases = [dict(entry) for entry in imported_cases_raw if isinstance(entry, Mapping)]
-
-    combined: dict[tuple[str, str], dict[str, object]] = {}
-
-    def _case_key(entry: Mapping[str, object]) -> tuple[str, str]:
-        source = str(entry.get("source_path") or "").strip().lower()
-        case_id = str(entry.get("case_id") or "").strip().lower()
-        return source, case_id
-
-    for entry in base_cases + imported_cases:
-        key = _case_key(entry)
-        if key in combined:
-            existing = combined[key]
-            try:
-                existing_ts = float(existing.get("timestamp") or 0)
-            except (TypeError, ValueError):
-                existing_ts = 0.0
-            try:
-                new_ts = float(entry.get("timestamp") or 0)
-            except (TypeError, ValueError):
-                new_ts = 0.0
-            if new_ts > existing_ts:
-                combined[key] = dict(entry)
-        else:
-            combined[key] = dict(entry)
-
-    if not combined:
-        return None
-
-    merged_sources: set[str] = set()
-    if base_dataset:
-        base_sources = base_dataset.get("merged_sources")
-        if isinstance(base_sources, list):
-            merged_sources.update(str(label) for label in base_sources if label)
-        merged_sources.add("local")
-
-    imported_sources = imported_dataset.get("merged_sources")
-    if isinstance(imported_sources, list):
-        merged_sources.update(str(label) for label in imported_sources if label)
-
-    collaborator_label = collaborator or str(imported_dataset.get("shared_by") or "external").strip()
-    if collaborator_label:
-        merged_sources.add(collaborator_label)
-
-    signature: Iterable[tuple[str, float]] | None = None
-    if local_signature is not None:
-        signature = local_signature
-    elif base_dataset:
-        base_signature = base_dataset.get("source_signature")
-        if isinstance(base_signature, list):
-            try:
-                signature = tuple(tuple(item) for item in base_signature)
-            except TypeError:
-                signature = None
-        elif isinstance(base_signature, tuple):
-            signature = base_signature
-
-    base_identity = None
-    if base_dataset:
-        candidate_identity = base_dataset.get("agent_identity")
-        if isinstance(candidate_identity, Mapping):
-            base_identity = dict(candidate_identity)
-    if base_identity is None:
-        candidate_identity = imported_dataset.get("agent_identity")
-        if isinstance(candidate_identity, Mapping):
-            base_identity = dict(candidate_identity)
-
-    dataset = _create_ai_learning_dataset_from_cases(
-        combined.values(),
-        signature=signature,
-        merged_sources=merged_sources,
-        agent_identity=base_identity,
-    )
-    return dataset
 
 
 def build_ai_learning_dataset(
@@ -14336,21 +12378,6 @@ def touch_case_last_modified(*, timestamp: str | None = None) -> str:
     return timestamp
 
 
-def _normalize_text_value(value: object) -> str:
-    """Return a safe string representation for widget-bound text fields."""
-
-    if isinstance(value, str):
-        return value
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        try:
-            return value.decode("utf-8")
-        except UnicodeDecodeError:
-            return value.decode("utf-8", "ignore")
-    if isinstance(value, float) and math.isnan(value):  # type: ignore[arg-type]
-        return ""
-    return str(value)
 
 
 def _seed_text_widget_state(
@@ -15189,6 +13216,11 @@ def dell_escalation_dataframe(d: CaseData) -> pd.DataFrame:
     return _normalize_value_column(pd.DataFrame(dell_escalation_rows(d)))
 
 
+def build_dell_escalation_email(d: CaseData) -> str:
+    """Generate the email body for a Dell escalation."""
+    return dell_escalation_plain_text(d)
+
+
 def dell_escalation_plain_text(d: CaseData) -> str:
     lines = ["Dell Escalation"]
     for field, label in DELL_ESCALATION_FIELD_LABELS:
@@ -15878,8 +13910,6 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
         st.code(hotkey_script, language="autohotkey")
 
 
-_CAPTURE_FOOTER_REGISTRY_PREFIX = "capture_footer_tab_registry"
-_CAPTURE_FOOTER_RENDERED_PREFIX = f"{_CAPTURE_FOOTER_REGISTRY_PREFIX}_rendered"
 
 
 def _reset_capture_footer_registry(*, case_idx: int | None = None) -> None:
@@ -16216,22 +14246,6 @@ def render_case_attachments_panel(
                 st.info(f"Saved a copy to {saved_path}")
 
 
-CASE_TAB_SLUGS = {
-    # Keep this mapping in sync with the tab layout inside ``render_case_ui``.
-    # Each human-friendly tab label resolves to a slug used for widget keys.
-    "Case": "case",
-    "Tracking": "tracking",
-    "Escalations": "escalations",
-    "Email": "email",
-    "Hardware Issues": "hardware",
-    "Remote Session": "remote",
-    "Tables": "tables",
-    "Corrected JSON": "corrected_json",
-    "Save/Load": "save_load",
-    "Kiroshi Chat": "kiroshi_chat",
-    "I'm bored": "bored",
-    "Debug": "debug",
-}
 
 def _case_chat_state_key(case_idx: int) -> str:
     """Return a stable session key for storing chat history per case."""
