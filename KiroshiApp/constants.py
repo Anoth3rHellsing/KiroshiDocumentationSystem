@@ -41,7 +41,22 @@ ERROR_DIALOG_MESSAGES = [
 ]
 
 PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
+PRIORITY_RANK = {option: i for i, option in enumerate(PRIORITY_OPTIONS)}
+PRIORITY_BADGES = {
+    "Low": "🟢",
+    "Normal": "🔵",
+    "High": "🟠",
+    "On Time": "⏰",
+    "Escalation": "🔴",
+}
+TRACKING_STATUS_OPTIONS = ["Open", "In Progress", "Pending", "Resolved", "Closed"]
+DELL_STATUS_OPTIONS = ["Open", "Pending Dell", "Part Dispatched", "Technician Scheduled", "Resolved"]
+FEDEX_STATUS_OPTIONS = ["Created", "In Transit", "Out for Delivery", "Delivered", "Exception"]
+ALTAIR_CHART_KWARGS = {"use_container_width": True}
 DEFAULT_TRACKING_PRIORITY = "Normal"
+SYSTEM_PROMPT = """You are Kiroshi, an AI assistant for IT support documentation.
+Your goal is to help agents document cases clearly, accurately, and efficiently.
+Be concise, professional, and helpful. Use a tone that is slightly witty but always respectful."""
 
 CASE_DEX_URL_TEMPLATE = os.environ.get(
     "CASE_DEX_URL_TEMPLATE",

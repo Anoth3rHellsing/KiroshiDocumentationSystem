@@ -5,14 +5,9 @@ import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from case_documentation_app import (
-    CaseData,
-    RemoteSessionEntry,
-    TrackingData,
-    build_helpjuice_outline,
-    generate_ai_educate_report_pdf,
-    run_bug_detector,
-)
+from KiroshiApp.models import CaseData, RemoteSessionEntry, TrackingData
+from KiroshiApp.services.data_manager import run_bug_detector, build_helpjuice_outline
+from KiroshiApp.services.pdf_generator import generate_ai_educate_report_pdf
 
 
 def test_run_bug_detector_handles_repeated_labels_and_bug_mentions():
@@ -187,10 +182,10 @@ def test_generate_ai_educate_report_pdf_renders_tables_and_bug_summary(monkeypat
         def build(self, story):
             self.buffer.write(b"%PDF-Stub")
 
-    monkeypatch.setattr("case_documentation_app.Paragraph", DummyParagraph)
-    monkeypatch.setattr("case_documentation_app.Table", DummyTable)
-    monkeypatch.setattr("case_documentation_app.Spacer", DummySpacer)
-    monkeypatch.setattr("case_documentation_app.SimpleDocTemplate", DummyDoc)
+    monkeypatch.setattr("KiroshiApp.services.pdf_generator.Paragraph", DummyParagraph)
+    monkeypatch.setattr("KiroshiApp.services.pdf_generator.Table", DummyTable)
+    monkeypatch.setattr("KiroshiApp.services.pdf_generator.Spacer", DummySpacer)
+    monkeypatch.setattr("KiroshiApp.services.pdf_generator.SimpleDocTemplate", DummyDoc)
 
     pdf_bytes = generate_ai_educate_report_pdf(insights, bug_report)
 

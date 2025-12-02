@@ -96,7 +96,7 @@ def test_iter_remote_app_paths_prefers_env_over_discovered(monkeypatch):
         yield "discovered/path"
 
     monkeypatch.setattr(
-        "case_documentation_app._discover_remote_app_paths", fake_discover
+        "KiroshiApp.services.update_manager._discover_remote_app_paths", fake_discover
     )
 
     paths = list(_iter_remote_app_paths("example/repo", "main"))

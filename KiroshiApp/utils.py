@@ -1,15 +1,63 @@
 import re
 import math
 import datetime
-from datetime import datetime, date, timezone, time as datetime_time
+from datetime import datetime, date, timezone, time as datetime_time, timedelta
 from pathlib import Path
 import random
 import calendar
 import logging
 import streamlit as st
 import altair as alt
+import pandas as pd
 from typing import Iterable, Mapping, Sequence
 from collections import Counter, defaultdict
+
+# Helper to avoid circular import for coercing legacy mappings which might be called from data_manager
+def _coerce_case_mapping(data: object) -> dict | None:
+    """Return a dictionary representation from historical payloads."""
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        dict_items = [item for item in data if isinstance(item, dict)]
+        if dict_items:
+            from KiroshiApp.utils import _mapping_freshness_score, _select_latest_mapping
+            return _select_latest_mapping(dict_items)
+    return None
+
+def _mapping_freshness_score(item: Mapping[str, object], position: int) -> float:
+    """Score mapping recency based on last_modified and original position."""
+    ts = None
+    try:
+        raw = item.get("last_modified")
+        if isinstance(raw, str):
+            ts = datetime.fromisoformat(raw).timestamp()
+    except Exception:
+        ts = None
+    # Prefer valid timestamps; otherwise, prefer later positions in the list.
+    if ts is None:
+        return float(position)
+    return ts
+
+
+def _select_latest_mapping(items: list[Mapping[str, object]]) -> Mapping[str, object]:
+    """Return the most recent mapping based on timestamp/position."""
+    if len(items) == 1:
+        return items[0]
+    best_item = items[0]
+    best_score = _mapping_freshness_score(best_item, 0)
+    for idx, item in enumerate(items[1:], start=1):
+        score = _mapping_freshness_score(item, idx)
+        if score >= best_score:
+            best_item, best_score = item, score
+    return best_item
+
+def normalize_priority(value) -> str:
+    from KiroshiApp.constants import DEFAULT_TRACKING_PRIORITY, PRIORITY_OPTIONS
+    if not value:
+        return DEFAULT_TRACKING_PRIORITY
+    if value not in PRIORITY_OPTIONS:
+        return DEFAULT_TRACKING_PRIORITY
+    return value
 
 try:
     from KiroshiApp.constants import (
@@ -46,6 +94,23 @@ def _format_utc_timestamp(value: datetime) -> str:
 def _utc_now_z() -> str:
     """Return the current UTC time in ISO-8601 format with a ``Z`` suffix."""
     return _format_utc_timestamp(datetime.now(timezone.utc))
+
+def _parse_utc_timestamp(value: object | None) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    return None
 
 def _normalize_hardware_test_text(value: object) -> str:
     """Return a text representation for stored hardware test values."""
@@ -87,6 +152,135 @@ def _normalize_text_field(value: object) -> str:
     if not isinstance(value, str):
         return ""
     return re.sub(r"\s+", " ", value).strip().lower()
+
+def _format_display_value(value: object) -> str:
+    """Format a value for UI display."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
+
+def _format_multiline(text: str) -> str:
+    """Format multiline text for display, preserving line breaks."""
+    if not text:
+        return ""
+    return text.strip()
+
+def _format_timedelta_compact(delta: timedelta) -> str:
+    """Return a compact string for a timedelta, e.g. '2h 15m'."""
+    if not isinstance(delta, timedelta):
+        return ""
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 0:
+        return "-"
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+def _calculate_next_wellness_event(settings: Mapping[str, object], now: datetime) -> tuple[str, datetime_time, int] | None:
+    """Determine the next wellness break based on the schedule."""
+    now_dt = now
+    if not settings.get("enabled"):
+        return None
+    schedule = settings.get("schedule")
+    if not isinstance(schedule, Mapping):
+        return None
+
+    candidates = []
+    current_time = now_dt.time()
+
+    for key, time_str in schedule.items():
+        if not isinstance(time_str, str):
+            continue
+        try:
+            event_time = _time_str_to_time(time_str, fallback=datetime_time(0, 0))
+            if event_time > current_time:
+                candidates.append((key, event_time))
+        except ValueError:
+            continue
+
+    if not candidates:
+        return None
+
+    next_key, next_time = min(candidates, key=lambda x: x[1])
+
+    # Calculate minutes remaining
+    # We combine today with event_time to get a datetime, then diff
+    today_event = datetime.combine(now_dt.date(), next_time).replace(tzinfo=now_dt.tzinfo)
+    diff = today_event - now_dt
+    minutes_remaining = int(diff.total_seconds() / 60)
+
+    return next_key, next_time, minutes_remaining
+
+def _calculate_lunch_midpoint(settings: Mapping[str, object]) -> datetime_time | None:
+    """Calculate the midpoint of the scheduled lunch break."""
+    schedule = settings.get("schedule", {})
+    if not isinstance(schedule, Mapping):
+        return None
+
+    lunch_start_str = schedule.get("lunch")
+    if not lunch_start_str:
+        return None
+
+    start_time = _time_str_to_time(str(lunch_start_str), fallback=datetime_time(12, 30))
+    # Assuming lunch is 60 mins as per defaults
+    mid_minutes = start_time.minute + 30
+    extra_hour, final_minute = divmod(mid_minutes, 60)
+    final_hour = (start_time.hour + extra_hour) % 24
+
+    return datetime_time(final_hour, final_minute)
+
+def _cluster_case_titles(titles: list[str]) -> tuple[list[int], dict[int, str]]:
+    """Group similar case titles into clusters."""
+    # Simplified clustering: group by exact normalized string
+    clusters = []
+    cluster_map = {}
+    seen = {}
+    next_id = 0
+
+    for title in titles:
+        norm = _normalize_text_field(title)
+        if not norm:
+            clusters.append(-1)
+            continue
+
+        if norm in seen:
+            clusters.append(seen[norm])
+        else:
+            seen[norm] = next_id
+            cluster_map[next_id] = title # Use first occurrence as label
+            clusters.append(next_id)
+            next_id += 1
+
+    return clusters, cluster_map
+
+def _text_contains_bug(
+    root_cause: object,
+    solution: object,
+    description: object = None,
+    title: object = None,
+) -> bool:
+    """Detect if text fields imply a software bug."""
+    keywords = {"bug", "defect", "patch", "hotfix", "jira", "known issue"}
+    combined = " ".join(
+        _normalize_text_field(v)
+        for v in (root_cause, solution, description, title)
+        if v
+    )
+    return any(kw in combined for kw in keywords)
+
+def _derive_analysis_label(row: pd.Series, context: dict) -> str:
+    """Derive a high-level label for a case row."""
+    # Check root cause map
+    root_norm = str(row.get("root_cause_norm") or "")
+    if root_norm and root_norm in context.get("root_cause_labels", {}):
+        return context["root_cause_labels"][root_norm]
+
+    # Fallback to title cluster
+    return str(row.get("title_cluster_label") or "Unclassified")
 
 def _coerce_int(value: object, default: int = 0) -> int:
     try:
@@ -229,6 +423,28 @@ def _time_str_to_time(value: str, *, fallback: datetime_time) -> datetime_time:
 
 def _time_to_string(value: datetime_time) -> str:
     return f"{value.hour:02d}:{value.minute:02d}"
+
+def _normalize_wellness_settings(raw: object) -> dict[str, object]:
+    from KiroshiApp.constants import DEFAULT_WELLNESS_SETTINGS
+    base: dict[str, object] = {
+        "enabled": False,
+        "notification_lead": DEFAULT_WELLNESS_SETTINGS["notification_lead"],
+        "schedule": dict(DEFAULT_WELLNESS_SETTINGS["schedule"]),
+    }
+    if isinstance(raw, Mapping):
+        enabled = raw.get("enabled")
+        if isinstance(enabled, bool):
+            base["enabled"] = enabled
+        lead = raw.get("notification_lead")
+        if isinstance(lead, (int, float)):
+            base["notification_lead"] = max(0, int(lead))
+        schedule_raw = raw.get("schedule")
+        if isinstance(schedule_raw, Mapping):
+            for key in base["schedule"].keys():
+                value = schedule_raw.get(key)
+                if isinstance(value, str) and ":" in value:
+                    base["schedule"][key] = value
+    return base
 
 def _normalize_text_value(value: object) -> str:
     """Return a safe string representation for widget-bound text fields."""
