@@ -138,7 +138,7 @@ from kiroshi_cloud_sync import (
 from kiroshi_hotkeys import ensure_hotkey_listener, update_hotkey_snapshot
 from KiroshiApp.constants import (
     VERSION, TODAY_STR, AUTOSAVE_FILE, AUTOSAVE_DIR,
-    DEFAULT_OPENAI_API_KEY, DEFAULT_AI_BASE_URL, DEFAULT_AI_MODE,
+    DEFAULT_OPENAI_API_KEY, DEFAULT_GEMINI_API_KEY, DEFAULT_AI_BASE_URL, DEFAULT_AI_MODE,
     LOG_FILE, ERROR_DIALOG_MESSAGES, PRIORITY_OPTIONS,
     DEFAULT_TRACKING_PRIORITY, CASE_DEX_URL_TEMPLATE,
     PROGRAM_DATA_DIR, DATABASE_DIR, PROGRAM_DATA_SENTINEL,
@@ -1771,6 +1771,7 @@ def invoke_gpt(
     base_url: str,
     *,
     source: str,
+    provider: str = "OpenAI",
 ) -> str:
     """Wrapper around :func:`query_kiroshi` that logs request lifecycle details."""
 
@@ -1781,10 +1782,11 @@ def invoke_gpt(
     sanitized_base_url = base_url or "<default>"
     has_api_key = bool(api_key)
     logging.info(
-        "GPT request %s started [source=%s] model=%s base_url=%s api_key=%s "
+        "GPT request %s started [source=%s] provider=%s model=%s base_url=%s api_key=%s "
         "prompt_chars=%d history_messages=%d prompt_preview=\"%s\"",
         request_id,
         source,
+        provider,
         model or "<default>",
         sanitized_base_url,
         "provided" if has_api_key else "missing",
@@ -1794,7 +1796,7 @@ def invoke_gpt(
     )
     start = time.perf_counter()
     try:
-        reply = query_kiroshi(prompt, history, api_key, model, base_url)
+        reply = query_kiroshi(prompt, history, api_key, model, base_url, provider=provider)
     except Exception as exc:
         duration = time.perf_counter() - start
         logging.exception(
@@ -4559,8 +4561,11 @@ _init_state(
     "autosave_to_database", _get_persistent_default("autosave_to_database", False)
 )
 _init_state("_autosave_loaded", False)
+_init_state("ai_provider", _get_persistent_default("ai_provider", "OpenAI"))
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
 _init_state("openai_model", "gpt-4o")
+_init_state("gemini_api_key", _get_persistent_default("gemini_api_key", DEFAULT_GEMINI_API_KEY))
+_init_state("gemini_model", "gemini-1.5-flash")
 _init_state("ai_base_url", DEFAULT_AI_BASE_URL)
 _init_state("ai_mode", DEFAULT_AI_MODE)
 _init_state(
@@ -8802,6 +8807,18 @@ def _render_settings_ai_tab() -> None:
             )
 
         st.markdown("##### Compartir y fusionar conocimiento")
+        st.markdown("##### AI Provider Settings")
+        provider_options = ["OpenAI", "Gemini"]
+        current_provider = st.session_state.get("ai_provider", "OpenAI")
+        st.radio(
+            "Select AI Provider",
+            provider_options,
+            index=provider_options.index(current_provider) if current_provider in provider_options else 0,
+            key="ai_provider",
+            horizontal=True,
+            on_change=_on_setting_change("ai_provider"),
+        )
+
         download_payload: bytes | None = None
         if ai_dataset:
             try:
@@ -10209,14 +10226,20 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
                 display_content=display_prompt,
                 mode=mode,
             )
+
+            provider = st.session_state.get("ai_provider", "OpenAI")
+            current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+            current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
+
             try:
                 reply_text = invoke_gpt(
                     prompt_payload,
                     history_for_model,
-                    api_key,
-                    model,
+                    current_api_key,
+                    current_model,
                     base_url,
                     source=source,
+                    provider=provider,
                 )
             except Exception as exc:
                 logging.error("Case chat request failed: %s", exc)
@@ -10330,9 +10353,11 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
     case_context_message = _build_case_context_prompt(case_idx)
 
     def _chat_ready_global() -> bool:
-        if not api_key and base_url.startswith("https://api.openai.com"):
-            st.error("Set your OpenAI API key in the Debug tab to chat with Kiroshi.")
-            return False
+        provider = st.session_state.get("ai_provider", "OpenAI")
+        if provider == "OpenAI":
+            if not api_key and base_url.startswith("https://api.openai.com"):
+                st.error("Set your OpenAI API key in the Debug tab to chat with Kiroshi.")
+                return False
         return True
 
     def _execute_prompt(prompt_payload: str, display_prompt: str, *, source: str, mode: str | None = None) -> None:
@@ -10346,14 +10371,20 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             display_content=display_prompt,
             mode=mode,
         )
+
+        provider = st.session_state.get("ai_provider", "OpenAI")
+        current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+        current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
+
         try:
             reply_text = invoke_gpt(
                 prompt_payload,
                 history_for_model,
-                api_key,
-                model,
+                current_api_key,
+                current_model,
                 base_url,
                 source=source,
+                provider=provider,
             )
         except Exception as exc:
             logging.error("Case chat request failed: %s", exc)
@@ -10520,24 +10551,34 @@ def render_smart_aid_panel() -> None:
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
-        st.selectbox("AI Mode", ["Cloud", "Local API", "Local Model"], key="ai_mode")
-        if st.session_state.ai_mode == "Cloud":
-            st.text_input("OpenAI API Key", type="password", key="openai_api_key")
-            st.text_input("AI Base URL", key="ai_base_url")
-        elif st.session_state.ai_mode == "Local API":
-            st.text_input(
-                "AI Base URL",
-                key="ai_base_url",
-                value=st.session_state.ai_base_url,
-            )
-            st.text_input(
-                "API Key (optional)", type="password", key="openai_api_key"
-            )
-        else:
-            st.session_state.ai_base_url = ""
-            st.session_state.openai_api_key = ""
-            st.info("Using local transformers model; no API key or Base URL required.")
-        st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+
+        current_provider = st.session_state.get("ai_provider", "OpenAI")
+        st.info(f"Current Provider: **{current_provider}** (Change in Settings > AI & Knowledge)")
+
+        if current_provider == "OpenAI":
+            st.selectbox("AI Mode", ["Cloud", "Local API", "Local Model"], key="ai_mode")
+            if st.session_state.ai_mode == "Cloud":
+                st.text_input("OpenAI API Key", type="password", key="openai_api_key")
+                st.text_input("AI Base URL", key="ai_base_url")
+            elif st.session_state.ai_mode == "Local API":
+                st.text_input(
+                    "AI Base URL",
+                    key="ai_base_url",
+                    value=st.session_state.ai_base_url,
+                )
+                st.text_input(
+                    "API Key (optional)", type="password", key="openai_api_key"
+                )
+            else:
+                st.session_state.ai_base_url = ""
+                st.session_state.openai_api_key = ""
+                st.info("Using local transformers model; no API key or Base URL required.")
+            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+
+        elif current_provider == "Gemini":
+            st.text_input("Gemini API Key", type="password", key="gemini_api_key", help="Leave default for hardcoded test key.")
+            st.selectbox("Model", ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"], key="gemini_model")
+
         st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
         st.text_area("Allowed categories block", key="taxonomy_block", height=150)
         st.text_area("Signals config JSON", key="signals_config", height=150)
@@ -14531,7 +14572,8 @@ def render_case_ui(case_idx: int):
                 width="stretch",
             ):
                 logging.info("AI Assistance button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
+                provider = st.session_state.get("ai_provider", "OpenAI")
+                if provider == "OpenAI" and not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
                     case_dict = _build_case_ai_dict(D)
@@ -14598,13 +14640,17 @@ def render_case_ui(case_idx: int):
                         + json.dumps(missing, ensure_ascii=False)
                     )
                     try:
+                        provider = st.session_state.get("ai_provider", "OpenAI")
+                        current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+                        current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
                         reply = invoke_gpt(
                             user_message,
                             st.session_state.kiroshi_chat_history,
-                            api_key,
-                            model,
+                            current_api_key,
+                            current_model,
                             base_url,
                             source="ai_assist",
+                            provider=provider,
                         )
                     except Exception as e:
                         logging.error("AI Assist request failed: %s", e)
@@ -14626,7 +14672,8 @@ def render_case_ui(case_idx: int):
                 help=autocorrect_help,
             ):
                 logging.info("AI Autocorrection button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
+                provider = st.session_state.get("ai_provider", "OpenAI")
+                if provider == "OpenAI" and not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
                     case_dict = _build_case_ai_dict(D)
@@ -14650,13 +14697,17 @@ def render_case_ui(case_idx: int):
                         f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
                     try:
+                        provider = st.session_state.get("ai_provider", "OpenAI")
+                        current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+                        current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
                         reply = invoke_gpt(
                             user_message,
                             st.session_state.kiroshi_chat_history,
-                            api_key,
-                            model,
+                            current_api_key,
+                            current_model,
                             base_url,
                             source="ai_autocorrect",
+                            provider=provider,
                         )
                     except Exception as e:
                         logging.error("AI Autocorrection request failed: %s", e)
@@ -14694,7 +14745,8 @@ def render_case_ui(case_idx: int):
                     )
             if st.button("Categorize", key=case_tab_key("categorize_button"), width="stretch"):
                 logging.info("Categorize button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
+                provider = st.session_state.get("ai_provider", "OpenAI")
+                if provider == "OpenAI" and not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
                     taxonomy_block = st.session_state.taxonomy_block
@@ -14739,13 +14791,17 @@ def render_case_ui(case_idx: int):
                             f"{json.dumps(case_input, indent=2, ensure_ascii=False)}"
                         )
                         try:
+                            provider = st.session_state.get("ai_provider", "OpenAI")
+                            current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+                            current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
                             reply = invoke_gpt(
                                 user_message,
                                 st.session_state.kiroshi_chat_history,
-                                api_key,
-                                model,
+                                current_api_key,
+                                current_model,
                                 base_url,
                                 source="categorize",
+                                provider=provider,
                             )
                         except Exception as e:
                             logging.error("Categorize request failed: %s", e)
@@ -14758,7 +14814,8 @@ def render_case_ui(case_idx: int):
                             st.session_state.categorizer_summary = parse_categorizer_summary(reply)
             if st.button("Ask", key=case_tab_key("ask_button"), width="stretch"):
                 logging.info("Ask button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
+                provider = st.session_state.get("ai_provider", "OpenAI")
+                if provider == "OpenAI" and not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
                     case_dict = _build_case_ai_dict(D)
@@ -14787,13 +14844,17 @@ def render_case_ui(case_idx: int):
                         f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
                     try:
+                        provider = st.session_state.get("ai_provider", "OpenAI")
+                        current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+                        current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
                         reply = invoke_gpt(
                             user_message,
                             st.session_state.kiroshi_chat_history,
-                            api_key,
-                            model,
+                            current_api_key,
+                            current_model,
                             base_url,
                             source="ask",
+                            provider=provider,
                         )
                     except Exception as e:
                         logging.error("Ask request failed: %s", e)
@@ -14805,7 +14866,8 @@ def render_case_ui(case_idx: int):
                         st.session_state.ask_result = reply
             if st.button("QA Verify", key=case_tab_key("verify_button"), width="stretch"):
                 logging.info("QA Verify button clicked")
-                if not api_key and base_url.startswith("https://api.openai.com"):
+                provider = st.session_state.get("ai_provider", "OpenAI")
+                if provider == "OpenAI" and not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
                 else:
                     case_dict = _build_case_ai_dict(D)
@@ -14854,13 +14916,17 @@ def render_case_ui(case_idx: int):
                         f"{json.dumps(case_dict, indent=2, ensure_ascii=False)}"
                     )
                     try:
+                        provider = st.session_state.get("ai_provider", "OpenAI")
+                        current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+                        current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
                         reply = invoke_gpt(
                             user_message,
                             st.session_state.kiroshi_chat_history,
-                            api_key,
-                            model,
+                            current_api_key,
+                            current_model,
                             base_url,
                             source="verify",
+                            provider=provider,
                         )
                     except Exception as e:
                         logging.error("QA Verify request failed: %s", e)
@@ -16167,7 +16233,9 @@ End with: We look forward to your reply."""
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
                     base_url = st.session_state.ai_base_url
-                    if not api_key and base_url.startswith("https://api.openai.com"):
+                    provider = st.session_state.get("ai_provider", "OpenAI")
+
+                    if provider == "OpenAI" and not api_key and base_url.startswith("https://api.openai.com"):
                         st.error("Please set your OpenAI API key in the Debug tab.")
                     elif not prompt.strip():
                         st.error("Prompt is empty.")
@@ -16191,13 +16259,18 @@ End with: We look forward to your reply."""
                                     )
                                 if extras:
                                     augmented_prompt += "\n\n" + "\n".join(extras)
+
+                                current_api_key = st.session_state.get("gemini_api_key") if provider == "Gemini" else api_key
+                                current_model = st.session_state.get("gemini_model") if provider == "Gemini" else model
+
                                 reply = invoke_gpt(
                                     augmented_prompt,
                                     st.session_state.kiroshi_chat_history,
-                                    api_key,
-                                    model,
+                                    current_api_key,
+                                    current_model,
                                     base_url,
                                     source="gpt_oss_email",
+                                    provider=provider,
                                 )
                             except Exception as e:
                                 logging.error("GPT-OSS email generation failed: %s", e)

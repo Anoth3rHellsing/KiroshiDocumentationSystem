@@ -6,6 +6,7 @@ import requests
 import streamlit as st
 import urllib3
 from pathlib import Path
+from KiroshiApp.constants import DEFAULT_GEMINI_API_KEY
 
 # Disable SSL warnings for corporate environments with interception proxies
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -37,6 +38,10 @@ DEFAULT_AI_MODE = (
     else (
         "Cloud" if DEFAULT_AI_BASE_URL.startswith("https://api.openai.com") else "Local API"
     )
+)
+DEFAULT_GEMINI_API_KEY = os.environ.get(
+    "GEMINI_API_KEY",
+    "AIzaSyBio66tRF0bj4YGeqF5e-c46vhKSaXgMnw",
 )
 
 SYSTEM_PROMPT = """Project Kiroshi — Personality Construct V.0.0.1 “Coffee”
@@ -476,10 +481,8 @@ def search_manual_docs(query, docs):
     ]
 
 
-def query_kiroshi(user_message, history, api_key, model, base_url=None):
+def query_kiroshi(user_message, history, api_key, model, base_url=None, provider="OpenAI"):
     """Send a message to the Kiroshi API or a local model and return the reply."""
-    if base_url is None:
-        base_url = DEFAULT_AI_BASE_URL
     system_messages: list[dict[str, str]] = [
         {"role": "system", "content": build_system_prompt()}
     ]
@@ -490,6 +493,54 @@ def query_kiroshi(user_message, history, api_key, model, base_url=None):
     messages = system_messages + conversation_history + [
         {"role": "user", "content": user_message}
     ]
+
+    if provider == "Gemini":
+        if not api_key:
+            api_key = DEFAULT_GEMINI_API_KEY
+
+        # Convert messages to Gemini format
+        gemini_messages = []
+        system_instruction = ""
+
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                system_instruction += content + "\n\n"
+            elif role == "user":
+                gemini_messages.append({"role": "user", "parts": [{"text": content}]})
+            elif role == "assistant":
+                gemini_messages.append({"role": "model", "parts": [{"text": content}]})
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": gemini_messages,
+            "systemInstruction": {"parts": [{"text": system_instruction.strip()}]} if system_instruction else None,
+            "generationConfig": {
+                "temperature": 0.7,
+            }
+        }
+
+        response = requests.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=30,
+            verify=False,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            try:
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except (KeyError, IndexError):
+                raise RuntimeError(f"Unexpected Gemini response format: {response.text}")
+        raise RuntimeError(f"Gemini API Error {response.status_code}: {response.text}")
+
+    # Fallback to OpenAI / Local
+    if base_url is None:
+        base_url = DEFAULT_AI_BASE_URL
+
     # Local pipeline fallback when no base URL is provided
     if not base_url:
         try:
