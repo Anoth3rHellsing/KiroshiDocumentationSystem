@@ -7,8 +7,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import case_documentation_app as app
-
+from KiroshiApp.services import data_manager, screenshot_service
+from KiroshiApp.models import InMemoryUploadedFile, ScreenshotAsset
+from KiroshiApp.utils import sanitize_case_id
+import KiroshiApp.services.data_manager as dm_module
+import KiroshiApp.views.settings_view as settings_view_module
+import streamlit as st
 
 @pytest.fixture
 def attachments_root(monkeypatch, tmp_path):
@@ -18,10 +22,12 @@ def attachments_root(monkeypatch, tmp_path):
     def fake_ensure():
         return root, None
 
-    monkeypatch.setattr(app, "CASE_ATTACHMENTS_ROOT", root)
-    monkeypatch.setattr(app, "_ensure_case_attachments_root", fake_ensure)
+    monkeypatch.setattr(dm_module, "CASE_ATTACHMENTS_ROOT", root)
+    monkeypatch.setattr(settings_view_module, "CASE_ATTACHMENTS_ROOT", root)
+    monkeypatch.setattr(dm_module, "_ensure_case_attachments_root", fake_ensure)
+    # Mock settings cache in settings_view instead of main app
     monkeypatch.setitem(
-        app._persistent_settings_cache, "attachments_directory", str(root)
+        settings_view_module._persistent_settings_cache, "attachments_directory", str(root)
     )
     return root
 
@@ -29,7 +35,7 @@ def attachments_root(monkeypatch, tmp_path):
 @pytest.fixture
 def session_state(monkeypatch):
     state: dict[str, object] = {}
-    monkeypatch.setattr(app.st, "session_state", state, raising=False)
+    monkeypatch.setattr(st, "session_state", state, raising=False)
     return state
 
 
@@ -37,12 +43,12 @@ def test_persist_case_attachments_writes_files_and_skips_duplicates(
     attachments_root, session_state
 ):
     uploads = [
-        app.InMemoryUploadedFile("report.txt", b"primary"),
-        app.InMemoryUploadedFile("report.txt", b"duplicate"),
+        InMemoryUploadedFile("report.txt", b"primary"),
+        InMemoryUploadedFile("report.txt", b"duplicate"),
     ]
-    log_uploads = [app.InMemoryUploadedFile("logs.log", b"log-bytes")]
+    log_uploads = [InMemoryUploadedFile("logs.log", b"log-bytes")]
     screenshots = [
-        app.ScreenshotAsset(
+        ScreenshotAsset(
             name="screen.png",
             data=b"png-bytes",
             label="Crash dialog",
@@ -58,9 +64,9 @@ def test_persist_case_attachments_writes_files_and_skips_duplicates(
         }
     )
 
-    metadata = app.persist_case_attachments("Case-42")
+    metadata = data_manager.persist_case_attachments("Case-42")
 
-    case_dir = attachments_root / app.sanitize_case_id("Case-42")
+    case_dir = attachments_root / sanitize_case_id("Case-42")
     assert (case_dir / "uploads" / "report.txt").read_bytes() == b"duplicate"
     assert (case_dir / "logs" / "logs.log").read_bytes() == b"log-bytes"
     assert (case_dir / "screenshots" / "screen.png").read_bytes() == b"png-bytes"
@@ -86,9 +92,9 @@ def test_persist_case_attachments_writes_files_and_skips_duplicates(
 def test_persist_case_attachments_handles_read_and_write_failures(
     attachments_root, session_state, caplog, monkeypatch
 ):
-    good_upload = app.InMemoryUploadedFile("ok.txt", b"ok")
-    unreadable = app.InMemoryUploadedFile("broken.txt", b"ignore")
-    unwritable = app.InMemoryUploadedFile("nope.txt", b"deny")
+    good_upload = InMemoryUploadedFile("ok.txt", b"ok")
+    unreadable = InMemoryUploadedFile("broken.txt", b"ignore")
+    unwritable = InMemoryUploadedFile("nope.txt", b"deny")
 
     def broken_getvalue():
         raise OSError("boom")
@@ -113,7 +119,7 @@ def test_persist_case_attachments_handles_read_and_write_failures(
     )
 
     with caplog.at_level(logging.WARNING):
-        metadata = app.persist_case_attachments("Case-Error")
+        metadata = data_manager.persist_case_attachments("Case-Error")
 
     upload_entries = metadata["uploads"]
     assert len(upload_entries) == 1
@@ -127,16 +133,16 @@ def test_persist_case_attachments_handles_read_and_write_failures(
 def test_persist_evidence_bundle_zip(attachments_root, session_state):
     archive_bytes = b"zip-bits"
 
-    saved_path = app.persist_evidence_bundle_zip("Case-99", "bundle.zip", archive_bytes)
+    saved_path = data_manager.persist_evidence_bundle_zip("Case-99", "bundle.zip", archive_bytes)
 
     assert saved_path is not None
     assert saved_path.read_bytes() == archive_bytes
-    assert saved_path.parent == attachments_root / app.sanitize_case_id("Case-99")
+    assert saved_path.parent == attachments_root / sanitize_case_id("Case-99")
 
 
 def test_load_case_attachments_reconstructs_files(attachments_root):
     case_id = "Case-55"
-    case_dir = attachments_root / app.sanitize_case_id(case_id)
+    case_dir = attachments_root / sanitize_case_id(case_id)
     (case_dir / "uploads").mkdir(parents=True, exist_ok=True)
     (case_dir / "logs").mkdir(parents=True, exist_ok=True)
     (case_dir / "screenshots").mkdir(parents=True, exist_ok=True)
@@ -166,10 +172,10 @@ def test_load_case_attachments_reconstructs_files(attachments_root):
         ],
     }
 
-    uploads, logs, screenshots = app.load_case_attachments(case_id, metadata)
+    uploads, logs, screenshots = data_manager.load_case_attachments(case_id, metadata)
 
     assert len(uploads) == 1
-    assert isinstance(uploads[0], app.InMemoryUploadedFile)
+    assert isinstance(uploads[0], InMemoryUploadedFile)
     assert uploads[0].name == "keep.txt"
     assert uploads[0].data == b"keep"
 
@@ -178,7 +184,7 @@ def test_load_case_attachments_reconstructs_files(attachments_root):
     assert logs[0].data == b"log"
 
     assert len(screenshots) == 2
-    assert all(isinstance(item, app.ScreenshotAsset) for item in screenshots)
+    assert all(isinstance(item, ScreenshotAsset) for item in screenshots)
     screenshot_names = {item.name for item in screenshots}
     assert screenshot_names == {"shot.png", "fallback.png"}
     screenshot_payloads = {item.name: item.data for item in screenshots}
@@ -189,15 +195,15 @@ def test_load_case_attachments_reconstructs_files(attachments_root):
 
 
 def test_queueing_screenshot_upload_creates_upload_entry(session_state):
-    shot = app.ScreenshotAsset(name="capture.png", data=b"image-bytes", label="Dialog")
+    shot = ScreenshotAsset(name="capture.png", data=b"image-bytes", label="Dialog")
 
-    app.ScreenshotService._queue_screenshot_upload(shot)
+    screenshot_service.ScreenshotService._queue_screenshot_upload(shot)
 
     uploads = session_state.get("uploads")
     assert isinstance(uploads, list)
     assert len(uploads) == 1
     queued = uploads[0]
-    assert isinstance(queued, app.InMemoryUploadedFile)
+    assert isinstance(queued, InMemoryUploadedFile)
     assert queued.name == "capture.png"
     assert queued.getvalue() == b"image-bytes"
     assert queued is not shot

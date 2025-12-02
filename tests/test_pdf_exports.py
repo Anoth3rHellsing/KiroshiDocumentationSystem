@@ -218,15 +218,28 @@ def app_module():
     _install_streamlit_stubs()
     _install_altair_stub()
     _install_kiroshi_stub()
-    spec = importlib.util.spec_from_file_location(
-        "case_documentation_app",
-        Path(__file__).resolve().parent.parent / "case_documentation_app.py",
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    # No longer importing main app logic for PDF services
+    # We import services directly
+    import KiroshiApp.services.pdf_generator as pdf_gen
+    import KiroshiApp.models as models
+    import KiroshiApp.constants as constants
+
+    # We return a dummy object holding references to what tests expect
+    class ModuleShim:
+        pass
+    shim = ModuleShim()
+    shim.make_pdf = pdf_gen.make_pdf
+    shim.make_tables_pdf = pdf_gen.make_tables_pdf
+    shim.build_incident_report_pdf = pdf_gen.build_incident_report_pdf
+    shim.generate_ai_educate_report_pdf = pdf_gen.generate_ai_educate_report_pdf
+    shim.BASE_CATEGORY_MAP = constants.BASE_CATEGORY_MAP
+    shim.HW_CATEGORY_MAP = constants.HW_CATEGORY_MAP
+    shim.RemoteSessionEntry = models.RemoteSessionEntry
+    shim.TrackingData = models.TrackingData
+    shim.CaseData = models.CaseData
+    shim.InMemoryUploadedFile = models.InMemoryUploadedFile
+    shim.st = sys.modules["streamlit"]
+    return shim
 
 
 @pytest.fixture()

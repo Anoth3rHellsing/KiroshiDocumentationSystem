@@ -1,11 +1,8 @@
 import pandas as pd
 
-from case_documentation_app import (
-    CaseData,
-    category_dataframe,
-    dell_escalation_dataframe,
-    DELL_ESCALATION_FIELD_LABELS,
-)
+from KiroshiApp.models import CaseData
+from KiroshiApp.services.pdf_generator import category_dataframe, dell_escalation_dataframe
+from KiroshiApp.constants import DELL_ESCALATION_FIELD_LABELS
 
 
 def _get_value(df: pd.DataFrame, field_label: str) -> str:

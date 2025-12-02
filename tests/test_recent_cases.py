@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import case_documentation_app as app
-
+import KiroshiApp.services.data_manager as dm_module
+import KiroshiApp.constants as constants_module
 
 @pytest.fixture(autouse=True)
 def recent_cases_directory(monkeypatch, tmp_path):
@@ -20,8 +20,9 @@ def recent_cases_directory(monkeypatch, tmp_path):
     recent_cases_path = utilities_dir / "recent_cases.json"
     recent_cases_path.write_text("[]", encoding="utf-8")
 
-    monkeypatch.setattr(app, "UTILITIES_DIR", utilities_dir)
-    monkeypatch.setattr(app, "RECENT_CASES_PATH", recent_cases_path)
+    monkeypatch.setattr(constants_module, "UTILITIES_DIR", utilities_dir)
+    monkeypatch.setattr(constants_module, "RECENT_CASES_PATH", recent_cases_path)
+    monkeypatch.setattr(dm_module, "RECENT_CASES_PATH", recent_cases_path)
 
     return recent_cases_path
 
@@ -41,7 +42,7 @@ def test_load_recent_cases_filters_non_mappings(recent_cases_directory):
     ]
     recent_cases_directory.write_text(json.dumps(payload), encoding="utf-8")
 
-    result = app.load_recent_cases()
+    result = dm_module.load_recent_cases()
 
     assert result == [
         {"case_id": "alpha", "path": "a.json", "last_modified": "2024-01-01"},
@@ -62,7 +63,7 @@ def test_update_recent_cases_computes_timestamp(recent_cases_directory, tmp_path
     timestamp = target_time.timestamp()
     os.utime(case_path, (timestamp, timestamp))
 
-    app.update_recent_cases("alpha", str(case_path))
+    dm_module.update_recent_cases("alpha", str(case_path))
 
     recents = read_recent_cases(recent_cases_directory)
     assert recents[0]["case_id"] == "alpha"
@@ -87,7 +88,7 @@ def test_update_recent_cases_handles_moved_file(recent_cases_directory, tmp_path
     new_payload = {"case_id": "alpha", "last_modified": "2024-05-16T01:02:03"}
     new_path.write_text(json.dumps(new_payload), encoding="utf-8")
 
-    app.update_recent_cases("alpha", str(new_path))
+    dm_module.update_recent_cases("alpha", str(new_path))
 
     recents = read_recent_cases(recent_cases_directory)
     assert recents[0] == {
@@ -106,7 +107,7 @@ def test_update_recent_cases_with_unreadable_json(recent_cases_directory, tmp_pa
     existing = [{"case_id": "gamma", "path": "gamma.json", "last_modified": "gamma-ts"}]
     recent_cases_directory.write_text(json.dumps(existing), encoding="utf-8")
 
-    app.update_recent_cases("delta", str(case_path))
+    dm_module.update_recent_cases("delta", str(case_path))
 
     recents = read_recent_cases(recent_cases_directory)
     assert recents[0] == {

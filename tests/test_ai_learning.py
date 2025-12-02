@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from case_documentation_app import merge_ai_learning_datasets
+from KiroshiApp.utils import merge_ai_learning_datasets
 
 
 def _case_entry(case_id, title, *, timestamp, source_path, solution, root_cause, keywords, version):

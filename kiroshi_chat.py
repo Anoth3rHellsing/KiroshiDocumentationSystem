@@ -689,3 +689,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def invoke_gpt(user_message, history, api_key, model, base_url=None):
+    """Alias for query_kiroshi to maintain backward compatibility."""
+    return query_kiroshi(user_message, history, api_key, model, base_url)
