@@ -354,3 +354,48 @@ def test_sync_case_text_state_updates_hidden_widgets(fake_state, monkeypatch):
     assert case.company_name == "Updated name"
     assert state.case_sessions[0].case.company_name == "Updated name"
     assert state[f"{state_key}__seed"] == "Updated name"
+
+def test_real_autosave_execution(fake_state, monkeypatch):
+    """
+    Integration test to verify AutosaveManager, threading, and imports
+    (sanitize_case_id, defaultdict, field) work correctly in the autosave path.
+    """
+    # 1. Mock st.cache_resource to behave like a pass-through or simple memoize
+    # Since we just want to test logic, we can make it return the class instance directly
+    # or mock get_autosave_manager.
+    manager = app.AutosaveManager()
+    monkeypatch.setattr(app, "get_autosave_manager", lambda: manager)
+
+    # 2. Mock Constants
+    monkeypatch.setattr(app, "AUTOSAVE_THROTTLE_SECONDS", 0.05)
+
+    # 3. Setup global D (CaseData)
+    # The app module expects D to be a CaseData instance.
+    # We populate it with some data.
+    test_case = app.CaseData(
+        case_id="integration_test_case",
+        company_name="Integration Corp"
+    )
+    monkeypatch.setattr(app, "D", test_case)
+
+    # 4. Run autosave
+    # First call: schedules the timer (throttled)
+    app.autosave()
+
+    # Assert state is pending
+    safe_id = app.sanitize_case_id("integration_test_case")
+    assert safe_id in manager.states
+    state = manager.states[safe_id]
+
+    # Wait for throttle to expire and flush to happen
+    time.sleep(0.2)
+
+    # 5. Verify file existence
+    # AUTOSAVE_DIR is mocked by fake_state fixture
+    files = list(app.AUTOSAVE_DIR.glob(f"autosave_{safe_id}_*.json"))
+    assert len(files) == 1
+
+    # 6. Verify Content
+    content = json.loads(files[0].read_text(encoding="utf-8"))
+    assert content["case"]["case_id"] == "integration_test_case"
+    assert content["case"]["company_name"] == "Integration Corp"
