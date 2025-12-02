@@ -7888,6 +7888,8 @@ def render_tracked_cases_dashboard(
     if query:
         filtered_cases = []
         for case in cases:
+            if not isinstance(case, dict):
+                continue
             priority_value = normalize_priority(case.get("priority"))
             haystack = [
                 str(case.get("company", "")),
@@ -7911,8 +7913,10 @@ def render_tracked_cases_dashboard(
         reverse=True,
     )
     for idx, case in enumerate(sorted_cases):
-        path_digest = hashlib.sha1(case["path"].encode("utf-8")).hexdigest()[:8]
-        unique_suffix = f"{key_namespace}_{Path(case['path']).stem}_{idx}_{path_digest}"
+        if not isinstance(case, dict):
+            continue
+        path_digest = hashlib.sha1(case.get("path", "").encode("utf-8")).hexdigest()[:8]
+        unique_suffix = f"{key_namespace}_{Path(case.get('path', '')).stem}_{idx}_{path_digest}"
         priority_value = normalize_priority(case.get("priority"))
         priority_key = f"priority_{unique_suffix}"
         status_key = f"status_{unique_suffix}"
@@ -8070,7 +8074,9 @@ def render_tracked_cases_dashboard(
                 if case.get("is_legacy"):
                     st.caption("Status editing is unavailable for legacy JSON files.")
                 else:
-                    options = TRACKING_STATUS_OPTIONS.get(case.get("type"))
+                    options = None
+                    if isinstance(TRACKING_STATUS_OPTIONS, dict):
+                        options = TRACKING_STATUS_OPTIONS.get(case.get("type"))
                     free_text_status = case.get("type") in {"Dell", "FedEx"}
                     if options and not free_text_status:
                         status_options = list(options)
@@ -8744,6 +8750,8 @@ def _render_settings_ai_tab() -> None:
         "<div class='settings-section-title'><span>🤖</span>AI Educate</div>",
         unsafe_allow_html=True,
     )
+    if "ai_educate_enabled" not in st.session_state:
+        st.session_state.ai_educate_enabled = False
     prev_enabled = st.session_state.ai_educate_enabled
     st.toggle(
         "Enable AI Educate",
