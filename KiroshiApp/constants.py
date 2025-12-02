@@ -23,6 +23,10 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     "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",
 )
+DEFAULT_GEMINI_API_KEY = os.environ.get(
+    "GEMINI_API_KEY",
+    "AIzaSyBio66tRF0bj4YGeqF5e-c46vhKSaXgMnw",
+)
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 DEFAULT_AI_MODE = (
     "Local Model"
@@ -167,6 +171,8 @@ PERSISTENT_SETTINGS_DEFAULTS = {
     "show_kiroshi_chat": True,
     "autosave_to_database": False,
     "ai_assist_mode": "Standard",
+    "ai_provider": "OpenAI",
+    "gemini_api_key": DEFAULT_GEMINI_API_KEY,
     "ai_educate_enabled": False,
     "ai_educate_report_enabled": False,
     "ai_educate_advanced": False,
