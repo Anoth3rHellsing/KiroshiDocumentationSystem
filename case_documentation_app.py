@@ -182,7 +182,8 @@ from KiroshiApp.utils import (
     format_tracking_date, parse_iso_datetime, format_last_modified,
     _time_str_to_time, _time_to_string, _normalize_text_value,
     determine_active_theme, apply_theme_palette, get_kiroshi_message,
-    merge_ai_learning_datasets, _normalize_agent_name
+    merge_ai_learning_datasets, _normalize_agent_name,
+    _create_ai_learning_dataset_from_cases
 )
 from KiroshiApp.models import (
     UpdateCheckResult, RemoteSessionEntry,
@@ -6386,47 +6387,6 @@ def _sync_case_memory_from_sessions() -> None:
     _write_case_tab_memory(entries)
 
 
-# convert stored dict to dataclass, ignoring unexpected fields
-if isinstance(st.session_state.case, dict):
-    allowed = {f.name for f in fields(CaseData)}
-    filtered = {k: v for k, v in st.session_state.case.items() if k in allowed}
-    st.session_state.case = CaseData(**filtered)
-D: CaseData = st.session_state.case
-_migrate_hardware_test_state()
-if D.tracking.active:
-    st.session_state.track_case = True
-
-if "case_sessions" not in st.session_state:
-    stored_sessions = _hydrate_case_sessions_from_memory()
-    if stored_sessions:
-        st.session_state.case_sessions = stored_sessions
-        primary_session = stored_sessions[0]
-        st.session_state.case = primary_session.case
-        st.session_state.uploads = primary_session.uploads
-        st.session_state.log_uploads = primary_session.log_uploads
-        set_active_screenshots(primary_session.screenshots)
-        st.session_state.scratch = primary_session.scratch
-        st.session_state["attachments_index"] = _normalise_attachments_index(
-            getattr(primary_session, "attachments_index", {})
-        )
-    else:
-        current_index = _normalise_attachments_index(
-            st.session_state.get("attachments_index")
-        )
-        st.session_state.case_sessions = [
-            CaseSession(
-                case=D,
-                scratch=st.session_state.get("scratch", ""),
-                uploads=st.session_state.uploads,
-                log_uploads=st.session_state.log_uploads,
-                screenshots=st.session_state.screenshots,
-                attachments_index=current_index,
-            )
-        ]
-        st.session_state["attachments_index"] = current_index
-    _sync_case_memory_from_sessions()
-    _refresh_hotkey_snapshot()
-    ensure_hotkey_listener()
 
 
 def _prime_case_widget_state(idx: int, case: CaseData) -> None:
@@ -6704,36 +6664,31 @@ else:
     st.session_state.pop("debug_widget_key_collision_context", None)
     st.session_state.pop("debug_widget_key_last_collision", None)
 
-# Ensure session state mirrors the current case data before any widgets are created
-for key, value in asdict(D).items():
-    st.session_state[key] = value
-
-# Ensure the survey link widget has an initial value to prevent
-# "attribute missing" errors before the first user interaction.
-_init_state("survey_link", D.survey_link)
-
 # Button to clear all case data and reset form
-_last_autosave_hash: str | None = None
-_last_autosave_timestamp: float = 0.0
-_pending_autosave: tuple[str, str, dict] | None = None
-_pending_autosave_timer: threading.Timer | None = None
-_autosave_lock = threading.RLock()
-_autosave_cached_payload: dict[str, Any] | None = None
-_autosave_cached_serialized: str | None = None
-_autosave_field_fingerprints: dict[str, str] = {}
+@dataclass
+class AutosaveState:
+    last_hash: str | None = None
+    last_timestamp: float = 0.0
+    cached_payload: dict[str, Any] | None = None
+    cached_serialized: str | None = None
+    field_fingerprints: dict[str, str] = field(default_factory=dict)
+    pending_data: tuple[str, str, dict] | None = None
+
+
+class AutosaveManager:
+    def __init__(self):
+        self.states: dict[str, AutosaveState] = defaultdict(AutosaveState)
+        self.timer: threading.Timer | None = None
+        self.lock = threading.RLock()
+
+
+@st.cache_resource
+def get_autosave_manager() -> AutosaveManager:
+    return AutosaveManager()
 
 
 def autosave_payload() -> dict:
     case_payload = asdict(D)
-    cached_case = st.session_state.get("_autosave_cached_case")
-
-    if cached_case is not None and cached_case == case_payload:
-        st.session_state["_autosave_case_dirty"] = False
-        return {"case": cached_case}
-
-    st.session_state["_autosave_cached_case"] = case_payload
-    st.session_state["_autosave_case_dirty"] = True
-
     return {"case": case_payload}
 
 
@@ -6749,13 +6704,13 @@ def _compact_json_dumps(value: Any) -> str:
     )
 
 
-def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
-    global _autosave_cached_payload, _autosave_cached_serialized
-
+def _serialize_autosave_payload(
+    payload: dict, state: AutosaveState
+) -> tuple[str, str]:
     case_payload: dict[str, Any] = payload.get("case", {})
     previous_case: dict[str, Any] | None = None
-    if _autosave_cached_payload:
-        previous_case = _autosave_cached_payload.get("case")
+    if state.cached_payload:
+        previous_case = state.cached_payload.get("case")
 
     known_keys = set(case_payload.keys())
     if previous_case:
@@ -6768,86 +6723,76 @@ def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
     }
 
     for field in dirty_fields:
-        _autosave_field_fingerprints[field] = hashlib.blake2s(
+        state.field_fingerprints[field] = hashlib.blake2s(
             _compact_json_dumps(case_payload.get(field)).encode("utf-8")
         ).hexdigest()
 
     checksum = hashlib.blake2s()
-    for field_name in sorted(_autosave_field_fingerprints):
+    for field_name in sorted(state.field_fingerprints):
         checksum.update(field_name.encode("utf-8"))
-        checksum.update(_autosave_field_fingerprints[field_name].encode("utf-8"))
+        checksum.update(state.field_fingerprints[field_name].encode("utf-8"))
 
     payload_hash = checksum.hexdigest()
 
-    _autosave_cached_payload = payload
+    state.cached_payload = payload
 
-    if not dirty_fields and _autosave_cached_serialized:
-        return _autosave_cached_serialized, payload_hash
+    if not dirty_fields and state.cached_serialized:
+        return state.cached_serialized, payload_hash
 
     serialized_payload = _compact_json_dumps(payload)
-    _autosave_cached_serialized = serialized_payload
+    state.cached_serialized = serialized_payload
     return serialized_payload, payload_hash
 
 
 def autosave():
-    global _pending_autosave, _pending_autosave_timer
-
+    manager = get_autosave_manager()
     payload = autosave_payload()
-    serialized_payload, payload_hash = _serialize_autosave_payload(payload)
+    case_id_val = _extract_case_id(payload)
+    safe_case_id = sanitize_case_id(case_id_val)
 
-    with _autosave_lock:
-        global _last_autosave_hash, _last_autosave_timestamp
+    with manager.lock:
+        state = manager.states[safe_case_id]
+        serialized_payload, payload_hash = _serialize_autosave_payload(payload, state)
 
-        if payload_hash == _last_autosave_hash:
+        if payload_hash == state.last_hash:
             return
 
         now = time.monotonic()
-        elapsed = now - _last_autosave_timestamp
+        elapsed = now - state.last_timestamp
 
         if elapsed < AUTOSAVE_THROTTLE_SECONDS:
-            _pending_autosave = (serialized_payload, payload_hash, payload)
-            if _pending_autosave_timer is None:
-                delay = max(AUTOSAVE_THROTTLE_SECONDS - elapsed, 0.05)
-                _pending_autosave_timer = threading.Timer(delay, _flush_pending_autosave)
-                _pending_autosave_timer.daemon = True
-                _pending_autosave_timer.start()
+            state.pending_data = (serialized_payload, payload_hash, payload)
+            if manager.timer is None:
+                manager.timer = threading.Timer(
+                    AUTOSAVE_THROTTLE_SECONDS, _flush_pending_autosave, args=(manager,)
+                )
+                manager.timer.daemon = True
+                manager.timer.start()
             return
 
-        _pending_autosave = None
-        if _pending_autosave_timer:
-            _pending_autosave_timer.cancel()
-            _pending_autosave_timer = None
-
-        _write_autosave(serialized_payload, payload_hash, payload)
+        state.pending_data = None
+        _write_autosave_for_state(serialized_payload, payload_hash, payload, state, manager.lock)
 
 
-def _flush_pending_autosave() -> None:
-    global _pending_autosave, _pending_autosave_timer
-
-    with _autosave_lock:
-        if not _pending_autosave:
-            _pending_autosave_timer = None
-            return
-
-        serialized_payload, payload_hash, payload = _pending_autosave
-        _pending_autosave = None
-        _pending_autosave_timer = None
-
-        _write_autosave(serialized_payload, payload_hash, payload)
+def _flush_pending_autosave(manager: AutosaveManager) -> None:
+    with manager.lock:
+        manager.timer = None
+        for _safe_case_id, state in manager.states.items():
+            if state.pending_data:
+                serialized, p_hash, pay = state.pending_data
+                state.pending_data = None
+                _write_autosave_for_state(serialized, p_hash, pay, state, manager.lock)
 
 
-def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -> None:
-    global _last_autosave_hash, _last_autosave_timestamp
-
+def _write_autosave_for_state(
+    serialized_payload: str, payload_hash: str, payload: dict, state: AutosaveState, lock: threading.RLock
+) -> None:
     case_id_value = _extract_case_id(payload)
     autosave_path = _autosave_path(case_id_value)
     temp_path = autosave_path.with_suffix(autosave_path.suffix + ".tmp")
 
-    with autosave_path.open("w", encoding="utf-8") as f:
-        f.write(serialized_payload)
-
-    with _autosave_lock:
-        existing_hash = _last_autosave_hash
+    with lock:
+        existing_hash = state.last_hash
         try:
             if existing_hash is None and autosave_path.exists():
                 existing_hash = hashlib.sha1(
@@ -6858,56 +6803,52 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
 
         db_saved = False
         if st.session_state.get("autosave_to_database"):
-            case_obj = st.session_state.get("case")
-            case_cls = globals().get("CaseData")
+            # Only attempt database save if this payload corresponds to the currently
+            # active case session, to avoid attachment/state conflicts during threaded flushes.
+            active_case = st.session_state.get("case")
             if (
-                case_cls
-                and isinstance(case_obj, case_cls)
+                active_case
+                and getattr(active_case, "case_id", None) == case_id_value
                 and "save_case_to_database" in globals()
             ):
-                case_id_value = getattr(case_obj, "case_id", "")
-                if isinstance(case_id_value, str) and case_id_value.strip():
-                    try:
-                        save_case_to_database(case_obj, notify=False)
-                        db_saved = True
-                    except Exception as exc:  # pragma: no cover - streamlit runtime specific
-                        logging.warning(
-                            "Failed to autosave case %s to database: %s",
-                            case_id_value,
-                            exc,
-                        )
-                        try:
-                            st.warning(
-                                "Autosave could not write to the shared database. "
-                                "Check connectivity or permissions before relying on the backup."
-                            )
-                        except Exception:  # pragma: no cover - Streamlit unavailable during tests
-                            logging.debug("Streamlit warning unavailable for autosave alert")
+                try:
+                    save_case_to_database(
+                        active_case,
+                        notify=False,
+                        update_history=False,
+                        touch_last_modified=False,
+                    )
+                    db_saved = True
+                except Exception as exc:
+                    logging.warning(
+                        "Failed to autosave case %s to database: %s",
+                        case_id_value,
+                        exc,
+                    )
 
         if db_saved and existing_hash == payload_hash:
-            _last_autosave_timestamp = time.monotonic()
-            _last_autosave_hash = payload_hash
+            state.last_timestamp = time.monotonic()
+            state.last_hash = payload_hash
             return
 
         try:
             with temp_path.open("w", encoding="utf-8") as f:
                 f.write(serialized_payload)
             os.replace(temp_path, autosave_path)
-            _last_autosave_timestamp = time.monotonic()
-            _last_autosave_hash = payload_hash
+            state.last_timestamp = time.monotonic()
+            state.last_hash = payload_hash
         except Exception as exc:
             logging.exception("Failed to persist autosave to %s", autosave_path)
             try:
                 if temp_path.exists():
                     temp_path.unlink()
-            except Exception as cleanup_exc:  # pragma: no cover - best-effort cleanup
+            except Exception as cleanup_exc:
                 logging.debug(
-                    "Unable to remove temporary autosave file %s: %s", temp_path, cleanup_exc
+                    "Unable to remove temporary autosave file %s: %s",
+                    temp_path,
+                    cleanup_exc,
                 )
-
-            if existing_hash:
-                _last_autosave_hash = existing_hash
-            return
+            state.last_timestamp = time.monotonic()
 
 
 def get_case_attachments_dir(case_id: str) -> Path:
@@ -7087,6 +7028,57 @@ def load_case_attachments(
 # Preserve a backwards-compatible alias for environments that still reference
 # the old loader name during cached reloads (e.g., Streamlit session restores).
 _case_attachments_loader = load_case_attachments
+
+
+# convert stored dict to dataclass, ignoring unexpected fields
+if isinstance(st.session_state.case, dict):
+    allowed = {f.name for f in fields(CaseData)}
+    filtered = {k: v for k, v in st.session_state.case.items() if k in allowed}
+    st.session_state.case = CaseData(**filtered)
+D: CaseData = st.session_state.case
+_migrate_hardware_test_state()
+if D.tracking.active:
+    st.session_state.track_case = True
+
+# Ensure session state mirrors the current case data before any widgets are created
+for key, value in asdict(D).items():
+    st.session_state[key] = value
+
+# Ensure the survey link widget has an initial value to prevent
+# "attribute missing" errors before the first user interaction.
+_init_state("survey_link", D.survey_link)
+
+if "case_sessions" not in st.session_state:
+    stored_sessions = _hydrate_case_sessions_from_memory()
+    if stored_sessions:
+        st.session_state.case_sessions = stored_sessions
+        primary_session = stored_sessions[0]
+        st.session_state.case = primary_session.case
+        st.session_state.uploads = primary_session.uploads
+        st.session_state.log_uploads = primary_session.log_uploads
+        set_active_screenshots(primary_session.screenshots)
+        st.session_state.scratch = primary_session.scratch
+        st.session_state["attachments_index"] = _normalise_attachments_index(
+            getattr(primary_session, "attachments_index", {})
+        )
+    else:
+        current_index = _normalise_attachments_index(
+            st.session_state.get("attachments_index")
+        )
+        st.session_state.case_sessions = [
+            CaseSession(
+                case=D,
+                scratch=st.session_state.get("scratch", ""),
+                uploads=st.session_state.uploads,
+                log_uploads=st.session_state.log_uploads,
+                screenshots=st.session_state.screenshots,
+                attachments_index=current_index,
+            )
+        ]
+        st.session_state["attachments_index"] = current_index
+    _sync_case_memory_from_sessions()
+    _refresh_hotkey_snapshot()
+    ensure_hotkey_listener()
 
 
 def create_case_autosave_snapshot(case_id: str) -> Path | None:
