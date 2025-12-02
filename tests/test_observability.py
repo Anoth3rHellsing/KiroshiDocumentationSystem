@@ -324,15 +324,19 @@ def test_autosave_emits_streamlit_warning(monkeypatch, tmp_path, caplog):
         "_pending_autosave_timer": None,
         "_last_autosave_hash": None,
         "_last_autosave_timestamp": 0.0,
+        "_autosave_field_fingerprints": {},
+        "_autosave_cached_payload": None,
+        "_autosave_cached_serialized": None,
         "_autosave_lock": __import__("threading").Lock(),
         "autosave_payload": lambda: {"case": {"case_id": "CASE-123"}},
         "save_case_to_database": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db offline")),
         "CaseData": CaseData,
         "logging": logging,
         "_write_autosave": _write_autosave,
+        "Any": object,
     }
 
-    namespace = _load_definitions(["autosave"], extra_globals)
+    namespace = _load_definitions(["autosave", "_serialize_autosave_payload", "_compact_json_dumps"], extra_globals)
 
     with caplog.at_level(logging.WARNING):
         namespace["autosave"]()
@@ -343,11 +347,10 @@ def test_autosave_emits_streamlit_warning(monkeypatch, tmp_path, caplog):
 
 def test_check_for_updates_populates_error_on_http_failure():
     import requests
+    from KiroshiApp.models import UpdateCheckResult
 
     extra_globals = {
-        "UpdateCheckResult": _load_definitions(
-            ["UpdateCheckResult"], {"dataclass": __import__("dataclasses", fromlist=["dataclass"]).dataclass}
-        )["UpdateCheckResult"],
+        "UpdateCheckResult": UpdateCheckResult,
         "_resolve_update_target": lambda: ("owner/repo", "main"),
         "_fetch_remote_version": lambda repo, branch: (_ for _ in ()).throw(requests.ConnectionError("boom")),
         "_fetch_latest_commit_info": lambda repo, branch: {"sha": None, "date": None},
@@ -358,6 +361,6 @@ def test_check_for_updates_populates_error_on_http_failure():
     }
     namespace = _load_definitions(["check_for_updates"], extra_globals)
     result = namespace["check_for_updates"]()
-    assert isinstance(result, extra_globals["UpdateCheckResult"])
+    assert isinstance(result, UpdateCheckResult)
     assert result.error
     assert "Unable to retrieve remote version" in result.error

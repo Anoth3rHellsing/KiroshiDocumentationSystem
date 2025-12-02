@@ -9,6 +9,7 @@ import logging
 import streamlit as st
 import altair as alt
 from typing import Iterable, Mapping, Sequence
+from collections import Counter, defaultdict
 
 try:
     from KiroshiApp.constants import (
@@ -631,4 +632,168 @@ def merge_ai_learning_datasets(
         merged_sources=merged_sources,
         agent_identity=base_identity,
     )
+    return dataset
+
+def _normalize_agent_name(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+def _create_ai_learning_dataset_from_cases(
+    case_entries: Iterable[Mapping[str, object]],
+    *,
+    signature: Iterable[tuple[str, float]] | None = None,
+    merged_sources: Iterable[str] | None = None,
+    generated_at: str | None = None,
+    agent_identity: Mapping[str, str] | None = None,
+) -> dict[str, object] | None:
+    cases: list[dict[str, object]] = []
+    keyword_counter: Counter[str] = Counter()
+    root_cause_counter: Counter[str] = Counter()
+    solution_counter: Counter[str] = Counter()
+    version_counter: Counter[str] = Counter()
+    keyword_index: defaultdict[str, list[str]] = defaultdict(list)
+    root_cause_cases: defaultdict[str, list[str]] = defaultdict(list)
+    solution_cases: defaultdict[str, list[str]] = defaultdict(list)
+    root_cause_labels: dict[str, str] = {}
+    solution_labels: dict[str, str] = {}
+
+    for entry in case_entries:
+        if not isinstance(entry, Mapping):
+            continue
+        case_id = str(entry.get("case_id") or "").strip()
+        if not case_id:
+            continue
+        title = str(entry.get("title") or "").strip()
+        root_cause = str(entry.get("root_cause") or "").strip()
+        solution = str(entry.get("solution") or "").strip()
+        application_version = str(entry.get("application_version") or "").strip()
+        keywords = entry.get("keywords") or []
+        if not isinstance(keywords, list):
+            keywords = list(keywords)
+        keywords = [str(keyword) for keyword in keywords if keyword]
+
+        for keyword in keywords:
+            keyword_counter[keyword] += 1
+            if case_id not in keyword_index[keyword]:
+                keyword_index[keyword].append(case_id)
+
+        if root_cause:
+            norm_root = root_cause.lower()
+            root_cause_counter[norm_root] += 1
+            root_cause_labels.setdefault(norm_root, root_cause)
+            if case_id not in root_cause_cases[norm_root]:
+                root_cause_cases[norm_root].append(case_id)
+
+        if solution:
+            norm_solution = solution.lower()
+            solution_counter[norm_solution] += 1
+            solution_labels.setdefault(norm_solution, solution)
+            if case_id not in solution_cases[norm_solution]:
+                solution_cases[norm_solution].append(case_id)
+
+        if application_version:
+            version_counter[application_version] += 1
+
+        timestamp_raw = entry.get("timestamp")
+        try:
+            timestamp = float(timestamp_raw)
+        except (TypeError, ValueError):
+            timestamp = 0.0
+
+        saved_at = entry.get("saved_at")
+        if not saved_at and timestamp:
+            saved_at = datetime.fromtimestamp(timestamp).isoformat()
+
+        case_entry = {
+            "case_id": case_id,
+            "title": title or _summarize_text(entry.get("description", ""), width=120),
+            "application_version": application_version,
+            "root_cause": root_cause,
+            "solution": solution,
+            "solution_excerpt": entry.get("solution_excerpt")
+            or _summarize_text(solution, width=260),
+            "description_excerpt": entry.get("description_excerpt")
+            or _summarize_text(entry.get("description", ""), width=260),
+            "keywords": keywords,
+            "timestamp": timestamp,
+            "saved_at": saved_at,
+            "source_path": entry.get("source_path"),
+        }
+        if agent_identity:
+            agent_identifier = _normalize_agent_name(agent_identity.get("identifier"))
+            if agent_identifier:
+                case_entry["agent_id"] = agent_identifier
+            display_name = _normalize_agent_name(agent_identity.get("display_name"))
+            if display_name:
+                case_entry["agent_name"] = display_name
+        cases.append(case_entry)
+
+    if not cases:
+        return None
+
+    cases.sort(key=lambda item: item.get("timestamp", 0), reverse=True)
+
+    keyword_insights = [
+        {
+            "keyword": keyword,
+            "count": count,
+            "related_cases": keyword_index[keyword][:5],
+        }
+        for keyword, count in keyword_counter.most_common(20)
+    ]
+
+    root_cause_patterns = [
+        {
+            "root_cause": root_cause_labels[key],
+            "count": root_cause_counter[key],
+            "related_cases": root_cause_cases[key][:5],
+        }
+        for key in sorted(root_cause_counter, key=root_cause_counter.get, reverse=True)
+    ]
+
+    repeated_solutions = [
+        {
+            "solution": solution_labels[key],
+            "count": solution_counter[key],
+            "related_cases": solution_cases[key][:5],
+        }
+        for key in sorted(solution_counter, key=solution_counter.get, reverse=True)
+        if solution_counter[key] > 1
+    ]
+
+    dataset: dict[str, object] = {
+        "generated_at": generated_at or _utc_now_z(),
+        "case_count": len(cases),
+        "cases": cases,
+        "keyword_insights": keyword_insights,
+        "root_cause_patterns": root_cause_patterns,
+        "repeated_solutions": repeated_solutions,
+        "version_distribution": version_counter.most_common(),
+        "insight_summary": {
+            "top_keywords": [kw for kw, _ in keyword_counter.most_common(10)],
+            "dominant_versions": version_counter.most_common(5),
+        },
+    }
+
+    if signature is not None:
+        dataset["source_signature"] = [list(item) for item in signature]
+
+    merged_labels: set[str] = set()
+    if merged_sources:
+        merged_labels.update(str(label) for label in merged_sources if label)
+    if merged_labels:
+        dataset["merged_sources"] = sorted(merged_labels)
+
+    if agent_identity:
+        identity_payload = {
+            "first_name": _normalize_agent_name(agent_identity.get("first_name")),
+            "last_name": _normalize_agent_name(agent_identity.get("last_name")),
+            "display_name": _normalize_agent_name(agent_identity.get("display_name")),
+            "identifier": _normalize_agent_name(agent_identity.get("identifier")),
+        }
+        dataset["agent_identity"] = identity_payload
+        if identity_payload.get("display_name") and not dataset.get("shared_by"):
+            dataset["shared_by"] = identity_payload["display_name"]
+
     return dataset
