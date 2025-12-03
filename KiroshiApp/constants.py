@@ -53,9 +53,16 @@ PRIORITY_BADGES = {
     "On Time": "⏰",
     "Escalation": "🔴",
 }
-TRACKING_STATUS_OPTIONS = ["Open", "In Progress", "Pending", "Resolved", "Closed"]
+GENERIC_STATUS_OPTIONS = ["Open", "In Progress", "Pending", "Resolved", "Closed"]
 DELL_STATUS_OPTIONS = ["Open", "Pending Dell", "Part Dispatched", "Technician Scheduled", "Resolved"]
 FEDEX_STATUS_OPTIONS = ["Created", "In Transit", "Out for Delivery", "Delivered", "Exception"]
+
+TRACKING_STATUS_OPTIONS = {
+    "Dell": DELL_STATUS_OPTIONS,
+    "FedEx": FEDEX_STATUS_OPTIONS,
+    "General": GENERIC_STATUS_OPTIONS,
+    None: GENERIC_STATUS_OPTIONS,
+}
 ALTAIR_CHART_KWARGS = {"use_container_width": True}
 DEFAULT_TRACKING_PRIORITY = "Normal"
 SYSTEM_PROMPT = """You are Kiroshi, an AI assistant for IT support documentation.
