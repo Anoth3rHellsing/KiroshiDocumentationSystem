@@ -47,6 +47,7 @@ from KiroshiApp.services.update_manager import (
 from KiroshiApp.views.dashboard_view import render_dashboard
 from KiroshiApp.views.settings_view import render_settings_panel
 from KiroshiApp.views.report_view import render_report_panel
+from KiroshiApp.views.sprint.sprint_view import render_sprint_tab
 from KiroshiApp.views.case_view import render_case_ui, render_screenshot_capture_footer
 
 # Legacy imports for startup checks
@@ -200,7 +201,7 @@ if "case_sessions" not in st.session_state or not st.session_state.case_sessions
 visible_indices = [i for i in range(len(st.session_state.case_sessions))]
 case_labels = [f"Case {i+1}" for i in visible_indices] + ["+ New Case"]
 
-tab_labels = ["Dashboard", "Saved Cases", "Settings"]
+tab_labels = ["Dashboard", "Sprint", "Saved Cases", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
 tab_labels.append("Report")
@@ -211,6 +212,10 @@ tab_idx = 0
 
 with all_tabs[tab_idx]:
     render_with_monitor("Dashboard", render_dashboard)
+tab_idx += 1
+
+with all_tabs[tab_idx]:
+    render_with_monitor("Sprint", render_sprint_tab)
 tab_idx += 1
 
 with all_tabs[tab_idx]:
