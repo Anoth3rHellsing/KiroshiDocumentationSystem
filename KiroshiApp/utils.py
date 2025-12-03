@@ -382,6 +382,45 @@ def _extract_keywords(*texts: str) -> list[str]:
             keywords.append(token)
     return sorted(set(keywords))
 
+def _extract_json_object(block: str) -> dict[str, object] | None:
+    if not isinstance(block, str):
+        return None
+    start = block.find("{")
+    end = block.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    fragment = block[start : end + 1]
+    try:
+        return json.loads(fragment)
+    except Exception:
+        return None
+
+def _disabled_tab_note() -> str:
+    disabled_sections = []
+    if not st.session_state.get("include_escalations", True):
+        disabled_sections.append("Escalations tab")
+    if not st.session_state.get("include_hardware", False):
+        disabled_sections.append("Hardware issues tab")
+    if not disabled_sections:
+        return ""
+    return (
+        "The following tabs are disabled and should not be verified or referenced until they are turned on: "
+        + ", ".join(disabled_sections)
+        + ".\n\n"
+    )
+
+def _build_case_ai_dict(case) -> dict[str, object]:
+    from dataclasses import asdict
+    from KiroshiApp.constants import ESCALATION_TOGGLE_FIELDS, HARDWARE_TOGGLE_FIELDS
+    case_dict = asdict(case)
+    if not st.session_state.get("include_escalations", True):
+        for field in ESCALATION_TOGGLE_FIELDS:
+            case_dict.pop(field, None)
+    if not st.session_state.get("include_hardware", False):
+        for field in HARDWARE_TOGGLE_FIELDS:
+            case_dict.pop(field, None)
+    return case_dict
+
 def format_tracking_date(value) -> str:
     if not value:
         return ""
