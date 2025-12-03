@@ -30,7 +30,8 @@ from KiroshiApp.models import CaseData, TrackingData, RemoteSessionEntry, CaseSe
 from KiroshiApp.utils import (
     sanitize_filename, _normalize_text_value, _utc_now_z, format_last_modified,
     _format_utc_timestamp, get_kiroshi_message, _parse_utc_timestamp, _summarize_text,
-    _normalize_hardware_test_text, _extract_keywords
+    _normalize_hardware_test_text, _extract_keywords, _disabled_tab_note,
+    _extract_json_object, _build_case_ai_dict
 )
 from KiroshiApp.services.data_manager import (
     save_case_to_database, create_case_autosave_snapshot,
@@ -489,6 +490,65 @@ def _case_display_name(case_idx: int) -> str:
                     return text
     return f"Case {case_idx + 1}"
 
+def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> None:
+    st.markdown("#### AutoHotkey quick paste")
+    st.caption(
+        "Generate a Windows AutoHotkey script so typing `phonecall1`, `remotesession1`, "
+        "etc. instantly pastes the current case tables."
+    )
+    hotkey_script = build_autohotkey_script(
+        [cs.case for cs in st.session_state.case_sessions],
+        cat_map,
+    )
+    script_path = sync_autohotkey_script(hotkey_script)
+    if script_path:
+        script_path_str = str(script_path)
+        encoded_hotkeys = json.dumps(hotkey_script)
+        st.success(
+            "Hotkeys auto-synced locally. Add a single `#Include` to your AutoHotkey "
+            "launcher and the triggers will refresh whenever you update cases."
+        )
+        st.code(f"#Include {script_path_str}", language="autohotkey")
+        components.html(
+            f"""
+            <script>
+            function copyKiroshiHotkeys() {{
+                navigator.clipboard.writeText({encoded_hotkeys}).then(() => {{
+                    const note = document.createElement('div');
+                    note.innerText = 'Hotkeys copied to clipboard';
+                    note.style.fontSize = '0.8rem';
+                    note.style.marginTop = '0.35rem';
+                    const host = document.getElementById('kiroshi-hotkeys-feedback');
+                    host.innerHTML = '';
+                    host.appendChild(note);
+                }});
+            }}
+            </script>
+            <button onclick="copyKiroshiHotkeys();"
+                    style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
+                    title="Copy the live hotkeys to the clipboard">
+                Copy hotkeys to clipboard
+            </button>
+            <div id='kiroshi-hotkeys-feedback'></div>
+            <p style='font-size:0.8rem;margin-top:0.5rem;'>Script path: {script_path_str}</p>
+            """,
+            height=90,
+        )
+    else:
+        st.info(
+            "Download the script or copy it manually. Automatic syncing is only available "
+            "on Windows."
+        )
+    st.download_button(
+        "Download hotkey script",
+        hotkey_script.encode("utf-8"),
+        file_name=f"kiroshi_tables_hotkeys_{TODAY_STR}.ahk",
+        mime="text/plain",
+        key=widget_key("download_hotkeys", case_idx),
+    )
+    with st.expander("Preview generated hotkeys"):
+        st.code(hotkey_script, language="autohotkey")
+
 def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
     # Simplified footer matching original UI style
     st.markdown("---")
@@ -652,10 +712,165 @@ def render_case_ui(case_idx: int):
     # Case Tab
     with case_tab(next(tab_iter), case_idx=case_idx, slug=CASE_TAB_SLUGS["Case"]):
         compact_mode = st.session_state.get("case_compact_mode", False)
+        case_tab_key = partial(case_widget_key, CASE_TAB_SLUGS["Case"], case_idx=case_idx)
 
-        # Quick Actions (Simplified)
-        if st.button("Save case", key=widget_key("quick_save", case_idx)):
+        # Restore full Quick Actions Menu
+        st.markdown("#### Quick actions")
+        api_key = st.session_state.openai_api_key
+        model = st.session_state.openai_model
+        base_url = st.session_state.ai_base_url
+        educate_enabled = st.session_state.get("ai_educate_enabled", False)
+        advanced_enabled = st.session_state.get("ai_educate_advanced", False)
+        ai_learning_dataset = None
+        if educate_enabled and advanced_enabled:
+            ai_learning_dataset = ensure_ai_learning_dataset()
+
+        ai_assist_summary = st.session_state.get("ai_assist_result") or ""
+
+        # Quick Action Buttons
+        if st.button("Save case", key=case_tab_key("quick_save"), width="stretch"):
             save_case_to_database(D)
+
+        if st.button("Clear all", key=case_tab_key("clear_all_button"), width="stretch"):
+            logging.info("Clear all button clicked")
+            with case_loading_overlay("Cycling the workspace back to zero…"):
+                time.sleep(1)
+                backup_path = None
+                if D.case_id:
+                    backup_path = create_case_autosave_snapshot(D.case_id)
+                # clear_case_state logic inline since function not available
+                # Reset D
+                st.session_state.case_sessions[case_idx].case = CaseData()
+                st.session_state.case = st.session_state.case_sessions[case_idx].case
+                if backup_path:
+                    st.success(f"Case autosaved to {backup_path.name}")
+            st.rerun()
+
+        if st.session_state.track_case:
+            st.button("Tracking enabled", disabled=True, key=case_tab_key("tracking_enabled"), width="stretch")
+        elif st.button("Track case", key=case_tab_key("track_case_button"), width="stretch"):
+            st.session_state.track_case = True
+            st.rerun()
+
+        # AI Tools
+        if st.button("AI Assistance", key=case_tab_key("assist_button"), width="stretch"):
+            if not api_key and base_url.startswith("https://api.openai.com"):
+                st.error("Please set your OpenAI API key in the Debug tab.")
+            else:
+                case_dict = _build_case_ai_dict(D)
+                _, miss = compute_progress(D, cat_map)
+                missing = [f for flds in miss.values() for f in flds]
+                learning_context = ""
+                if educate_enabled and advanced_enabled:
+                    matches = find_relevant_learning_cases(D, ai_learning_dataset)
+                    st.session_state.ai_learning_matches = matches
+                    if matches:
+                        learning_context = "Leverage these historical cases: " + json.dumps([m['case_id'] for m in matches])
+
+                tone_directive = build_kiroshi_tone_directive()
+                disabled_tab_note = _disabled_tab_note()
+                user_message = (
+                    f"{learning_context}\n{disabled_tab_note}\n"
+                    "You are Kiroshi. Review case details and provide concise guidance. "
+                    f"{tone_directive}\nCASE DATA:\n{json.dumps(case_dict, default=str)}"
+                )
+                try:
+                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ai_assist")
+                    st.session_state.ai_assist_result = reply
+                    save_memory(st.session_state.kiroshi_chat_history)
+                except Exception as e:
+                    st.error(str(e))
+
+        if st.button("AI Autocorrection", key=case_tab_key("ai_autocorrect_button"), width="stretch", disabled=not bool(ai_assist_summary)):
+            if not api_key and base_url.startswith("https://api.openai.com"):
+                st.error("Please set your OpenAI API key in the Debug tab.")
+            else:
+                case_dict = _build_case_ai_dict(D)
+                tone_directive = build_kiroshi_tone_directive()
+                user_message = (
+                    "You are Kiroshi. Auto-correct this case for QA compliance. Return JSON only with 'corrected_case' and 'summary'."
+                    f"\n{tone_directive}\nCASE DATA:\n{json.dumps(case_dict, default=str)}"
+                )
+                try:
+                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ai_autocorrect")
+                    parsed = _extract_json_object(reply)
+                    if parsed:
+                        st.session_state.ai_autocorrect_case_json = parsed
+                        st.session_state.ai_autocorrect_result = json.dumps(parsed, indent=2)
+                    else:
+                        st.session_state.ai_autocorrect_result = reply
+                except Exception as e:
+                    st.error(str(e))
+
+        if st.button("Categorize", key=case_tab_key("categorize_button"), width="stretch"):
+            if not api_key and base_url.startswith("https://api.openai.com"):
+                st.error("Please set your OpenAI API key.")
+            else:
+                case_dict = _build_case_ai_dict(D)
+                user_message = f"Categorize this case based on 3Shape taxonomy. Product -> Topic -> Subtopic.\nCASE:\n{json.dumps(case_dict, default=str)}"
+                try:
+                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="categorize")
+                    st.session_state.categorizer_result = reply
+                except Exception as e:
+                    st.error(str(e))
+
+        if st.button("Ask", key=case_tab_key("ask_button"), width="stretch"):
+            if not api_key:
+                st.error("Set API key.")
+            else:
+                case_dict = _build_case_ai_dict(D)
+                findings = st.session_state.get("verify_result", "")
+                user_message = f"You are Kiroshi. Answer the user's implicit question based on case data.\nFINDINGS:\n{findings}\nCASE:\n{json.dumps(case_dict, default=str)}"
+                try:
+                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ask")
+                    st.session_state.ask_result = reply
+                except Exception as e:
+                    st.error(str(e))
+
+        if st.button("QA Verify", key=case_tab_key("verify_button"), width="stretch"):
+            if not api_key:
+                st.error("Set API key.")
+            else:
+                case_dict = _build_case_ai_dict(D)
+                user_message = (
+                    "Score this case against 3Shape QA framework (Call Control, Soft Skills, Communication, Closure, Technical). "
+                    "Return JSON with 'scores', 'overall', 'gaps', 'pass' (bool)."
+                    f"\nCASE:\n{json.dumps(case_dict, default=str)}"
+                )
+                try:
+                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="verify")
+                    qa_result = _extract_json_object(reply)
+                    st.session_state.qa_verification = qa_result or {}
+                    if qa_result:
+                        st.session_state.verify_result = json.dumps(qa_result, indent=2)
+                        if qa_result.get("overall", 0) >= 80:
+                            st.success("QA Passed (>80%).")
+                        else:
+                            st.warning("QA Failed (<80%).")
+                    else:
+                        st.session_state.verify_result = reply
+                except Exception as e:
+                    st.error(str(e))
+
+        # Display AI Results
+        if st.session_state.get("qa_verification"):
+            st.markdown("#### QA Verify Result")
+            st.json(st.session_state.qa_verification)
+        elif st.session_state.get("verify_result"):
+            st.markdown("#### QA Verify Result")
+            st.markdown(st.session_state.verify_result)
+
+        if st.session_state.get("ask_result"):
+            st.markdown("#### Kiroshi Suggestions")
+            st.markdown(st.session_state.ask_result)
+
+        if st.session_state.get("ai_assist_result"):
+            st.markdown("#### AI Assistance")
+            st.markdown(st.session_state.ai_assist_result)
+
+        if st.session_state.get("ai_autocorrect_result"):
+            st.markdown("#### AI Autocorrection")
+            st.markdown(st.session_state.ai_autocorrect_result)
 
         with case_tab_shell(st) as case_shell:
             render_case_header_section(case_shell, case_idx, compact_mode)
@@ -740,6 +955,12 @@ def render_case_ui(case_idx: int):
     # Tables Tab
     with case_tab(next(tab_iter), case_idx=case_idx, slug=CASE_TAB_SLUGS["Tables"]):
         st.subheader("Tables")
+
+        # Hotkeys Panel
+        render_autohotkey_panel(cat_map, case_idx)
+
+        # Tables display
+        st.subheader("Copy all tables")
         for cat in cat_map:
             st.markdown(f"**{cat}**")
             st.text(table_plain_text(cat, D, cat_map))
