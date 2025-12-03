@@ -1,0 +1,16 @@
+streamlit
+altair
+pandas
+reportlab
+requests
+urllib3
+tabulate
+pyinstaller
+pyautogui
+pynput
+pyperclip
+pillow
+mss
+pdfminer.six
+cryptography
+streamlit-desktop-app
