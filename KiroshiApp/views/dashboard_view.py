@@ -571,12 +571,49 @@ def render_saved_cases_dashboard() -> None:
 def render_saved_cases_page() -> None:
     """Render the full Saved Cases management page."""
     st.markdown("<div class='dashboard-title'>Saved Cases Index</div>", unsafe_allow_html=True)
+
+    # --- SEARCH FUNCTIONALITY ---
+    search_query = st.text_input(
+        "Search saved cases",
+        placeholder="Filter by Case ID, Company, or Version...",
+        key="saved_cases_search_query"
+    )
+    # ----------------------------
+
     saved_cases = list_saved_cases()
     if not saved_cases:
         st.info("No saved cases found.")
         return
 
     st.caption("Complete history of locally stored cases.")
+
+    # --- FILTER LOGIC ---
+    if search_query:
+        query = search_query.lower()
+        filtered_cases = []
+        for c in saved_cases:
+            # Check Case ID
+            if query in str(c.get("case_id", "")).lower():
+                filtered_cases.append(c)
+                continue
+            # Check Company
+            if query in str(c.get("company", "")).lower():
+                filtered_cases.append(c)
+                continue
+            # Check Version
+            if query in str(c.get("kiroshi_version", "")).lower():
+                filtered_cases.append(c)
+                continue
+            # Check Filename
+            if query in str(c.get("file_name", "")).lower():
+                filtered_cases.append(c)
+                continue
+        saved_cases = filtered_cases
+
+    if not saved_cases:
+        st.warning(f"No cases match '{search_query}'.")
+        return
+    # --------------------
 
     # Simple table layout
     weights = [1.2, 1.5, 1.0, 1.2, 0.8, 0.8]

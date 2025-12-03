@@ -58,6 +58,8 @@ from kiroshi_chat import (
     save_memory, invoke_gpt, build_system_prompt, get_assistant_notes,
     set_assistant_notes, build_assistant_memory_prompt, search_manual_docs, save_manual_docs
 )
+from KiroshiApp.services.qa_service import run_qa_verify, run_ai_autocorrect, run_summarize
+
 # We assume case_loading_overlay is available or we define it here/import from utils if moved.
 # It was in case_documentation_app.py. I'll check utils.
 # It wasn't moved to utils. I should define it here or import.
@@ -591,6 +593,72 @@ def render_conclusion_and_additional(container, compact_mode: bool, case_idx: in
         card.markdown("#### Additional information")
         auto_text_area("Additional details", "additional_info", height=200, container=card, case_idx=case_idx)
 
+def render_quick_actions(case_idx: int, D: CaseData):
+    with st.expander("⚡ Quick Actions", expanded=True):
+        cols = st.columns(5)
+
+        # QA Verify
+        if cols[0].button("QA Verify", key=widget_key("qa_verify", case_idx)):
+            report = run_qa_verify(D)
+            st.session_state[f"qa_report_{case_idx}"] = report
+
+        # AI Educate (Toggle)
+        is_educated = st.session_state.get("ai_educate_enabled", False)
+        if cols[1].button(f"AI Educate: {'ON' if is_educated else 'OFF'}", key=widget_key("ai_educate_toggle", case_idx)):
+             st.session_state.ai_educate_enabled = not is_educated
+             st.rerun()
+
+        # AI Autocorrect
+        if cols[2].button("AI Autocorrect", key=widget_key("ai_autocorrect", case_idx)):
+            with st.spinner("Refining description..."):
+                if D.description:
+                    corrected = run_ai_autocorrect(D.description)
+                    if corrected and corrected != D.description:
+                         # We need to update the object and the session state seed
+                         D.description = corrected
+                         desc_key = widget_key("description", case_idx)
+                         st.session_state[desc_key] = corrected
+                         st.session_state[f"{desc_key}__seed"] = corrected
+                         st.toast("Description updated by AI.")
+                         st.rerun()
+                    else:
+                        st.toast("No changes needed or AI returned empty.")
+                else:
+                    st.toast("Description is empty.")
+
+        # Summarize
+        if cols[3].button("Summarize", key=widget_key("summarize", case_idx)):
+             summary = run_summarize(D.description or "")
+             st.info(summary if summary else "No description to summarize.")
+
+        # Hotkey Restart (Debug helper)
+        if cols[4].button("Restart Hotkeys", key=widget_key("restart_hotkeys", case_idx)):
+             from kiroshi_hotkeys import ensure_hotkey_listener
+             ensure_hotkey_listener()
+             st.toast("Hotkey listener restart signal sent.")
+
+        # Show QA Report if exists
+        report = st.session_state.get(f"qa_report_{case_idx}")
+        if report:
+            st.markdown("### QA Report")
+            for line in report:
+                st.markdown(line)
+            if st.button("Clear Report", key=widget_key("clear_qa", case_idx)):
+                del st.session_state[f"qa_report_{case_idx}"]
+                st.rerun()
+
+def render_missing_info_todo(case_idx: int, D: CaseData):
+    """Renders a To-Do list of missing fields."""
+    missing = []
+    if not D.case_id: missing.append("Case ID")
+    if not D.company_name: missing.append("Company Name")
+    if not D.brief_description: missing.append("Brief Description")
+    if not D.description: missing.append("Description")
+    if not D.phone_number and not D.email: missing.append("Contact Info (Phone/Email)")
+
+    if missing:
+        st.warning(f"📝 **To Do - Missing Fields:** {', '.join(missing)}")
+
 def render_case_ui(case_idx: int):
     # Set current case index in session state for helpers
     st.session_state["_current_case_idx"] = case_idx
@@ -598,6 +666,11 @@ def render_case_ui(case_idx: int):
     D = st.session_state.case_sessions[case_idx].case
     # Sync global case D to current tab
     st.session_state.case = D
+
+    # --- QUICK ACTIONS ---
+    render_quick_actions(case_idx, D)
+    render_missing_info_todo(case_idx, D)
+    # ---------------------
 
     # Toggle states for tabs
     inc_esc_key = widget_key("include_escalations", case_idx)
