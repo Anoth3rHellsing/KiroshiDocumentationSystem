@@ -533,6 +533,22 @@ def _render_settings_ai_tab() -> None:
         unsafe_allow_html=True,
     )
     prev_enabled = st.session_state.ai_educate_enabled
+    st.selectbox(
+        "AI Provider",
+        ["OpenAI", "Gemini"],
+        key="ai_provider",
+        on_change=_on_setting_change("ai_provider"),
+    )
+
+    if st.session_state.ai_provider == "Gemini":
+        st.text_input(
+            "Gemini API Key",
+            type="password",
+            key="gemini_api_key",
+            help="Enter your Google Gemini API key here.",
+            on_change=_on_setting_change("gemini_api_key"),
+        )
+
     st.toggle(
         "Enable AI Educate",
         key="ai_educate_enabled",

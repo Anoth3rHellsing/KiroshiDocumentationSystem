@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from KiroshiApp.models import CaseData, TrackingData
-from KiroshiApp.services.data_manager import load_tracked_cases, save_case_to_database
+from KiroshiApp.services.data_manager import load_tracked_cases, save_case_to_database, update_tracked_status
 from KiroshiApp.services.sprint.sprint_manager import (
     load_sprint_state, save_sprint_state, get_tracked_cases_for_sprint,
     generate_sprint_pdf_report, SprintState, SprintTask, ai_prioritize_tasks,
@@ -112,6 +112,14 @@ def render_sprint_tab() -> None:
                     if task.status != "Completed":
                         if st.button("Mark Complete", key=f"btn_comp_{task.case_id}"):
                             task.status = "Completed"
+                            # Also mark case as Resolved globally
+                            if task.source_path:
+                                try:
+                                    update_tracked_status(path=task.source_path, status="Resolved", case_id=task.case_id)
+                                    st.toast(f"Case {task.case_id} marked as Resolved globally.")
+                                except Exception as e:
+                                    st.error(f"Failed to update global status: {e}")
+
                             save_sprint_state(st.session_state.sprint_state)
                             st.rerun()
                     else:

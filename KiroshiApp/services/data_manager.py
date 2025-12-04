@@ -253,7 +253,7 @@ def _apply_tracked_priority_update(path: str, new_priority: str, **kwargs) -> tu
     """Internal helper to update priority."""
     return update_tracked_priority(path, new_priority, **kwargs)
 
-def _sync_active_case_state(case_id: str | None, updates: dict[str, Any]) -> None:
+def _sync_active_case_state(case_id: str | None, updates: dict[str, Any], timestamp: str | None = None) -> None:
     """Update the active session case if it matches the modified case ID."""
     if not case_id or not hasattr(st, "session_state"):
         return
@@ -271,23 +271,92 @@ def _sync_active_case_state(case_id: str | None, updates: dict[str, Any]) -> Non
     if "active" in updates and hasattr(st, "session_state"):
         st.session_state.track_case = bool(updates["active"])
 
+    if timestamp:
+        active_case.last_modified = timestamp
+        st.session_state["last_modified"] = timestamp
+
 def update_tracked_priority(path: str, new_priority: str, **kwargs) -> tuple[str, str | None]:
     """Update the priority field of a tracked case."""
     normalized = normalize_priority(new_priority)
     timestamp = update_tracked_case_file(path, tracking_updates={"priority": normalized})
-    _sync_active_case_state(kwargs.get("case_id"), {"priority": normalized})
+    _sync_active_case_state(kwargs.get("case_id"), {"priority": normalized}, timestamp=timestamp)
     return normalized, timestamp
 
 def update_tracked_status(path: str, new_status: str, **kwargs) -> tuple[str, str | None]:
     """Update the status field of a tracked case."""
     timestamp = update_tracked_case_file(path, tracking_updates={"status": new_status})
-    _sync_active_case_state(kwargs.get("case_id"), {"status": new_status})
+    _sync_active_case_state(kwargs.get("case_id"), {"status": new_status}, timestamp=timestamp)
     return new_status, timestamp
 
-def untrack_case(path: str, **kwargs) -> None:
-    """Disable tracking for a case."""
-    update_tracked_case_file(path, tracking_updates={"active": False})
-    _sync_active_case_state(kwargs.get("case_id"), {"active": False})
+def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | None = None) -> None:
+    """Deactivate tracking for a case and refresh the dashboard."""
+
+    case_path = Path(path)
+    legacy_source = (
+        is_legacy
+        if is_legacy is not None
+        else case_path.parent == TRACKED_CASES_DIR or case_path.name.endswith("_Active.json")
+    )
+    try:
+        data = json.loads(case_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logging.exception("Failed to read tracked case %s", path)
+        st.error(f"Failed to untrack case: {exc}")
+        return
+
+    if not legacy_source and isinstance(data.get("tracking"), dict):
+        tracking = data.get("tracking", {})
+        tracking["active"] = False
+        data["tracking"] = tracking
+        target_case_id = case_id or data.get("case_id") or case_path.stem
+        try:
+            case_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logging.exception("Failed to persist updated case %s", path)
+            st.error(f"Failed to update case: {exc}")
+            return
+        _reset_tracked_cases_cache()
+        if target_case_id:
+            update_recent_cases(target_case_id, str(case_path))
+        _sync_active_case_state(target_case_id, {"active": False})
+
+        if hasattr(st, "toast"):
+            st.toast("Case removed from tracking.")
+        if hasattr(st, "rerun"):
+            st.rerun()
+        return
+
+    try:
+        case_id_value = case_id or data.get("case_id") or case_path.stem.replace("_Active", "")
+        if not case_id_value:
+            case_path.unlink(missing_ok=True)
+            return
+        dest = DATABASE_DIR / f"{case_id_value}.json"
+        payload = {k: v for k, v in data.items() if k != "path"}
+
+        if dest.exists():
+            try:
+                existing = json.loads(dest.read_text(encoding="utf-8"))
+            except Exception:
+                existing = {}
+            if isinstance(existing, dict):
+                existing.update(payload)
+                dest.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+            else:
+                dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        else:
+                dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        case_path.unlink(missing_ok=True)
+        _reset_tracked_cases_cache()
+        update_recent_cases(case_id_value, str(dest))
+        if hasattr(st, "toast"):
+            st.toast("Case removed from tracking.")
+        if hasattr(st, "rerun"):
+            st.rerun()
+    except Exception as exc:
+        logging.exception("Failed to untrack tracked case %s", path)
+        st.error(f"Failed to untrack case: {exc}")
 
 def update_tracked_case_file(
     path: str,
@@ -569,6 +638,94 @@ def get_case_attachments_dir(case_id: str) -> Path:
     case_dir = attachments_root / safe_id
     case_dir.mkdir(parents=True, exist_ok=True)
     return case_dir
+
+def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
+    """Write uploaded attachments to disk and return metadata for JSON storage."""
+    from KiroshiApp.services.screenshot_service import get_active_screenshots
+    # Try importing view helper if available, else ignore
+    try:
+        from KiroshiApp.views.case_view import _set_active_session_attachments_index
+    except ImportError:
+        _set_active_session_attachments_index = None
+
+    attachments_index: dict[str, list[dict[str, str]]] = {
+        "uploads": [],
+        "log_uploads": [],
+        "screenshots": [],
+    }
+    if not case_id:
+        return attachments_index
+
+    try:
+        base_dir = get_case_attachments_dir(case_id)
+    except Exception as exc:
+        logging.exception("Unable to prepare attachments directory for %s", case_id)
+        return attachments_index
+
+    # We need to access session state for uploads as they are transient until saved
+    if not hasattr(st, "session_state"):
+        return attachments_index
+
+    # screenshots are managed by ScreenshotService which is usually imported in views
+    # but we can try to access st.session_state["screenshots"] directly if service not avail
+    screenshots_state = st.session_state.get("screenshots", [])
+
+    mapping = [
+        ("uploads", st.session_state.get("uploads", []), "uploads"),
+        ("log_uploads", st.session_state.get("log_uploads", []), "logs"),
+        ("screenshots", screenshots_state, "screenshots"),
+    ]
+
+    for key, items, subdir in mapping:
+        if not items:
+            continue
+        target_dir = base_dir / subdir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        seen: set[str] = set()
+        for item in items:
+            name = getattr(item, "name", None)
+            if not isinstance(name, str):
+                continue
+            sanitized = sanitize_filename(name)
+            try:
+                # getvalue() might fail if closed or mocked poorly
+                if hasattr(item, "getvalue"):
+                    data = item.getvalue()
+                else:
+                    data = getattr(item, "data", b"")
+            except Exception as exc:
+                logging.warning("Failed to read attachment %s: %s", name, exc)
+                continue
+            if not isinstance(data, (bytes, bytearray)):
+                continue
+            dest = target_dir / sanitized
+            try:
+                with open(dest, "wb") as fh:
+                    fh.write(data)
+            except Exception as exc:
+                logging.warning("Failed to write attachment %s: %s", dest, exc)
+                continue
+            rel_path = dest.relative_to(base_dir).as_posix()
+            if rel_path in seen:
+                continue
+            seen.add(rel_path)
+
+            # For screenshots we want more metadata
+            if key == "screenshots" and hasattr(item, "metadata"):
+                 attachments_index[key].append(item.metadata(path=rel_path))
+            else:
+                 attachments_index[key].append({"name": sanitized, "path": rel_path})
+
+    # Update session state index if possible
+    # We might need _set_active_session_attachments_index which is in views/case_view usually
+    # But let's try to update st.session_state directly if needed or import
+    try:
+        from KiroshiApp.views.case_view import _set_active_session_attachments_index
+        _set_active_session_attachments_index(attachments_index)
+    except ImportError:
+        pass # View module might not be ready or we are in strict test mode
+
+    return attachments_index
 
 def _normalise_attachments_index(
     data: Mapping[str, Iterable[Mapping[str, object]]] | Mapping[str, object] | None,
@@ -898,15 +1055,199 @@ def run_bug_detector(dataset: Mapping[str, object] | None) -> dict[str, object] 
     """Analyze the dataset for bug patterns."""
     if not dataset:
         return None
-    # Dummy implementation for now to satisfy import
+
+    cases = dataset.get("cases", [])
+    if not isinstance(cases, list) or not cases:
+        return None
+
+    # Simplified reimplementation using pandas if available, or pure python
+    # Since we installed pandas, let's try to mimic the logic simply without full dependency on legacy if possible.
+    # But the test expects specific logic.
+
+    # Let's use a pure python approach for portability if pandas is tricky, but pandas is installed.
+    import pandas as pd
+    df = pd.DataFrame(cases)
+    if df.empty:
+        return None
+
+    # Logic from legacy:
+    def _text_contains_bug(*parts: object) -> bool:
+        combined = " ".join(str(part or "") for part in parts).lower()
+        return "bug" in combined
+
+    df["analysis_label"] = df.get("root_cause").fillna("").replace("", None)
+    df["analysis_label"] = df["analysis_label"].where(
+        df["analysis_label"].notna(), df.get("title").fillna("")
+    )
+    # Ensure analysis_label is populated
+    df["analysis_label"] = df["analysis_label"].fillna("Unknown case")
+
+    recurring_counts = (
+        df.groupby("analysis_label")
+        .size()
+        .reset_index(name="count")
+        .sort_values("count", ascending=False)
+    )
+    recurring_counts = recurring_counts[recurring_counts["count"] >= 2]
+
+    pattern_details: list[dict[str, object]] = []
+    for _, row in recurring_counts.iterrows():
+        label = str(row.get("analysis_label") or "")
+        if not label:
+            continue
+        group = df[df["analysis_label"] == label]
+        case_records: list[dict[str, object]] = []
+        case_ids: list[str] = []
+
+        for _, case_row in group.iterrows():
+            case_id = str(case_row.get("case_id") or "").strip()
+            if case_id:
+                case_ids.append(case_id)
+            case_records.append(
+                {
+                    "case_id": case_id,
+                    "title": str(case_row.get("title") or ""),
+                    "root_cause": str(case_row.get("root_cause") or ""),
+                    "solution": str(case_row.get("solution") or ""),
+                    # Simplified fields
+                }
+            )
+
+        pattern_details.append(
+            {
+                "pattern": label,
+                "count": int(row.get("count", 0) or 0),
+                "case_ids": case_ids,
+                "cases": case_records,
+            }
+        )
+
+    bug_cases = df[
+        df.apply(
+            lambda row: _text_contains_bug(
+                row.get("root_cause"),
+                row.get("solution"),
+                row.get("description_excerpt"),
+            ),
+            axis=1,
+        )
+    ]
+
+    summary_parts = []
+    if not recurring_counts.empty:
+        top_pattern = recurring_counts.iloc[0]
+        summary_parts.append(
+            "Se detectaron patrones recurrentes, destacando "
+            f"'{top_pattern['analysis_label']}' con {int(top_pattern['count'])} casos."
+        )
+    if not bug_cases.empty:
+        summary_parts.append(
+            f"Se identificaron {len(bug_cases)} casos con referencia directa a bugs."
+        )
+    if not summary_parts:
+        summary_parts.append("No se detectaron comportamientos anómalos consistentes.")
+
     return {
-        "summary": "Bug detection ran successfully.",
-        "recurring_patterns": []
+        "generated_at": _utc_now_z(),
+        "recurring_patterns": pattern_details,
+        "bug_cases": bug_cases.to_dict("records"),
+        "summary": " ".join(summary_parts),
     }
 
-def build_helpjuice_outline(case: CaseData) -> str:
+def build_helpjuice_outline(
+    case: CaseData | None,
+    *,
+    context: Mapping[str, object] | None = None,
+    logs: str = "",
+    user_notes: str = "",
+    matches: Any | None = None,
+    manual_docs: Any | None = None,
+) -> str:
     """Generate a Helpjuice article outline from the case."""
-    return f"Title: {case.title}\n\nProblem:\n{case.description}\n\nSolution:\n{case.solution}"
+    context = context or {}
+    title_seed = "Helpjuice Guide"
+    if case:
+        for candidate in (case.brief_description, case.company_name, case.case_id):
+            if candidate:
+                title_seed = str(candidate)
+                break
+    elif context.get("section"):
+        title_seed = str(context.get("section"))
+
+    lines: list[str] = [f"# Helpjuice Guide – {title_seed}"]
+
+    meta_bits: list[str] = []
+    if case:
+        if case.company_name:
+            meta_bits.append(f"**Company:** {case.company_name}")
+        if case.case_id:
+            meta_bits.append(f"**Case ID:** {case.case_id}")
+        if case.subscription_id:
+            meta_bits.append(f"**Subscription:** {case.subscription_id}")
+        if case.tracking and getattr(case.tracking, "priority", ""):
+            meta_bits.append(f"**Priority:** {case.tracking.priority}")
+    if context.get("tab"):
+        meta_bits.append(f"**Detected in:** {context.get('tab')}")
+    if context.get("timestamp"):
+        meta_bits.append(f"**Captured:** {context.get('timestamp')}")
+    if meta_bits:
+        lines.append("## Case snapshot")
+        lines.extend(f"- {bit}" for bit in meta_bits)
+
+    if user_notes and user_notes.strip():
+        lines.append("\n## Reporter notes")
+        lines.append(user_notes.strip())
+
+    if case:
+        lines.append(f"\n## Problem Description\n{case.description or 'No description provided.'}")
+        if case.repro_steps:
+            lines.append(f"\n## Steps to Reproduce\n{case.repro_steps}")
+        if case.root_cause:
+            lines.append(f"\n## Root Cause\n{case.root_cause}")
+        lines.append(f"\n## Solution\n{case.solution or 'No solution documented.'}")
+
+    # Placeholder for remediation steps until fully implemented
+    lines.append("\n## Step-by-step remediation")
+    if case.repro_steps:
+        lines.append(f"1. Reproduce issue: {case.repro_steps}")
+    else:
+        lines.append("1. Review problem description.")
+
+    if case.remote_sessions:
+        from KiroshiApp.models import format_remote_sessions_summary
+        summary = format_remote_sessions_summary(case.remote_sessions, include_timestamps=False)
+        lines.append(f"2. Remote session recap: {summary}")
+        lines.append("3. Verify root cause if available.")
+    else:
+        lines.append("2. Verify root cause if available.")
+        lines.append("3. Apply solution steps.")
+
+    if matches:
+        for match in list(matches)[:3]:
+            if not isinstance(match, Mapping):
+                continue
+            case_id = str(match.get("case_id") or "Related case")
+            label = str(
+                match.get("root_cause")
+                or match.get("title")
+                or match.get("solution_excerpt")
+                or case_id
+            )
+            solution = str(match.get("solution") or match.get("solution_excerpt") or "Review full case notes.")
+            lines.append(f"Cross-reference {case_id}: {label} → {solution}")
+
+    if manual_docs:
+        lines.append("\n## Related knowledge base entries")
+        for entry in manual_docs[:3]:
+            if not isinstance(entry, Mapping):
+                continue
+            title = str(entry.get("title") or "")
+            if not title:
+                continue
+            snippet = _summarize_text(str(entry.get("content") or ""), width=220)
+            lines.append(f"- **{title}** — {snippet}")
+
+    return "\n".join(lines)
 
 
 def ensure_ai_learning_dataset(force: bool = False) -> dict[str, object] | None:
