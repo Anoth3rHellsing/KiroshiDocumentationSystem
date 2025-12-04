@@ -578,6 +578,27 @@ def render_saved_cases_page() -> None:
 
     st.caption("Complete history of locally stored cases.")
 
+    # Search Logic
+    search_query = st.text_input("Search Saved Cases", placeholder="Filter by Case ID, Company, or Version...").lower().strip()
+
+    filtered_cases = []
+    if search_query:
+        for case in saved_cases:
+            haystack = [
+                str(case.get("case_id", "")).lower(),
+                str(case.get("company", "")).lower(),
+                str(case.get("kiroshi_version", "")).lower(),
+                str(case.get("updated", "")).lower()
+            ]
+            if any(search_query in term for term in haystack):
+                filtered_cases.append(case)
+    else:
+        filtered_cases = saved_cases
+
+    if not filtered_cases:
+        st.warning("No cases match your search.")
+        return
+
     # Simple table layout
     weights = [1.2, 1.5, 1.0, 1.2, 0.8, 0.8]
     header_cols = st.columns(weights)
@@ -587,7 +608,7 @@ def render_saved_cases_page() -> None:
     header_cols[3].markdown("**Last Modified**")
     header_cols[4].markdown("**Action**")
 
-    for case in saved_cases:
+    for case in filtered_cases:
         row_cols = st.columns(weights)
         row_cols[0].write(case["case_id"])
 

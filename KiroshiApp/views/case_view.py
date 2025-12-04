@@ -715,142 +715,149 @@ def render_case_ui(case_idx: int):
         case_tab_key = partial(case_widget_key, CASE_TAB_SLUGS["Case"], case_idx=case_idx)
 
         # Restore full Quick Actions Menu
-        st.markdown("#### Quick actions")
-        api_key = st.session_state.openai_api_key
-        model = st.session_state.openai_model
-        base_url = st.session_state.ai_base_url
-        educate_enabled = st.session_state.get("ai_educate_enabled", False)
-        advanced_enabled = st.session_state.get("ai_educate_advanced", False)
-        ai_learning_dataset = None
-        if educate_enabled and advanced_enabled:
-            ai_learning_dataset = ensure_ai_learning_dataset()
+        with st.expander("Quick Actions", expanded=False):
+            api_key = st.session_state.openai_api_key
+            model = st.session_state.openai_model
+            base_url = st.session_state.ai_base_url
+            educate_enabled = st.session_state.get("ai_educate_enabled", False)
+            advanced_enabled = st.session_state.get("ai_educate_advanced", False)
+            ai_learning_dataset = None
+            if educate_enabled and advanced_enabled:
+                ai_learning_dataset = ensure_ai_learning_dataset()
 
-        ai_assist_summary = st.session_state.get("ai_assist_result") or ""
+            ai_assist_summary = st.session_state.get("ai_assist_result") or ""
 
-        # Quick Action Buttons
-        if st.button("Save case", key=case_tab_key("quick_save"), width="stretch"):
-            save_case_to_database(D)
+            # Quick Action Buttons
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("Save case", key=case_tab_key("quick_save"), width="stretch"):
+                    save_case_to_database(D)
 
-        if st.button("Clear all", key=case_tab_key("clear_all_button"), width="stretch"):
-            logging.info("Clear all button clicked")
-            with case_loading_overlay("Cycling the workspace back to zero…"):
-                time.sleep(1)
-                backup_path = None
-                if D.case_id:
-                    backup_path = create_case_autosave_snapshot(D.case_id)
-                # clear_case_state logic inline since function not available
-                # Reset D
-                st.session_state.case_sessions[case_idx].case = CaseData()
-                st.session_state.case = st.session_state.case_sessions[case_idx].case
-                if backup_path:
-                    st.success(f"Case autosaved to {backup_path.name}")
-            st.rerun()
+            with col2:
+                if st.button("Clear all", key=case_tab_key("clear_all_button"), width="stretch"):
+                    logging.info("Clear all button clicked")
+                    with case_loading_overlay("Cycling the workspace back to zero…"):
+                        time.sleep(1)
+                        backup_path = None
+                        if D.case_id:
+                            backup_path = create_case_autosave_snapshot(D.case_id)
+                        # clear_case_state logic inline since function not available
+                        # Reset D
+                        st.session_state.case_sessions[case_idx].case = CaseData()
+                        st.session_state.case = st.session_state.case_sessions[case_idx].case
+                        if backup_path:
+                            st.success(f"Case autosaved to {backup_path.name}")
+                    st.rerun()
 
-        if st.session_state.track_case:
-            st.button("Tracking enabled", disabled=True, key=case_tab_key("tracking_enabled"), width="stretch")
-        elif st.button("Track case", key=case_tab_key("track_case_button"), width="stretch"):
-            st.session_state.track_case = True
-            st.rerun()
+            with col3:
+                if st.session_state.track_case:
+                    st.button("Tracking enabled", disabled=True, key=case_tab_key("tracking_enabled"), width="stretch")
+                elif st.button("Track case", key=case_tab_key("track_case_button"), width="stretch"):
+                    st.session_state.track_case = True
+                    st.rerun()
 
-        # AI Tools
-        if st.button("AI Assistance", key=case_tab_key("assist_button"), width="stretch"):
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            else:
-                case_dict = _build_case_ai_dict(D)
-                _, miss = compute_progress(D, cat_map)
-                missing = [f for flds in miss.values() for f in flds]
-                learning_context = ""
-                if educate_enabled and advanced_enabled:
-                    matches = find_relevant_learning_cases(D, ai_learning_dataset)
-                    st.session_state.ai_learning_matches = matches
-                    if matches:
-                        learning_context = "Leverage these historical cases: " + json.dumps([m['case_id'] for m in matches])
+            st.markdown("---")
+            st.markdown("#### AI Tools")
 
-                tone_directive = build_kiroshi_tone_directive()
-                disabled_tab_note = _disabled_tab_note()
-                user_message = (
-                    f"{learning_context}\n{disabled_tab_note}\n"
-                    "You are Kiroshi. Review case details and provide concise guidance. "
-                    f"{tone_directive}\nCASE DATA:\n{json.dumps(case_dict, default=str)}"
-                )
-                try:
-                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ai_assist")
-                    st.session_state.ai_assist_result = reply
-                    save_memory(st.session_state.kiroshi_chat_history)
-                except Exception as e:
-                    st.error(str(e))
+            # AI Tools
+            if st.button("AI Assistance", key=case_tab_key("assist_button"), width="stretch"):
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = _build_case_ai_dict(D)
+                    _, miss = compute_progress(D, cat_map)
+                    missing = [f for flds in miss.values() for f in flds]
+                    learning_context = ""
+                    if educate_enabled and advanced_enabled:
+                        matches = find_relevant_learning_cases(D, ai_learning_dataset)
+                        st.session_state.ai_learning_matches = matches
+                        if matches:
+                            learning_context = "Leverage these historical cases: " + json.dumps([m['case_id'] for m in matches])
 
-        if st.button("AI Autocorrection", key=case_tab_key("ai_autocorrect_button"), width="stretch", disabled=not bool(ai_assist_summary)):
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key in the Debug tab.")
-            else:
-                case_dict = _build_case_ai_dict(D)
-                tone_directive = build_kiroshi_tone_directive()
-                user_message = (
-                    "You are Kiroshi. Auto-correct this case for QA compliance. Return JSON only with 'corrected_case' and 'summary'."
-                    f"\n{tone_directive}\nCASE DATA:\n{json.dumps(case_dict, default=str)}"
-                )
-                try:
-                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ai_autocorrect")
-                    parsed = _extract_json_object(reply)
-                    if parsed:
-                        st.session_state.ai_autocorrect_case_json = parsed
-                        st.session_state.ai_autocorrect_result = json.dumps(parsed, indent=2)
-                    else:
-                        st.session_state.ai_autocorrect_result = reply
-                except Exception as e:
-                    st.error(str(e))
+                    tone_directive = build_kiroshi_tone_directive()
+                    disabled_tab_note = _disabled_tab_note()
+                    user_message = (
+                        f"{learning_context}\n{disabled_tab_note}\n"
+                        "You are Kiroshi. Review case details and provide concise guidance. "
+                        f"{tone_directive}\nCASE DATA:\n{json.dumps(case_dict, default=str)}"
+                    )
+                    try:
+                        reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ai_assist")
+                        st.session_state.ai_assist_result = reply
+                        save_memory(st.session_state.kiroshi_chat_history)
+                    except Exception as e:
+                        st.error(str(e))
 
-        if st.button("Categorize", key=case_tab_key("categorize_button"), width="stretch"):
-            if not api_key and base_url.startswith("https://api.openai.com"):
-                st.error("Please set your OpenAI API key.")
-            else:
-                case_dict = _build_case_ai_dict(D)
-                user_message = f"Categorize this case based on 3Shape taxonomy. Product -> Topic -> Subtopic.\nCASE:\n{json.dumps(case_dict, default=str)}"
-                try:
-                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="categorize")
-                    st.session_state.categorizer_result = reply
-                except Exception as e:
-                    st.error(str(e))
-
-        if st.button("Ask", key=case_tab_key("ask_button"), width="stretch"):
-            if not api_key:
-                st.error("Set API key.")
-            else:
-                case_dict = _build_case_ai_dict(D)
-                findings = st.session_state.get("verify_result", "")
-                user_message = f"You are Kiroshi. Answer the user's implicit question based on case data.\nFINDINGS:\n{findings}\nCASE:\n{json.dumps(case_dict, default=str)}"
-                try:
-                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ask")
-                    st.session_state.ask_result = reply
-                except Exception as e:
-                    st.error(str(e))
-
-        if st.button("QA Verify", key=case_tab_key("verify_button"), width="stretch"):
-            if not api_key:
-                st.error("Set API key.")
-            else:
-                case_dict = _build_case_ai_dict(D)
-                user_message = (
-                    "Score this case against 3Shape QA framework (Call Control, Soft Skills, Communication, Closure, Technical). "
-                    "Return JSON with 'scores', 'overall', 'gaps', 'pass' (bool)."
-                    f"\nCASE:\n{json.dumps(case_dict, default=str)}"
-                )
-                try:
-                    reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="verify")
-                    qa_result = _extract_json_object(reply)
-                    st.session_state.qa_verification = qa_result or {}
-                    if qa_result:
-                        st.session_state.verify_result = json.dumps(qa_result, indent=2)
-                        if qa_result.get("overall", 0) >= 80:
-                            st.success("QA Passed (>80%).")
+            if st.button("AI Autocorrection", key=case_tab_key("ai_autocorrect_button"), width="stretch", disabled=not bool(ai_assist_summary)):
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key in the Debug tab.")
+                else:
+                    case_dict = _build_case_ai_dict(D)
+                    tone_directive = build_kiroshi_tone_directive()
+                    user_message = (
+                        "You are Kiroshi. Auto-correct this case for QA compliance. Return JSON only with 'corrected_case' and 'summary'."
+                        f"\n{tone_directive}\nCASE DATA:\n{json.dumps(case_dict, default=str)}"
+                    )
+                    try:
+                        reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ai_autocorrect")
+                        parsed = _extract_json_object(reply)
+                        if parsed:
+                            st.session_state.ai_autocorrect_case_json = parsed
+                            st.session_state.ai_autocorrect_result = json.dumps(parsed, indent=2)
                         else:
-                            st.warning("QA Failed (<80%).")
-                    else:
-                        st.session_state.verify_result = reply
-                except Exception as e:
-                    st.error(str(e))
+                            st.session_state.ai_autocorrect_result = reply
+                    except Exception as e:
+                        st.error(str(e))
+
+            if st.button("Categorize", key=case_tab_key("categorize_button"), width="stretch"):
+                if not api_key and base_url.startswith("https://api.openai.com"):
+                    st.error("Please set your OpenAI API key.")
+                else:
+                    case_dict = _build_case_ai_dict(D)
+                    user_message = f"Categorize this case based on 3Shape taxonomy. Product -> Topic -> Subtopic.\nCASE:\n{json.dumps(case_dict, default=str)}"
+                    try:
+                        reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="categorize")
+                        st.session_state.categorizer_result = reply
+                    except Exception as e:
+                        st.error(str(e))
+
+            if st.button("Ask", key=case_tab_key("ask_button"), width="stretch"):
+                if not api_key:
+                    st.error("Set API key.")
+                else:
+                    case_dict = _build_case_ai_dict(D)
+                    findings = st.session_state.get("verify_result", "")
+                    user_message = f"You are Kiroshi. Answer the user's implicit question based on case data.\nFINDINGS:\n{findings}\nCASE:\n{json.dumps(case_dict, default=str)}"
+                    try:
+                        reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="ask")
+                        st.session_state.ask_result = reply
+                    except Exception as e:
+                        st.error(str(e))
+
+            if st.button("QA Verify", key=case_tab_key("verify_button"), width="stretch"):
+                if not api_key:
+                    st.error("Set API key.")
+                else:
+                    case_dict = _build_case_ai_dict(D)
+                    user_message = (
+                        "Score this case against 3Shape QA framework (Call Control, Soft Skills, Communication, Closure, Technical). "
+                        "Return JSON with 'scores', 'overall', 'gaps', 'pass' (bool)."
+                        f"\nCASE:\n{json.dumps(case_dict, default=str)}"
+                    )
+                    try:
+                        reply = invoke_gpt(user_message, st.session_state.kiroshi_chat_history, api_key, model, base_url, source="verify")
+                        qa_result = _extract_json_object(reply)
+                        st.session_state.qa_verification = qa_result or {}
+                        if qa_result:
+                            st.session_state.verify_result = json.dumps(qa_result, indent=2)
+                            if qa_result.get("overall", 0) >= 80:
+                                st.success("QA Passed (>80%).")
+                            else:
+                                st.warning("QA Failed (<80%).")
+                        else:
+                            st.session_state.verify_result = reply
+                    except Exception as e:
+                        st.error(str(e))
 
         # Display AI Results
         if st.session_state.get("qa_verification"):

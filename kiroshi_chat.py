@@ -481,8 +481,17 @@ def search_manual_docs(query, docs):
     ]
 
 
-def query_kiroshi(user_message, history, api_key, model, base_url=None, provider="OpenAI"):
+def query_kiroshi(user_message, history, api_key, model, base_url=None, provider=None):
     """Send a message to the Kiroshi API or a local model and return the reply."""
+    if provider is None:
+         provider = st.session_state.get("ai_provider", "OpenAI")
+
+    if provider == "Gemini":
+        # Gemini often uses a specific env var or passed key.
+        # If api_key passed is empty, try session state
+        if not api_key:
+             api_key = st.session_state.get("gemini_api_key")
+
     system_messages: list[dict[str, str]] = [
         {"role": "system", "content": build_system_prompt()}
     ]
@@ -690,6 +699,7 @@ def main():
 if __name__ == "__main__":
     main()
 
-def invoke_gpt(user_message, history, api_key, model, base_url=None):
+def invoke_gpt(user_message, history, api_key, model, base_url=None, source=None):
     """Alias for query_kiroshi to maintain backward compatibility."""
+    # We ignore 'source' as it's for logging/context but not used in core query yet
     return query_kiroshi(user_message, history, api_key, model, base_url)
