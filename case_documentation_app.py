@@ -48,7 +48,8 @@ from KiroshiApp.views.dashboard_view import render_dashboard
 from KiroshiApp.views.settings_view import render_settings_panel
 from KiroshiApp.views.report_view import render_report_panel
 from KiroshiApp.views.sprint.sprint_view import render_sprint_tab
-from KiroshiApp.views.case_view import render_case_ui, render_screenshot_capture_footer
+from KiroshiApp.views.case_view import render_case_ui, render_screenshot_capture_footer, active_category_map
+from KiroshiApp.views.incident_view import show_failure_modal, show_incident_report_modal
 
 # Legacy imports for startup checks
 # (kiroshi_chat, kiroshi_cloud_sync, kiroshi_hotkeys are external modules)
@@ -156,6 +157,19 @@ _init_state("last_rendered_tab", "Dashboard")
 _init_state("last_rendered_case", None)
 _init_state("track_case", False)
 
+# Initialize incident reporting state
+_init_state("incident_context", None)
+_init_state("reporter_open", False)
+_init_state("reporter_allow_screenshot", True)
+_init_state("incident_reporter_description", "")
+_init_state("incident_reporter_pdf", None)
+_init_state("incident_reporter_capture_error", None)
+_init_state("incident_reporter_screenshot", None)
+_init_state("render_failure_detected", False)
+_init_state("error_modal_open", False)
+_init_state("failure_modal_message", None)
+_init_state("reporter_source", "auto")
+
 # Theme application
 CURRENT_THEME = determine_active_theme()
 apply_theme_palette(CURRENT_THEME)
@@ -253,16 +267,25 @@ for i, tab in enumerate(all_tabs[tab_idx:]):
 # Global Hotkeys
 ensure_hotkey_listener()
 # We should update hotkey snapshot based on active case
-active_idx = st.session_state.get(HOTKEY_TARGET_SESSION_KEY) # defined in constants/utils?
-# Using a fallback if not defined
-hotkey_target = st.session_state.get("hotkey_target_idx", 0)
-if 0 <= hotkey_target < len(st.session_state.case_sessions):
-    # We need category map for hotkeys.
-    from KiroshiApp.views.case_view import active_category_map
-    cat_map = active_category_map()
-    update_hotkey_snapshot(
-        st.session_state.case_sessions,
-        hotkey_target,
-        cat_map,
-        st.session_state.get("last_prompt", "")
-    )
+hotkey_target = st.session_state.get(HOTKEY_TARGET_SESSION_KEY, 0)
+if not isinstance(hotkey_target, int):
+    hotkey_target = 0 # Default fallback
+
+# Ensure hotkey_target is within bounds
+if not (0 <= hotkey_target < len(st.session_state.case_sessions)):
+    hotkey_target = 0
+
+# Get category map for hotkeys
+cat_map = active_category_map()
+
+# Update hotkey snapshot
+update_hotkey_snapshot(
+    st.session_state.case_sessions,
+    hotkey_target,
+    cat_map,
+    st.session_state.get("last_prompt", "")
+)
+
+# Incident Reporting Modals
+show_failure_modal()
+show_incident_report_modal()
