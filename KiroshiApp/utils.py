@@ -1052,3 +1052,75 @@ def _create_ai_learning_dataset_from_cases(
             dataset["shared_by"] = identity_payload["display_name"]
 
     return dataset
+
+from contextlib import contextmanager
+
+@contextmanager
+def safe_modal(title: str, key: str | None = None):
+    """Provide a backwards-compatible context manager for Streamlit modals."""
+    try:
+        modal_callable = getattr(st, "modal")
+    except AttributeError:
+        modal_callable = None
+
+    if callable(modal_callable):
+        with modal_callable(title, key=key):
+            yield
+        return
+
+    container = st.container()
+    with container:
+        st.markdown(f"### {title}")
+        yield
+
+from KiroshiApp.constants import LOG_FILE
+from pathlib import Path
+import os
+import logging
+
+def _collect_recent_logs(max_bytes: int = 65536) -> str:
+    """Return the tail of the application log file for diagnostics."""
+    synthetic_payload = os.environ.get("KIROSHI_SYNTHETIC_LOGS")
+    if isinstance(synthetic_payload, str) and synthetic_payload:
+        return synthetic_payload
+
+    log_path = Path(LOG_FILE)
+    # Check if absolute or relative. If relative, might be in APP_DIR/logs or root.
+    # The setup logic in main app puts it in specific dirs.
+    # We should search for it or assume it's where configured.
+    # For now, let's look in cwd or APP_DIR/logs
+
+    candidates = [
+        Path.cwd() / LOG_FILE,
+        Path(__file__).parent.parent.parent / "logs" / LOG_FILE,
+        Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Kiroshi" / "logs" / LOG_FILE
+    ]
+
+    found_path = None
+    for p in candidates:
+        if p.exists():
+            found_path = p
+            break
+
+    if not found_path:
+        return "Log file not found."
+
+    try:
+        with found_path.open("r", encoding="utf-8", errors="replace") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            start = max(size - max_bytes, 0)
+            handle.seek(start)
+            if start > 0:
+                handle.readline()
+            return handle.read().strip()
+    except OSError as exc:
+        logging.error("Unable to read log file %s: %s", found_path, exc)
+        return f"Unable to read logs: {exc}"
+
+def global_widget_key(base: str) -> str:
+    """Return a Streamlit widget key reserved for global (non-case) widgets."""
+    key = f"global_{base}"
+    # Simplified registration logic for this refactor
+    # In legacy, it tracked collisions. Here we just return the key.
+    return key

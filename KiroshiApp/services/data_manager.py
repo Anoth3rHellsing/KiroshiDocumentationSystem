@@ -1318,3 +1318,34 @@ def ensure_ai_learning_dataset(force: bool = False) -> dict[str, object] | None:
         save_ai_learning_dataset(new_dataset)
 
     return new_dataset
+
+def _case_metadata_snapshot(active_index: int | None = None) -> list[dict[str, str]]:
+    """Return a serialised view of known cases for diagnostic exports."""
+    # We access session state directly.
+    if not hasattr(st, "session_state"):
+        return []
+
+    sessions = st.session_state.get("case_sessions", [])
+    snapshot: list[dict[str, str]] = []
+
+    from KiroshiApp.models import CaseData, TrackingData
+    from KiroshiApp.views.case_view import _case_display_name
+
+    for idx, session in enumerate(sessions):
+        case = getattr(session, "case", None)
+        if not isinstance(case, CaseData):
+            continue
+        tracking = getattr(case, "tracking", None)
+        priority = ""
+        if isinstance(tracking, TrackingData):
+            priority = tracking.priority
+        snapshot.append(
+            {
+                "Case": case.case_id or _case_display_name(idx),
+                "Company": case.company_name or "",
+                "Summary": case.brief_description or "",
+                "Priority": priority,
+                "Active": "Yes" if active_index is not None and idx == active_index else "",
+            }
+        )
+    return snapshot
