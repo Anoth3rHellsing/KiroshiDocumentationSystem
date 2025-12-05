@@ -1,0 +1,781 @@
+            if email_type == "Recap (Customer)":
+                intro = build_email_intro(D)
+                steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
+                recommendation_key = email_tab_key("recap_recommendation")
+                auto_recommendation = _derive_recap_recommendation(D)
+                existing_recommendation = (ext.get("recap_recommendation", "") or "").strip()
+                if not existing_recommendation:
+                    existing_recommendation = auto_recommendation
+                    ext["recap_recommendation"] = existing_recommendation
+                st.session_state.setdefault(recommendation_key, existing_recommendation)
+                recommendation_value = st.text_input(
+                    "Recommendation for the recap email",
+                    existing_recommendation,
+                    help="Required for recap emails. Suggest a simple next step or helpful resource for the customer.",
+                    key=recommendation_key,
+                    placeholder="e.g., Run Windows Update, restart the PC, and retry the scan.",
+                )
+                recommendation_value = recommendation_value.strip()
+                if not recommendation_value:
+                    recommendation_value = auto_recommendation
+                ext["recap_recommendation"] = recommendation_value
+                recap_recommendation = ext["recap_recommendation"]
+                prompt = f"""You are a friendly IT‑support agent. Draft an engaging, upbeat email (≤180 words) that recaps the case and strongly
+        motivates the customer to complete a brief satisfaction survey (takes <2 minutes) to help improve our service.
+        Start the email exactly with the following lines (do not paraphrase or omit them):
+        {intro}
+        Include: Case ID, a brief summary of what happened, and the solution.
+        Use a warm tone, thank the customer for their time, invite further questions, and end with a clear call‑to‑action to the survey.
+        Always include this simple recommendation for the customer: {recap_recommendation}
+        Apply persuasive techniques: personalize with the customer's name, show appreciation (reciprocity), mention that other customers found the survey quick and helpful (social proof), emphasise how their feedback shapes future support, and invite them to help improve our service (commitment).
+
+        Return only the email body.
+
+        DATA:
+        Case ID: {D.case_id}
+        Summary: {D.brief_description}
+        Steps taken:
+        {steps_summary}
+        Solution: {D.solution}
+        Survey link: {D.survey_link}"""
+            elif email_type == "Customer Reply":
+                st.markdown("#### Customer email context")
+                ext["reply_original"] = st.text_area(
+                    "Original customer email",
+                    ext.get("reply_original", ""),
+                    height=240,
+                    key=email_tab_key("reply_original"),
+                )
+                ext["reply_focus"] = st.text_area(
+                    "What should we address in the reply?",
+                    ext.get("reply_focus", ""),
+                    height=140,
+                    key=email_tab_key("reply_focus"),
+                )
+                case_snapshot = {
+                    "case_id": D.case_id,
+                    "company": D.company_name,
+                    "brief_description": D.brief_description,
+                    "solution": D.solution,
+                    "remote_steps": D.remote_steps,
+                    "root_cause": D.root_cause,
+                    "additional_info": D.additional_info,
+                }
+                prompt = (
+                    "You are responding to a customer's email about an active support case. "
+                    "Write a concise, confident reply that acknowledges their message, addresses each concern, "
+                    "and clarifies next actions. Use a friendly professional tone.\n\n"
+                    f"Original email:\n{ext.get('reply_original', 'No email provided.')}\n\n"
+                    f"Response notes (internal guidance):\n{ext.get('reply_focus', 'Acknowledge receipt and provide an update.')}\n\n"
+                    "Case context:\n"
+                    f"{json.dumps(case_snapshot, indent=2, ensure_ascii=False)}\n\n"
+                    "Return only the email body with a clear closing and invitation for further questions."
+                )
+            elif email_type == "Broken Scanner":
+                st.markdown("#### Incident questionnaire (prefill if known)")
+                ext["experience"] = st.text_input(
+                    "Experience level (new / experienced)",
+                    ext.get("experience", ""),
+                    key=case_widget_key("email_broken_scanner", "experience", case_idx),
+                )
+                st.info(
+                    "Fill in internal notes, conclusion, additional information, and support fee details "
+                    "from the Case tab."
+                )
+                st.markdown("---")
+                st.download_button(
+                    "Download PDF",
+                    make_pdf(D, cat_map),
+                    file_name=f"{D.case_id or 'case'}.pdf",
+                    mime="application/pdf",
+                    key=email_tab_key("download_pdf"),
+                )
+            if not compact_mode and left is not None:
+                with left:
+                    st.subheader("Documentation Preview – Copy‑friendly Tables")
+                    st.caption(
+                        "Hotkeys: Ctrl+Alt+1 copies the Build Title, 2 copies Description, 3 copies Phonecall, 4 copies "
+                        "Internal Notes, 5 copies Remote Session, 6 copies Additional Information, 7 copies Root Cause & "
+                        "Conclusion, 8 copies the ChatGPT prompt (Email tab), and Ctrl+Alt+C still grabs every table. Flip "
+                        "the “Use this case for global clipboard hotkeys” toggle in the Tables tab when you want these "
+                        "shortcuts to pull from a different case. The listener keeps running even when Kiroshi is in the "
+                        "background so you can paste with Ctrl+V directly into your CRM or spreadsheet."
+                    )
+                    for cat in cat_map:
+                        title_text = table_title(cat)
+                        st.markdown(f"**{title_text}**")
+
+                        copy_suffix_raw = f"{case_idx}_{cat}".lower()
+                        copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_suffix_raw)
+                        if not copy_suffix:
+                            copy_suffix = "copy"
+                        if copy_suffix[0].isdigit():
+                            copy_suffix = f"a{copy_suffix}"
+
+                        title_payload = script_safe_json(title_text)
+                        table_payload = script_safe_json(table_plain_text(cat, D, cat_map))
+                        components.html(
+                            f"""
+                            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
+                                <button onclick=\"copyTitle{copy_suffix}()\"
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                    Copy title
+                                </button>
+                                <button onclick=\"copyTable{copy_suffix}()\"
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                    Copy table
+                                </button>
+                                <span id=\"feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                            </div>
+                            <script>
+                                const feedbackElem{copy_suffix} = document.getElementById('feedback-{copy_suffix}');
+                                function showFeedback{copy_suffix}(message) {{
+                                    if (!feedbackElem{copy_suffix}) return;
+                                    feedbackElem{copy_suffix}.textContent = message;
+                                    setTimeout(() => {{
+                                        if (feedbackElem{copy_suffix}.textContent === message) {{
+                                            feedbackElem{copy_suffix}.textContent = '';
+                                        }}
+                                    }}, 2000);
+                                }}
+                                function copyTitle{copy_suffix}() {{
+                                    navigator.clipboard.writeText({title_payload}).then(() => {{
+                                        showFeedback{copy_suffix}('Title copied');
+                                    }});
+                                }}
+                                function copyTable{copy_suffix}() {{
+                                    navigator.clipboard.writeText({table_payload}).then(() => {{
+                                        showFeedback{copy_suffix}('Table copied');
+                                    }});
+                                }}
+                            </script>
+                            """,
+                            height=80,
+                        )
+                        st.dataframe(
+                            category_dataframe(cat, D, cat_map), width="stretch"
+                        )
+                    st.markdown("---")
+                if st.session_state.categorizer_result:
+                    st.subheader("Kiroshi Categorizer")
+                    st.markdown(st.session_state.categorizer_result)
+                    if not st.session_state.get("categorizer_summary"):
+                        st.session_state.categorizer_summary = parse_categorizer_summary(
+                            st.session_state.categorizer_result
+                        )
+
+            if email_type == "Broken Tip":
+                st.markdown("#### Damaged tip questionnaire")
+                ext["times_autoclaved"] = st.text_input(
+                    "Times autoclaved",
+                    ext.get("times_autoclaved", ""),
+                    key=case_widget_key("email_broken_tip", "times_autoclaved", case_idx),
+                )
+                ext["bath_number"] = st.text_input(
+                    "Bath number",
+                    ext.get("bath_number", ""),
+                    key=case_widget_key("email_broken_tip", "bath_number", case_idx),
+                )
+                ext["model"] = st.text_input(
+                    "Autoclave model",
+                    ext.get("model", ""),
+                    key=case_widget_key("email_broken_tip", "model", case_idx),
+                )
+                ext["program"] = st.text_input(
+                    "Program used",
+                    ext.get("program", ""),
+                    key=case_widget_key("email_broken_tip", "program", case_idx),
+                )
+                ext["airtight"] = st.text_input(
+                    "Autoclaved in airtight pouch?",
+                    ext.get("airtight", ""),
+                    key=case_widget_key("email_broken_tip", "airtight", case_idx),
+                )
+                ext["other"] = st.text_input(
+                    "Other info",
+                    ext.get("other", ""),
+                    key=case_widget_key("email_broken_tip", "other", case_idx),
+                )
+
+                intro = build_email_intro(D)
+                prompt = f"""Draft a courteous e‑mail requesting the following information about the damaged tip.
+Start the email with:
+{intro}
+List each question and provide any known answer beneath it, ready for the customer to correct/confirm.
+
+1. Times autoclaved – {ext.get('times_autoclaved', '')}
+2. Bath number – {ext.get('bath_number', '')}
+3. Autoclave model – {ext.get('model', '')}
+4. Program used – {ext.get('program', '')}
+5. Autoclaved in airtight pouch? – {ext.get('airtight', '')}
+6. Other info – {ext.get('other', '')}
+"""
+
+            elif email_type == "AX Coordinator Email":
+                st.subheader("AX Coordinators")
+                st.text_area(
+                    "Request / Issue",
+                    D.description,
+                    disabled=True,
+                    key=email_tab_key("request_issue"),
+                )
+                D.request_issue = D.description
+                D.contact_name = D.caller_name
+                st.text_input(
+                    "Contact name",
+                    D.contact_name,
+                    disabled=True,
+                    key=case_widget_key("email_ax_coordinator", "contact_name", case_idx),
+                )
+                D.office_ph = D.phone_number
+                st.text_input(
+                    "Office phone",
+                    D.office_ph,
+                    disabled=True,
+                    key=case_widget_key("email_ax_coordinator", "office_phone", case_idx),
+                )
+                D.direct_ph = D.phone_number
+                st.text_input(
+                    "Direct phone",
+                    D.direct_ph,
+                    disabled=True,
+                    key=case_widget_key("email_ax_coordinator", "direct_phone", case_idx),
+                )
+                best_cb = st.toggle(
+                    "Specify best call-back time",
+                    D.best_time not in ("", "ASAP"),
+                    key=email_tab_key("best_cb"),
+                )
+                best_time_key = email_tab_key("best_time")
+                if best_cb:
+                    default_best_time = (
+                        D.best_time if D.best_time not in ("", "ASAP") else ""
+                    )
+                    D.best_time = st.text_input(
+                        "Best call-back time",
+                        default_best_time,
+                        key=best_time_key,
+                    )
+                else:
+                    D.best_time = "ASAP"
+                    if best_time_key in st.session_state:
+                        st.session_state.pop(best_time_key)
+
+                company = D.company_name or "N/A"
+                case_no = D.case_id or "N/A"
+                contact = D.contact_name or "N/A"
+                office_phone = D.office_ph or "N/A"
+                direct_phone = D.direct_ph or "N/A"
+                best_time = D.best_time or "N/A"
+                request_issue = D.request_issue or "N/A"
+                prompt = (
+                    "Draft an internal email to the AX coordinators summarizing the case.\n"
+                    "Include the following details in a concise bulleted list so they can schedule support:"
+                    f"\n• Case ID: {case_no}"
+                    f"\n• Company: {company}"
+                    f"\n• Request / Issue: {request_issue}"
+                    f"\n• Contact name: {contact}"
+                    f"\n• Office phone: {office_phone}"
+                    f"\n• Direct phone: {direct_phone}"
+                    f"\n• Best call-back time: {best_time}"
+                    "\nEnd the email thanking them for their assistance."
+                )
+
+            elif email_type == "FedEx Tracking Email":
+                st.markdown("#### FedEx tracking options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_fedex_tracking", "agent_name", case_idx),
+                )
+                ext["device_type"] = st.text_input(
+                    "Device type (scanner or Move+)",
+                    ext.get("device_type", ""),
+                    key=case_widget_key("email_fedex_tracking", "device_type", case_idx),
+                )
+                ext["tracking_number"] = st.text_input(
+                    "FedEx tracking number",
+                    ext.get("tracking_number", ""),
+                    key=case_widget_key("email_fedex_tracking", "tracking_number", case_idx),
+                )
+                customer = D.caller_name or "(Caller Name)"
+                company = D.company_name or "(Company Name)"
+                agent = ext["agent_name"] or "(Agent Name)"
+                case_no = D.case_id or "(Case ID)"
+                issue = D.brief_description or "(Issue Description)"
+                device = ext["device_type"] or "device"
+                tracking = ext["tracking_number"] or "(Tracking Number)"
+                email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape support regarding your case {case_no} about {issue}.
+
+I am more than happy to inform you that we have created a ticket to send you a refurbished unit through FedEx which you can track by using the following tracking number: {tracking}.
+
+Remember that this process will not have a cost.
+
+Please also remember to send us back the faulty {device} using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days of your receipt of the new device, your TRIOS licenses will expire.
+
+Wishing you the best again!"""
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=300,
+                    key=email_tab_key("generated_email"),
+                )
+
+            elif email_type == "Replacement Dispatch Request":
+                st.markdown("#### Replacement dispatch options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_replacement_dispatch", "agent_name", case_idx),
+                )
+                device_options = ["TRIOS", "Pod", "Spare item"]
+                prev_choice = ext.get("replacement_device_type", device_options[0])
+                default_index = (
+                    device_options.index(prev_choice)
+                    if prev_choice in device_options
+                    else 0
+                )
+                selected_device = st.selectbox(
+                    "Replacement device type",
+                    device_options,
+                    index=default_index,
+                    key=case_widget_key(
+                        "email_replacement_dispatch", "device_type", case_idx
+                    ),
+                )
+                ext["replacement_device_type"] = selected_device
+                default_serial_map = {
+                    "TRIOS": D.scanner_sn or "",
+                    "Pod": D.base_sn or "",
+                    "Spare item": ext.get("serial_number", ""),
+                }
+                if prev_choice != selected_device:
+                    prev_default = default_serial_map.get(prev_choice, "")
+                    current_serial = ext.get("serial_number", "")
+                    if current_serial in ("", prev_default):
+                        ext["serial_number"] = default_serial_map.get(
+                            selected_device, ""
+                        )
+                spare_item_name = ext.get("spare_item_name", "")
+                spare_return_required = True
+                if selected_device == "Spare item":
+                    spare_item_name = st.text_input(
+                        "Spare item description",
+                        spare_item_name,
+                        key=case_widget_key(
+                            "email_replacement_dispatch", "spare_item", case_idx
+                        ),
+                    )
+                    ext["spare_item_name"] = spare_item_name
+                    toggle_default = ext.get("spare_return_required")
+                    if toggle_default is None:
+                        toggle_default = False
+                    spare_return_required = st.toggle(
+                        "Return of spare item required?",
+                        value=bool(toggle_default),
+                        key=case_widget_key(
+                            "email_replacement_dispatch", "spare_return", case_idx
+                        ),
+                    )
+                    ext["spare_return_required"] = spare_return_required
+                else:
+                    ext["spare_return_required"] = True
+                    ext["spare_item_name"] = spare_item_name
+                serial_placeholder = ext.get("serial_number", "")
+                if not serial_placeholder:
+                    serial_placeholder = default_serial_map.get(selected_device, "")
+                ext["serial_number"] = st.text_input(
+                    "Serial number of the device being replaced",
+                    serial_placeholder,
+                    key=case_widget_key(
+                        "email_replacement_dispatch", "serial_number", case_idx
+                    ),
+                )
+                intro = build_email_intro(D)
+                agent = ext["agent_name"] or "(Agent Name)"
+                issue = D.brief_description or "the reported hardware issue"
+                serial_number = ext.get("serial_number", "").strip() or "(Serial number)"
+                if selected_device == "TRIOS":
+                    device_label = "TRIOS scanner"
+                elif selected_device == "Pod":
+                    device_label = "TRIOS Pod/base unit"
+                else:
+                    device_label = spare_item_name.strip() or "spare item"
+                return_required = (
+                    spare_return_required if selected_device == "Spare item" else True
+                )
+
+                hardware_lines: list[str] = []
+
+                def _add_hardware_line(label: str, value: object) -> None:
+                    if isinstance(value, str):
+                        cleaned = value.strip()
+                        if cleaned:
+                            hardware_lines.append(f"- {label}: {cleaned}")
+                        return
+                    if isinstance(value, (int, float)) and value:
+                        hardware_lines.append(f"- {label}: {value}")
+
+                _add_hardware_line("Scanner serial", D.scanner_sn)
+                _add_hardware_line("Base serial", D.base_sn)
+                _add_hardware_line("TRIOS module version", D.trios_module_version)
+                _add_hardware_line("Dongle deployment date", D.dongle_deployment_date)
+                _add_hardware_line(
+                    "Previous replacements", D.scanner_previous_replacements
+                )
+                _add_hardware_line("Damage classification", D.scanner_accidental_damage)
+                _add_hardware_line("Hardware test", D.hardware_test)
+                _add_hardware_line("PC service tag", D.service_tag)
+                _add_hardware_line("PC model", D.pc_model)
+                _add_hardware_line("Windows version", D.windows_version)
+                _add_hardware_line("BIOS version", D.bios_version)
+                _add_hardware_line("Graphics card", D.graphics_card)
+                _add_hardware_line("Processor", D.processor)
+                _add_hardware_line("Warranty", D.warranty)
+
+                hardware_section = ""
+                if hardware_lines:
+                    hardware_section = (
+                        "Here are the hardware details we currently have on file:\n"
+                        + "\n".join(hardware_lines)
+                    )
+
+                tracking_line = (
+                    "We will send you the Tracking # for the shipment as soon as it becomes available."
+                )
+                if return_required:
+                    return_paragraph = (
+                        "Please keep the shipping box from the replacement delivery. "
+                        "Once the new unit arrives, place the faulty device in that same packaging and seal it with the enclosed return label. "
+                        "You will have 30 days to return the device to 3Shape using the provided label; after that period, the TRIOS licenses associated with the clinic will be suspended."
+                    )
+                else:
+                    return_paragraph = (
+                        "Because this is a spare component, a return shipment is not required. You may keep the existing part for your records, and no return label or 30-day deadline applies in this case."
+                    )
+
+                paragraphs = [
+                    (
+                        "We completed our hardware review and determined that replacing your "
+                        f"{device_label} is necessary to resolve {issue}."
+                    ),
+                    f"The serial number of the unit we are exchanging is {serial_number}.",
+                    tracking_line,
+                    return_paragraph,
+                ]
+                if hardware_section:
+                    paragraphs.append(hardware_section)
+                body = "\n\n".join(paragraphs)
+                closing = (
+                    "Please let me know if anything changes or if you need further assistance."
+                    f"\n\nBest regards,\n{agent}\n3Shape Support"
+                )
+                email_text = f"{intro}\n{body}\n\n{closing}"
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=420,
+                    key=email_tab_key("generated_email"),
+                )
+
+            elif email_type == "Replacement Wired Scanner Setup":
+                st.markdown("#### Replacement scanner options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_replacement_wired", "agent_name", case_idx),
+                )
+                ext["fedex_pickup_link"] = st.text_input(
+                    "FedEx pickup link",
+                    ext.get(
+                        "fedex_pickup_link",
+                        "https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html",
+                    ),
+                    key=case_widget_key("email_replacement_wired", "fedex_pickup_link", case_idx),
+                )
+                customer = D.caller_name or "(Caller Name)"
+                company = D.company_name or "(Company Name)"
+                agent = ext["agent_name"] or "(Agent Name)"
+                case_no = D.case_id or "(Case ID)"
+                survey = D.survey_link or "(Survey URL)"
+                pickup = ext["fedex_pickup_link"] or "(FedEx pickup link)"
+                email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case {case_no}.
+
+I am more than happy to inform you that your issue has been resolved. According to the tracking information provided from FedEx, the refurbished scanner was already received by the office.
+
+Regarding the installation of the scanner provided, please follow these steps:
+
+1. Open 3Shape UNITE (please remember to log in with your user credentials).
+2. In the upper section of the screen, look for the MORE icon and click on it.
+3. In the menu that appears, click Settings (gear icon).
+4. On the left menu, click TRIOS (scanner/wand icon).
+5. In the submenu, click Scanner Management.
+6. Click Add new scanner (either the large white tile in the middle or the button in the upper-right corner).
+7. Select Wired scanner.
+8. Connect the scanner as displayed on screen. Remember: the Pod/stand of the scanner must be connected from both sides, and the scanner itself must also be connected to the PC.
+9. The scanner will then be recognized by the app and will be ready to work.
+
+Thank you so much for letting me assist you. I would really appreciate it if you could provide feedback regarding my service today: {survey}
+
+In case you need further assistance or have any doubts, please do not hesitate to contact our technical support team.
+
+Please remember to send us back the faulty scanner using the shipping label included in the box. If we do not receive the faulty scanner within 32 days from when we sent the replacement device, your TRIOS licenses will expire.
+
+You may schedule a pickup with FedEx here: {pickup}
+
+Wishing you the best again!"""
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=400,
+                    key=email_tab_key("generated_email"),
+                )
+
+            elif email_type == "Replacement Move+ Closure":
+                st.markdown("#### Replacement Move+ options")
+                ext["agent_name"] = st.text_input(
+                    "Agent name",
+                    ext.get("agent_name", ""),
+                    key=case_widget_key("email_replacement_move", "agent_name", case_idx),
+                )
+                customer = D.caller_name or "(Caller Name)"
+                company = D.company_name or "(Company Name)"
+                agent = ext["agent_name"] or "(Agent Name)"
+                case_no = D.case_id or "(Case ID)"
+                survey = D.survey_link or "(Survey URL)"
+                email_text = f"""Dear {customer} from {company},
+
+I hope you are having an excellent day! This is {agent} from 3Shape Support regarding your case: {case_no}.
+
+I am more than happy to inform you that your issue has been resolved. According to the tracking information provided from FedEx, the refurbished device was already received by the office.
+
+Thank you so much for letting me assist you. I would really appreciate if you can provide me with some feedback regarding my service today in the next survey.
+
+In case you need further assistance or have any doubts, please do not hesitate to contact our technical support team.
+
+Please remember to send us back the faulty scanner using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days since we sent the device, your TRIOS licenses will expire. You may schedule a pickup with FedEx by following the next link: https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html
+
+We sincerely appreciate your patience and understanding throughout this process. Also, if you have the time, it would be helpful if you could complete our Customer Experience Survey so that we know how our assistance and services were for you.
+
+Do remember that 10 would be the highest score to rate the following survey: {survey}
+
+Wishing you the best again!"""
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=400,
+                    key=email_tab_key("generated_email"),
+                )
+
+            elif email_type == "Callback Email":
+                st.markdown("#### Callback email options")
+                cb_remote_key = email_tab_key("callback_remote")
+                cb_remote = st.toggle(
+                    "Need remote session?",
+                    st.session_state.get(cb_remote_key, False),
+                    key=cb_remote_key,
+                )
+                cb_remote_text_key = email_tab_key("callback_remote_text")
+                if cb_remote:
+                    st.text_area(
+                        "Remote session details",
+                        st.session_state.get(cb_remote_text_key, ""),
+                        key=cb_remote_text_key,
+                    )
+                cb_contact_key = email_tab_key("callback_contact")
+                st.toggle(
+                    "Need contact information?",
+                    st.session_state.get(cb_contact_key, False),
+                    key=cb_contact_key,
+                )
+                cb_clarify_key = email_tab_key("callback_clarify")
+                st.toggle(
+                    "Need to clarify what happened?",
+                    st.session_state.get(cb_clarify_key, False),
+                    key=cb_clarify_key,
+                )
+                cb_needed_key = email_tab_key("callback_needed")
+                st.toggle(
+                    "Callback needed?",
+                    st.session_state.get(cb_needed_key, True),
+                    key=cb_needed_key,
+                )
+                cb_address_key = email_tab_key("callback_address")
+                cb_address = st.toggle(
+                    "Request address?",
+                    st.session_state.get(cb_address_key, False),
+                    key=cb_address_key,
+                )
+                if cb_address:
+                    cb_equipment_key = email_tab_key("callback_equipment")
+                    st.text_input(
+                        "Equipment to replace",
+                        st.session_state.get(cb_equipment_key, ""),
+                        key=cb_equipment_key,
+                    )
+
+                intro = build_email_intro(D)
+                if cb_address:
+                    equip = st.session_state.get(cb_equipment_key, "") or "(equipment)"
+                    prompt = f"""Draft a polite email asking the customer to confirm their shipping address so we can send a {equip}.
+Start the email with:
+{intro}
+List the following fields for them to fill in:
+Address (include suite if any)
+City
+State
+Zip Code/Postal Code
+Full name of the recipient
+Best phone number to contact the recipient
+Email to contact the recipient
+
+End with: We look forward to your reply."""
+                else:
+                    if st.session_state.get(cb_needed_key, True):
+                        base_request = (
+                            "provide us with the best time for a callback, including your time zone, "
+                            "or alternatively the TeamViewer ID and password so we may connect directly to the computer."
+                        )
+                    else:
+                        base_request = (
+                            "provide us with the TeamViewer ID and password so we may connect directly to the computer."
+                        )
+                    prompt = (
+                        f"Draft a polite email asking the customer to {base_request}\n"
+                        f"Start the email with:\n{intro}\n"
+                        "End with: We look forward to your reply."
+                    )
+                    extras = []
+                    if st.session_state.get(cb_contact_key):
+                        extras.append("Ask them to provide their contact information.")
+                    if st.session_state.get(cb_clarify_key):
+                        extras.append("Ask them to clarify what happened.")
+                    if (
+                        st.session_state.get(cb_remote_key)
+                        and st.session_state.get(cb_remote_text_key, "").strip()
+                    ):
+                        extras.append(
+                            "Include the following additional details:\n"
+                            + st.session_state.get(cb_remote_text_key, "").strip()
+                        )
+                    if extras:
+                        prompt += "\n\n" + "\n".join(extras)
+            elif email_type == "Dell Escalation Email":
+                st.markdown("#### Dell escalation data preview")
+                st.info(
+                    "Update the Dell escalation section in the Escalations tab to refresh this template."
+                )
+                st.dataframe(
+                    dell_escalation_dataframe(D), width="stretch"
+                )
+                email_text = build_dell_escalation_email(D)
+                st.text_area(
+                    "Email",
+                    email_text,
+                    height=600,
+                    key=email_tab_key("generated_email"),
+                )
+
+            elif email_type == "Advanced Request":
+                st.markdown("#### Custom email options")
+                ext["reason"] = st.text_input(
+                    "Reason for contacting the customer",
+                    ext.get("reason", ""),
+                    key=case_widget_key("email_advanced_request", "reason", case_idx),
+                )
+                ext["goal"] = st.text_input(
+                    "Goal of the email",
+                    ext.get("goal", ""),
+                    key=case_widget_key("email_advanced_request", "goal", case_idx),
+                )
+                ext["customer_need"] = st.text_input(
+                    "What do we need from the customer?",
+                    ext.get("customer_need", ""),
+                    key=case_widget_key("email_advanced_request", "customer_need", case_idx),
+                )
+                intro = build_email_intro(D)
+                reason = ext.get("reason", "").strip() or "(reason for the outreach)"
+                goal = ext.get("goal", "").strip() or "(goal of the email)"
+                customer_need = (
+                    ext.get("customer_need", "").strip()
+                    or "(what we need from the customer)"
+                )
+                prompt = (
+                    "You are a friendly and professional IT-support specialist.\n"
+                    "Draft a concise e-mail (≤180 words) tailored for the customer.\n"
+                    "Start the e-mail exactly with the lines below (do not paraphrase):\n"
+                    f"{intro}\n"
+                    f"Explain you are contacting them because {reason}.\n"
+                    f"State that the goal of the email is {goal}.\n"
+                    f"Clearly ask the customer for {customer_need}.\n"
+                    "Close by inviting them to reply if they have any questions or need further assistance."
+                )
+                pat_cb_key = email_tab_key("pat_cb")
+                pat_cb = st.toggle(
+                    "Include Patterson legacy #",
+                    value=st.session_state.get(pat_cb_key, False),
+                    key=pat_cb_key,
+                )
+                if pat_cb:
+                    auto_text_input(
+                        "Patterson legacy #",
+                        "patterson",
+                    )
+                else:
+                    D.patterson = "N/A"
+                    touch_case_last_modified()
+                    autosave()
+                if st.session_state.second_line_mode:
+                    st.text_input(
+                        "Straumann ticket #",
+                        D.straumann,
+                        disabled=True,
+                        key=email_tab_key("straumann_tab"),
+                    )
+                else:
+                    D.straumann = "N/A"
+                    touch_case_last_modified()
+                    autosave()
+            elif email_type == "Custom":
+                st.markdown("#### Custom prompt builder")
+                ext["custom_user_prompt"] = st.text_area(
+                    "User instructions",
+                    ext.get("custom_user_prompt", ""),
+                    height=140,
+                    key=email_tab_key("custom_user_prompt"),
+                )
+                case_context = build_case_data_block(D)
+                st.text_area(
+                    "Case data provided by Kiroshi",
+                    case_context,
+                    height=220,
+                    key=email_tab_key("custom_case_context"),
+                    disabled=True,
+                )
+                user_prompt = ext.get("custom_user_prompt", "").strip()
+                prompt_intro = "CASE DATA (auto-collected by Kiroshi):\n"
+                prompt = (
+                    f"{user_prompt}\n\n{prompt_intro}{case_context}"
+                    if user_prompt
+                    else f"{prompt_intro}{case_context}"
+                )
+                prompt_label = "Custom prompt (copy & paste)"
+            st.session_state.email_extra = ext
+            static_templates = {
+                "FedEx Tracking Email",
+                "Replacement Dispatch Request",
+                "Replacement Wired Scanner Setup",
+                "Replacement Move+ Closure",
+                "Dell Escalation Email",
+            }
+            generated_email_key = email_tab_key("generated_email_output")
+            if generated_email_key not in st.session_state:
+                st.session_state[generated_email_key] = st.session_state.get(
+                    "generated_email", ""
+                )
+
+            if email_type not in static_templates:

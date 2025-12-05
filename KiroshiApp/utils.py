@@ -1124,3 +1124,29 @@ def global_widget_key(base: str) -> str:
     # Simplified registration logic for this refactor
     # In legacy, it tracked collisions. Here we just return the key.
     return key
+
+def render_responsive_altair_chart(chart: alt.Chart) -> None:
+    """Render an Altair chart using the best available width argument."""
+    # This helper was previously defined in views but is useful globally.
+    import inspect
+    try:
+        _altair_signature = inspect.signature(st.altair_chart)
+    except (TypeError, ValueError):
+        _altair_signature = None
+
+    ALTAIR_CHART_KWARGS = (
+        {"width": "stretch"}
+        if _altair_signature and "width" in _altair_signature.parameters
+        else {}
+    )
+    st.altair_chart(chart, **ALTAIR_CHART_KWARGS)
+
+def build_title(d) -> str:
+    """Construct a helper string for case titles."""
+    base = (
+        f"|{d.company_name}|{d.subscription_id}|{d.brief_description}|"
+        f"{d.application_version}|{d.case_id}|"
+    )
+    if st.session_state.get("second_line_mode") and d.straumann not in ("", "N/A"):
+        return f"|{d.straumann}{base}"
+    return base

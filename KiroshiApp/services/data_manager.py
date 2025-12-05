@@ -1329,7 +1329,7 @@ def _case_metadata_snapshot(active_index: int | None = None) -> list[dict[str, s
     snapshot: list[dict[str, str]] = []
 
     from KiroshiApp.models import CaseData, TrackingData
-    from KiroshiApp.views.case_view import _case_display_name
+    from KiroshiApp.utils import _case_display_name
 
     for idx, session in enumerate(sessions):
         case = getattr(session, "case", None)
