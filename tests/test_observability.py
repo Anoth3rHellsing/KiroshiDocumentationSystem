@@ -326,6 +326,7 @@ def test_autosave_emits_streamlit_warning(monkeypatch, tmp_path, caplog):
         "_last_autosave_timestamp": 0.0,
         "_autosave_lock": __import__("threading").Lock(),
         "autosave_payload": lambda: {"case": {"case_id": "CASE-123"}},
+        "_serialize_autosave_payload": lambda payload: ("serialized", "hash"),
         "save_case_to_database": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db offline")),
         "CaseData": CaseData,
         "logging": logging,
