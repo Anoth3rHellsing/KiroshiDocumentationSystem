@@ -429,6 +429,7 @@ except (TypeError, ValueError):
 
 
 SETTINGS_FILE = DATABASE_DIR / "settings.json"
+SPRINT_STATE_FILE = DATABASE_DIR / "sprint_state.json"
 DEFAULT_WELLNESS_SETTINGS: dict[str, object] = {
     "enabled": False,
     "notification_lead": 10,
@@ -5749,7 +5750,7 @@ _init_state(
 )
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
-_init_state("openai_model", "gpt-4o")
+_init_state("openai_model", "gpt-5.1")
 _init_state("ai_base_url", DEFAULT_AI_BASE_URL)
 _init_state("ai_mode", DEFAULT_AI_MODE)
 _init_state(
@@ -6283,6 +6284,27 @@ def _normalize_damage_classification(value: object) -> str:
 
     text = str(value).strip()
     return text if text else ""
+
+
+@dataclass
+class SprintTask:
+    case_id: str
+    company: str
+    priority: str
+    status: str  # "Pending", "In Progress", "Completed"
+    is_escalated: bool
+    source_path: str = ""
+    root_cause: str = ""
+    solution: str = ""
+    ai_suggestion: str = ""
+    ai_time_estimate: str = ""
+
+
+@dataclass
+class SprintState:
+    date: str
+    tasks: list[SprintTask] = field(default_factory=list)
+    is_active: bool = False
 
 
 @dataclass
@@ -9293,6 +9315,210 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
         st.error(f"Failed to untrack case: {exc}")
 
 
+def load_sprint_state() -> SprintState:
+    if not SPRINT_STATE_FILE.exists():
+        return SprintState(date=_utc_now_z().split("T")[0])
+    try:
+        data = json.loads(SPRINT_STATE_FILE.read_text(encoding="utf-8"))
+        tasks_data = data.get("tasks", [])
+        tasks = [SprintTask(**t) for t in tasks_data]
+        return SprintState(
+            date=data.get("date", _utc_now_z().split("T")[0]),
+            tasks=tasks,
+            is_active=data.get("is_active", False),
+        )
+    except Exception as exc:
+        logging.error("Failed to load sprint state: %s", exc)
+        return SprintState(date=_utc_now_z().split("T")[0])
+
+
+def save_sprint_state(state: SprintState) -> None:
+    try:
+        data = asdict(state)
+        SPRINT_STATE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logging.error("Failed to save sprint state: %s", exc)
+
+
+def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
+    return load_tracked_cases()
+
+
+def load_full_case_data(path: str) -> dict[str, object]:
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def update_case_fields(path: str, fields: dict[str, object]) -> None:
+    update_tracked_case_file(path, **fields)
+
+
+def set_tracked_status(path: str, status: str, case_id: str | None = None) -> None:
+    update_tracked_case_file(path, tracking_updates={"status": status})
+    if case_id and getattr(st.session_state.get("case"), "case_id", None) == case_id:
+        st.session_state.case.tracking.status = status
+        status_key = widget_state_key("track_status", CURRENT_CASE_IDX)
+        if status_key in st.session_state:
+            st.session_state[status_key] = status
+        touch_case_last_modified()
+
+
+def ai_prioritize_tasks(tasks: list[SprintTask]) -> list[SprintTask]:
+    if not tasks:
+        return []
+
+    task_descriptions = []
+    for i, t in enumerate(tasks):
+        task_descriptions.append(
+            f"ID: {i}, Case: {t.case_id}, Priority: {t.priority}, Escalated: {t.is_escalated}, "
+            f"Root Cause: {t.root_cause}, Solution: {t.solution}"
+        )
+
+    prompt = (
+        "You are an AI Scrum Master. Prioritize the following support tasks for today's sprint. "
+        "Escalated cases must come first. High priority cases next. "
+        "Also, provide a brief 1-sentence suggestion and a time estimate for each task. "
+        "Return a JSON object with a key 'tasks' containing a list of objects. "
+        "Each object must have: 'original_id' (int), 'ai_suggestion' (str), 'ai_time_estimate' (str). "
+        "Sort the list in the order they should be tackled.\n\n"
+        "Tasks:\n" + "\n".join(task_descriptions)
+    )
+
+    try:
+        api_key = st.session_state.openai_api_key
+        model = st.session_state.openai_model
+        base_url = st.session_state.ai_base_url
+
+        # Guard against missing API key if using cloud
+        if not api_key and base_url.startswith("https://api.openai.com"):
+            # Fallback simple sort if AI unavailable
+            return sorted(
+                tasks, key=lambda x: (not x.is_escalated, x.priority != "High")
+            )
+
+        reply = invoke_gpt(
+            prompt,
+            [],
+            api_key,
+            model,
+            base_url,
+            source="sprint_prioritization",
+        )
+        data = _extract_json_object(reply)
+        if not data or "tasks" not in data:
+            return sorted(
+                tasks, key=lambda x: (not x.is_escalated, x.priority != "High")
+            )
+
+        prioritized_tasks = []
+        processed_ids = set()
+        if isinstance(data["tasks"], list):
+            for item in data["tasks"]:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("original_id")
+                if idx is not None and isinstance(idx, int) and 0 <= idx < len(tasks):
+                    t = tasks[idx]
+                    t.ai_suggestion = str(item.get("ai_suggestion", ""))
+                    t.ai_time_estimate = str(item.get("ai_time_estimate", ""))
+                    prioritized_tasks.append(t)
+                    processed_ids.add(idx)
+
+        # Add any missing tasks at the end
+        for i, t in enumerate(tasks):
+            if i not in processed_ids:
+                prioritized_tasks.append(t)
+
+        return prioritized_tasks
+
+    except Exception as e:
+        logging.error("AI prioritization failed: %s", e)
+        return sorted(tasks, key=lambda x: (not x.is_escalated, x.priority != "High"))
+
+
+def generate_sprint_pdf_report(state: SprintState) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=30,
+        leftMargin=30,
+        topMargin=40,
+        bottomMargin=30,
+    )
+    styles, regular_font, bold_font, ghost_style = _load_pdf_styles()
+    title_style = styles["Title"]
+    heading_style = styles["Heading3"]
+    body_style = styles["BodyText"]
+
+    elements = []
+    ghost_snippets = ["Sprint Execution Report", f"Date: {state.date}"]
+
+    elements.append(Paragraph("Sprint Execution Report", title_style))
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph(f"Date: {state.date}", heading_style))
+    elements.append(Spacer(1, 24))
+
+    completed = [t for t in state.tasks if t.status == "Completed"]
+    pending = [t for t in state.tasks if t.status != "Completed"]
+
+    summary_data = [
+        ["Total Tasks", str(len(state.tasks))],
+        ["Completed", str(len(completed))],
+        ["Pending", str(len(pending))],
+    ]
+
+    t = Table(summary_data, colWidths=[150, 100])
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.lightgrey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                ("FONTNAME", (0, 0), (-1, -1), bold_font),
+            ]
+        )
+    )
+    elements.append(t)
+    elements.append(Spacer(1, 24))
+
+    if completed:
+        elements.append(Paragraph("Completed Tasks", heading_style))
+        ghost_snippets.append("Completed Tasks")
+        for task in completed:
+            elements.append(
+                Paragraph(f"<b>{task.case_id}</b> - {task.company}", body_style)
+            )
+            elements.append(Paragraph(f"Root Cause: {task.root_cause}", body_style))
+            elements.append(Paragraph(f"Solution: {task.solution}", body_style))
+            elements.append(Spacer(1, 12))
+            ghost_snippets.extend(
+                [task.case_id, task.company, task.root_cause, task.solution]
+            )
+
+    if pending:
+        elements.append(Paragraph("Pending Tasks", heading_style))
+        ghost_snippets.append("Pending Tasks")
+        for task in pending:
+            elements.append(
+                Paragraph(
+                    f"<b>{task.case_id}</b> - {task.company} ({task.priority})",
+                    body_style,
+                )
+            )
+            if task.is_escalated:
+                elements.append(
+                    Paragraph("<font color='red'>ESCALATED</font>", body_style)
+                )
+            elements.append(Spacer(1, 12))
+            ghost_snippets.extend([task.case_id, task.company, task.priority])
+
+    _build_pdf_with_ghost_text(doc, elements, ghost_snippets)
+    buffer.seek(0)
+    return buffer.read()
+
+
 def format_tracking_date(value) -> str:
     if not value:
         return ""
@@ -9774,6 +10000,197 @@ def render_dell_fedex_dashboard(cases: list) -> None:
         )
     else:
         st.caption("No FedEx replacements awaiting action.")
+
+
+def _start_day_logic(today_date: str):
+    """Populates the sprint tasks from tracked cases."""
+    tracked_cases = get_tracked_cases_for_sprint()
+    tasks = []
+
+    with st.spinner("AI Scrum Master is prioritizing your day..."):
+        for case in tracked_cases:
+            priority = case.get("priority", "Normal")
+            is_escalated = priority in ["High", "Critical", "Escalation"]
+            source_path = case.get("path", "")
+
+            # Load full data to get existing Root Cause / Solution
+            full_data = {}
+            if source_path:
+                full_data = load_full_case_data(source_path)
+
+            root_cause = full_data.get("root_cause", "")
+            solution = full_data.get("solution", "")
+
+            tasks.append(
+                SprintTask(
+                    case_id=str(case.get("case_id", "Unknown")),
+                    company=str(case.get("company", "Unknown")),
+                    priority=priority,
+                    status="Pending",
+                    is_escalated=is_escalated,
+                    source_path=str(source_path),
+                    root_cause=str(root_cause),
+                    solution=str(solution),
+                )
+            )
+
+        # AI Prioritization call
+        if tasks:
+            tasks = ai_prioritize_tasks(tasks)
+
+    new_state = SprintState(date=today_date, tasks=tasks, is_active=True)
+    st.session_state.sprint_state = new_state
+    save_sprint_state(new_state)
+    st.success(f"Day started! {len(tasks)} tasks loaded.")
+
+
+def render_sprint_tab() -> None:
+    st.markdown(
+        "<div class='dashboard-title'>Sprint & Task Execution</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Check if a sprint is active
+    current_state = load_sprint_state()
+    today_date = _utc_now_z().split("T")[0]
+
+    # Initialize session state if needed or if loading fresh
+    if "sprint_state" not in st.session_state:
+        st.session_state.sprint_state = current_state
+
+    # 1. Start Day / End Shift
+    col1, col2 = st.columns(2)
+    with col1:
+        if not st.session_state.sprint_state.is_active:
+            if st.button("Start Day"):
+                _start_day_logic(today_date)
+                st.rerun()
+        else:
+            st.info(f"Sprint Active for {st.session_state.sprint_state.date}")
+
+    with col2:
+        if st.session_state.sprint_state.is_active:
+            # We put End Shift logic in a separate container/modal flow usually,
+            # but here a button triggering PDF download and state close is fine.
+            st.write("")  # Spacer
+
+    if not st.session_state.sprint_state.is_active:
+        st.info("Start your day to see tasks and AI insights.")
+        return
+
+    # 2. Progress
+    tasks = st.session_state.sprint_state.tasks
+    total_tasks = len(tasks)
+    completed_tasks = len([t for t in tasks if t.status == "Completed"])
+    if total_tasks > 0:
+        progress = completed_tasks / total_tasks
+        st.progress(progress, text=f"Progress: {completed_tasks}/{total_tasks}")
+
+    # 3. Task List (Sprint Board)
+    st.subheader("Today's Tasks")
+
+    # End Shift Logic (Placed here to be accessible when active)
+    with col2:
+        if st.download_button(
+            label="📄 End Shift & Export Report",
+            data=generate_sprint_pdf_report(st.session_state.sprint_state),
+            file_name=f"Sprint_Report_{st.session_state.sprint_state.date}.pdf",
+            mime="application/pdf",
+            key="end_shift_btn",
+        ):
+            pass
+
+        if st.button("Close Shift (Reset)"):
+            state = st.session_state.sprint_state
+            state.is_active = False
+            save_sprint_state(state)
+            st.session_state.sprint_state = state
+            st.success("Shift closed.")
+            st.rerun()
+
+    if not tasks:
+        st.info("No tasks for today.")
+    else:
+        # Sort: Escalated first, then by priority
+        # We need to ensure types are sortable (bool is int, so fine)
+        sorted_tasks = sorted(tasks, key=lambda x: (not x.is_escalated, x.case_id))
+
+        for idx, task in enumerate(sorted_tasks):
+            # Dynamic expander label
+            fire_emoji = "🔥 " if task.is_escalated else ""
+            status_label = f"({task.status})"
+            label = f"{fire_emoji}{task.case_id} - {task.company} {status_label}"
+            with st.expander(label, expanded=task.status != "Completed"):
+                col_info, col_action = st.columns([3, 1])
+                with col_info:
+                    st.write(f"**Priority:** {task.priority}")
+                    if task.ai_suggestion:
+                        st.info(f"🤖 **AI Suggestion:** {task.ai_suggestion}")
+                    if task.ai_time_estimate:
+                        st.caption(f"Estimated Time: {task.ai_time_estimate}")
+
+                    # Editable fields with sync
+                    # Use unique keys for each task to avoid conflicts
+                    rc_key = f"rc_{task.case_id}_{idx}"
+                    sol_key = f"sol_{task.case_id}_{idx}"
+
+                    new_rc = st.text_input(
+                        "Root Cause", value=task.root_cause, key=rc_key
+                    )
+                    new_sol = st.text_area(
+                        "Solution", value=task.solution, key=sol_key
+                    )
+
+                    # Detect changes and sync to DB
+                    if new_rc != task.root_cause or new_sol != task.solution:
+                        task.root_cause = new_rc
+                        task.solution = new_sol
+                        save_sprint_state(st.session_state.sprint_state)
+
+                        # Sync to Main Database
+                        if task.source_path:
+                            update_case_fields(
+                                task.source_path,
+                                {
+                                    "root_cause": new_rc,
+                                    "solution": new_sol,
+                                },
+                            )
+                            # Using toast if available, or success/info
+                            if hasattr(st, "toast"):
+                                st.toast(
+                                    f"Saved updates for {task.case_id} to database."
+                                )
+
+                with col_action:
+                    if task.status != "Completed":
+                        if st.button(
+                            "Mark Complete", key=f"btn_comp_{task.case_id}_{idx}"
+                        ):
+                            task.status = "Completed"
+                            # Also mark case as Resolved globally
+                            if task.source_path:
+                                try:
+                                    set_tracked_status(
+                                        path=task.source_path,
+                                        status="Resolved",
+                                        case_id=task.case_id,
+                                    )
+                                    if hasattr(st, "toast"):
+                                        st.toast(
+                                            f"Case {task.case_id} marked as Resolved globally."
+                                        )
+                                except Exception as e:
+                                    st.error(f"Failed to update global status: {e}")
+
+                            save_sprint_state(st.session_state.sprint_state)
+                            st.rerun()
+                    else:
+                        st.success("Completed")
+                        if st.button("Reopen", key=f"btn_reopen_{task.case_id}_{idx}"):
+                            task.status = "Pending"
+                            save_sprint_state(st.session_state.sprint_state)
+                            st.rerun()
 
 
 def render_saved_cases_dashboard() -> None:
@@ -19536,10 +19953,9 @@ if resolution_notice:
 
 visible_case_indices = _visible_case_index_list()
 case_labels = [
-    _case_display_name(idx)
-    for idx in visible_case_indices
+    _case_display_name(idx) for idx in visible_case_indices
 ] + ["+ New Case"]
-tab_labels: list[str] = ["Dashboard", "Saved Cases", "Settings"]
+tab_labels: list[str] = ["Dashboard", "Sprint", "Saved Cases", "Settings"]
 if st.session_state.debug_mode:
     tab_labels.append("Debug")
 tab_labels.append("Report")
@@ -19549,6 +19965,9 @@ all_tabs = st.tabs(tab_labels)
 tab_index = 0
 with all_tabs[tab_index]:
     render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
+tab_index += 1
+with all_tabs[tab_index]:
+    render_with_monitor("Sprint", render_sprint_tab, tab_label="Sprint")
 tab_index += 1
 with all_tabs[tab_index]:
     render_with_monitor(
