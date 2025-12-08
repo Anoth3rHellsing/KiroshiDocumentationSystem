@@ -1,1 +1,4 @@
 autosaves/
+
+__pycache__/
+*.pyc
