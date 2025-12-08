@@ -15950,6 +15950,44 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
             description_col.subheader(description_label)
             notes_col.subheader(notes_label)
 
+        # First time happening logic
+        ft_key = widget_key("first_time_happening", CURRENT_CASE_IDX)
+        ft_choice = description_col.radio(
+            "First time happening?",
+            ["Yes", "No"],
+            index=None,
+            horizontal=True,
+            key=ft_key,
+        )
+        if ft_choice == "No":
+            ft_case_key = widget_key("first_time_case_ref", CURRENT_CASE_IDX)
+            ft_case_ref = description_col.text_input(
+                "Reference case",
+                placeholder="Case number or issue reference",
+                key=ft_case_key,
+            )
+        else:
+            ft_case_ref = ""
+
+        if description_col.button("Insert into Description", key=widget_key("ft_insert", CURRENT_CASE_IDX)):
+            to_append = ""
+            if ft_choice == "Yes":
+                to_append = "This is the first time this issue happens."
+            elif ft_choice == "No":
+                ref_text = ft_case_ref.strip() or "[Reference]"
+                to_append = f"Customer has reported this issue before on the following case: {ref_text}"
+
+            if to_append:
+                current_desc = D.description or ""
+                new_desc = f"{current_desc}\n{to_append}" if current_desc else to_append
+                D.description = new_desc
+                st.session_state["description"] = new_desc
+                # Update widget state directly so it reflects immediately
+                st.session_state[widget_state_key("description", CURRENT_CASE_IDX)] = new_desc
+                touch_case_last_modified()
+                autosave()
+                st.rerun()
+
         desc_height = 52 if compact_mode else 68
         auto_text_area(
             "Description",
@@ -16037,6 +16075,69 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
             card.subheader("Additional information")
         else:
             card.markdown("#### 🧠 Additional information")
+
+        # Antivirus and Firewall helpers
+        av_col, fw_col = card.columns(2)
+
+        # Antivirus Logic
+        av_key = widget_key("antivirus_radio", CURRENT_CASE_IDX)
+        av_choice = av_col.radio(
+            "Antivirus installed?",
+            ["Yes", "No"],
+            index=None,
+            horizontal=True,
+            key=av_key,
+        )
+        if av_choice == "Yes":
+            av_name_key = widget_key("antivirus_name", CURRENT_CASE_IDX)
+            av_name = av_col.text_input("Antivirus Name", key=av_name_key)
+        else:
+            av_name = ""
+
+        if av_col.button("Insert", key=widget_key("av_insert", CURRENT_CASE_IDX)):
+            av_text = ""
+            if av_choice == "Yes":
+                name_str = av_name.strip() or "[Name]"
+                av_text = f"Antivirus: {name_str}"
+            elif av_choice == "No":
+                av_text = "No antivirus detected"
+
+            if av_text:
+                current_info = D.additional_info or ""
+                new_info = f"{current_info}\n{av_text}" if current_info else av_text
+                D.additional_info = new_info
+                st.session_state["additional_info"] = new_info
+                st.session_state[widget_state_key("additional_info", CURRENT_CASE_IDX)] = new_info
+                touch_case_last_modified()
+                autosave()
+                st.rerun()
+
+        # Firewall Logic
+        fw_key = widget_key("firewall_radio", CURRENT_CASE_IDX)
+        fw_choice = fw_col.radio(
+            "Firewalls enabled?",
+            ["Yes", "No"],
+            index=None,
+            horizontal=True,
+            key=fw_key,
+        )
+        if fw_col.button("Insert", key=widget_key("fw_insert", CURRENT_CASE_IDX)):
+            fw_text = ""
+            if fw_choice == "Yes":
+                fw_text = "Firewalls are ON"
+            elif fw_choice == "No":
+                fw_text = "Firewalls are OFF"
+
+            if fw_text:
+                current_info = D.additional_info or ""
+                new_info = f"{current_info}\n{fw_text}" if current_info else fw_text
+                D.additional_info = new_info
+                st.session_state["additional_info"] = new_info
+                st.session_state[widget_state_key("additional_info", CURRENT_CASE_IDX)] = new_info
+                touch_case_last_modified()
+                autosave()
+                st.rerun()
+
         auto_text_area(
             "Additional details",
             "additional_info",

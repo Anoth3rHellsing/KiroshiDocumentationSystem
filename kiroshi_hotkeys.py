@@ -11,7 +11,11 @@ from functools import partial
 from typing import Iterable, Mapping, Sequence
 
 import pyperclip
-from pynput import keyboard
+
+try:
+    from pynput import keyboard
+except ImportError:
+    keyboard = None
 
 __all__ = [
     "copy_active_case_build_title",
@@ -260,6 +264,10 @@ def copy_active_case_chatgpt_prompt() -> None:
 
 
 def _run_hotkey_listener() -> None:
+    if keyboard is None:
+        logging.warning("pynput not available; hotkey listener disabled")
+        return
+
     try:
         bindings: dict[str, object] = {
             "<ctrl>+<alt>+c": copy_active_case_tables,
@@ -286,6 +294,9 @@ def _run_hotkey_listener() -> None:
 
 def ensure_hotkey_listener() -> None:
     """Ensure the global hotkey listener thread is running."""
+
+    if keyboard is None:
+        return
 
     global _listener_started, _listener_thread
     with _listener_lock:
