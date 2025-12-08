@@ -17483,6 +17483,13 @@ def render_case_ui(case_idx: int):
                     "group": "Customer follow-up",
                 },
                 {
+                    "value": "Last Call",
+                    "label": "Last Call",
+                    "icon": "⏳",
+                    "description": "Progressive follow-up emails (1st reminder to final notice).",
+                    "group": "Customer follow-up",
+                },
+                {
                     "value": "Broken Scanner",
                     "label": "Broken Scanner",
                     "icon": "🛠️",
@@ -17764,7 +17771,62 @@ def render_case_ui(case_idx: int):
             prompt = ""
             prompt_label = "ChatGPT prompt (copy & paste)"
             show_generation_options = True
-            if email_type == "Recap (Customer)":
+            if email_type == "Last Call":
+                st.markdown("#### Last Call Stage")
+
+                # Initialize state for Last Call variables if not present
+                lc_stage_key = case_widget_key("email_last_call", "stage", case_idx)
+                lc_info_key = case_widget_key("email_last_call", "requested_info", case_idx)
+
+                if lc_stage_key not in st.session_state:
+                    st.session_state[lc_stage_key] = 1
+                if lc_info_key not in st.session_state:
+                    st.session_state[lc_info_key] = ""
+
+                # UI Controls
+                stage = st.radio(
+                    "Select Last Call Stage",
+                    [1, 2, 3],
+                    format_func=lambda x: f"Last Call {x}",
+                    key=lc_stage_key,
+                    horizontal=True
+                )
+
+                requested_info = st.text_input(
+                    "Requested information",
+                    key=lc_info_key,
+                    placeholder="e.g. proof of purchase, scanner serial number, etc."
+                )
+
+                # Build Prompt
+                intro = build_email_intro(D)
+                info_text = requested_info.strip() or "[Requested Information]"
+
+                if stage == 1:
+                    instruction = (
+                        f"Draft a friendly follow-up email. Mention that we tried to contact them "
+                        f"or are waiting for the following information to continue assistance: {info_text}."
+                    )
+                elif stage == 2:
+                    instruction = (
+                        f"Draft a follow-up email. Warn that the case will be closed after 3 unsuccessful attempts. "
+                        f"Remind them we are waiting for: {info_text}."
+                    )
+                else:  # stage == 3
+                    instruction = (
+                        f"Draft a final follow-up email. State that this is the last notice. "
+                        f"Instruct them to call us back directly with the case number and the following required "
+                        f"information to continue assistance: {info_text}."
+                    )
+
+                prompt = (
+                    f"You are a professional support agent. {instruction}\n"
+                    f"Start the email with:\n{intro}\n"
+                    "Ensure the tone corresponds to the urgency of the stage (Friendly -> Warning -> Final).\n"
+                    "Return only the email body."
+                )
+
+            elif email_type == "Recap (Customer)":
                 intro = build_email_intro(D)
                 steps_summary = "\n".join(D.remote_steps.splitlines()) or "—"
                 recommendation_key = email_tab_key("recap_recommendation")
@@ -18545,13 +18607,26 @@ End with: We look forward to your reply."""
                 )
 
             if email_type not in static_templates:
-                st.text_area(
+                # Calculate hash of the generated prompt to detect changes from inputs
+                prompt_hash = hashlib.md5(prompt.encode("utf-8")).hexdigest()
+                prompt_hash_key = email_tab_key("api_prompt_hash")
+                prompt_widget_key = email_tab_key("api_prompt_area")
+
+                # If the generated prompt changed (e.g. inputs changed), update the widget state
+                if st.session_state.get(prompt_hash_key) != prompt_hash:
+                    st.session_state[prompt_widget_key] = prompt
+                    st.session_state[prompt_hash_key] = prompt_hash
+
+                # Render the text area, which will use the updated session state value
+                user_content = st.text_area(
                     prompt_label,
-                    prompt,
+                    value=prompt, # Fallback, though session state takes precedence if key exists
                     height=300,
-                    key=email_tab_key("api_prompt_area"),
+                    key=prompt_widget_key,
                 )
-                st.session_state["last_prompt"] = prompt
+
+                # Update global last_prompt with what is actually in the box (allowing user edits)
+                st.session_state["last_prompt"] = user_content
 
                 helpjuice_toggle_key = email_tab_key("api_helpjuice")
                 include_helpjuice = st.toggle(
@@ -18577,12 +18652,12 @@ End with: We look forward to your reply."""
                     base_url = st.session_state.ai_base_url
                     if not api_key and base_url.startswith("https://api.openai.com"):
                         st.error("Please set your OpenAI API key in the Debug tab.")
-                    elif not prompt.strip():
+                    elif not user_content.strip():
                         st.error("Prompt is empty.")
                     else:
                         with case_loading_overlay("Syncing with GPT-OSS intelligence…"):
                             try:
-                                augmented_prompt = prompt
+                                augmented_prompt = user_content
                                 extras = []
                                 if include_helpjuice:
                                     link = D.internal_helpjuice or "https://helpjuice.com"
