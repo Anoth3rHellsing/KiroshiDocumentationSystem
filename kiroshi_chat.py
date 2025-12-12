@@ -6,7 +6,6 @@ import requests
 import streamlit as st
 import urllib3
 from pathlib import Path
-from kiroshi_local_ai import generate_response
 
 # Disable SSL warnings for corporate environments with interception proxies
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -32,7 +31,13 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "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",
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
-DEFAULT_AI_MODE = "Local (Native)"
+DEFAULT_AI_MODE = (
+    "Local Model"
+    if not DEFAULT_AI_BASE_URL
+    else (
+        "Cloud" if DEFAULT_AI_BASE_URL.startswith("https://api.openai.com") else "Local API"
+    )
+)
 
 SYSTEM_PROMPT = """Project Kiroshi — Personality Construct V.0.0.1 “Coffee”
 Beta Build: 19082025
@@ -485,16 +490,6 @@ def query_kiroshi(user_message, history, api_key, model, base_url=None):
     messages = system_messages + conversation_history + [
         {"role": "user", "content": user_message}
     ]
-
-    # Handle Native Local AI
-    current_ai_mode = st.session_state.get("ai_mode", DEFAULT_AI_MODE)
-    if current_ai_mode == "Local (Native)":
-        profile = st.session_state.get("local_ai_profile", "speed")
-        try:
-            return generate_response(messages, profile)
-        except Exception as exc:
-            raise RuntimeError(f"Local AI Error: {exc}")
-
     # Local pipeline fallback when no base URL is provided
     if not base_url:
         try:

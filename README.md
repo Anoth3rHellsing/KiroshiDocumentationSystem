@@ -33,6 +33,7 @@ Coverage is actively tracked and the project receives daily updates.
   folder.
 - **Screenshot capture** – take screenshots directly from the app, name them for context, and include them in the exported ZIP
   under a dedicated `Screenshots/` folder.
+- **Secure Screenshot (HIPAA)** – capture screenshots with automatic letter blurring (preserving numbers for logs/diagnostics) to assist with HIPAA compliance. Requires a local Tesseract OCR installation (see *Prerequisites*).
 - **Real-time autosave** – case data is persisted to `autosave.json` on every interaction to prevent data loss.
 - **Save/Load tab** – persist cases to `C:\\ProgramFiles\\KiroshiDatabase` using the case ID, browse recent cases, and reload them directly from the app.
 - **Case Dex download** – fetch a Case Dex package for a given case ID and save it as a ZIP file.
@@ -45,6 +46,21 @@ Coverage is actively tracked and the project receives daily updates.
 - **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
 - **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
   sessions.
+
+## Prerequisites for Secure Screenshot (HIPAA)
+
+The **Secure Screenshot** feature relies on Tesseract OCR to distinguish between letters (which must be blurred) and numbers (which remain visible for hardware logs).
+
+1.  **Install Tesseract OCR**:
+    *   **Windows**: Download and install the Tesseract executable from the [UB-Mannheim repository](https://github.com/UB-Mannheim/tesseract/wiki).
+    *   **Linux**: `sudo apt install tesseract-ocr`
+    *   **macOS**: `brew install tesseract`
+
+2.  **Add to PATH**: Ensure the installation directory (e.g., `C:\Program Files\Tesseract-OCR`) is added to your system's PATH environment variable so Kiroshi can find the `tesseract` binary.
+
+3.  **Restart**: Restart Kiroshi (and your terminal/IDE) after installing to pick up the new PATH.
+
+If Tesseract is missing or not found, the Secure Screenshot button will return an error message instructing you to check this section.
 
 ## Kiroshi Cloud console
 
