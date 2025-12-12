@@ -8638,9 +8638,6 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
     autosave_path = _autosave_path(case_id_value)
     temp_path = autosave_path.with_suffix(autosave_path.suffix + ".tmp")
 
-    with autosave_path.open("w", encoding="utf-8") as f:
-        f.write(serialized_payload)
-
     with _autosave_lock:
         existing_hash = _last_autosave_hash
         try:
@@ -8687,7 +8684,22 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
         try:
             with temp_path.open("w", encoding="utf-8") as f:
                 f.write(serialized_payload)
-            os.replace(temp_path, autosave_path)
+
+            # Retry logic for Windows transient file locking
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    os.replace(temp_path, autosave_path)
+                    break
+                except PermissionError:
+                    if attempt < max_retries - 1:
+                        time.sleep(0.1)
+                    else:
+                        raise
+                except OSError:
+                    # Reraise other OS errors immediately
+                    raise
+
             _last_autosave_timestamp = time.monotonic()
             _last_autosave_hash = payload_hash
         except Exception as exc:
@@ -9418,7 +9430,8 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
         if not case_id_value:
             case_path.unlink(missing_ok=True)
             return
-        dest = DATABASE_DIR / f"{case_id_value}.json"
+        safe_case_id = sanitize_case_id(case_id_value)
+        dest = DATABASE_DIR / f"{safe_case_id}.json"
         payload = {k: v for k, v in data.items() if k != "path"}
 
         if dest.exists():
@@ -14638,7 +14651,8 @@ def save_case_to_database(
         case.kiroshi_version = VERSION
     else:
         case.kiroshi_version = str(case.kiroshi_version)
-    file_path = DATABASE_DIR / f"{case.case_id}.json"
+    safe_case_id = sanitize_case_id(case.case_id)
+    file_path = DATABASE_DIR / f"{safe_case_id}.json"
     last_modified_value = case.last_modified
     if (not last_modified_value) and file_path.exists():
         try:
