@@ -235,11 +235,15 @@ CASE_DEX_URL_TEMPLATE = os.environ.get(
 )
 
 if os.name == "nt":
-    PROGRAM_DATA_DIR = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Kiroshi Documentation"
-    DATABASE_DIR = Path("C:/ProgramFiles/KiroshiDatabase")
+    # Move to C:/KDS to avoid permission issues with ProgramFiles/ProgramData
+    KIROSHI_ROOT = Path("C:/KDS")
+    PROGRAM_DATA_DIR = KIROSHI_ROOT / "System"
+    DATABASE_DIR = KIROSHI_ROOT / "Data"
 else:
-    PROGRAM_DATA_DIR = Path.home() / "Kiroshi Documentation"
-    DATABASE_DIR = Path.home() / "KiroshiDatabase"
+    # Use home directory for non-Windows systems
+    KIROSHI_ROOT = Path.home() / "KDS"
+    PROGRAM_DATA_DIR = KIROSHI_ROOT / "System"
+    DATABASE_DIR = KIROSHI_ROOT / "Data"
 
 DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
 PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
@@ -399,16 +403,62 @@ def _ensure_case_attachments_root() -> tuple[Path, OSError | None]:
         return CASE_ATTACHMENTS_ROOT, exc
 
 
+def _migrate_legacy_data() -> None:
+    """Attempt to copy data from old ProgramFiles/ProgramData locations to KDS."""
+    if os.name != "nt":
+        return
+
+    old_database_dir = Path("C:/ProgramFiles/KiroshiDatabase")
+    old_program_data_dir = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Kiroshi Documentation"
+
+    # Migrate Database (Saved Cases, Settings, etc.)
+    if old_database_dir.exists() and DATABASE_DIR.exists():
+        try:
+            for item in old_database_dir.iterdir():
+                dest = DATABASE_DIR / item.name
+                if not dest.exists():
+                    if item.is_dir():
+                        shutil.copytree(item, dest)
+                    else:
+                        shutil.copy2(item, dest)
+            logging.info("Migrated legacy database from %s to %s", old_database_dir, DATABASE_DIR)
+        except Exception as exc:
+            logging.warning("Failed to migrate legacy database: %s", exc)
+
+    # Migrate ProgramData (Logs, System files)
+    if old_program_data_dir.exists() and PROGRAM_DATA_DIR.exists():
+        try:
+            for item in old_program_data_dir.iterdir():
+                dest = PROGRAM_DATA_DIR / item.name
+                if not dest.exists():
+                    if item.is_dir():
+                        shutil.copytree(item, dest)
+                    else:
+                        shutil.copy2(item, dest)
+            logging.info("Migrated legacy system data from %s to %s", old_program_data_dir, PROGRAM_DATA_DIR)
+        except Exception as exc:
+            logging.warning("Failed to migrate legacy system data: %s", exc)
+
+
 def _initialize_storage_paths() -> None:
     """Ensure user-writable directories exist after installation is verified."""
 
+    if os.name == "nt":
+        try:
+            # Ensure C:/KDS exists
+            Path("C:/KDS").mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            logging.warning("Could not create C:/KDS root: %s", exc)
+
     DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+    PROGRAM_DATA_DIR.mkdir(parents=True, exist_ok=True)  # Ensure System dir exists
     UTILITIES_DIR.mkdir(parents=True, exist_ok=True)
     UPDATES_DIR.mkdir(parents=True, exist_ok=True)
     if not RECENT_CASES_PATH.exists():
         RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
     TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
     _ensure_case_attachments_root()
+    _migrate_legacy_data()
 
 APP_ROOT = Path(__file__).resolve().parent
 # The project repository was transferred from the ``KiroshiCorp`` GitHub
@@ -2219,24 +2269,23 @@ def _check_installation_status() -> None:
         _initialize_storage_paths()
         return
 
-    program_data_missing = not PROGRAM_DATA_DIR.exists() or not PROGRAM_DATA_SENTINEL.exists()
-    program_files_missing = not DATABASE_DIR_PREEXISTED
+    # With the move to C:/KDS, we check for that structure instead.
+    # However, if we just migrated, these might just be created.
+    # The initialization function handles creation, so we check if
+    # the initialization succeeds.
 
-    missing_locations: list[tuple[str, Path]] = []
-    if program_data_missing:
-        missing_locations.append(("ProgramData", PROGRAM_DATA_DIR))
-    if program_data_missing and program_files_missing:
-        missing_locations.append(("Program Files", DATABASE_DIR))
-
-    if not missing_locations:
+    try:
         _initialize_storage_paths()
-        return
+    except Exception as exc:
+        st.error(
+            f"Kiroshi could not initialize its storage directories at {DATABASE_DIR.parent}. "
+            f"Error: {exc}"
+        )
+        st.stop()
 
-    st.error(
-        "Kiroshi's installation data is incomplete. Run the Kiroshi Installer "
-        "to populate the required ProgramData and Program Files folders before "
-        "using the app."
-    )
+    # We no longer strictly enforce the presence of the installer sentinel in ProgramData
+    # because we are moving away from that protected directory.
+    return
 
     bullet_list = "\n".join(
         f"- **{label}** → `{path}`" for label, path in missing_locations
