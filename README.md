@@ -39,6 +39,7 @@ Coverage is actively tracked and the project receives daily updates.
 - **Case tracking** – enable tracking from the Case tab and store Dell or FedEx status updates in `TrackedCases` for dashboard monitoring; cases may be untracked or closed when finished.
 - **Kiroshi Cloud console** – register remote devices, enforce per-tenant credentials, and synchronise the AI Educate knowledge base across Windows and Windows Server workstations through an encrypted management plane.
 - **GPT-OSS integration (coming soon)** – send prompts directly to GPT-OSS and display the generated response.
+- **Local (Native) AI** – run AI models locally on your device without external dependencies. Kiroshi manages the download and execution of models like Phi-3 (Speed) or Llama 3 (Quality) using your hardware (GPU supported).
 - **Kiroshi chat tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
   gentle reassurance when you're overwhelmed, and humorous escalation quips. Toggle Sarcasm Mode in Settings when you want the
   assistant to lean into extra wit.
@@ -655,12 +656,18 @@ cp config.example.json config.json
 ```
 
 The backend endpoint is configurable via the `AI_BASE_URL` environment variable
-or the controls in the Debug tab. Choose **Cloud** to use OpenAI's service,
-**Local API** to point to any OpenAI-compatible server, or **Local Model** to
-run a minimal `transformers` pipeline directly. When using a local server, the
-`OPENAI_API_KEY` may be left blank.
+or the controls in the Debug tab. Kiroshi now supports three AI modes:
+
+1.  **Cloud** – Connects to OpenAI's service (requires an API Key).
+2.  **Local API** – Connects to any OpenAI-compatible server (e.g., LM Studio, Ollama) running on `http://localhost:8000/v1` (or your custom URL).
+3.  **Local (Native)** – Runs the AI engine directly inside Kiroshi using `llama-cpp-python`. No external server apps are required.
+    *   **Features:**
+        *   **Automatic Download:** Select a profile ("Speed" or "Quality") and Kiroshi will download the necessary GGUF model files from HuggingFace to a local `models/` directory.
+        *   **Hardware Acceleration:** Automatically detects and uses your GPU (Nvidia RTX, etc.) for faster inference.
+        *   **Offline Capable:** Once the model is downloaded, no internet connection is needed for AI features.
 
 ```bash
+# Example for Local API mode
 export AI_BASE_URL=http://localhost:8000/v1
 export OPENAI_API_KEY=""
 
@@ -670,11 +677,6 @@ streamlit run case_documentation_app.py
 # Desktop mode
 streamlit-desktop-app run case_documentation_app.py
 ```
-
-If `AI_BASE_URL` is unset (the "Local Model" option), Kiroshi falls back to a
-minimal `transformers` pipeline (install the optional `transformers` and
-`torch` packages from `requirements-bored.txt` and supply an available model)
-to generate text without making HTTP requests.
 
 ### Corporate SSL interception
 
