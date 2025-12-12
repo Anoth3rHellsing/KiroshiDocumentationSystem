@@ -17485,7 +17485,21 @@ def render_case_ui(case_idx: int):
             if isinstance(scores, dict) and scores:
                 st.markdown("**Area scores**")
                 for area, score in scores.items():
-                    st.markdown(f"- {area.replace('_', ' ').title()}: {score}")
+                    label = area.replace('_', ' ').title()
+                    if isinstance(score, dict):
+                        val = None
+                        for key in ("score", "value", "points"):
+                            if key in score:
+                                val = score[key]
+                                break
+                        comment = score.get("comment") or score.get("note") or score.get("reason")
+
+                        display_text = f"- **{label}:** {val}"
+                        if comment:
+                            display_text += f" – *{comment}*"
+                        st.markdown(display_text)
+                    else:
+                        st.markdown(f"- **{label}:** {score}")
             gaps = qa_result.get("gaps") if isinstance(qa_result, dict) else None
             if isinstance(gaps, list) and gaps:
                 st.markdown("**Gaps to fix**")
@@ -17498,7 +17512,17 @@ def render_case_ui(case_idx: int):
                     st.markdown(f"- {rec}")
         elif st.session_state.verify_result:
             st.markdown("#### Kiroshi QA Verify")
-            st.markdown(st.session_state.verify_result)
+            content = st.session_state.verify_result
+            if isinstance(content, str):
+                content = content.strip()
+                if content.startswith("```json"):
+                    content = content[7:]
+                elif content.startswith("```"):
+                    content = content[3:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+            st.markdown(content)
         if st.session_state.ask_result:
             st.markdown("#### Kiroshi Suggestions")
             st.markdown(st.session_state.ask_result)
