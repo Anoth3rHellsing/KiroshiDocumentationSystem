@@ -9299,7 +9299,8 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
         if not case_id_value:
             case_path.unlink(missing_ok=True)
             return
-        dest = DATABASE_DIR / f"{case_id_value}.json"
+        safe_case_id = sanitize_case_id(case_id_value)
+        dest = DATABASE_DIR / f"{safe_case_id}.json"
         payload = {k: v for k, v in data.items() if k != "path"}
 
         if dest.exists():
