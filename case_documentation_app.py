@@ -2707,12 +2707,12 @@ def _preferred_text_for_background(background: str, preferred: str) -> str:
 DEFAULT_THEME = ThemePalette(
     key="default",
     name="Default",
-    primary="#433878",
-    accent="#7c3aed",
-    background="#f7f8ff",
-    surface="#ffffff",
-    text="#111827",
-    muted_text="#4b5563",
+    primary="#8B80F9",  # Soft Pastel Purple
+    accent="#FF80A0",   # Soft Pastel Pink
+    background="#F3F5F9",  # Airy light gray-blue
+    surface="#FFFFFF",
+    text="#1F2937",
+    muted_text="#6B7280",
     glados_messages=KIROSHI_MESSAGES,
 )
 
@@ -3351,96 +3351,146 @@ def apply_theme_palette(theme: ThemePalette) -> None:
             letter-spacing: 0.01em;
         }}
         .stApp > header {{
-            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
-            border-bottom: 1px solid color-mix(in srgb, var(--kiroshi-border) 45%, transparent);
-            padding: 0.35rem 0;
+            background: transparent !important;
+            border-bottom: none !important;
         }}
         .stApp > header * {{
-            color: #ffffff !important;
+            color: var(--kiroshi-text) !important;
         }}
         .stApp [data-testid="stDecoration"] {{
-            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%) !important;
+            background: linear-gradient(90deg, {theme.primary}, {theme.accent}) !important;
+            height: 4px !important;
         }}
         .stApp [data-testid="stDecoration"] svg {{
             display: none;
         }}
+        /* Main Container with Glassmorphism */
         .stApp .block-container {{
-            background: linear-gradient(180deg, var(--kiroshi-surface-soft) 0%, var(--kiroshi-surface) 80%);
-            border-radius: 1.6rem 1.6rem 0 0;
-            box-shadow: 0 26px 60px {_rgba(card_shadow_color, 0.36)};
-            padding: 2.2rem 2.4rem 2.4rem;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 24px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+            padding: 3rem 3rem 4rem;
             color: var(--kiroshi-text);
-            animation: kiroshiFadeIn 0.7s ease-out both;
-            transition: background 320ms ease, box-shadow 320ms ease, transform 260ms ease;
+            margin-top: 1rem;
+            animation: kiroshiFadeIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
         }}
-        .stApp .block-container:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 30px 70px {_rgba(card_shadow_color, 0.32)};
-        }}
+
+        /* Sidebar with Glassmorphism */
         .stApp [data-testid="stSidebar"] > div:first-child {{
-            background: linear-gradient(205deg, var(--kiroshi-surface) 0%, var(--kiroshi-surface-muted) 100%);
-            border-right: 1px solid color-mix(in srgb, var(--kiroshi-border) 60%, transparent);
-            box-shadow: inset -8px 0 24px rgba(15, 23, 42, 0.22);
-            color: var(--kiroshi-text);
+            background: rgba(255, 255, 255, 0.45);
+            backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.02);
         }}
         .stApp [data-testid="stSidebar"] * {{
             color: var(--kiroshi-text);
         }}
-        .stApp a {{
-            color: {accent_glow};
-        }}
-        .stApp a:hover {{
-            color: {theme.accent};
-        }}
+
+        /* Inputs & Text Areas */
         .stApp input,
         .stApp textarea,
         .stApp select {{
-            background: var(--kiroshi-input-background);
+            background: rgba(255, 255, 255, 0.6);
             color: var(--kiroshi-text);
-            border-radius: 0.85rem;
-            border: 1px solid color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-            transition: border-color 220ms ease, box-shadow 220ms ease;
+            border-radius: 12px;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.01);
+            transition: all 0.25s ease;
+            padding: 0.6rem 0.8rem;
         }}
-        .stApp input::placeholder,
-        .stApp textarea::placeholder {{
-            color: color-mix(in srgb, var(--kiroshi-muted) 78%, var(--kiroshi-text) 22%);
+        .stApp input:focus,
+        .stApp textarea:focus,
+        .stApp select:focus {{
+            background: #ffffff;
+            border-color: {theme.primary};
+            box-shadow: 0 0 0 3px {_rgba(theme.primary, 0.15)};
+            outline: none;
         }}
+
+        /* Buttons - Modern & Soft */
         .stApp .stButton button {{
             border-radius: 999px;
             border: none;
-            padding: 0.65rem 1.9rem;
+            padding: 0.6rem 1.8rem;
             font-weight: 600;
+            letter-spacing: 0.01em;
             background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
             color: #ffffff;
-            box-shadow: 0 14px 34px {_rgba(button_shadow_color, 0.42)};
-            transition: transform 120ms ease, filter 120ms ease;
+            box-shadow: 0 4px 14px {_rgba(theme.primary, 0.3)};
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, filter 0.2s ease;
         }}
         .stApp .stButton button:hover {{
-            filter: brightness(1.05);
-            transform: translateY(-1px);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 8px 20px {_rgba(theme.primary, 0.4)};
+            filter: brightness(1.08);
         }}
-        .stApp .stTabs [role="tablist"] button {{
+        .stApp .stButton button:active {{
+            transform: translateY(1px) scale(0.98);
+            box-shadow: 0 2px 8px {_rgba(theme.primary, 0.2)};
+        }}
+
+        /* Tabs - Pill Style */
+        .stTabs [role="tablist"] {{
+            background: rgba(0, 0, 0, 0.04);
+            padding: 4px;
+            border-radius: 999px;
+            display: inline-flex;
+            gap: 4px;
+            margin-bottom: 1.5rem;
+        }}
+        .stTabs [role="tablist"] button {{
             border-radius: 999px !important;
-            color: color-mix(in srgb, var(--kiroshi-muted) 70%, var(--kiroshi-text) 30%);
+            padding: 0.4rem 1.2rem;
+            border: none !important;
+            background: transparent;
+            color: var(--kiroshi-muted);
+            font-weight: 500;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }}
-        .stApp .stTabs [role="tablist"] button[aria-selected="true"] {{
-            background: linear-gradient(135deg, {theme.primary} 0%, {theme.accent} 100%);
-            color: #ffffff;
-            box-shadow: 0 10px 24px {_rgba(button_shadow_color, 0.35)};
+        .stTabs [role="tablist"] button:hover {{
+            color: var(--kiroshi-text);
+            background: rgba(255, 255, 255, 0.4);
         }}
-        .stApp .stTabs [role="tablist"] button[aria-selected="true"] p {{
-            color: #ffffff !important;
+        .stTabs [role="tablist"] button[aria-selected="true"] {{
+            background: #ffffff !important;
+            color: {theme.primary} !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            font-weight: 600;
+            transform: scale(1.05);
         }}
-        .stApp .stAlert > div {{
-            background: color-mix(in srgb, var(--kiroshi-surface) 78%, rgba(255, 255, 255, 0.1));
-            border: 1px solid color-mix(in srgb, var(--kiroshi-accent) 35%, transparent);
+        .stTabs [role="tablist"] button[aria-selected="true"] p {{
+            color: {theme.primary} !important;
+        }}
+
+        /* Expander & Cards */
+        .streamlit-expanderHeader {{
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }}
+
+        /* Dataframes */
+        [data-testid="stDataFrame"] {{
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+        }}
+
+        .stAlert > div {{
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-left: 4px solid {theme.accent};
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
             color: var(--kiroshi-text);
         }}
         .stApp div[data-testid="stSwitch"] {{
-            background: color-mix(in srgb, var(--kiroshi-surface) 82%, rgba(255, 255, 255, 0.18));
-            border-radius: 1rem;
-            border: 1px solid color-mix(in srgb, var(--kiroshi-border) 55%, transparent);
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 16px;
+            border: 1px solid rgba(0, 0, 0, 0.06);
             padding: 0.85rem 1rem;
             display: flex;
             align-items: center;
