@@ -14,5 +14,4 @@ mss
 pdfminer.six
 cryptography
 streamlit-desktop-app
-llama-cpp-python
-huggingface_hub
+pytesseract

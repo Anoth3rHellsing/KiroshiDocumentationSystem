@@ -99,12 +99,23 @@ except Exception:  # pragma: no cover - fallback when display unavailable
     TK_AVAILABLE = False
 
 try:  # PIL's ImageGrab requires GUI capabilities
-    from PIL import ImageGrab
+    from PIL import ImageGrab, Image as PILImage, ImageFilter
 
     IMAGEGRAB_AVAILABLE = True
 except Exception:  # pragma: no cover - fallback when Pillow is unavailable
     ImageGrab = None
+    PILImage = None
+    ImageFilter = None
     IMAGEGRAB_AVAILABLE = False
+
+try:  # pytesseract is required for secure screenshots (OCR)
+    import pytesseract  # type: ignore
+    from pytesseract import Output
+
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    pytesseract = None
+    PYTESSERACT_AVAILABLE = False
 
 try:  # mss offers a headless-friendly screen capture fallback
     import mss  # type: ignore
@@ -6641,6 +6652,58 @@ class ScreenshotAsset(InMemoryUploadedFile):
         return record
 
 
+def _apply_secure_blur(image: object) -> object | None:
+    """Apply a secure blur to text in the image, preserving numbers.
+
+    Requires Tesseract OCR to distinguish letters from numbers.
+    Returns None if the blur operation fails (fail-closed) to avoid leaking data.
+    """
+    if not PYTESSERACT_AVAILABLE or pytesseract is None:
+        logging.warning("Secure blur requested but pytesseract is not installed.")
+        return None
+
+    if PILImage is None or not isinstance(image, PILImage.Image):
+        return None
+
+    try:
+        # Detect text
+        data = pytesseract.image_to_data(image, output_type=Output.DICT)
+
+        # Convert to RGBA for processing if needed, though blur works on RGB
+        processed = image.copy()
+
+        n_boxes = len(data["text"])
+        for i in range(n_boxes):
+            if int(data["conf"][i]) > 40:  # Confidence threshold
+                text = data["text"][i].strip()
+                if not text:
+                    continue
+
+                # "Numbers must not be blurry, only letters"
+                if re.search(r"[a-zA-Z]", text):
+                    (x, y, w, h) = (
+                        data["left"][i],
+                        data["top"][i],
+                        data["width"][i],
+                        data["height"][i],
+                    )
+
+                    # Crop the region
+                    region = processed.crop((x, y, x + w, y + h))
+
+                    # Blur it using Gaussian as requested
+                    blurred_region = region.filter(ImageFilter.GaussianBlur(radius=5))
+
+                    # Paste back
+                    processed.paste(blurred_region, (x, y))
+
+        return processed
+
+    except Exception as exc:
+        logging.error("Secure blur failed: %s", exc)
+        return None
+
+
 class ScreenshotService:
     """State-aware manager that owns screenshot capture and hydration logic."""
 
@@ -6697,13 +6760,18 @@ class ScreenshotService:
         auto_stamp: bool,
         label_state_key: str,
         reset_flag_key: str | None = None,
+        secure: bool = False,
     ) -> None:
         existing = self.assets()
         safe_stem, display_label = _generate_screenshot_basename(
             label, auto_stamp=auto_stamp, existing=existing
         )
+        if secure:
+            display_label += " (Secure)"
+            safe_stem += "_secure"
+
         capture_fn = self.capture_full if mode == "full" else self.capture_region
-        shot, error = capture_fn(safe_stem, label=display_label)
+        shot, error = capture_fn(safe_stem, label=display_label, secure=secure)
         if shot:
             shot.capture_mode = mode
             shot.origin = "capture"
@@ -6731,6 +6799,7 @@ class ScreenshotService:
         safe_name: str,
         *,
         label: str | None = None,
+        secure: bool = False,
     ) -> tuple[ScreenshotAsset | None, str | None]:
         if tk is None or not TK_AVAILABLE:
             return None, (
@@ -6786,6 +6855,11 @@ class ScreenshotService:
         if img is None:
             return None, "Unable to capture the selected region."
 
+        if secure:
+            img = _apply_secure_blur(img)
+            if img is None:
+                return None, "Secure blur failed. Ensure Tesseract OCR is installed."
+
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
@@ -6804,6 +6878,7 @@ class ScreenshotService:
         safe_name: str,
         *,
         label: str | None = None,
+        secure: bool = False,
     ) -> tuple[ScreenshotAsset | None, str | None]:
         img = None
         if PYAUTOGUI_AVAILABLE and pyautogui is not None:
@@ -6834,6 +6909,11 @@ class ScreenshotService:
                 "Screenshot capture is unavailable in this environment. "
                 "For Windows deployments, ensure the exe includes Pillow, pyautogui, or mss."
             )
+
+        if secure:
+            img = _apply_secure_blur(img)
+            if img is None:
+                return None, "Secure blur failed. Ensure Tesseract OCR is installed."
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -6920,6 +7000,7 @@ def _capture_screenshot_from_ui(
     auto_stamp: bool,
     label_state_key: str,
     reset_flag_key: str | None = None,
+    secure: bool = False,
 ) -> None:
     """Capture a screenshot using the configured UI preferences."""
 
@@ -6929,6 +7010,7 @@ def _capture_screenshot_from_ui(
         auto_stamp=auto_stamp,
         label_state_key=label_state_key,
         reset_flag_key=reset_flag_key,
+        secure=secure,
     )
 
 
@@ -16583,7 +16665,7 @@ def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
             help="Keeps filenames unique when you capture multiple shots.",
         )
 
-        capture_cols = st.columns([1, 1, 1])
+        capture_cols = st.columns([1, 1, 1, 1])
         if capture_cols[0].button(
             "Capture full desktop",
             key=menu_key("shot_full"),
@@ -16609,6 +16691,20 @@ def render_screenshot_capture_footer(case_idx: int, *, tab_slug: str) -> None:
             )
             screenshots = get_active_screenshots()
         if capture_cols[2].button(
+            "Capture secure (HIPAA)",
+            key=menu_key("shot_secure"),
+            help="Captures the full screen and blurs letters while keeping numbers visible.",
+        ):
+            _capture_screenshot_from_ui(
+                "full",
+                label=st.session_state.get(label_state_key, ""),
+                auto_stamp=bool(st.session_state.get(auto_stamp_key, True)),
+                label_state_key=label_state_key,
+                reset_flag_key=reset_flag_key,
+                secure=True,
+            )
+            screenshots = get_active_screenshots()
+        if capture_cols[3].button(
             "Reset label",
             key=menu_key("shot_label_reset"),
         ):
