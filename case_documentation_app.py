@@ -14488,7 +14488,8 @@ def save_case_to_database(
         case.kiroshi_version = VERSION
     else:
         case.kiroshi_version = str(case.kiroshi_version)
-    file_path = DATABASE_DIR / f"{case.case_id}.json"
+    safe_case_id = sanitize_case_id(case.case_id)
+    file_path = DATABASE_DIR / f"{safe_case_id}.json"
     last_modified_value = case.last_modified
     if (not last_modified_value) and file_path.exists():
         try:
