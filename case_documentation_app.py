@@ -126,6 +126,11 @@ from kiroshi_chat import (
     build_assistant_memory_prompt,
     build_system_prompt,
 )
+from kiroshi_local_ai import (
+    check_model_exists,
+    download_model,
+    MODELS
+)
 from kiroshi_cloud_sync import (
     AgentBlockedError as CloudAgentBlockedError,
     AuthenticationError as CloudAuthenticationError,
@@ -185,13 +190,7 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "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",
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
-DEFAULT_AI_MODE = (
-    "Local Model"
-    if not DEFAULT_AI_BASE_URL
-    else (
-        "Cloud" if DEFAULT_AI_BASE_URL.startswith("https://api.openai.com") else "Local API"
-    )
-)
+DEFAULT_AI_MODE = "Local (Native)"
 LOG_FILE = "app.log"
 
 ERROR_DIALOG_MESSAGES = [
@@ -12618,10 +12617,15 @@ def render_smart_aid_panel() -> None:
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
-        st.selectbox("AI Mode", ["Cloud", "Local API", "Local Model"], key="ai_mode")
+        if "local_ai_profile" not in st.session_state:
+            st.session_state.local_ai_profile = "speed"
+
+        st.selectbox("AI Mode", ["Cloud", "Local API", "Local (Native)"], key="ai_mode")
+
         if st.session_state.ai_mode == "Cloud":
             st.text_input("OpenAI API Key", type="password", key="openai_api_key")
             st.text_input("AI Base URL", key="ai_base_url")
+            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
         elif st.session_state.ai_mode == "Local API":
             st.text_input(
                 "AI Base URL",
@@ -12631,11 +12635,37 @@ def render_debug_panel() -> None:
             st.text_input(
                 "API Key (optional)", type="password", key="openai_api_key"
             )
-        else:
-            st.session_state.ai_base_url = ""
-            st.session_state.openai_api_key = ""
-            st.info("Using local transformers model; no API key or Base URL required.")
-        st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+
+        elif st.session_state.ai_mode == "Local (Native)":
+            st.markdown("### Native Local AI")
+            st.info("Runs entirely on your machine. No external apps required.")
+
+            profile = st.radio(
+                "Performance Profile",
+                ["speed", "quality"],
+                format_func=lambda x: "Speed (Phi-3 Mini)" if x == "speed" else "Quality (Llama 3.1 8B)",
+                key="local_ai_profile"
+            )
+
+            model_config = MODELS[profile]
+            is_downloaded = check_model_exists(profile)
+
+            st.caption(f"Model: {model_config['name']}")
+            st.caption(f"Status: {'✅ Ready' if is_downloaded else '❌ Not Downloaded'}")
+
+            if not is_downloaded:
+                if st.button(f"Download {model_config['name']}"):
+                    with st.spinner(f"Downloading {model_config['name']}... This may take a while."):
+                        try:
+                            download_model(profile)
+                            st.success("Download complete!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Download failed: {e}")
+            else:
+                st.success("Model ready for inference.")
+
         st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
         st.text_area("Allowed categories block", key="taxonomy_block", height=150)
         st.text_area("Signals config JSON", key="signals_config", height=150)
