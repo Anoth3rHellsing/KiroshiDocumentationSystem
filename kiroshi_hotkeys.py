@@ -14,7 +14,7 @@ import pyperclip
 
 try:
     from pynput import keyboard
-except Exception:
+except ImportError:
     keyboard = None
 
 __all__ = [
