@@ -10820,9 +10820,55 @@ def _render_settings_workspace_tab() -> None:
 
 def _render_settings_ai_tab() -> None:
     st.markdown(
-        "<div class='settings-section-title'><span>🤖</span>AI Educate</div>",
+        "<div class='settings-section-title'><span>🤖</span>AI & Model Configuration</div>",
         unsafe_allow_html=True,
     )
+
+    st.markdown("#### AI Provider")
+    if "local_ai_profile" not in st.session_state:
+        st.session_state.local_ai_profile = "speed"
+
+    st.selectbox("AI Mode", ["Cloud", "Local API", "Local (Native)"], key="ai_mode")
+
+    if st.session_state.ai_mode == "Cloud":
+        st.text_input("OpenAI API Key", type="password", key="openai_api_key")
+        st.text_input("AI Base URL", key="ai_base_url")
+        st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+    elif st.session_state.ai_mode == "Local API":
+        st.text_input("AI Base URL", key="ai_base_url")
+        st.text_input("API Key (optional)", type="password", key="openai_api_key")
+        st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
+    elif st.session_state.ai_mode == "Local (Native)":
+        st.markdown("### Native Local AI")
+        st.info("Runs entirely on your machine. No external apps required.")
+
+        profile = st.radio(
+            "Performance Profile",
+            ["speed", "quality"],
+            format_func=lambda x: "Speed (Phi-3 Mini)" if x == "speed" else "Quality (Llama 3.1 8B)",
+            key="local_ai_profile"
+        )
+
+        model_config = MODELS[profile]
+        is_downloaded = check_model_exists(profile)
+
+        st.caption(f"Model: {model_config['name']}")
+        st.caption(f"Status: {'✅ Ready' if is_downloaded else '❌ Not Downloaded'}")
+
+        if not is_downloaded:
+            if st.button(f"Download {model_config['name']}"):
+                with st.spinner(f"Downloading {model_config['name']}... This may take a while."):
+                    try:
+                        download_model(profile)
+                        st.success("Download complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Download failed: {e}")
+        else:
+            st.success("Model ready for inference.")
+
+    st.markdown("---")
+    st.markdown("#### AI Educate")
     prev_enabled = st.session_state.ai_educate_enabled
     st.toggle(
         "Enable AI Educate",
@@ -12617,55 +12663,7 @@ def render_smart_aid_panel() -> None:
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
-        if "local_ai_profile" not in st.session_state:
-            st.session_state.local_ai_profile = "speed"
-
-        st.selectbox("AI Mode", ["Cloud", "Local API", "Local (Native)"], key="ai_mode")
-
-        if st.session_state.ai_mode == "Cloud":
-            st.text_input("OpenAI API Key", type="password", key="openai_api_key")
-            st.text_input("AI Base URL", key="ai_base_url")
-            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
-        elif st.session_state.ai_mode == "Local API":
-            st.text_input(
-                "AI Base URL",
-                key="ai_base_url",
-                value=st.session_state.ai_base_url,
-            )
-            st.text_input(
-                "API Key (optional)", type="password", key="openai_api_key"
-            )
-            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
-
-        elif st.session_state.ai_mode == "Local (Native)":
-            st.markdown("### Native Local AI")
-            st.info("Runs entirely on your machine. No external apps required.")
-
-            profile = st.radio(
-                "Performance Profile",
-                ["speed", "quality"],
-                format_func=lambda x: "Speed (Phi-3 Mini)" if x == "speed" else "Quality (Llama 3.1 8B)",
-                key="local_ai_profile"
-            )
-
-            model_config = MODELS[profile]
-            is_downloaded = check_model_exists(profile)
-
-            st.caption(f"Model: {model_config['name']}")
-            st.caption(f"Status: {'✅ Ready' if is_downloaded else '❌ Not Downloaded'}")
-
-            if not is_downloaded:
-                if st.button(f"Download {model_config['name']}"):
-                    with st.spinner(f"Downloading {model_config['name']}... This may take a while."):
-                        try:
-                            download_model(profile)
-                            st.success("Download complete!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Download failed: {e}")
-            else:
-                st.success("Model ready for inference.")
-
+        st.info("AI settings have been moved to the main Settings tab > AI & Knowledge.")
         st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
         st.text_area("Allowed categories block", key="taxonomy_block", height=150)
         st.text_area("Signals config JSON", key="signals_config", height=150)
