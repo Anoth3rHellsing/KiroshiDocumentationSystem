@@ -225,6 +225,9 @@ def test_query_kiroshi_attaches_memory_prompt(monkeypatch, fake_streamlit_state)
 
     monkeypatch.setattr(kiroshi_chat.requests, "post", fake_post)
 
+    # Force Cloud mode so it doesn't try to load local models
+    fake_streamlit_state["ai_mode"] = "Cloud"
+
     reply = kiroshi_chat.query_kiroshi(
         "User input",
         [{"role": "assistant", "content": "Hello again"}],
@@ -267,6 +270,9 @@ def test_query_kiroshi_skips_empty_memory_prompt(monkeypatch, fake_streamlit_sta
         return DummyResponse()
 
     monkeypatch.setattr(kiroshi_chat.requests, "post", fake_post)
+
+    # Force Cloud mode so it doesn't try to load local models
+    fake_streamlit_state["ai_mode"] = "Cloud"
 
     reply = kiroshi_chat.query_kiroshi(
         "Test", [], api_key=None, model="gpt-4", base_url="https://example.com"
