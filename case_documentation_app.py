@@ -15795,6 +15795,14 @@ def table_plain_text(cat: str, d: CaseData, cat_map) -> str:
         if cat == "DELL ESCALATION":
             label = label_overrides.get(fld, label)
         lines.append(f"{label}: {display}")
+
+    # Explicitly append Application and version to DESCRIPTION table if not present
+    if cat == "DESCRIPTION":
+        app_ver = str(d.application_version or "N/A").strip() or "N/A"
+        if "\n" in app_ver:
+            app_ver = "\n    ".join(app_ver.splitlines())
+        lines.append(f"Application and version: {app_ver}")
+
     return "\n".join(lines)
 
 
@@ -16193,7 +16201,7 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
         else:
             ft_case_ref = ""
 
-        if description_col.button("Insert into Description", key=widget_key("ft_insert", CURRENT_CASE_IDX)):
+        if description_col.button("Insert into Additional Info", key=widget_key("ft_insert", CURRENT_CASE_IDX)):
             to_append = ""
             if ft_choice == "Yes":
                 to_append = "This is the first time this issue happens."
@@ -16202,12 +16210,11 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
                 to_append = f"Customer has reported this issue before on the following case: {ref_text}"
 
             if to_append:
-                current_desc = D.description or ""
-                new_desc = f"{current_desc}\n{to_append}" if current_desc else to_append
-                D.description = new_desc
-                st.session_state["description"] = new_desc
-                # Update widget state directly so it reflects immediately
-                st.session_state[widget_state_key("description", CURRENT_CASE_IDX)] = new_desc
+                current_info = D.additional_info or ""
+                new_info = f"{current_info}\n{to_append}" if current_info else to_append
+                D.additional_info = new_info
+                st.session_state["additional_info"] = new_info
+                st.session_state[widget_state_key("additional_info", CURRENT_CASE_IDX)] = new_info
                 touch_case_last_modified()
                 autosave()
                 st.rerun()
