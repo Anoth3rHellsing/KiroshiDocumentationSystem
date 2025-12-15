@@ -496,6 +496,11 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "dark_mode_enabled": False,
     "wellness_reminders": DEFAULT_WELLNESS_SETTINGS,
     "kiroshi_sarcasm_mode": False,
+    "ai_mode": DEFAULT_AI_MODE,
+    "openai_api_key": "",
+    "ai_base_url": DEFAULT_AI_BASE_URL,
+    "openai_model": "gpt-4o",
+    "local_ai_profile": "speed",
 }
 
 
@@ -5857,10 +5862,11 @@ _init_state(
     "autosave_to_database", _get_persistent_default("autosave_to_database", False)
 )
 _init_state("_autosave_loaded", False)
-_init_state("openai_api_key", DEFAULT_OPENAI_API_KEY)
-_init_state("openai_model", "gpt-5.1")
-_init_state("ai_base_url", DEFAULT_AI_BASE_URL)
-_init_state("ai_mode", DEFAULT_AI_MODE)
+_init_state("openai_api_key", _get_persistent_default("openai_api_key", DEFAULT_OPENAI_API_KEY))
+_init_state("openai_model", _get_persistent_default("openai_model", "gpt-4o"))
+_init_state("ai_base_url", _get_persistent_default("ai_base_url", DEFAULT_AI_BASE_URL))
+_init_state("ai_mode", _get_persistent_default("ai_mode", DEFAULT_AI_MODE))
+_init_state("local_ai_profile", _get_persistent_default("local_ai_profile", "speed"))
 _init_state(
     "enable_holiday_theme", _get_persistent_default("enable_holiday_theme", True)
 )
@@ -11013,6 +11019,98 @@ def _render_settings_workspace_tab() -> None:
 
 def _render_settings_ai_tab() -> None:
     st.markdown(
+        "<div class='settings-section-title'><span>⚙️</span>AI Model Configuration</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption("Configure the AI model that powers chat, categorization, and drafting.")
+
+    # Main mode selection
+    ai_mode_options = ["Cloud", "Local API", "Local (Native)"]
+    current_mode = st.session_state.ai_mode
+    if current_mode not in ai_mode_options:
+        current_mode = "Local (Native)"
+
+    st.selectbox(
+        "AI Mode",
+        ai_mode_options,
+        index=ai_mode_options.index(current_mode),
+        key="ai_mode",
+        on_change=_on_setting_change("ai_mode"),
+        help="Select where the AI model runs. 'Cloud' uses external APIs (OpenAI), 'Local API' connects to a local server (like LM Studio), and 'Local (Native)' runs models directly within Kiroshi."
+    )
+
+    if st.session_state.ai_mode == "Cloud":
+        st.text_input(
+            "OpenAI API Key",
+            type="password",
+            key="openai_api_key",
+            on_change=_on_setting_change("openai_api_key"),
+            help="Your API key from OpenAI platform."
+        )
+        st.text_input(
+            "AI Base URL",
+            key="ai_base_url",
+            on_change=_on_setting_change("ai_base_url"),
+            help="The endpoint URL for the API (default: https://api.openai.com/v1)."
+        )
+        st.selectbox(
+            "Model",
+            ["gpt-4o", "gpt-4", "gpt-3.5-turbo"],
+            key="openai_model",
+            on_change=_on_setting_change("openai_model"),
+        )
+    elif st.session_state.ai_mode == "Local API":
+        st.text_input(
+            "AI Base URL",
+            key="ai_base_url",
+            on_change=_on_setting_change("ai_base_url"),
+            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio)."
+        )
+        st.text_input(
+            "API Key (optional)",
+            type="password",
+            key="openai_api_key",
+            on_change=_on_setting_change("openai_api_key"),
+        )
+        st.selectbox(
+            "Model",
+            ["gpt-4o", "gpt-4", "gpt-3.5-turbo"],
+            key="openai_model",
+            on_change=_on_setting_change("openai_model"),
+            help="Select the model identifier expected by your local server."
+        )
+    elif st.session_state.ai_mode == "Local (Native)":
+        st.info("Runs entirely on your machine using internal libraries. No external apps or internet required.")
+        st.radio(
+            "Performance Profile",
+            ["speed", "quality"],
+            format_func=lambda x: "Speed (Phi-3 Mini)" if x == "speed" else "Quality (Llama 3.1 8B)",
+            key="local_ai_profile",
+            on_change=_on_setting_change("local_ai_profile"),
+            help="Choose 'Speed' for faster responses on most laptops, or 'Quality' for better reasoning if you have a GPU."
+        )
+
+        profile = st.session_state.local_ai_profile
+        model_config = MODELS[profile]
+        is_downloaded = check_model_exists(profile)
+
+        st.caption(f"Model: {model_config['name']}")
+        st.caption(f"Status: {'✅ Ready' if is_downloaded else '❌ Not Downloaded'}")
+
+        if not is_downloaded:
+            if st.button(f"Download {model_config['name']}", key=global_widget_key("download_model")):
+                with st.spinner(f"Downloading {model_config['name']}... This may take a while."):
+                    try:
+                        download_model(profile)
+                        st.success("Download complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Download failed: {e}")
+        else:
+            st.success("Model ready for inference.")
+
+    st.markdown("---")
+    st.markdown(
         "<div class='settings-section-title'><span>🤖</span>AI Educate</div>",
         unsafe_allow_html=True,
     )
@@ -12810,54 +12908,7 @@ def render_smart_aid_panel() -> None:
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
-        if "local_ai_profile" not in st.session_state:
-            st.session_state.local_ai_profile = "speed"
-
-        st.selectbox("AI Mode", ["Cloud", "Local API", "Local (Native)"], key="ai_mode")
-
-        if st.session_state.ai_mode == "Cloud":
-            st.text_input("OpenAI API Key", type="password", key="openai_api_key")
-            st.text_input("AI Base URL", key="ai_base_url")
-            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
-        elif st.session_state.ai_mode == "Local API":
-            st.text_input(
-                "AI Base URL",
-                key="ai_base_url",
-                value=st.session_state.ai_base_url,
-            )
-            st.text_input(
-                "API Key (optional)", type="password", key="openai_api_key"
-            )
-            st.selectbox("Model", ["gpt-4o", "gpt-4", "gpt-3.5-turbo"], key="openai_model")
-
-        elif st.session_state.ai_mode == "Local (Native)":
-            st.markdown("### Native Local AI")
-            st.info("Runs entirely on your machine. No external apps required.")
-
-            profile = st.radio(
-                "Performance Profile",
-                ["speed", "quality"],
-                format_func=lambda x: "Speed (Phi-3 Mini)" if x == "speed" else "Quality (Llama 3.1 8B)",
-                key="local_ai_profile"
-            )
-
-            model_config = MODELS[profile]
-            is_downloaded = check_model_exists(profile)
-
-            st.caption(f"Model: {model_config['name']}")
-            st.caption(f"Status: {'✅ Ready' if is_downloaded else '❌ Not Downloaded'}")
-
-            if not is_downloaded:
-                if st.button(f"Download {model_config['name']}"):
-                    with st.spinner(f"Downloading {model_config['name']}... This may take a while."):
-                        try:
-                            download_model(profile)
-                            st.success("Download complete!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Download failed: {e}")
-            else:
-                st.success("Model ready for inference.")
+        st.info("AI Configuration has been moved to Settings > AI & Knowledge.")
 
         st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
         st.text_area("Allowed categories block", key="taxonomy_block", height=150)
