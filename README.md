@@ -158,6 +158,16 @@ pip install -r requirements.txt
 pip install -r requirements-bored.txt
 ```
 
+### Video Optimization Requirements
+
+Kiroshi includes a video optimization feature to compress heavy attachments. This relies on the `moviepy` library, which requires **FFmpeg**.
+
+- **Automatic:** The project includes `imageio-ffmpeg` which attempts to provide a compatible FFmpeg binary automatically.
+- **Manual Fallback:** If video optimization fails or cannot locate the binary, please install FFmpeg manually:
+  1. Download FFmpeg from [ffmpeg.org](https://ffmpeg.org/download.html).
+  2. Extract the archive and add the `bin` folder to your system `PATH`.
+  3. Restart Kiroshi.
+
 ### Instalador bash (Linux/macOS)
 
 El repositorio ahora incluye un script de instalación para entornos Unix (`install_kiroshi.sh`). El script borra los archivos previos en la carpeta de destino, copia la versión nueva y, si encuentra un `requirements.txt`, instala automáticamente las dependencias de Python.
