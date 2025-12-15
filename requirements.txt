@@ -15,3 +15,5 @@ pdfminer.six
 cryptography
 streamlit-desktop-app
 pytesseract
+moviepy>=1.0.3
+imageio-ffmpeg>=0.4.9

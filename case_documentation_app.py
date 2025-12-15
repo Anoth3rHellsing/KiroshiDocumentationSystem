@@ -152,6 +152,7 @@ from kiroshi_cloud_sync import (
     decode_device_token,
     overlay_guidance,
 )
+from kiroshi_video import optimize_video
 from kiroshi_hotkeys import ensure_hotkey_listener, update_hotkey_snapshot
 
 # Some corporate networks perform SSL interception with a self-signed
@@ -16904,10 +16905,45 @@ def render_case_attachments_panel(
         if uploads:
             st.markdown("###### Uploaded files")
             for i, f in enumerate(list(uploads)):
-                cols = st.columns([6, 2, 1])
+                size_bytes = len(f.getvalue())
+                size_mb = size_bytes / (1024 * 1024)
+                is_video = f.name.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm'))
+                is_heavy = size_mb > 30
+
+                col_layout = [5, 2, 1]
+                if is_video and is_heavy:
+                    col_layout = [5, 2, 2, 1]
+
+                cols = st.columns(col_layout)
                 cols[0].markdown(f"**{f.name}**")
-                cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
-                if cols[2].button(
+                cols[1].caption(f"Size: {size_mb:.1f} MB")
+
+                if is_video and is_heavy:
+                    if cols[2].button(
+                        "⚡ Optimize",
+                        key=attachments_key(f"attachments_opt_upload_{i}"),
+                        help="Compress video to 720p 15fps to reduce size",
+                    ):
+                        with st.spinner("Optimizing video... this may take a minute"):
+                            try:
+                                optimized_buffer = optimize_video(f, f.name)
+                                if optimized_buffer:
+                                    new_size = len(optimized_buffer.getvalue()) / (1024 * 1024)
+                                    # Update the session state list in place
+                                    st.session_state.uploads[i] = optimized_buffer
+                                    st.success(f"Optimized! New size: {new_size:.1f} MB")
+                                    time.sleep(1.5) # Let user read success message
+                                    st.rerun()
+                                else:
+                                    st.error("Optimization returned no data.")
+                            except Exception as e:
+                                st.error(f"Optimization failed: {e}")
+
+                    remove_btn = cols[3]
+                else:
+                    remove_btn = cols[2]
+
+                if remove_btn.button(
                     "Remove",
                     key=attachments_key(f"attachments_rem_upload_{i}"),
                 ):
