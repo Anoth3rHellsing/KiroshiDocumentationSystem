@@ -7749,6 +7749,13 @@ HW_CATEGORY_MAP = {
         "scanner_accidental_damage",
         "hardware_test",
     ],
+    "HARDWARE REPLACEMENT HISTORY": [
+        "hardware_dongle_replaced",
+        "hardware_latest_deployment_date",
+        "hardware_scanner_replaced",
+        "hardware_scanner_sn_summary",
+        "hardware_subscription_type",
+    ],
 }
 
 
@@ -19676,28 +19683,56 @@ End with: We look forward to your reply."""
                 "Subscription Type",
                 "hardware_subscription_type",
             )
-            st.table(
-                pd.DataFrame(
-                    [
-                        ("Dongle Replaced", D.hardware_dongle_replaced or "Not recorded"),
-                        (
-                            "Latest Deployment Date",
-                            D.hardware_latest_deployment_date or "Not recorded",
-                        ),
-                        ("Scanner replaced", D.hardware_scanner_replaced or "Not recorded"),
-                        (
-                            "Scanner S/N",
-                            D.hardware_scanner_sn_summary
-                            or D.scanner_sn
-                            or "Not recorded",
-                        ),
-                        (
-                            "Subscription Type",
-                            D.hardware_subscription_type or "Not recorded",
-                        ),
-                    ],
-                    columns=["Detail", "Value"],
-                )
+            cat_hr = "HARDWARE REPLACEMENT HISTORY"
+            title_text_hr = table_title(cat_hr)
+            st.markdown(f"**{title_text_hr}**")
+
+            copy_suffix_hr = f"hw_hist_{case_idx}"
+            title_payload_hr = script_safe_json(title_text_hr)
+            table_payload_hr = script_safe_json(
+                table_plain_text(cat_hr, D, HW_CATEGORY_MAP)
+            )
+
+            components.html(
+                f"""
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
+                    <button onclick=\"copyTitle{copy_suffix_hr}()\"
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                        Copy title
+                    </button>
+                    <button onclick=\"copyTable{copy_suffix_hr}()\"
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                        Copy table
+                    </button>
+                    <span id=\"feedback-{copy_suffix_hr}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
+                </div>
+                <script>
+                    const feedbackElem{copy_suffix_hr} = document.getElementById('feedback-{copy_suffix_hr}');
+                    function showFeedback{copy_suffix_hr}(message) {{
+                        if (!feedbackElem{copy_suffix_hr}) return;
+                        feedbackElem{copy_suffix_hr}.textContent = message;
+                        setTimeout(() => {{
+                            if (feedbackElem{copy_suffix_hr}.textContent === message) {{
+                                feedbackElem{copy_suffix_hr}.textContent = '';
+                            }}
+                        }}, 2000);
+                    }}
+                    function copyTitle{copy_suffix_hr}() {{
+                        navigator.clipboard.writeText({title_payload_hr}).then(() => {{
+                            showFeedback{copy_suffix_hr}('Title copied');
+                        }});
+                    }}
+                    function copyTable{copy_suffix_hr}() {{
+                        navigator.clipboard.writeText({table_payload_hr}).then(() => {{
+                            showFeedback{copy_suffix_hr}('Table copied');
+                        }});
+                    }}
+                </script>
+                """,
+                height=80,
+            )
+            st.dataframe(
+                category_dataframe(cat_hr, D, HW_CATEGORY_MAP), width="stretch"
             )
             st.dataframe(
                 category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
