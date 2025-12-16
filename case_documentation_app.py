@@ -9570,14 +9570,15 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
-def list_saved_cases() -> list:
+@st.cache_data(ttl=None, show_spinner=False)
+def _list_saved_cases_worker(files_with_mtimes: tuple[tuple[str, float], ...]) -> list[dict[str, object]]:
+    """
+    Worker to parse case files. Cached until the directory signature changes.
+    The signature is a tuple of (filepath, st_mtime) pairs.
+    """
     entries: list[dict[str, object]] = []
-    files = sorted(
-        DATABASE_DIR.glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    for path in files:
+    for path_str, mtime in files_with_mtimes:
+        path = Path(path_str)
         try:
             raw_payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -9610,7 +9611,7 @@ def list_saved_cases() -> list:
         raw_last_modified = data.get("last_modified") if isinstance(data, Mapping) else None
         parsed_last_modified = parse_iso_datetime(raw_last_modified)
         if parsed_last_modified is None:
-            parsed_last_modified = datetime.fromtimestamp(path.stat().st_mtime)
+            parsed_last_modified = datetime.fromtimestamp(mtime)
             raw_last_modified = parsed_last_modified.isoformat()
 
         has_tracking = isinstance(data, Mapping) and isinstance(data.get("tracking"), Mapping)
@@ -9648,6 +9649,18 @@ def list_saved_cases() -> list:
             }
         )
     return entries
+
+
+def list_saved_cases() -> list:
+    files = sorted(
+        DATABASE_DIR.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    # Create a cache key based on file paths and their modification times.
+    # If a file is added, removed, or modified, this tuple changes, invalidating the cache.
+    files_with_mtimes = tuple((str(p), p.stat().st_mtime) for p in files)
+    return _list_saved_cases_worker(files_with_mtimes)
 
 
 def render_responsive_altair_chart(chart: alt.Chart) -> None:
