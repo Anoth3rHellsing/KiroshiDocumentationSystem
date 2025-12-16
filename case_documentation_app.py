@@ -202,7 +202,7 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
     "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",
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
-DEFAULT_AI_MODE = "Local (Native)"
+DEFAULT_AI_MODE = "Cloud"
 LOG_FILE = "app.log"
 
 ERROR_DIALOG_MESSAGES = [
@@ -500,7 +500,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "ai_mode": DEFAULT_AI_MODE,
     "openai_api_key": "",
     "ai_base_url": DEFAULT_AI_BASE_URL,
-    "openai_model": "gpt-4o",
+    "openai_model": "gpt-5-nano",
     "local_ai_profile": "speed",
 }
 
@@ -5864,7 +5864,7 @@ _init_state(
 )
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", _get_persistent_default("openai_api_key", DEFAULT_OPENAI_API_KEY))
-_init_state("openai_model", _get_persistent_default("openai_model", "gpt-4o"))
+_init_state("openai_model", _get_persistent_default("openai_model", "gpt-5-nano"))
 _init_state("ai_base_url", _get_persistent_default("ai_base_url", DEFAULT_AI_BASE_URL))
 _init_state("ai_mode", _get_persistent_default("ai_mode", DEFAULT_AI_MODE))
 _init_state("local_ai_profile", _get_persistent_default("local_ai_profile", "speed"))
@@ -11048,6 +11048,10 @@ def _render_settings_ai_tab() -> None:
     )
 
     if st.session_state.ai_mode == "Cloud":
+        # Force default API key if empty or if user explicitly requested reset/default behavior
+        if not st.session_state.get("openai_api_key"):
+            st.session_state.openai_api_key = DEFAULT_OPENAI_API_KEY
+
         st.text_input(
             "OpenAI API Key",
             type="password",
@@ -11061,9 +11065,14 @@ def _render_settings_ai_tab() -> None:
             on_change=_on_setting_change("ai_base_url"),
             help="The endpoint URL for the API (default: https://api.openai.com/v1)."
         )
+
+        # Ensure default model is selected if current selection is invalid
+        if st.session_state.get("openai_model") != "gpt-5-nano":
+            st.session_state.openai_model = "gpt-5-nano"
+
         st.selectbox(
             "Model",
-            ["gpt-4o", "gpt-4", "gpt-3.5-turbo"],
+            ["gpt-5-nano"],
             key="openai_model",
             on_change=_on_setting_change("openai_model"),
         )
