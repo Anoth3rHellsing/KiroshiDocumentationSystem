@@ -514,7 +514,7 @@ def query_kiroshi(user_message, history, api_key, model, base_url=None):
         url,
         headers=headers,
         json={"model": model, "messages": messages, "temperature": 1},
-        timeout=30,
+        timeout=120,
         verify=False,
     )
     if response.status_code == 200:
