@@ -505,9 +505,10 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
 }
 
 
-def _load_persistent_settings() -> dict[str, object]:
-    if not SETTINGS_FILE.exists():
-        return {}
+@st.cache_data(ttl=None, max_entries=1)
+def _load_settings_from_disk_cached(mtime: float) -> dict[str, object]:
+    """Load and parse the settings file, cached until modification time changes."""
+    # The mtime argument drives the cache invalidation.
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -528,6 +529,16 @@ def _load_persistent_settings() -> dict[str, object]:
         elif isinstance(default, dict) and isinstance(value, dict):
             filtered[key] = value
     return filtered
+
+
+def _load_persistent_settings() -> dict[str, object]:
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        mtime = SETTINGS_FILE.stat().st_mtime
+    except OSError:
+        return {}
+    return _load_settings_from_disk_cached(mtime)
 
 
 _persistent_settings_cache: dict[str, object] = PERSISTENT_SETTINGS_DEFAULTS.copy()
@@ -8983,34 +8994,15 @@ def _reset_recent_cases_cache() -> None:
     _recent_cases_path = None
 
 
-def load_recent_cases() -> list:
-    global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
-    current_path = str(RECENT_CASES_PATH)
-    if _recent_cases_path and _recent_cases_path != current_path:
-        _reset_recent_cases_cache()
-    try:
-        current_mtime = RECENT_CASES_PATH.stat().st_mtime
-    except FileNotFoundError:
-        _reset_recent_cases_cache()
-        return []
-    except Exception:
-        return []
-
-    if (
-        _recent_cases_cache is not None
-        and _recent_cases_mtime is not None
-        and math.isclose(_recent_cases_mtime, current_mtime)
-    ):
-        return _recent_cases_cache
-
+@st.cache_data(ttl=None, max_entries=1)
+def _load_recent_cases_from_disk_cached(mtime: float) -> list:
+    """Load recent cases from disk, cached until the file mtime changes."""
     try:
         payload = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
     except Exception:
-        _reset_recent_cases_cache()
         return []
 
     if not isinstance(payload, list):
-        _reset_recent_cases_cache()
         return []
     recent: list[dict[str, object]] = []
     for item in payload:
@@ -9023,10 +9015,18 @@ def load_recent_cases() -> list:
                 "last_modified": item.get("last_modified", ""),
             }
         )
-    _recent_cases_cache = recent
-    _recent_cases_mtime = current_mtime
-    _recent_cases_path = current_path
     return recent
+
+
+def load_recent_cases() -> list:
+    if not RECENT_CASES_PATH.exists():
+        return []
+    try:
+        current_mtime = RECENT_CASES_PATH.stat().st_mtime
+    except Exception:
+        return []
+
+    return _load_recent_cases_from_disk_cached(current_mtime)
 
 
 def update_recent_cases(case_id: str, path: str) -> None:
