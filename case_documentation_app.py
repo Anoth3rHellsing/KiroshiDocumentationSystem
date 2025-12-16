@@ -1765,226 +1765,158 @@ TUTORIAL_STEPS: list[dict[str, object]] = [
     {
         "id": "welcome",
         "title": "Welcome to Kiroshi",
-        "visual": "layout_map",
+        "visual": "intro_card",
         "description": textwrap.dedent(
             """
-            Welcome to your first launch of Kiroshi! This guided tour walks through every tab,
-            table, and input you will use to document cases. Follow the prompts, explore the
-            visuals, and use the navigation buttons to move between steps.
+            Welcome, operative. Kiroshi is your all-in-one documentation assistant, designed to
+            streamline case logging, automate emails, and track escalations with precision.
+            This interactive tour will calibrate your workflow in just a few steps.
             """
         ),
         "interaction": {
             "type": "radio",
-            "prompt": "Which main tab gives you an instant view of workload and priorities?",
-            "options": ["Dashboard", "Settings", "Kiroshi Chat"],
-            "answer": "Dashboard",
-            "success": "Exactly — the Dashboard summarises tracked work at a glance.",
-            "failure": "Hint: it's the first tab filled with charts and case tables.",
+            "prompt": "What is Kiroshi's primary mission?",
+            "options": ["Making coffee", "Documentation & Efficiency", "Playing Doom"],
+            "answer": "Documentation & Efficiency",
+            "success": "Correct. Let's optimize your output.",
+            "failure": "Incorrect. Focus on the mission: Documentation.",
         },
     },
     {
         "id": "dashboard",
-        "title": "Dashboard Tables",
-        "visual": "dashboard_tables",
+        "title": "The Dashboard Command Center",
+        "visual": "dashboard_mock",
         "description": textwrap.dedent(
             """
-            The Dashboard tab hosts every operational table:
-            • **Tracked Cases** – live statuses, ownership, and quick actions.
-            • **Dell Escalations & FedEx Replacements** – vendor-specific queues with ETAs.
-            • **All My Saved Cases** – browse and reload anything stored on disk.
-            Use the search bar to filter and the action buttons to load or stop tracking directly from the table rows.
+            The **Dashboard** is your home base.
+            • **Tracked Cases:** Your active mission list. Monitor priorities and statuses here.
+            • **Dell & FedEx:** Vendor escalations appear in specialized tables for quick checks.
+            • **Saved Cases:** A searchable history of every file you've ever worked on.
+            Use the search bar to filter history and the 'Load' buttons to resume any case instantly.
             """
         ),
         "interaction": {
             "type": "checkbox_group",
-            "prompt": "Check each item after you review how the Dashboard tables work.",
+            "prompt": "Verify your understanding of the Dashboard:",
             "items": [
-                "I know where to search and filter tracked cases.",
-                "I understand the Dell/FedEx table highlights vendor priorities.",
-                "I can load a saved case from the All My Saved Cases table.",
+                "I can track active cases in real-time.",
+                "I can load old cases from the Saved Cases table.",
+                "I can monitor vendor escalations.",
             ],
-            "success": "Great! You're ready to use the Dashboard tables day to day.",
-            "instruction": "Mark every checkbox once you've read the descriptions above.",
+            "success": "Dashboard clarity confirmed. Proceeding.",
+            "instruction": "Acknowledge each capability to continue.",
         },
     },
     {
-        "id": "case_workspace",
-        "title": "Case Workspace & Inputs",
-        "visual": "case_sections",
+        "id": "case_creation",
+        "title": "Case Workspace & Navigation",
+        "visual": "case_flow",
         "description": textwrap.dedent(
             """
-            Every case tab is a full workspace that captures customer details, troubleshooting steps,
-            escalation information, optional hardware diagnostics, attachments, and AI helpers. Toggle
-            hardware or escalation fields when needed and use the Tables tab to copy a spreadsheet-ready
-            summary of every input.
+            To start a new mission, click **+ Add Case**. A new tab will appear for that specific incident.
+            Inside, the workspace is divided into logical zones:
+            • **Description & Phonecall:** The core narrative.
+            • **Remote Session:** Logs for TeamViewer/Unite sessions.
+            • **Conclusion:** Root cause and resolution.
+            Every case is auto-saved to disk as a JSON file, so you never lose data.
             """
         ),
         "interaction": {
             "type": "radio",
-            "prompt": "Where do you find the Excel-style snapshot of every captured field?",
-            "options": [
-                "Tables tab inside the case workspace",
-                "Dashboard tab",
-                "Report tab",
-            ],
-            "answer": "Tables tab inside the case workspace",
-            "success": "Correct — each case includes a Tables tab for copy/paste exports.",
-            "failure": "Try again: the Tables tab lives inside each case workspace.",
+            "prompt": "Where do you click to start documenting a new incident?",
+            "options": ["Settings", "Report", "Add Case"],
+            "answer": "Add Case",
+            "success": "Affirmative. New tabs spawn for each case you add.",
+            "failure": "Look for the 'Add Case' button in the tab bar.",
         },
     },
     {
-        "id": "issue_reporter",
-        "title": "Instant Issue Reporter",
-        "visual": "issue_reporter_flow",
+        "id": "tracking_logic",
+        "title": "Tracking & Persistence",
+        "visual": "tracking_ui",
         "description": textwrap.dedent(
             """
-            Launch the Issue Reporter from any case to bundle call notes, logs, and screenshots into a
-            single vendor-ready packet. Kiroshi maps your troubleshooting narrative into the structured
-            summary that partners expect, attaches the latest evidence, and stores a timestamped copy in
-            your database for follow-up.
+            Not every case ends in one call. Use the **Tracking Tab** inside a case to pin it to your Dashboard.
+            1. Open the **Tracking** tab.
+            2. Set a **Priority** and **Status**.
+            3. Click **Save and Track**.
+            The case will now appear on your Dashboard with a live status indicator, ready for follow-up.
             """
         ),
         "interaction": {
             "type": "radio",
-            "prompt": "What does the Issue Reporter automatically include before you submit?",
+            "prompt": "How do you pin a case to the Dashboard for follow-up?",
             "options": [
-                "Only the text from your root cause field",
-                "Screenshots, selected logs, and the troubleshooting summary",
-                "A blank template you must fill in manually",
+                "Just close the tab",
+                "Use the Tracking tab and click 'Save and Track'",
+                "Email it to yourself",
             ],
-            "answer": "Screenshots, selected logs, and the troubleshooting summary",
-            "success": "Yes — it packages artifacts and notes so vendors see the full story.",
-            "failure": "Remember, the Issue Reporter assembles evidence for you before sending.",
+            "answer": "Use the Tracking tab and click 'Save and Track'",
+            "success": "Tracking protocols engaged. You won't lose sight of critical issues.",
+            "failure": "You must explicitly 'Save and Track' from the Tracking tab.",
         },
     },
     {
-        "id": "escalations",
-        "title": "Escalation Control Tower",
-        "visual": "escalation_matrix",
+        "id": "power_tools",
+        "title": "Power Tools: Email & Chat",
+        "visual": "power_tools",
         "description": textwrap.dedent(
             """
-            Use the escalations drawer to track every hand-off. Capture vendor queue IDs, urgency, and
-            response targets, then pin critical follow-ups to the dashboard badge strip. Shared escalation
-            history keeps teams synchronized while automated reminders flag anything approaching its SLA.
+            Kiroshi automates the heavy lifting:
+            • **Email Generator:** Instantly draft recaps, escalation requests, and technical instructions.
+            • **Kiroshi Chat:** Your AI partner. Ask it to search manuals, summarize logs, or suggest fixes.
+            Don't type manually what Kiroshi can generate instantly.
             """
         ),
         "interaction": {
             "type": "checkbox_group",
-            "prompt": "Mark each checklist item once you have seen where to manage escalations.",
+            "prompt": "Confirm you are ready to use automation:",
             "items": [
-                "I can open the escalation drawer from a case tab.",
-                "I know where SLA timers appear on the dashboard.",
-                "I saw how vendor queue IDs are stored with the case.",
+                "I will use the Email tab to draft replies.",
+                "I will ask Kiroshi Chat for assistance when stuck.",
             ],
-            "success": "Great — you can now coordinate escalations without losing context.",
-            "instruction": "Check every box after reviewing the escalation features above.",
+            "success": "Automation authorized. Efficiency +50%.",
+            "instruction": "Check the boxes to confirm.",
         },
     },
     {
-        "id": "reporting",
-        "title": "Reporting & Exports",
-        "visual": "report_overview",
+        "id": "hotkeys",
+        "title": "Mastery: Hotkeys",
+        "visual": "hotkeys_map",
         "description": textwrap.dedent(
             """
-            The Report tab turns AI Educate insights into visuals and downloadable PDFs. When AI Educate is enabled,
-            refresh the dataset, inspect root-cause metrics, run the Bug Detector, and export a polished report.
-            From any case you can also generate PDF summaries and ZIP bundles with attachments.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Which tab generates the AI Educate PDF analytics report?",
-            "options": ["Dashboard", "Report", "Kiroshi Chat"],
-            "answer": "Report",
-            "success": "Exactly — open the Report tab once AI Educate is enabled to export insights.",
-            "failure": "The analytics live in the Report tab right next to Settings.",
-        },
-    },
-    {
-        "id": "analytics",
-        "title": "Operations Analytics",
-        "visual": "analytics_suite",
-        "description": textwrap.dedent(
-            """
-            The analytics suite blends saved case metrics, Issue Reporter outcomes, and escalation load
-            into a unified view. Trendlines spotlight recurring failure types, while the resolution heat
-            map highlights where teams are beating or missing their targets.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Which visual helps you spot workload bottlenecks over the week?",
-            "options": [
-                "Resolution heat map",
-                "Issue Reporter draft list",
-                "Kiroshi Chat history",
-            ],
-            "answer": "Resolution heat map",
-            "success": "Exactly — the heat map shows when cases cluster above SLA thresholds.",
-            "failure": "Hint: look for the analytic that compares days to SLA performance.",
-        },
-    },
-    {
-        "id": "settings",
-        "title": "Settings & Personalisation",
-        "visual": "settings_overview",
-        "description": textwrap.dedent(
-            """
-            Settings control 2nd Line mode, debug tools, AI Educate options, and now your onboarding
-            history. Use this panel to toggle advanced assistance, import or export Educate datasets, and
-            relaunch this tutorial whenever you like. Completion metadata records when you finished the
-            tour and the version you saw.
-            """
-        ),
-        "interaction": {
-            "type": "radio",
-            "prompt": "Where can you replay the onboarding tutorial after today?",
-            "options": ["Dashboard", "Settings", "Case workspace"],
-            "answer": "Settings",
-            "success": "That's right — the Settings tab now includes a Repeat Tutorial button.",
-            "failure": "Look in Settings for the onboarding controls and status badge.",
-        },
-    },
-    {
-        "id": "ui_refresh",
-        "title": "Polished Interface & Shortcuts",
-        "visual": "ui_refresh",
-        "description": textwrap.dedent(
-            """
-            Subtle gradients, animated progress badges, and keyboard-aware navigation make the refreshed
-            UI easier to scan. Tutorial step selectors, card highlights, and quick access buttons guide new
-            users without getting in your way.
-            """
-        ),
-        "interaction": {
-            "type": "checkbox_group",
-            "prompt": "Tick the enhancements you noticed in the new interface.",
-            "items": [
-                "Animated progress badges in the tutorial",
-                "Improved contrast on cards and tables",
-                "Step selector for jumping around the tour",
-            ],
-            "success": "Nicely spotted — those touches keep the workflow feeling fast.",
-            "instruction": "Mark each enhancement after you've seen it in action.",
-        },
-    },
-    {
-        "id": "kiroshi_chat",
-        "title": "Kiroshi Chat & Resources",
-        "visual": "chat_resources",
-        "description": textwrap.dedent(
-            """
-            Kiroshi Chat keeps a searchable manual database, including a new quick-reference summary of the README
-            and Kiroshi workflow. Upload your own notes, search the knowledge base, or ask the assistant to cross-reference
-            the "Kiroshi Quick Reference" entry any time you need a refresher.
+            True speed comes from the keyboard. Global hotkeys work even when Kiroshi is in the background.
+            • **Ctrl + Alt + C**: Copy ALL case tables to clipboard (CRM ready).
+            • **Ctrl + Alt + 1**: Copy Case Title.
+            • **Ctrl + Alt + 2**: Copy Description.
+            Enable the 'Use this case for global hotkeys' toggle in the **Tables** tab to lock the target.
             """
         ),
         "interaction": {
             "type": "text_confirm",
-            "prompt": "Type READY to finish the tour and jump into Kiroshi.",
+            "prompt": "Type 'SPEED' to acknowledge the power of hotkeys.",
+            "answer": "SPEED",
+            "success": "Hotkey protocols acknowledged.",
+            "failure": "Type SPEED in all caps.",
+        },
+    },
+    {
+        "id": "completion",
+        "title": "Ready to Launch",
+        "visual": "completion_card",
+        "description": textwrap.dedent(
+            """
+            You are now briefed on the Kiroshi Documentation System.
+            Explore the **Settings** to customize your theme and preferences.
+            Your mission begins now. Good luck.
+            """
+        ),
+        "interaction": {
+            "type": "text_confirm",
+            "prompt": "Type 'READY' to dismiss the tutorial and begin.",
             "answer": "READY",
-            "success": "Tutorial complete! You're ready to document real cases.",
-            "failure": "Enter READY in all caps to confirm you're set.",
+            "success": "Tutorial complete. System online.",
+            "failure": "Type READY to confirm.",
         },
     },
 ]
@@ -4761,14 +4693,16 @@ def inject_base_styles() -> None:
 
         .tutorial-wrapper {
             margin: 1.5rem 0 2rem;
-            padding: 1.6rem 1.9rem;
-            border-radius: 1.2rem;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            background: linear-gradient(145deg, rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.85));
-            box-shadow: 0 18px 32px rgba(15, 23, 42, 0.16);
-            color: var(--kiroshi-text-on-white);
+            padding: 2rem;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            color: var(--kiroshi-text);
             position: relative;
             overflow: hidden;
+            transition: all 0.3s ease;
         }
 
         .tutorial-wrapper::before {
@@ -5303,292 +5237,170 @@ def render_logo():
 
 def _render_tutorial_visual(kind: str) -> None:
     kind = (kind or "").lower()
-    if kind == "layout_map":
-        tab_cards = [
-            ("Dashboard", "Charts, tracked cases, and saved case tables."),
-            ("Settings", "Modes, AI Educate controls, and onboarding status."),
-            ("Report", "AI Educate analytics, Bug Detector, and PDF export."),
-            ("Kiroshi Chat", "Assistant conversation, manual database, and quick reference."),
-        ]
-        cols = st.columns(len(tab_cards))
-        for col, (title, blurb) in zip(cols, tab_cards):
-            with col:
-                st.markdown(
-                    "<div class='tutorial-visual-card'><strong>{}</strong><br><span class='tutorial-footnote'>{}</span></div>".format(
-                        escape(title), escape(blurb)
-                    ),
-                    unsafe_allow_html=True,
-                )
-        st.caption(
-            "Case-specific tabs appear after the global tabs — each one contains the full documentation workspace."
-        )
-    elif kind == "dashboard_tables":
-        summary = pd.DataFrame(
-            [
-                {
-                    "Table": "Tracked Cases",
-                    "Purpose": "Monitor active work with status, owner, priority, and quick actions.",
-                    "Key actions": "Update priority, load a case, or stop tracking in one click.",
-                },
-                {
-                    "Table": "Dell Escalations & FedEx Replacements",
-                    "Purpose": "Vendor-specific queues with ticket numbers, ETAs, and case IDs.",
-                    "Key actions": "Scan for approaching ETAs and jump into the matching tracked file.",
-                },
-                {
-                    "Table": "All My Saved Cases",
-                    "Purpose": "Chronological list of every saved JSON file in your database.",
-                    "Key actions": "Load the case into a new tab to resume documentation instantly.",
-                },
-            ]
-        )
-        st.dataframe(summary, width="stretch")
-    elif kind == "case_sections":
-        case_sections = pd.DataFrame(
-            [
-                {
-                    "Section": "Case Details",
-                    "Highlights": "Company, subscription ID, application version, case ID, summary.",
-                },
-                {
-                    "Section": "Communication",
-                    "Highlights": "Caller name, phone/email, phone description, remote session credentials.",
-                },
-                {
-                    "Section": "Troubleshooting & Notes",
-                    "Highlights": "Internal Helpjuice notes, logs, remote steps, root cause, repro steps, solution.",
-                },
-                {
-                    "Section": "AI Helpers",
-                    "Highlights": "QA Verify, Ask Kiroshi, Categorizer, AI Assist, and database search shortcuts.",
-                },
-                {
-                    "Section": "Escalation",
-                    "Highlights": "Toggle escalation fields, capture contacts, best time to call, vendor pathways.",
-                },
-                {
-                    "Section": "Hardware Toggles",
-                    "Highlights": "Enable hardware issue fields, PC specs, BIOS/GPU data, scanner serials.",
-                },
-                {
-                    "Section": "Attachments & Tracking",
-                    "Highlights": "Upload logs/screenshots, capture images, track cases with priority and ticket IDs.",
-                },
-                {
-                    "Section": "Exports & Tables",
-                    "Highlights": "Download PDFs, export ZIP bundles, copy the Tables tab for spreadsheets.",
-                },
-            ]
-        )
-        st.dataframe(case_sections, width="stretch")
-    elif kind == "report_overview":
-        report_summary = pd.DataFrame(
-            [
-                {
-                    "Feature": "AI Educate Dashboard",
-                    "What it shows": "Root-cause charts, top keywords, and trend analytics based on saved cases.",
-                },
-                {
-                    "Feature": "Bug Detector",
-                    "What it shows": "Recurring failure patterns detected across the Educate dataset.",
-                },
-                {
-                    "Feature": "Report PDF",
-                    "What it shows": "One-click PDF export of the Educate insights for stakeholders.",
-                },
-                {
-                    "Feature": "Case PDF & ZIP",
-                    "What it shows": "From any case tab you can export the formatted summary and attachments bundle.",
-                },
-            ]
-        )
-        st.dataframe(report_summary, width="stretch")
-    elif kind == "settings_overview":
-        settings_summary = pd.DataFrame(
-            [
-                {
-                    "Control": "2nd Line mode",
-                    "Description": "Switch the dashboard into tracked-case operations with Dell/FedEx tables.",
-                },
-                {
-                    "Control": "Show Debug tab",
-                    "Description": "Unlock diagnostics, API configuration, and log viewer for troubleshooting.",
-                },
-                {
-                    "Control": "AI Educate toggles",
-                    "Description": "Enable insights, activate advanced assistance, and share/import datasets.",
-                },
-                {
-                    "Control": "Knowledge sharing",
-                    "Description": "Download the learning JSON or merge collaborator contributions.",
-                },
-                {
-                    "Control": "Onboarding status",
-                    "Description": "View completion date and re-run the interactive tutorial anytime.",
-                },
-            ]
-        )
-        st.table(settings_summary)
-    elif kind == "issue_reporter_flow":
-        flow_steps = [
-            (
-                "Capture",
-                "Pulls in customer summary, reproduction steps, and impact statements automatically.",
-            ),
-            (
-                "Evidence",
-                "Attaches the latest screenshots and any logs you selected from the case workspace.",
-            ),
-            (
-                "Package",
-                "Formats the narrative into a vendor-ready template with tags and queue routing.",
-            ),
-            (
-                "Archive",
-                "Saves a timestamped copy to your database for auditing and future follow-up.",
-            ),
-        ]
-        flow_markup = "".join(
-            "<div class='tutorial-flow__step'>"
-            f"<div class='tutorial-flow__icon'>{idx}</div>"
-            f"<div class='tutorial-flow__title'>{escape(title)}</div>"
-            f"<div class='tutorial-footnote'>{escape(detail)}</div>"
-            "</div>"
-            for idx, (title, detail) in enumerate(flow_steps, start=1)
-        )
-        st.markdown(f"<div class='tutorial-flow'>{flow_markup}</div>", unsafe_allow_html=True)
-        st.caption(
-            "Start the Issue Reporter from any case tab — Kiroshi keeps the vendor package aligned with"
-            " your troubleshooting notes."
-        )
-    elif kind == "escalation_matrix":
-        escalation_summary = pd.DataFrame(
-            [
-                {
-                    "Escalation": "Vendor follow-up",
-                    "Tracked in": "Escalation drawer",
-                    "What you see": "Queue ID, assigned engineer, promised callback, SLA timer",
-                },
-                {
-                    "Escalation": "Internal hand-off",
-                    "Tracked in": "Dashboard badge",
-                    "What you see": "Owner, severity, days outstanding, linked case",
-                },
-                {
-                    "Escalation": "Customer update",
-                    "Tracked in": "Reminder banner",
-                    "What you see": "Next contact window, notes, completion checklist",
-                },
-            ]
-        )
-        st.dataframe(escalation_summary, width="stretch")
-        st.caption(
-            "Escalations sync between the case drawer and dashboard, so the entire team sees timers and"
-            " commitments in one view."
-        )
-    elif kind == "analytics_suite":
-        heatmap_rows = [
-            ("Mon", "On target", 14),
-            ("Mon", "Warning", 3),
-            ("Mon", "Escalated", 1),
-            ("Tue", "On target", 11),
-            ("Tue", "Warning", 4),
-            ("Tue", "Escalated", 2),
-            ("Wed", "On target", 16),
-            ("Wed", "Warning", 2),
-            ("Wed", "Escalated", 1),
-            ("Thu", "On target", 13),
-            ("Thu", "Warning", 5),
-            ("Thu", "Escalated", 2),
-            ("Fri", "On target", 10),
-            ("Fri", "Warning", 6),
-            ("Fri", "Escalated", 3),
-        ]
-        heatmap_data = pd.DataFrame(heatmap_rows, columns=["Day", "Status", "Cases"])
-        day_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        status_order = ["On target", "Warning", "Escalated"]
-        chart = (
-            alt.Chart(heatmap_data)
-            .mark_rect()
-            .encode(
-                x=alt.X("Day:N", sort=day_order, title="Weekday"),
-                y=alt.Y("Status:N", sort=status_order, title="Status"),
-                color=alt.Color(
-                    "Cases:Q",
-                    scale=alt.Scale(scheme="blues", domain=[0, heatmap_data["Cases"].max()]),
-                    legend=None,
-                ),
-                tooltip=["Day", "Status", alt.Tooltip("Cases", title="Cases")],
-            )
-            .properties(height=220)
-        )
-        st.altair_chart(chart, width="stretch", **ALTAIR_CHART_KWARGS)
-        insights = [
-            ("82%", "cases resolved within SLA", "+6% vs last week"),
-            ("18", "active escalations", "Most due Thursday"),
-            ("4.6h", "median resolution time", "Down 40 minutes"),
-        ]
-        insight_markup = "".join(
-            "<div class='tutorial-insight-card'>"
-            f"<strong>{escape(value)}</strong>"
-            f"<div>{escape(caption)}</div>"
-            f"<small>{escape(delta)}</small>"
-            "</div>"
-            for value, caption, delta in insights
-        )
-        st.markdown(
-            f"<div class='tutorial-insight-grid'>{insight_markup}</div>", unsafe_allow_html=True
-        )
-    elif kind == "ui_refresh":
-        col_left, col_right = st.columns([1.4, 1])
-        highlights = [
-            "Animated badges highlight your current tutorial step.",
-            "Navigation slider jumps directly to any topic in the tour.",
-            "Cards and tables ship with increased contrast for readability.",
-        ]
-        with col_left:
-            highlight_markup = "".join(
-                f"<li>{escape(item)}</li>" for item in highlights
-            )
-            st.markdown(
-                f"<ul class='tutorial-highlight-list'>{highlight_markup}</ul>",
-                unsafe_allow_html=True,
-            )
-        with col_right:
-            st.markdown(
-                "<div class='tutorial-visual-card' style='height:100%'>"
-                "<strong>Palette preview</strong>"
-                "<div class='tutorial-color-row'>"
-                "<div class='tutorial-color-chip' data-label='Primary' style='background:linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);'></div>"
-                "<div class='tutorial-color-chip' data-label='Accent' style='background:linear-gradient(135deg, #f97316 0%, #fb923c 100%);'></div>"
-                "<div class='tutorial-color-chip' data-label='Surface' style='background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);'></div>"
-                "</div>"
-                "<p class='tutorial-footnote' style='margin-top:0.75rem;'>New gradients keep focus on key actions while maintaining accessibility targets.</p>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-    elif kind == "chat_resources":
-        col_chat, col_manual, col_reference = st.columns(3)
-        with col_chat:
-            st.markdown(
-                "<div class='tutorial-visual-card'><strong>Kiroshi Chat</strong><br><span class='tutorial-footnote'>Persistent conversation history, QA Verify button context, and personality modes.</span></div>",
-                unsafe_allow_html=True,
-            )
-        with col_manual:
-            st.markdown(
-                "<div class='tutorial-visual-card'><strong>Manual Docs Database</strong><br><span class='tutorial-footnote'>Upload TXT references, search stored notes, and feed rich context into replies.</span></div>",
-                unsafe_allow_html=True,
-            )
-        with col_reference:
-            st.markdown(
-                "<div class='tutorial-visual-card'><strong>Kiroshi Quick Reference</strong><br><span class='tutorial-footnote'>A curated JSON summary of the README and workflows is preloaded for instant answers.</span></div>",
-                unsafe_allow_html=True,
-            )
-        st.caption(
-            "Ask Kiroshi to search for 'Kiroshi Quick Reference' whenever you need guidance on features or processes."
-        )
 
+    # Inject tutorial-specific styles
+    st.markdown("""
+    <style>
+        .t-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .t-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--kiroshi-primary); }
+        .t-mock-row {
+            display: flex; gap: 8px; margin-bottom: 8px; align-items: center;
+            padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;
+        }
+        .t-mock-btn {
+            background: var(--kiroshi-primary); color: white; padding: 4px 12px;
+            border-radius: 4px; font-size: 0.8rem; font-weight: 600;
+        }
+        .t-mock-field {
+            background: rgba(255,255,255,0.1); height: 24px; border-radius: 4px; flex-grow: 1;
+        }
+        .t-key {
+            display: inline-block; padding: 4px 8px; background: #333; color: #fff;
+            border-radius: 4px; font-family: monospace; font-size: 0.9rem;
+            border-bottom: 2px solid #111; margin: 0 2px;
+        }
+        .t-split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    </style>
+    """, unsafe_allow_html=True)
 
+    if kind == "intro_card":
+        st.markdown("""
+        <div class='t-card' style='text-align: center; padding: 3rem 1rem;'>
+            <div style='font-size: 3rem; margin-bottom: 1rem;'>🤖</div>
+            <div class='t-title' style='font-size: 1.5rem;'>System Online</div>
+            <p>Initializing Kiroshi documentation protocols...</p>
+            <div style='margin-top: 2rem; display: flex; gap: 10px; justify-content: center;'>
+                <div style='width: 10px; height: 10px; background: #4ade80; border-radius: 50%; animation: pulse 2s infinite;'></div>
+                <div style='width: 10px; height: 10px; background: #4ade80; border-radius: 50%; animation: pulse 2s infinite 0.3s;'></div>
+                <div style='width: 10px; height: 10px; background: #4ade80; border-radius: 50%; animation: pulse 2s infinite 0.6s;'></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif kind == "dashboard_mock":
+        st.markdown("""
+        <div class='t-card'>
+            <div class='t-title'>Tracked Cases (Live)</div>
+            <div class='t-mock-row'>
+                <span style='width: 60px; font-weight: bold;'>Status</span>
+                <span style='flex-grow: 1;'>Case ID / Summary</span>
+                <span style='width: 80px;'>Priority</span>
+            </div>
+            <div class='t-mock-row' style='border-left: 3px solid #ef4444;'>
+                <span style='font-size: 0.8rem;'>PENDING</span>
+                <div style='display:flex; flex-direction:column; flex-grow:1;'>
+                    <span style='font-weight:bold;'>CS-2024-991</span>
+                    <span style='font-size:0.75rem; opacity:0.8;'>Scanner connection failure</span>
+                </div>
+                <span style='color: #ef4444; font-weight:bold;'>HIGH</span>
+            </div>
+            <div class='t-mock-row' style='border-left: 3px solid #3b82f6;'>
+                <span style='font-size: 0.8rem;'>TRACKED</span>
+                <div style='display:flex; flex-direction:column; flex-grow:1;'>
+                    <span style='font-weight:bold;'>CS-2024-882</span>
+                    <span style='font-size:0.75rem; opacity:0.8;'>License renewal pending</span>
+                </div>
+                <span style='color: #3b82f6; font-weight:bold;'>NORMAL</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif kind == "case_flow":
+        st.markdown("""
+        <div class='t-card'>
+            <div style='display: flex; gap: 1rem; margin-bottom: 1rem;'>
+                <div style='padding: 8px 16px; background: rgba(255,255,255,0.1); border-radius: 8px 8px 0 0; opacity: 0.5;'>Dashboard</div>
+                <div style='padding: 8px 16px; background: var(--kiroshi-primary); color: white; border-radius: 8px 8px 0 0; font-weight: bold;'>+ Add Case</div>
+            </div>
+            <div style='background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px;'>
+                <div class='t-title'>Case Workspace</div>
+                <div class='t-split'>
+                    <div>
+                        <div class='t-mock-field' style='margin-bottom: 8px;'></div>
+                        <small>Description</small>
+                    </div>
+                    <div>
+                        <div class='t-mock-field' style='margin-bottom: 8px;'></div>
+                        <small>Internal Notes</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif kind == "tracking_ui":
+        st.markdown("""
+        <div class='t-card'>
+            <div class='t-title'>Tracking Tab Logic</div>
+            <div style='display: flex; flex-direction: column; gap: 12px;'>
+                <div style='display: flex; justify-content: space-between;'>
+                    <span>Priority</span>
+                    <div style='width: 100px; height: 20px; background: #fca5a5; border-radius: 4px;'></div>
+                </div>
+                <div style='display: flex; justify-content: space-between;'>
+                    <span>Ticket #</span>
+                    <div class='t-mock-field'></div>
+                </div>
+                <div style='margin-top: 10px; text-align: right;'>
+                    <span class='t-mock-btn'>Save and Track</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif kind == "power_tools":
+        st.markdown("""
+        <div class='t-split'>
+            <div class='t-card'>
+                <div class='t-title'>📧 Email Generator</div>
+                <p style='font-size: 0.9rem;'>Select a template (Recap, Escalation, etc.) and Kiroshi drafts the full text instantly.</p>
+                <div class='t-mock-btn' style='text-align: center; margin-top: 8px;'>Generate Draft</div>
+            </div>
+            <div class='t-card'>
+                <div class='t-title'>💬 Kiroshi Chat</div>
+                <p style='font-size: 0.9rem;'>Ask: "How do I fix error 202?" or "Summarize these logs."</p>
+                <div class='t-mock-field' style='margin-top: 8px;'></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif kind == "hotkeys_map":
+        st.markdown("""
+        <div class='t-card'>
+            <div class='t-title'>Global Shortcuts</div>
+            <div style='display: flex; flex-direction: column; gap: 12px;'>
+                <div>
+                    <span class='t-key'>Ctrl</span> + <span class='t-key'>Alt</span> + <span class='t-key'>C</span>
+                    <span style='margin-left: 12px;'>Copy all tables</span>
+                </div>
+                <div>
+                    <span class='t-key'>Ctrl</span> + <span class='t-key'>Alt</span> + <span class='t-key'>1</span>
+                    <span style='margin-left: 12px;'>Copy Title</span>
+                </div>
+                <div>
+                    <span class='t-key'>Ctrl</span> + <span class='t-key'>Alt</span> + <span class='t-key'>2</span>
+                    <span style='margin-left: 12px;'>Copy Description</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif kind == "completion_card":
+        st.markdown("""
+        <div class='t-card' style='text-align: center; background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.05)); border-color: rgba(34, 197, 94, 0.3);'>
+            <div style='font-size: 3rem; margin-bottom: 1rem;'>✅</div>
+            <div class='t-title' style='color: #4ade80;'>Training Complete</div>
+            <p>You are ready to operate Kiroshi.</p>
+        </div>
+        """, unsafe_allow_html=True)
 def _mark_tutorial_completion(status: str) -> None:
     timestamp = datetime.now().isoformat(timespec="seconds")
     st.session_state.tutorial_completed = True
