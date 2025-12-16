@@ -10080,7 +10080,7 @@ def render_sprint_tab() -> None:
     col1, col2 = st.columns(2)
     with col1:
         if not st.session_state.sprint_state.is_active:
-            if st.button("Start Day"):
+            if st.button("Start Day", help="Reset session counters and prepare for a new shift"):
                 _start_day_logic(today_date)
                 st.rerun()
         else:
@@ -10118,7 +10118,7 @@ def render_sprint_tab() -> None:
         ):
             pass
 
-        if st.button("Close Shift (Reset)"):
+        if st.button("Close Shift (Reset)", help="Archive all active cases and reset the workspace"):
             state = st.session_state.sprint_state
             state.is_active = False
             save_sprint_state(state)
@@ -17613,6 +17613,7 @@ def render_case_ui(case_idx: int):
             with popover_fn(
                 "⚡",
                 width="content",
+                help="Quick Actions menu",
             ):
                 render_quick_actions_menu()
         else:
@@ -17621,6 +17622,7 @@ def render_case_ui(case_idx: int):
                 bubble_label,
                 key=case_tab_key("quick_actions_toggle_button"),
                 width="stretch",
+                help="Toggle the Quick Actions menu",
             ):
                 st.session_state[toggle_key] = not st.session_state[toggle_key]
                 st.rerun()
@@ -20377,7 +20379,7 @@ case_tabs = all_tabs[tab_index:]
 for idx, tab in enumerate(case_tabs):
     with tab:
         if idx == len(visible_case_indices):
-            if st.button("Add Case"):
+            if st.button("Add Case", help="Create a new case workspace"):
                 st.session_state.case_sessions.append(CaseSession(case=CaseData()))
                 _sync_case_memory_from_sessions()
                 st.rerun()
