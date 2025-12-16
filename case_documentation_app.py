@@ -19075,7 +19075,11 @@ End with: We look forward to your reply."""
             elif tracking_type == "FedEx":
                 st.date_input("Expected arrival date", key=expected_key)
 
-            if st.button("Save and track", key=tracking_tab_key("save_and_track")):
+            if st.button(
+                "Save and track",
+                key=tracking_tab_key("save_and_track"),
+                help="Save changes and add this case to the Dashboard tracking list",
+            ):
                 if not D.case_id:
                     st.error("Case ID is required before tracking can be enabled.")
                 else:
@@ -19114,6 +19118,7 @@ End with: We look forward to your reply."""
             if st.button(
                 "Close case & stop tracking",
                 key=tracking_tab_key("close_tracking"),
+                help="Remove this case from the Dashboard tracking list and save changes",
             ):
                 D.tracking.active = False
                 save_case_to_database(D, notify=False)
@@ -20086,16 +20091,23 @@ End with: We look forward to your reply."""
         st.subheader("Save / Load")
         col_save, col_load = st.columns(2)
         with col_save:
-            if st.button("Save", key=save_tab_key("save_case_button")):
+            if st.button(
+                "Save",
+                key=save_tab_key("save_case_button"),
+                help="Manually save the current case state to disk",
+            ):
                 save_case_to_database(D)
         with col_load:
             uploaded_case = st.file_uploader(
                 "Select case JSON",
                 type="json",
                 key=save_tab_key("load_case_uploader"),
+                help="Load the selected case file into the workspace",
             )
             if uploaded_case and st.button(
-                "Load", key=save_tab_key("load_case_button")
+                "Load",
+                key=save_tab_key("load_case_button"),
+                help="Load the selected case file into the workspace",
             ):
                 request_load_from_bytes(uploaded_case.getvalue())
 
