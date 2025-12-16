@@ -500,7 +500,7 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
     "ai_mode": DEFAULT_AI_MODE,
     "openai_api_key": "",
     "ai_base_url": DEFAULT_AI_BASE_URL,
-    "openai_model": "GPT-5 nano",
+    "openai_model": "gpt-5-nano",
     "local_ai_profile": "speed",
 }
 
@@ -5864,7 +5864,7 @@ _init_state(
 )
 _init_state("_autosave_loaded", False)
 _init_state("openai_api_key", _get_persistent_default("openai_api_key", DEFAULT_OPENAI_API_KEY))
-_init_state("openai_model", _get_persistent_default("openai_model", "GPT-5 nano"))
+_init_state("openai_model", _get_persistent_default("openai_model", "gpt-5-nano"))
 _init_state("ai_base_url", _get_persistent_default("ai_base_url", DEFAULT_AI_BASE_URL))
 _init_state("ai_mode", _get_persistent_default("ai_mode", DEFAULT_AI_MODE))
 _init_state("local_ai_profile", _get_persistent_default("local_ai_profile", "speed"))
@@ -11067,12 +11067,12 @@ def _render_settings_ai_tab() -> None:
         )
 
         # Ensure default model is selected if current selection is invalid
-        if st.session_state.get("openai_model") != "GPT-5 nano":
-            st.session_state.openai_model = "GPT-5 nano"
+        if st.session_state.get("openai_model") != "gpt-5-nano":
+            st.session_state.openai_model = "gpt-5-nano"
 
         st.selectbox(
             "Model",
-            ["GPT-5 nano"],
+            ["gpt-5-nano"],
             key="openai_model",
             on_change=_on_setting_change("openai_model"),
         )
