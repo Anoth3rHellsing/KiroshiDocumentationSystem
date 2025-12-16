@@ -513,7 +513,7 @@ def query_kiroshi(user_message, history, api_key, model, base_url=None):
     response = requests.post(
         url,
         headers=headers,
-        json={"model": model, "messages": messages, "temperature": 0.7},
+        json={"model": model, "messages": messages, "temperature": 1},
         timeout=30,
         verify=False,
     )
