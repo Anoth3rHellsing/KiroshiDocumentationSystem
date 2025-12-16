@@ -420,8 +420,9 @@ def _persist_sarcasm_preference():
     save_memory(history)
 
 
-def load_manual_docs():
-    """Load manual reference documents from disk."""
+@st.cache_data(ttl=None, max_entries=1)
+def _load_manual_docs_worker(mtime_docs: float, mtime_ref: float) -> list[dict]:
+    """Worker function to load and merge manual documents, cached by mtimes."""
     docs: list[dict] = []
     if os.path.exists(MANUAL_DOCS_FILE):
         try:
@@ -450,6 +451,25 @@ def load_manual_docs():
             existing_titles.add(title)
 
     return docs
+
+
+def load_manual_docs():
+    """Load manual reference documents from disk, with caching."""
+    mtime_docs = 0.0
+    if os.path.exists(MANUAL_DOCS_FILE):
+        try:
+            mtime_docs = os.stat(MANUAL_DOCS_FILE).st_mtime
+        except OSError:
+            pass
+
+    mtime_ref = 0.0
+    if KIROSHI_REFERENCE_FILE.exists():
+        try:
+            mtime_ref = KIROSHI_REFERENCE_FILE.stat().st_mtime
+        except OSError:
+            pass
+
+    return _load_manual_docs_worker(mtime_docs, mtime_ref)
 
 
 def save_manual_docs(docs):
