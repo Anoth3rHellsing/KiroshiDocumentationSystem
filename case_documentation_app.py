@@ -192,7 +192,7 @@ def _require_reportlab_charts() -> None:
         )
 
 
-VERSION = "RC 141025"
+VERSION = "1.8 Release Candidate 1"
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 AUTOSAVE_DIR = Path("autosaves")
@@ -2098,7 +2098,7 @@ logging.debug("Python executable: %s", sys.executable)
 logging.debug("Python version: %s", sys.version.replace("\n", " "))
 logging.debug("Platform: %s", sys.platform)
 
-INSTALLER_FILENAME = "KiroshiInstaller_RC-141025.bat"
+INSTALLER_FILENAME = "KiroshiInstaller_1.8_RC1.bat"
 
 
 def _resolve_installer_path() -> Path:
