@@ -9570,48 +9570,15 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
-def _saved_case_files_signature() -> tuple[tuple[str, float], ...]:
-    entries: list[tuple[str, float]] = []
-    for path in DATABASE_DIR.glob("*.json"):
-        if path.name.lower() in {"recent_cases.json", AI_LEARNING_FILE.name.lower()}:
-            continue
-        try:
-            entries.append((path.name, path.stat().st_mtime))
-        except FileNotFoundError:
-            continue
-    return tuple(sorted(entries))
-
-
-def iter_saved_case_records() -> Iterable[tuple[Path, Mapping[str, object]]]:
-    for path in DATABASE_DIR.glob("*.json"):
-        if path.name.lower() in {"recent_cases.json", AI_LEARNING_FILE.name.lower()}:
-            continue
-        try:
-            with path.open("r", encoding="utf-8") as fh:
-                payload = json.load(fh)
-        except Exception as exc:
-            logging.warning("Failed to load saved case %s: %s", path, exc)
-            continue
-        if not isinstance(payload, Mapping):
-            logging.debug("Ignoring non-mapping payload for %s", path)
-            continue
-        yield path, payload
-
-
 @st.cache_data(ttl=None, show_spinner=False)
-def _list_saved_cases_worker(signature: tuple[tuple[str, float], ...]) -> list[dict[str, object]]:
-    """Cached worker for listing saved cases, invalidated by directory signature."""
+def _list_saved_cases_worker(files_with_mtimes: tuple[tuple[str, float], ...]) -> list[dict[str, object]]:
+    """
+    Worker to parse case files. Cached until the directory signature changes.
+    The signature is a tuple of (filepath, st_mtime) pairs.
+    """
     entries: list[dict[str, object]] = []
-
-    # Reconstruct file list with mtimes from signature
-    file_info = []
-    for name, mtime in signature:
-        file_info.append((DATABASE_DIR / name, mtime))
-
-    # Sort by mtime descending to match original behavior
-    file_info.sort(key=lambda x: x[1], reverse=True)
-
-    for path, mtime in file_info:
+    for path_str, mtime in files_with_mtimes:
+        path = Path(path_str)
         try:
             raw_payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -9644,7 +9611,6 @@ def _list_saved_cases_worker(signature: tuple[tuple[str, float], ...]) -> list[d
         raw_last_modified = data.get("last_modified") if isinstance(data, Mapping) else None
         parsed_last_modified = parse_iso_datetime(raw_last_modified)
         if parsed_last_modified is None:
-            # Use the mtime from the signature/path
             parsed_last_modified = datetime.fromtimestamp(mtime)
             raw_last_modified = parsed_last_modified.isoformat()
 
@@ -9686,8 +9652,15 @@ def _list_saved_cases_worker(signature: tuple[tuple[str, float], ...]) -> list[d
 
 
 def list_saved_cases() -> list:
-    signature = _saved_case_files_signature()
-    return _list_saved_cases_worker(signature)
+    files = sorted(
+        DATABASE_DIR.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    # Create a cache key based on file paths and their modification times.
+    # If a file is added, removed, or modified, this tuple changes, invalidating the cache.
+    files_with_mtimes = tuple((str(p), p.stat().st_mtime) for p in files)
+    return _list_saved_cases_worker(files_with_mtimes)
 
 
 def render_responsive_altair_chart(chart: alt.Chart) -> None:
