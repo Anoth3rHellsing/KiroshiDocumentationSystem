@@ -19038,7 +19038,12 @@ End with: We look forward to your reply."""
             )
 
             ticket_key = tracking_tab_key("track_ticket_number")
-            ticket_number = st.text_input("Ticket Number", key=ticket_key)
+            ticket_number = st.text_input(
+                "Ticket Number",
+                key=ticket_key,
+                help="The ticket number from the ticketing system.",
+                placeholder="e.g. CS-12345",
+            )
 
             priority_key = tracking_tab_key("track_priority")
             st.session_state[priority_key] = normalize_priority(
@@ -19047,7 +19052,12 @@ End with: We look forward to your reply."""
             st.selectbox("Priority", PRIORITY_OPTIONS, key=priority_key)
 
             category_key = tracking_tab_key("track_category")
-            st.text_input("Category", key=category_key)
+            st.text_input(
+                "Category",
+                key=category_key,
+                help="The category of the issue.",
+                placeholder="e.g. Software / Installation",
+            )
 
             status_key = tracking_tab_key("track_status")
             status_options = TRACKING_STATUS_OPTIONS.get(tracking_type)
@@ -19060,7 +19070,12 @@ End with: We look forward to your reply."""
                     ]
                 st.selectbox("Status", status_choices, key=status_key)
             else:
-                st.text_input("Status", key=status_key)
+                st.text_input(
+                    "Status",
+                    key=status_key,
+                    help="Current status of the case.",
+                    placeholder="e.g. In Progress",
+                )
 
             service_tag_key = tracking_tab_key("track_service_tag")
             expected_key = tracking_tab_key("track_expected_arrival")
