@@ -4,12 +4,53 @@
   "description": "Electron shell for Kiroshi Documentation System",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder"
   },
   "keywords": [],
   "author": "Kiroshi Team",
   "license": "ISC",
   "dependencies": {
     "electron": "^30.0.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.kiroshi.shell",
+    "productName": "Kiroshi Documentation System",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "files": [
+      "**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "python_core",
+        "filter": [
+          "*.py",
+          "*.json",
+          "*.png",
+          "requirements.txt",
+          "docs/**/*",
+          ".streamlit/**/*",
+          "!**/secrets.toml",
+          "!**/__pycache__/**",
+          "!**/*.spec",
+          "!**/*.bat",
+          "!**/*.sh",
+          "!JavaSTools/**",
+          "!dist/**",
+          "!build/**",
+          "!autosaves/**",
+          "!KiroshiDatabase/**"
+        ]
+      }
+    ]
   }
 }

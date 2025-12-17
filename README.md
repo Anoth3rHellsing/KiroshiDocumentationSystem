@@ -294,6 +294,46 @@ streamlit-desktop-app build case_documentation_app.py \
 Use the `--debug` or `--headless` switches to mirror any advanced `streamlit`
 arguments you previously passed through `run_app.py` or `streamlit run`.
 
+## Compiling the Electron Shell
+
+The **Kiroshi Electron Shell** (found in `JavaSTools/`) serves as a modern desktop wrapper for the application. It manages SSL bypass settings, handles multi-tab navigation, and automatically launches the backend Python process.
+
+Follow these steps to compile the shell into a standalone Windows executable (`.exe`) or installer to test a release.
+
+### Prerequisites
+
+1.  **Node.js**: Install Node.js (LTS version recommended) from [nodejs.org](https://nodejs.org/).
+2.  **Python**: Ensure Python (3.9+) is installed on the machine where you will run the compiled app, and that it is added to the system `PATH`.
+    *   *Note:* The Electron app acts as a launcher; it does **not** bundle a Python interpreter. The target machine must have Python and the project dependencies (`pip install -r requirements.txt`) installed.
+
+### Build Instructions
+
+1.  **Navigate to the shell directory:**
+    Open a terminal (Command Prompt or PowerShell) and go to the `JavaSTools` folder:
+    ```bash
+    cd JavaSTools
+    ```
+
+2.  **Install dependencies:**
+    Run the following command to install the required Electron packages:
+    ```bash
+    npm install
+    ```
+
+3.  **Compile the application:**
+    Run the build script to package the application for Windows:
+    ```bash
+    npm run build
+    ```
+    *This process may take a few minutes as it downloads the Electron binaries and packages the Python source code.*
+
+### Testing the Release
+
+Once the build completes:
+1.  Go to the `JavaSTools/dist` folder.
+2.  You will find an installer (e.g., `Kiroshi Documentation System Setup 1.0.0.exe`) and an unpacked executable in the `win-unpacked` folder.
+3.  Run the executable. It should launch the Electron window and automatically start the background Python Kiroshi process (assuming Python is set up correctly on your system).
+
 #### Clipboard integration prerequisites
 
 The clipboard helpers use [`pyperclip`](https://pypi.org/project/pyperclip/) so
