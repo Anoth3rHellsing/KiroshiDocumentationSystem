@@ -1,0 +1,15 @@
+{
+  "name": "kiroshi-electron-shell",
+  "version": "1.0.0",
+  "description": "Electron shell for Kiroshi Documentation System",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "Kiroshi Team",
+  "license": "ISC",
+  "dependencies": {
+    "electron": "^30.0.0"
+  }
+}

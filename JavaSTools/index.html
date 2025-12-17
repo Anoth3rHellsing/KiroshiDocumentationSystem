@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kiroshi Documentation System</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- COMPACT COMPANION HEADER -->
+        <div id="companion-header">
+            <div class="companion-logo">
+                <img src="Kiroshi_Logo.png" alt="Kiroshi" />
+            </div>
+            <div class="companion-text" id="companion-message">
+                Initializing Kiroshi Motivational Module...
+            </div>
+            <div class="window-controls">
+                <button id="min-btn"><i class="fa-solid fa-minus"></i></button>
+                <button id="max-btn"><i class="fa-regular fa-square"></i></button>
+                <button id="close-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </div>
+
+        <!-- TAB BAR -->
+        <div id="tab-bar">
+            <!-- Kiroshi Tab (Fixed) -->
+            <div class="tab active" id="tab-kiroshi" onclick="switchTab('kiroshi')">
+                <i class="fa-solid fa-file-medical"></i> Kiroshi System
+            </div>
+            <!-- Dynamic Tabs Container -->
+            <div id="dynamic-tabs"></div>
+            <!-- Add Tab Button -->
+            <div class="add-tab-btn" onclick="showNewTabMenu()">
+                <i class="fa-solid fa-plus"></i>
+            </div>
+        </div>
+
+        <!-- NEW TAB MENU (Hidden by default) -->
+        <div id="new-tab-menu" class="hidden">
+            <h3>Quick Launch</h3>
+            <div class="favorites-grid">
+                <button onclick="addTab('https://gemini.google.com', 'Gemini AI')">
+                    <i class="fa-solid fa-brain"></i> Gemini
+                </button>
+                <button onclick="addTab('https://admin.license.3shape.com/dashboard', '3Shape License')">
+                    <i class="fa-solid fa-key"></i> License Admin
+                </button>
+                <button onclick="addTab('https://www.cat.3shape.com/', 'CAT Tool')">
+                    <i class="fa-solid fa-wrench"></i> CAT
+                </button>
+                <button onclick="addTab('https://app.powerbi.com/home?experience=power-bi', 'Power BI')">
+                    <i class="fa-solid fa-chart-column"></i> Power BI
+                </button>
+                <button onclick="addTab('https://support.3shape.com/', '3Shape Help')">
+                    <i class="fa-solid fa-life-ring"></i> Support Site
+                </button>
+                <button onclick="addTab('https://3shape.crm4.dynamics.com/main.aspx?appid=5ff51386-6105-eb11-a813-000d3ab83e53', 'CRM')">
+                    <i class="fa-solid fa-users"></i> CRM
+                </button>
+                <div class="custom-url-input">
+                    <input type="text" id="custom-url" placeholder="https://example.com" />
+                    <button onclick="addCustomTab()">Go</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONTENT AREA -->
+        <div id="content-area">
+            <!-- Kiroshi Webview -->
+            <webview id="view-kiroshi" src="http://localhost:8501" class="active-view" allowpopups></webview>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
