@@ -43,14 +43,23 @@ app.whenReady().then(() => {
     // We assume python is in the path. In a prod app, we'd bundle a python env.
     console.log("Launching Kiroshi Streamlit backend...");
 
-    // We run this from the parent directory of JavaSTools (the repo root)
-    const rootDir = path.resolve(__dirname, '..');
+    // Determine the root directory for the Python script
+    // If packaged, we expect the python files to be in resources/python_core
+    // If dev, we expect them in the parent directory of JavaSTools
+    let pythonCoreDir;
+    if (app.isPackaged) {
+        pythonCoreDir = path.join(process.resourcesPath, 'python_core');
+    } else {
+        pythonCoreDir = path.resolve(__dirname, '..');
+    }
+
+    console.log(`Python Core Directory: ${pythonCoreDir}`);
 
     // Check if on Windows
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
 
     kiroshiProcess = spawn(pythonCmd, ['-m', 'streamlit', 'run', 'case_documentation_app.py', '--server.headless', 'true'], {
-        cwd: rootDir,
+        cwd: pythonCoreDir,
         shell: true
     });
 
