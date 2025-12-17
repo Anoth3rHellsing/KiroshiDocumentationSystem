@@ -1,5 +1,55 @@
 const { getKiroshiMessage } = require('./companion_data.js');
-const { shell } = require('electron');
+const { shell, ipcRenderer } = require('electron');
+
+// --- Launcher Logic ---
+const launcherOverlay = document.getElementById('kiroshi-launcher-overlay');
+const btnLaunch = document.getElementById('btn-launch-kiroshi');
+const statusText = document.getElementById('launcher-status');
+const kiroshiView = document.getElementById('view-kiroshi');
+
+btnLaunch.addEventListener('click', () => {
+    statusText.innerText = "Killing old processes and restarting Kiroshi Backend...";
+    btnLaunch.disabled = true;
+    btnLaunch.style.opacity = "0.5";
+
+    // Trigger restart in main process
+    ipcRenderer.send('restart-kiroshi');
+});
+
+ipcRenderer.on('kiroshi-restarted', () => {
+    statusText.innerText = "Backend restarted. Waiting for server...";
+
+    // Wait a bit for Streamlit to actually bind to port
+    setTimeout(() => {
+        statusText.innerText = "Loading UI...";
+        kiroshiView.reload();
+
+        // Hide overlay after a moment (or rely on load event?)
+        // Since we can't easily detect 'ready' from http, we'll just hide it
+        // and let the user see the loading spinner of the browser/streamlit.
+        // But if it fails again, they might need the button.
+        // So we will hide it, but if load fails, maybe show it?
+
+        // For now, let's just hide it so they can see the Streamlit 'Please wait...' screen
+        launcherOverlay.classList.add('hidden');
+
+        // Re-enable button for next time
+        btnLaunch.disabled = false;
+        btnLaunch.style.opacity = "1";
+        statusText.innerText = "System is ready to launch.";
+
+    }, 3000);
+});
+
+// Optional: Show overlay if webview fails to load?
+kiroshiView.addEventListener('did-fail-load', (e) => {
+    // Only if it's main frame
+    if (e.isMainFrame) {
+        console.log("Kiroshi failed to load:", e);
+        launcherOverlay.classList.remove('hidden');
+        statusText.innerText = "Connection failed. Please launch again.";
+    }
+});
 
 // --- Motivational Companion Logic ---
 function updateCompanionMessage() {

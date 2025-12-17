@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Kiroshi Documentation System</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="launcher.css">
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -69,6 +70,18 @@
 
         <!-- CONTENT AREA -->
         <div id="content-area">
+            <!-- Kiroshi Launcher / Error Overlay -->
+            <div id="kiroshi-launcher-overlay" class="launcher-overlay">
+                <div class="launcher-content">
+                    <i class="fa-solid fa-power-off launcher-icon"></i>
+                    <h2>Kiroshi System Control</h2>
+                    <p id="launcher-status">System is ready to launch.</p>
+                    <button id="btn-launch-kiroshi" class="launch-btn">
+                        <i class="fa-solid fa-rocket"></i> Launch Kiroshi
+                    </button>
+                </div>
+            </div>
+
             <!-- Kiroshi Webview -->
             <webview id="view-kiroshi" src="http://localhost:8501" class="active-view" allowpopups></webview>
         </div>

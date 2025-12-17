@@ -34,13 +34,23 @@ function createWindow() {
     });
 }
 
-// --- Lifecycle Management ---
+function killKiroshi() {
+    if (kiroshiProcess) {
+        try {
+            console.log("Killing existing Kiroshi process...");
+            if (process.platform === 'win32') {
+                 spawn("taskkill", ["/pid", kiroshiProcess.pid, '/f', '/t']);
+            } else {
+                kiroshiProcess.kill();
+            }
+        } catch (e) {
+            console.error("Error killing process:", e);
+        }
+        kiroshiProcess = null;
+    }
+}
 
-app.whenReady().then(() => {
-    createWindow();
-
-    // Spawn Kiroshi Streamlit App
-    // We assume python is in the path. In a prod app, we'd bundle a python env.
+function startKiroshi() {
     console.log("Launching Kiroshi Streamlit backend...");
 
     // Determine the root directory for the Python script
@@ -70,6 +80,26 @@ app.whenReady().then(() => {
     kiroshiProcess.stderr.on('data', (data) => {
         console.error(`Kiroshi Error: ${data}`);
     });
+}
+
+// --- IPC Handlers ---
+
+ipcMain.on('restart-kiroshi', (event) => {
+    console.log("Received restart-kiroshi request");
+    killKiroshi();
+
+    // Give a small delay to ensure cleanup? usually not needed with /f, but safer
+    setTimeout(() => {
+        startKiroshi();
+        event.sender.send('kiroshi-restarted');
+    }, 1000);
+});
+
+// --- Lifecycle Management ---
+
+app.whenReady().then(() => {
+    createWindow();
+    startKiroshi();
 
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -77,13 +107,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', function () {
-    if (kiroshiProcess) {
-        // Kill the python process when app closes
-        if (process.platform === 'win32') {
-             spawn("taskkill", ["/pid", kiroshiProcess.pid, '/f', '/t']);
-        } else {
-            kiroshiProcess.kill();
-        }
-    }
+    killKiroshi();
     if (process.platform !== 'darwin') app.quit();
 });
