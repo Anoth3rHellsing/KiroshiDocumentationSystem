@@ -15985,8 +15985,18 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
 
         name_cols = card.columns((1.3, 1, 1))
         auto_text_input("Company name", "company_name", container=name_cols[0])
-        auto_text_input("Subscription ID", "subscription_id", container=name_cols[1])
-        auto_text_input("Case ID", "case_id", container=name_cols[2])
+        auto_text_input(
+            "Subscription ID",
+            "subscription_id",
+            container=name_cols[1],
+            help="The unique **Dongle ID** or **Subscription ID** identifying the customer license.",
+        )
+        auto_text_input(
+            "Case ID",
+            "case_id",
+            container=name_cols[2],
+            help="The CRM ticket number (e.g. CS-0012345) for this incident.",
+        )
 
         details_cols = card.columns((2, 1))
         auto_text_input(
