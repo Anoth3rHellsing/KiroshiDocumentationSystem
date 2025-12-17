@@ -1,0 +1,240 @@
+:root {
+    --bg-color: #0f172a;
+    --text-color: #e2e8f0;
+    --accent-color: #8b5cf6;
+    --tab-inactive: #1e293b;
+    --tab-active: #334155;
+    --header-height: 40px;
+    --tab-bar-height: 36px;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    overflow: hidden; /* App handles scrolling in webviews */
+}
+
+#app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* COMPACT HEADER */
+#companion-header {
+    height: var(--header-height);
+    background: linear-gradient(90deg, #1e1b4b, #312e81);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    -webkit-app-region: drag; /* Allow dragging window */
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.companion-logo {
+    display: flex;
+    align-items: center;
+    margin-right: 20px;
+}
+
+.companion-logo img {
+    height: 24px;
+    width: auto;
+}
+
+.companion-text {
+    flex-grow: 1;
+    font-style: italic;
+    opacity: 0.9;
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+.window-controls {
+    -webkit-app-region: no-drag;
+    display: flex;
+    gap: 8px;
+}
+
+.window-controls button {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.window-controls button:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+}
+
+#close-btn:hover {
+    background: #ef4444;
+}
+
+/* TAB BAR */
+#tab-bar {
+    height: var(--tab-bar-height);
+    background-color: #020617;
+    display: flex;
+    align-items: flex-end;
+    padding: 0 8px;
+    gap: 4px;
+}
+
+/* Flex container for dynamic tabs to prevent stacking */
+#dynamic-tabs {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    flex-wrap: nowrap; /* Force horizontal layout */
+    overflow-x: auto; /* Allow scrolling if too many tabs */
+}
+
+/* Scrollbar hiding for cleaner look */
+#dynamic-tabs::-webkit-scrollbar {
+    height: 4px;
+}
+#dynamic-tabs::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 2px;
+}
+
+.tab {
+    background-color: var(--tab-inactive);
+    padding: 6px 16px;
+    border-radius: 8px 8px 0 0;
+    font-size: 0.85em;
+    cursor: pointer;
+    user-select: none;
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.7;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0; /* Prevent tabs from shrinking weirdly */
+}
+
+.tab:hover {
+    opacity: 1;
+    background-color: #283547;
+}
+
+.tab.active {
+    background-color: #f1f5f9; /* Light background for active tab content usually */
+    color: #0f172a;
+    opacity: 1;
+    font-weight: 600;
+}
+
+.tab-close {
+    margin-left: auto;
+    font-size: 0.8em;
+    opacity: 0.5;
+    padding: 2px;
+}
+
+.tab-close:hover {
+    opacity: 1;
+    color: #ef4444;
+}
+
+.add-tab-btn {
+    padding: 6px 12px;
+    cursor: pointer;
+    color: #94a3b8;
+    margin-left: 4px; /* Space from dynamic tabs */
+    flex-shrink: 0;
+}
+
+.add-tab-btn:hover {
+    color: white;
+}
+
+/* NEW TAB MENU */
+#new-tab-menu {
+    position: absolute;
+    top: calc(var(--header-height) + var(--tab-bar-height));
+    left: 20px;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 16px;
+    z-index: 1000;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    width: 300px;
+}
+
+#new-tab-menu.hidden {
+    display: none;
+}
+
+.favorites-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.favorites-grid button {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #e2e8f0;
+    padding: 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.favorites-grid button:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: var(--accent-color);
+}
+
+.custom-url-input {
+    grid-column: span 2;
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.custom-url-input input {
+    flex-grow: 1;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: white;
+    padding: 6px;
+    border-radius: 4px;
+}
+
+/* CONTENT AREA */
+#content-area {
+    flex-grow: 1;
+    background-color: white; /* Default webview bg */
+    position: relative;
+}
+
+webview {
+    width: 100%;
+    height: 100%;
+    display: none;
+}
+
+webview.active-view {
+    display: flex;
+}
