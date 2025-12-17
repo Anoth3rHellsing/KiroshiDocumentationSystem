@@ -270,15 +270,10 @@ STREAMLIT_FONT_FALLBACK = "Space Grotesk"
 def _ensure_pdf_fonts() -> tuple[str, str]:
     """Return the Helvetica fonts used across generated PDFs."""
 
-    cached_fonts = getattr(_ensure_pdf_fonts, "_fonts", None)
-    if cached_fonts:
-        return cached_fonts
-
-    fonts: tuple[str, str] = (PDF_FONT_REGULAR_NAME, PDF_FONT_BOLD_NAME)
-    setattr(_ensure_pdf_fonts, "_fonts", fonts)
-    return fonts
+    return (PDF_FONT_REGULAR_NAME, PDF_FONT_BOLD_NAME)
 
 
+@st.cache_data(ttl=None)
 def _load_pdf_styles():
     """Return a stylesheet configured with the application's PDF fonts."""
 
