@@ -41,13 +41,31 @@ ipcRenderer.on('kiroshi-restarted', () => {
     }, 3000);
 });
 
+// Handle Kiroshi Startup Errors from Main Process
+ipcRenderer.on('kiroshi-startup-error', (event, errorMessage) => {
+    console.error("Kiroshi Startup Error:", errorMessage);
+    launcherOverlay.classList.remove('hidden');
+
+    // Make the error visible to the user
+    statusText.innerText = `Startup Error: ${errorMessage}`;
+    statusText.style.color = "#ff6b6b"; // Reddish color for error
+
+    // Re-enable button
+    btnLaunch.disabled = false;
+    btnLaunch.style.opacity = "1";
+});
+
 // Optional: Show overlay if webview fails to load?
 kiroshiView.addEventListener('did-fail-load', (e) => {
     // Only if it's main frame
     if (e.isMainFrame) {
         console.log("Kiroshi failed to load:", e);
         launcherOverlay.classList.remove('hidden');
-        statusText.innerText = "Connection failed. Please launch again.";
+        // Do not overwrite specific startup errors if we already showed one
+        if (!statusText.innerText.startsWith("Startup Error")) {
+             statusText.innerText = "Connection failed. Please launch again.";
+             statusText.style.color = "#a5b4fc"; // Reset color
+        }
     }
 });
 
