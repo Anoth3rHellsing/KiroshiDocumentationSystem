@@ -9331,9 +9331,10 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
         st.error(f"Failed to untrack case: {exc}")
 
 
-def load_sprint_state() -> SprintState:
-    if not SPRINT_STATE_FILE.exists():
-        return SprintState(date=_utc_now_z().split("T")[0])
+@st.cache_data(ttl=None, max_entries=1)
+def _load_sprint_state_worker(mtime: float) -> SprintState:
+    """Worker to load sprint state, cached until file modification time changes."""
+    # The mtime argument ensures cache invalidation when the file updates.
     try:
         data = json.loads(SPRINT_STATE_FILE.read_text(encoding="utf-8"))
         tasks_data = data.get("tasks", [])
@@ -9345,6 +9346,16 @@ def load_sprint_state() -> SprintState:
         )
     except Exception as exc:
         logging.error("Failed to load sprint state: %s", exc)
+        return SprintState(date=_utc_now_z().split("T")[0])
+
+
+def load_sprint_state() -> SprintState:
+    if not SPRINT_STATE_FILE.exists():
+        return SprintState(date=_utc_now_z().split("T")[0])
+    try:
+        mtime = SPRINT_STATE_FILE.stat().st_mtime
+        return _load_sprint_state_worker(mtime)
+    except OSError:
         return SprintState(date=_utc_now_z().split("T")[0])
 
 
@@ -20393,62 +20404,67 @@ End with: We look forward to your reply."""
     _reset_capture_footer_registry()
     _maybe_tick_case_milestones()
 
-resolution_notice = st.session_state.pop("_milestone_resolution_notice", None)
-if resolution_notice:
-    st.success(resolution_notice)
+def main():
+    resolution_notice = st.session_state.pop("_milestone_resolution_notice", None)
+    if resolution_notice:
+        st.success(resolution_notice)
 
-visible_case_indices = _visible_case_index_list()
-case_labels = [
-    _case_display_name(idx) for idx in visible_case_indices
-] + ["+ New Case"]
-tab_labels: list[str] = ["Dashboard", "Sprint", "Saved Cases", "Settings"]
-if st.session_state.debug_mode:
-    tab_labels.append("Debug")
-tab_labels.append("Report")
-tab_labels += case_labels
-all_tabs = st.tabs(tab_labels)
+    visible_case_indices = _visible_case_index_list()
+    case_labels = [
+        _case_display_name(idx) for idx in visible_case_indices
+    ] + ["+ New Case"]
+    tab_labels: list[str] = ["Dashboard", "Sprint", "Saved Cases", "Settings"]
+    if st.session_state.debug_mode:
+        tab_labels.append("Debug")
+    tab_labels.append("Report")
+    tab_labels += case_labels
+    all_tabs = st.tabs(tab_labels)
 
-tab_index = 0
-with all_tabs[tab_index]:
-    render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
-tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor("Sprint", render_sprint_tab, tab_label="Sprint")
-tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor(
-        "Saved Cases", render_saved_cases_page, tab_label="Saved Cases"
-    )
-tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor("Settings", render_settings_panel, tab_label="Settings")
-tab_index += 1
-if st.session_state.debug_mode:
+    tab_index = 0
     with all_tabs[tab_index]:
-        render_with_monitor("Debug", render_debug_panel, tab_label="Debug")
+        render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
     tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor("Report", render_report_panel, tab_label="Report")
-tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor("Sprint", render_sprint_tab, tab_label="Sprint")
+    tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor(
+            "Saved Cases", render_saved_cases_page, tab_label="Saved Cases"
+        )
+    tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor("Settings", render_settings_panel, tab_label="Settings")
+    tab_index += 1
+    if st.session_state.debug_mode:
+        with all_tabs[tab_index]:
+            render_with_monitor("Debug", render_debug_panel, tab_label="Debug")
+        tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor("Report", render_report_panel, tab_label="Report")
+    tab_index += 1
 
-case_tabs = all_tabs[tab_index:]
-for idx, tab in enumerate(case_tabs):
-    with tab:
-        if idx == len(visible_case_indices):
-            if st.button("Add Case", help="Create a new case workspace"):
-                st.session_state.case_sessions.append(CaseSession(case=CaseData()))
-                _sync_case_memory_from_sessions()
-                st.rerun()
-        else:
-            case_label = case_labels[idx]
-            actual_idx = visible_case_indices[idx]
-            render_with_monitor(
-                f"Case: {case_label}",
-                _render_case_tab,
-                actual_idx,
-                tab_label=case_label,
-                case_index=actual_idx,
-            )
+    case_tabs = all_tabs[tab_index:]
+    for idx, tab in enumerate(case_tabs):
+        with tab:
+            if idx == len(visible_case_indices):
+                if st.button("Add Case", help="Create a new case workspace"):
+                    st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+                    _sync_case_memory_from_sessions()
+                    st.rerun()
+            else:
+                case_label = case_labels[idx]
+                actual_idx = visible_case_indices[idx]
+                render_with_monitor(
+                    f"Case: {case_label}",
+                    _render_case_tab,
+                    actual_idx,
+                    tab_label=case_label,
+                    case_index=actual_idx,
+                )
 
-show_failure_modal()
-show_incident_report_modal()
+    show_failure_modal()
+    show_incident_report_modal()
+
+
+if __name__ == "__main__":
+    main()
