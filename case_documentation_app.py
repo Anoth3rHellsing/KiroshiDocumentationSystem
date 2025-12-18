@@ -273,7 +273,7 @@ def _ensure_pdf_fonts() -> tuple[str, str]:
     return (PDF_FONT_REGULAR_NAME, PDF_FONT_BOLD_NAME)
 
 
-@st.cache_data(ttl=None)
+@st.cache_resource(ttl=None)
 def _load_pdf_styles():
     """Return a stylesheet configured with the application's PDF fonts."""
 
