@@ -5695,15 +5695,12 @@ _init_state("api_helpjuice", False)
 _init_state("api_restart", False)
 _init_state("api_scan_time", False)
 _init_state("generated_email", "")
-# Optimization: Use explicit check for lazy initialization to avoid executing
-# load_memory() (file I/O) on every script rerun.
 if "kiroshi_chat_history" not in st.session_state:
-    st.session_state["kiroshi_chat_history"] = load_memory()
+    st.session_state.kiroshi_chat_history = load_memory()
 _init_state("case_chat_histories", {})
 _init_state("case_chat_meta", {})
-# Optimization: Lazy load assistant notes to avoid unnecessary session state processing
 if "assistant_notes" not in st.session_state:
-    st.session_state["assistant_notes"] = get_assistant_notes()
+    st.session_state.assistant_notes = get_assistant_notes()
 if "manual_docs" not in st.session_state:
     st.session_state.manual_docs = load_manual_docs()
 _init_state("verify_result", "")
