@@ -13071,9 +13071,8 @@ def _create_ai_learning_dataset_from_cases(
     return dataset
 
 
-def load_ai_learning_dataset() -> dict[str, object] | None:
-    if not AI_LEARNING_FILE.exists():
-        return None
+@st.cache_data(ttl=None, max_entries=1)
+def _load_ai_learning_dataset_worker(mtime: float) -> dict[str, object] | None:
     try:
         with AI_LEARNING_FILE.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
@@ -13084,6 +13083,16 @@ def load_ai_learning_dataset() -> dict[str, object] | None:
         logging.error("AI learning dataset is not a JSON object")
         return None
     return dict(payload)
+
+
+def load_ai_learning_dataset() -> dict[str, object] | None:
+    if not AI_LEARNING_FILE.exists():
+        return None
+    try:
+        mtime = AI_LEARNING_FILE.stat().st_mtime
+    except OSError:
+        return None
+    return _load_ai_learning_dataset_worker(mtime)
 
 
 def merge_ai_learning_datasets(
