@@ -8977,39 +8977,39 @@ def _coerce_case_mapping(data: object) -> dict | None:
     return None
 
 
-_tracked_cases_cache: list[dict[str, object]] | None = None
-_tracked_cases_signature: tuple[float, int] | None = None
-_tracked_context: tuple[str, str] | None = None
-
-
 def _tracked_files_signature() -> tuple[float, int]:
     latest_mtime = 0.0
     file_count = 0
-    for path in itertools.chain(DATABASE_DIR.glob("*.json"), TRACKED_CASES_DIR.glob("*.json")):
+
+    def _scan(directory: Path):
+        nonlocal latest_mtime, file_count
         try:
-            stat = path.stat()
-        except FileNotFoundError:
-            continue
-        latest_mtime = max(latest_mtime, stat.st_mtime)
-        file_count += 1
+            # os.scandir is faster than Path.glob + stat because it retrieves
+            # file attributes from the directory entry without extra system calls.
+            # Convert Path to str for compatibility.
+            with os.scandir(str(directory)) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.lower().endswith(".json"):
+                        try:
+                            # entry.stat() is cached on Windows from the directory listing
+                            mtime = entry.stat().st_mtime
+                            if mtime > latest_mtime:
+                                latest_mtime = mtime
+                            file_count += 1
+                        except OSError:
+                            continue
+        except OSError:
+            pass
+
+    _scan(DATABASE_DIR)
+    _scan(TRACKED_CASES_DIR)
+
     return latest_mtime, file_count
 
 
-def _reset_tracked_cases_cache() -> None:
-    global _tracked_cases_cache, _tracked_cases_signature, _tracked_context
-    _tracked_cases_cache = None
-    _tracked_cases_signature = None
-    _tracked_context = None
-
-
-def load_tracked_cases() -> list:
-    global _tracked_cases_cache, _tracked_cases_signature, _tracked_context
-    current_context = (str(DATABASE_DIR), str(TRACKED_CASES_DIR))
-    if _tracked_context and _tracked_context != current_context:
-        _reset_tracked_cases_cache()
-    signature = _tracked_files_signature()
-    if _tracked_cases_cache is not None and _tracked_cases_signature == signature:
-        return _tracked_cases_cache
+@st.cache_data(ttl=None)
+def _load_tracked_cases_worker(signature: tuple[float, int]) -> list:
+    """Load and parse tracked cases, cached until the file signature changes."""
     cases = []
     # Load modern tracked cases directly from the database directory.
     for p in DATABASE_DIR.glob("*.json"):
@@ -9124,10 +9124,12 @@ def load_tracked_cases() -> list:
                 "last_modified": last_modified,
             }
         )
-    _tracked_cases_cache = cases
-    _tracked_cases_signature = signature
-    _tracked_context = current_context
     return cases
+
+
+def load_tracked_cases() -> list:
+    signature = _tracked_files_signature()
+    return _load_tracked_cases_worker(signature)
 
 
 def update_tracked_case_file(
