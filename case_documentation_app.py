@@ -10289,6 +10289,7 @@ def render_saved_cases_page() -> None:
         "Search saved cases",
         key=global_widget_key("saved_cases_search"),
         placeholder="Search by case ID, company, end user, path, or notes",
+        help="Filter your case history by ID, Company, Version, or path.",
     )
 
     filter_cols = st.columns((1.4, 1.2, 1.0))
@@ -10521,6 +10522,7 @@ def render_dashboard() -> None:
                 "Search tracked cases",
                 key=global_widget_key("tracked_cases_search"),
                 placeholder="Search by company, status, case ID, or priority",
+                help="Filter active cases by Company, Status, Case ID, or Priority.",
             )
             render_tracked_cases_dashboard(tracked_cases, search_term)
             st.markdown("</div>", unsafe_allow_html=True)
@@ -10616,6 +10618,7 @@ def _render_settings_workspace_tab() -> None:
             "2nd Line mode",
             key="second_line_mode",
             on_change=_on_setting_change("second_line_mode"),
+            help="Enable specialized fields for 2nd line support escalation flows.",
         )
         st.toggle(
             "Show Kiroshi Chat tab",
@@ -10636,6 +10639,7 @@ def _render_settings_workspace_tab() -> None:
             "Show Debug tab",
             key="debug_mode",
             on_change=_on_setting_change("debug_mode"),
+            help="Reveal advanced diagnostics and raw data inspection tools.",
         )
         if st.session_state.get("debug_mode"):
             st.toggle(
@@ -10684,6 +10688,7 @@ def _render_settings_workspace_tab() -> None:
         "Enable holiday themes",
         key="enable_holiday_theme",
         on_change=_on_setting_change("enable_holiday_theme"),
+        help="Celebrate the season with festive colors and messages.",
     )
     if st.session_state.get("debug_mode"):
         preview_options = ["auto", "default", *HOLIDAY_THEMES.keys()]
@@ -13073,9 +13078,8 @@ def _create_ai_learning_dataset_from_cases(
     return dataset
 
 
-def load_ai_learning_dataset() -> dict[str, object] | None:
-    if not AI_LEARNING_FILE.exists():
-        return None
+@st.cache_data(ttl=None, max_entries=1)
+def _load_ai_learning_dataset_worker(mtime: float) -> dict[str, object] | None:
     try:
         with AI_LEARNING_FILE.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
@@ -13086,6 +13090,16 @@ def load_ai_learning_dataset() -> dict[str, object] | None:
         logging.error("AI learning dataset is not a JSON object")
         return None
     return dict(payload)
+
+
+def load_ai_learning_dataset() -> dict[str, object] | None:
+    if not AI_LEARNING_FILE.exists():
+        return None
+    try:
+        mtime = AI_LEARNING_FILE.stat().st_mtime
+    except OSError:
+        return None
+    return _load_ai_learning_dataset_worker(mtime)
 
 
 def merge_ai_learning_datasets(
