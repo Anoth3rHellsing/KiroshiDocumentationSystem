@@ -19525,11 +19525,40 @@ End with: We look forward to your reply."""
                 container=col_pc2,
                 help="e.g. Alienware Aurora R16, Dell Precision 3660.",
             )
-            auto_text_input("Windows version", "windows_version", container=col_pc1)
-            auto_text_input("BIOS version", "bios_version", container=col_pc2)
-            auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
-            auto_text_input("Processor", "processor", container=col_pc2)
-            auto_text_input("Warranty", "warranty")
+            auto_text_input(
+                "Windows version",
+                "windows_version",
+                container=col_pc1,
+                help="Type 'winver' in Start menu to find this.",
+                placeholder="e.g. Windows 11 Pro 23H2",
+            )
+            auto_text_input(
+                "BIOS version",
+                "bios_version",
+                container=col_pc2,
+                help="Found in System Information (msinfo32).",
+                placeholder="e.g. 1.2.3",
+            )
+            auto_text_input(
+                "Graphics Card",
+                "graphics_card",
+                container=col_pc1,
+                help="Check Task Manager > Performance > GPU.",
+                placeholder="e.g. NVIDIA RTX 4070",
+            )
+            auto_text_input(
+                "Processor",
+                "processor",
+                container=col_pc2,
+                help="Check System > About.",
+                placeholder="e.g. Intel Core i9-14900K",
+            )
+            auto_text_input(
+                "Warranty",
+                "warranty",
+                help="Check support.dell.com with Service Tag.",
+                placeholder="e.g. ProSupport ends 2026-10-15",
+            )
             st.subheader("Scanner Hardware Issue")
             col_sc1, col_sc2 = st.columns(2)
             auto_text_input(
