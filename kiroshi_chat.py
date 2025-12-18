@@ -365,30 +365,38 @@ def build_assistant_memory_prompt() -> str | None:
     return header + "\n" + "\n".join(lines)
 
 
-def load_memory():
-    """Load persistent memory from disk."""
+@st.cache_data(ttl=None, max_entries=1)
+def _load_memory_worker(mtime: float) -> dict[str, object]:
+    """Load and return memory data from disk, cached by mtime."""
+    if not os.path.exists(MEMORY_FILE):
+        return {}
+    try:
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
+
+def load_memory():
+    """Load persistent memory from disk, using cache."""
+    mtime = 0.0
     if os.path.exists(MEMORY_FILE):
         try:
-            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
-                st.session_state["personality_mode"] = data.get("personality_mode", "utility")
-                if "kiroshi_sarcasm_mode" not in st.session_state:
-                    saved_sarcasm = data.get("kiroshi_sarcasm_mode")
-                    st.session_state["kiroshi_sarcasm_mode"] = (
-                        saved_sarcasm if isinstance(saved_sarcasm, bool) else False
-                    )
-                st.session_state["assistant_notes"] = _sanitize_notes(data.get("assistant_notes"))
-                return data.get("history", [])
-        except Exception:
+            mtime = os.stat(MEMORY_FILE).st_mtime
+        except OSError:
             pass
-    st.session_state["system_prompt"] = SYSTEM_PROMPT
-    st.session_state["personality_mode"] = "utility"
+
+    data = _load_memory_worker(mtime)
+
+    st.session_state["system_prompt"] = data.get("system_prompt", SYSTEM_PROMPT)
+    st.session_state["personality_mode"] = data.get("personality_mode", "utility")
     if "kiroshi_sarcasm_mode" not in st.session_state:
-        st.session_state["kiroshi_sarcasm_mode"] = False
-    st.session_state["assistant_notes"] = []
-    return []
+        saved_sarcasm = data.get("kiroshi_sarcasm_mode")
+        st.session_state["kiroshi_sarcasm_mode"] = (
+            saved_sarcasm if isinstance(saved_sarcasm, bool) else False
+        )
+    st.session_state["assistant_notes"] = _sanitize_notes(data.get("assistant_notes"))
+    return data.get("history", [])
 
 
 def save_memory(history):
