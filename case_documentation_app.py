@@ -15995,7 +15995,12 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 autosave()
 
         name_cols = card.columns((1.3, 1, 1))
-        auto_text_input("Company name", "company_name", container=name_cols[0])
+        auto_text_input(
+            "Company name",
+            "company_name",
+            container=name_cols[0],
+            help="The full legal name of the clinic or lab.",
+        )
         auto_text_input(
             "Subscription ID",
             "subscription_id",
@@ -19508,8 +19513,18 @@ End with: We look forward to your reply."""
         with case_tab(tab_hw, case_idx=case_idx, slug=CASE_TAB_SLUGS["Hardware Issues"]):
             st.subheader("PC Hardware Issue")
             col_pc1, col_pc2 = st.columns(2)
-            auto_text_input("Service Tag", "service_tag", container=col_pc1)
-            auto_text_input("PC Model", "pc_model", container=col_pc2)
+            auto_text_input(
+                "Service Tag",
+                "service_tag",
+                container=col_pc1,
+                help="Found on the back of the PC or via 'wmic bios get serialnumber'.",
+            )
+            auto_text_input(
+                "PC Model",
+                "pc_model",
+                container=col_pc2,
+                help="e.g. Alienware Aurora R16, Dell Precision 3660.",
+            )
             auto_text_input("Windows version", "windows_version", container=col_pc1)
             auto_text_input("BIOS version", "bios_version", container=col_pc2)
             auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
@@ -19517,7 +19532,12 @@ End with: We look forward to your reply."""
             auto_text_input("Warranty", "warranty")
             st.subheader("Scanner Hardware Issue")
             col_sc1, col_sc2 = st.columns(2)
-            auto_text_input("Scanner serial", "scanner_sn", container=col_sc1)
+            auto_text_input(
+                "Scanner serial",
+                "scanner_sn",
+                container=col_sc1,
+                help="The serial number usually located on the scanner or its base (e.g. s12345678).",
+            )
             auto_text_input("Base serial", "base_sn", container=col_sc2)
             auto_text_input(
                 "TRIOS module version",
