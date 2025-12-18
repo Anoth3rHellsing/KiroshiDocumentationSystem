@@ -64,22 +64,61 @@ function startKiroshi() {
     }
 
     console.log(`Python Core Directory: ${pythonCoreDir}`);
+    const fs = require('fs');
+    if (!fs.existsSync(pythonCoreDir)) {
+         console.error(`ERROR: Python core directory not found at ${pythonCoreDir}`);
+         if (mainWindow) {
+             mainWindow.webContents.send('kiroshi-startup-error', `Core directory missing: ${pythonCoreDir}`);
+         }
+         return;
+    }
 
     // Check if on Windows
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
 
-    kiroshiProcess = spawn(pythonCmd, ['-m', 'streamlit', 'run', 'case_documentation_app.py', '--server.headless', 'true'], {
-        cwd: pythonCoreDir,
-        shell: true
-    });
+    try {
+        kiroshiProcess = spawn(pythonCmd, ['-m', 'streamlit', 'run', 'case_documentation_app.py', '--server.headless', 'true'], {
+            cwd: pythonCoreDir,
+            shell: true,
+            // Ensure stdio is captured
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
 
-    kiroshiProcess.stdout.on('data', (data) => {
-        console.log(`Kiroshi: ${data}`);
-    });
+        if (kiroshiProcess) {
+            kiroshiProcess.stdout.on('data', (data) => {
+                const msg = data.toString();
+                console.log(`Kiroshi: ${msg}`);
+            });
 
-    kiroshiProcess.stderr.on('data', (data) => {
-        console.error(`Kiroshi Error: ${data}`);
-    });
+            kiroshiProcess.stderr.on('data', (data) => {
+                const msg = data.toString();
+                console.error(`Kiroshi Error: ${msg}`);
+                // Optional: Send startup errors to UI if it looks like a fatal error
+                // For now, we rely on the process exit or 'error' event, but if python prints a traceback, it goes here.
+            });
+
+            kiroshiProcess.on('error', (err) => {
+                 console.error("Failed to start Kiroshi process:", err);
+                 if (mainWindow) {
+                     mainWindow.webContents.send('kiroshi-startup-error', `Spawn error: ${err.message}`);
+                 }
+            });
+
+            kiroshiProcess.on('close', (code) => {
+                console.log(`Kiroshi process exited with code ${code}`);
+                if (code !== 0 && code !== null) {
+                     if (mainWindow) {
+                         mainWindow.webContents.send('kiroshi-startup-error', `Process exited with code ${code}. See logs.`);
+                     }
+                }
+            });
+        }
+    } catch (e) {
+        console.error("Exception starting Kiroshi:", e);
+        if (mainWindow) {
+            mainWindow.webContents.send('kiroshi-startup-error', `Exception: ${e.message}`);
+        }
+    }
 }
 
 // --- IPC Handlers ---

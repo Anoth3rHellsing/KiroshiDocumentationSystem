@@ -2,3 +2,8 @@ autosaves/
 models/
 __pycache__/
 *.pyc
+node_modules/
+JavaSTools/node_modules/
+JavaSTools/dist/
+JavaSTools/build/
+.env
