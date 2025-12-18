@@ -17375,7 +17375,12 @@ def render_case_ui(case_idx: int):
                     st.caption(
                         "AI Educate did not find a close historical match; general patterns were provided instead."
                     )
-            if st.button("Categorize", key=case_tab_key("categorize_button"), width="stretch"):
+            if st.button(
+                "Categorize",
+                key=case_tab_key("categorize_button"),
+                width="stretch",
+                help="Analyze case text to suggest category and root cause",
+            ):
                 logging.info("Categorize button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -17439,7 +17444,12 @@ def render_case_ui(case_idx: int):
                             save_memory(st.session_state.kiroshi_chat_history)
                             st.session_state.categorizer_result = reply
                             st.session_state.categorizer_summary = parse_categorizer_summary(reply)
-            if st.button("Ask", key=case_tab_key("ask_button"), width="stretch"):
+            if st.button(
+                "Ask",
+                key=case_tab_key("ask_button"),
+                width="stretch",
+                help="Ask Kiroshi AI for suggestions based on the case description",
+            ):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
@@ -17486,7 +17496,12 @@ def render_case_ui(case_idx: int):
                         st.session_state.kiroshi_chat_history.append({"role": "assistant", "content": reply})
                         save_memory(st.session_state.kiroshi_chat_history)
                         st.session_state.ask_result = reply
-            if st.button("QA Verify", key=case_tab_key("verify_button"), width="stretch"):
+            if st.button(
+                "QA Verify",
+                key=case_tab_key("verify_button"),
+                width="stretch",
+                help="Run automated quality assurance checks on your documentation",
+            ):
                 logging.info("QA Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
                     st.error("Please set your OpenAI API key in the Debug tab.")
