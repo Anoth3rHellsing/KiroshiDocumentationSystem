@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, BrowserView } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
+const fs = require('fs');
 
 // --- Global SSL Bypass ---
 // This is critical for the user's requirement to bypass SSL errors on all sites.
@@ -9,6 +10,31 @@ app.commandLine.appendSwitch('allow-insecure-localhost', 'true');
 
 let mainWindow;
 let kiroshiProcess;
+let logFilePath;
+
+// Setup File Logging for Launcher Debugging
+function logToFile(message) {
+    try {
+        if (!logFilePath) {
+            // Lazy load path to ensure app is ready enough (though usually safe)
+            logFilePath = path.join(app.getPath('userData'), 'launcher_debug.log');
+        }
+        const timestamp = new Date().toISOString();
+        const logLine = `[${timestamp}] ${message}\n`;
+        fs.appendFileSync(logFilePath, logLine);
+    } catch (err) {
+        console.error("Failed to write to log file:", err);
+    }
+}
+
+// Log initial startup info
+try {
+    logToFile("--- Kiroshi Launcher Session Started ---");
+    logToFile(`App Path: ${app.getAppPath()}`);
+    logToFile(`Resources Path: ${process.resourcesPath}`);
+} catch (e) {
+    console.error("Initial logging failed:", e);
+}
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -37,6 +63,7 @@ function createWindow() {
 function killKiroshi() {
     if (kiroshiProcess) {
         try {
+            logToFile("Killing existing Kiroshi process...");
             console.log("Killing existing Kiroshi process...");
             if (process.platform === 'win32') {
                  spawn("taskkill", ["/pid", kiroshiProcess.pid, '/f', '/t']);
@@ -44,6 +71,7 @@ function killKiroshi() {
                 kiroshiProcess.kill();
             }
         } catch (e) {
+            logToFile(`Error killing process: ${e.message}`);
             console.error("Error killing process:", e);
         }
         kiroshiProcess = null;
@@ -52,6 +80,7 @@ function killKiroshi() {
 
 function startKiroshi() {
     console.log("Launching Kiroshi Streamlit backend...");
+    logToFile("Launching Kiroshi Streamlit backend...");
 
     // Determine the root directory for the Python script
     // If packaged, we expect the python files to be in resources/python_core
@@ -63,10 +92,13 @@ function startKiroshi() {
         pythonCoreDir = path.resolve(__dirname, '..');
     }
 
+    logToFile(`Python Core Directory resolved to: ${pythonCoreDir}`);
     console.log(`Python Core Directory: ${pythonCoreDir}`);
-    const fs = require('fs');
+
     if (!fs.existsSync(pythonCoreDir)) {
-         console.error(`ERROR: Python core directory not found at ${pythonCoreDir}`);
+         const errorMsg = `ERROR: Python core directory not found at ${pythonCoreDir}`;
+         logToFile(errorMsg);
+         console.error(errorMsg);
          if (mainWindow) {
              mainWindow.webContents.send('kiroshi-startup-error', `Core directory missing: ${pythonCoreDir}`);
          }
@@ -75,8 +107,10 @@ function startKiroshi() {
 
     // Check if on Windows
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    logToFile(`Python Command: ${pythonCmd}`);
 
     try {
+        logToFile("Spawning python process...");
         kiroshiProcess = spawn(pythonCmd, ['-m', 'streamlit', 'run', 'case_documentation_app.py', '--server.headless', 'true'], {
             cwd: pythonCoreDir,
             shell: true,
@@ -84,36 +118,68 @@ function startKiroshi() {
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
+        if (kiroshiProcess.pid) {
+             logToFile(`Process spawned. PID: ${kiroshiProcess.pid}`);
+        } else {
+             logToFile("Process spawn failed (no PID).");
+        }
+
+        let stderrBuffer = "";
+
         if (kiroshiProcess) {
             kiroshiProcess.stdout.on('data', (data) => {
                 const msg = data.toString();
                 console.log(`Kiroshi: ${msg}`);
+                // Optional: log first few lines to verify startup
+                if (msg.includes("http://localhost")) {
+                    logToFile("Streamlit started successfully (url detected).");
+                }
             });
 
             kiroshiProcess.stderr.on('data', (data) => {
                 const msg = data.toString();
+                stderrBuffer += msg;
+                // Limit buffer size to avoid memory issues if it spews
+                if (stderrBuffer.length > 5000) stderrBuffer = stderrBuffer.substring(stderrBuffer.length - 5000);
+
                 console.error(`Kiroshi Error: ${msg}`);
-                // Optional: Send startup errors to UI if it looks like a fatal error
-                // For now, we rely on the process exit or 'error' event, but if python prints a traceback, it goes here.
+                logToFile(`STDERR: ${msg.trim()}`);
             });
 
             kiroshiProcess.on('error', (err) => {
-                 console.error("Failed to start Kiroshi process:", err);
+                 const errorMsg = `Failed to start Kiroshi process: ${err.message}`;
+                 logToFile(errorMsg);
+                 console.error(errorMsg);
                  if (mainWindow) {
                      mainWindow.webContents.send('kiroshi-startup-error', `Spawn error: ${err.message}`);
                  }
             });
 
             kiroshiProcess.on('close', (code) => {
-                console.log(`Kiroshi process exited with code ${code}`);
+                const exitMsg = `Kiroshi process exited with code ${code}`;
+                logToFile(exitMsg);
+                console.log(exitMsg);
+
                 if (code !== 0 && code !== null) {
+                     let userMsg = `Process exited with code ${code}.`;
+                     if (stderrBuffer) {
+                         // Clean up the error message for display
+                         // Grab the last meaningful line
+                         const lines = stderrBuffer.trim().split('\n');
+                         const lastLine = lines[lines.length - 1];
+                         userMsg += ` Error: ${lastLine}`;
+                     } else {
+                         userMsg += " See launcher_debug.log for details.";
+                     }
+
                      if (mainWindow) {
-                         mainWindow.webContents.send('kiroshi-startup-error', `Process exited with code ${code}. See logs.`);
+                         mainWindow.webContents.send('kiroshi-startup-error', userMsg);
                      }
                 }
             });
         }
     } catch (e) {
+        logToFile(`Exception starting Kiroshi: ${e.message}`);
         console.error("Exception starting Kiroshi:", e);
         if (mainWindow) {
             mainWindow.webContents.send('kiroshi-startup-error', `Exception: ${e.message}`);
@@ -124,6 +190,7 @@ function startKiroshi() {
 // --- IPC Handlers ---
 
 ipcMain.on('restart-kiroshi', (event) => {
+    logToFile("Received restart-kiroshi request");
     console.log("Received restart-kiroshi request");
     killKiroshi();
 
