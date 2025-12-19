@@ -15728,6 +15728,7 @@ def _normalize_value_column(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+@st.cache_data
 def category_dataframe(
     cat: str, d: CaseData, cat_map: Mapping[str, Iterable[str]] | None
 ) -> pd.DataFrame:
