@@ -7,3 +7,6 @@
 ## 2025-12-18 - Monolithic Streamlit Testability
 **Learning:** Testing individual functions in a monolithic Streamlit script (`case_documentation_app.py`) is difficult because importing the module immediately executes the top-level UI rendering code, which requires a full Streamlit context.
 **Action:** Encapsulate the main execution logic in a `main()` function and use `if __name__ == "__main__": main()` to allow the module to be imported by test suites without side effects.
+## 2025-12-23 - Thread-Safe Incremental Caching in Streamlit
+**Learning:** Using `@st.cache_data` for large lists of files (like a database directory) is inefficient because the cache invalidates completely if *any* single file changes, triggering a full O(N) re-parse.
+**Action:** Implement a custom incremental cache using `@st.cache_resource` with a thread-safe dictionary (protected by a lock). This allows updating only the changed entries while serving the rest from memory, transforming O(N) parsing into O(K) where K is the number of changed files.
