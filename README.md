@@ -281,58 +281,67 @@ streamlit run case_documentation_app.py
 python run_app.py
 ```
 
-To distribute a self-contained desktop bundle, use the new build command. The
-example below generates an executable with the Kiroshi logo and a custom
-window title:
+## Compiling for GitHub Releases (Electron + Python)
 
-```bash
-streamlit-desktop-app build case_documentation_app.py \
-  --icon Kiroshi_Logo.png \
-  --title "Kiroshi Desktop"
-```
-
-Use the `--debug` or `--headless` switches to mirror any advanced `streamlit`
-arguments you previously passed through `run_app.py` or `streamlit run`.
-
-## Compiling the Electron Shell
-
-The **Kiroshi Electron Shell** (found in `JavaSTools/`) serves as a modern desktop wrapper for the application. It manages SSL bypass settings, handles multi-tab navigation, and automatically launches the backend Python process.
-
-Follow these steps to compile the shell into a standalone Windows executable (`.exe`) or installer to test a release.
+This guide describes how to build a production-ready installer for GitHub Releases. The process bundles the Electron frontend and prepares the Python environment for the user.
 
 ### Prerequisites
 
-1.  **Node.js**: Install Node.js (LTS version recommended) from [nodejs.org](https://nodejs.org/).
-2.  **Python**: Ensure Python (3.9+) is installed on the machine where you will run the compiled app, and that it is added to the system `PATH`.
-    *   *Note:* The Electron app acts as a launcher; it does **not** bundle a Python interpreter. The target machine must have Python and the project dependencies (`pip install -r requirements.txt`) installed.
+*   **Node.js (LTS):** Install from [nodejs.org](https://nodejs.org/).
+*   **Python (3.10+):** Ensure Python is installed and added to `PATH`.
+*   **Git:** To clone/pull the repository.
 
-### Build Instructions
+### Step 1: Prepare the Python Core
 
-1.  **Navigate to the shell directory:**
-    Open a terminal (Command Prompt or PowerShell) and go to the `JavaSTools` folder:
+The Electron builder is configured to look for the Python backend files in specific locations. For a release, we want to bundle the source files so they can be run by the user's Python environment (or the embedded one if configured).
+
+1.  **Zip the core files:**
+    Select the following files and folders from the root repository:
+    *   `case_documentation_app.py`
+    *   `kiroshi_chat.py`
+    *   `kiroshi_local_ai.py`
+    *   `kiroshi_video.py`
+    *   `kiroshi_cloud_sync.py`
+    *   `kiroshi_hotkeys.py`
+    *   `requirements.txt`
+    *   `KiroshiLauncher.bat`
+    *   `.streamlit/` (folder)
+
+    *Create a zip file named `python_core.zip` containing these items.*
+
+    *Alternatively, the `electron-builder` config in `JavaSTools/package.json` is set to automatically copy the `../` (parent) directory into `resources/python_core` during the build process. Ensure your root directory is clean of unnecessary build artifacts (`dist`, `node_modules`, etc.) before building.*
+
+### Step 2: Build the Electron App
+
+1.  Open a terminal in the `JavaSTools` directory:
     ```bash
     cd JavaSTools
     ```
 
-2.  **Install dependencies:**
-    Run the following command to install the required Electron packages:
+2.  Install Node dependencies:
     ```bash
     npm install
     ```
 
-3.  **Compile the application:**
-    Run the build script to package the application for Windows:
+3.  Run the build command:
     ```bash
     npm run build
     ```
-    *This process may take a few minutes as it downloads the Electron binaries and packages the Python source code.*
 
-### Testing the Release
+    This command will:
+    *   Compile the Electron application.
+    *   Bundle the Python source code (via the `files` configuration in `package.json`).
+    *   Generate a Windows Installer (`.exe`) in the `JavaSTools/dist` folder.
 
-Once the build completes:
-1.  Go to the `JavaSTools/dist` folder.
-2.  You will find an installer (e.g., `Kiroshi Documentation System Setup 1.0.0.exe`) and an unpacked executable in the `win-unpacked` folder.
-3.  Run the executable. It should launch the Electron window and automatically start the background Python Kiroshi process (assuming Python is set up correctly on your system).
+### Step 3: Release
+
+1.  Navigate to `JavaSTools/dist`.
+2.  Locate the installer (e.g., `Kiroshi Documentation System Setup 1.8.0.exe`).
+3.  Upload this `.exe` file to your GitHub Release.
+
+### User Installation Note
+
+The installer will set up the Electron shell. On first launch, the application will attempt to run the Python backend using the system's `python` command. The user must have Python installed and the requirements satisfied (`pip install -r requirements.txt`). The installer places the app in `AppData\Local\Programs\kiroshi-documentation-system`, and the Python source is unpacked into `resources\python_core`.
 
 #### Clipboard integration prerequisites
 
