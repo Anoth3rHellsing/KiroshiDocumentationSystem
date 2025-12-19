@@ -24,12 +24,6 @@ MODELS = {
     }
 }
 
-# Global cache for the loaded model instance
-if "local_llm_instance" not in st.session_state:
-    st.session_state.local_llm_instance = None
-if "local_llm_profile" not in st.session_state:
-    st.session_state.local_llm_profile = None
-
 def get_model_path(profile: str) -> str:
     """Returns the full path to the model file."""
     config = MODELS.get(profile)
@@ -65,55 +59,50 @@ def download_model(profile: str, progress_callback=None):
     except Exception as e:
         raise RuntimeError(f"Failed to download model: {e}")
 
-def load_model(profile: str):
-    """Loads the model into memory. Returns Llama instance."""
+@st.cache_resource(max_entries=1)
+def _load_llama_instance_cached(model_path: str, ctx_size: int, profile_name: str) -> object:
+    """
+    Loads the Llama model into memory, cached by Streamlit.
+    max_entries=1 ensures only ONE model is kept in memory at a time.
+    """
     try:
         from llama_cpp import Llama
     except ImportError:
         raise RuntimeError("llama-cpp-python not installed. Cannot run local models.")
 
-    # Check if we already have this model loaded
-    if st.session_state.local_llm_instance is not None:
-        if st.session_state.local_llm_profile == profile:
-            return st.session_state.local_llm_instance
-        else:
-            # Unload previous model
-            print("Unloading previous model...")
-            del st.session_state.local_llm_instance
-            st.session_state.local_llm_instance = None
-            import gc
-            gc.collect()
-
-    path = get_model_path(profile)
-    if not os.path.exists(path):
-         raise FileNotFoundError(f"Model file not found: {path}")
-
-    config = MODELS[profile]
-
-    print(f"Loading model {profile} from {path}...")
+    print(f"Loading local AI model ({profile_name}) from {model_path}...")
 
     # Try to use GPU if available, otherwise CPU
     # n_gpu_layers=-1 means offload all layers if possible.
     try:
-        llm = Llama(
-            model_path=path,
-            n_ctx=config["ctx_size"],
+        return Llama(
+            model_path=model_path,
+            n_ctx=ctx_size,
             n_gpu_layers=-1,
             verbose=False
         )
     except Exception:
         # Fallback to CPU only if GPU init fails (e.g. CUDA libs missing)
         print("GPU initialization failed, falling back to CPU...")
-        llm = Llama(
-            model_path=path,
-            n_ctx=config["ctx_size"],
+        return Llama(
+            model_path=model_path,
+            n_ctx=ctx_size,
             n_gpu_layers=0,
             verbose=False
         )
 
-    st.session_state.local_llm_instance = llm
-    st.session_state.local_llm_profile = profile
-    return llm
+def load_model(profile: str):
+    """Loads the model into memory. Returns Llama instance."""
+    path = get_model_path(profile)
+    if not os.path.exists(path):
+         raise FileNotFoundError(f"Model file not found: {path}")
+
+    config = MODELS[profile]
+
+    # Delegate to the cached function
+    # profile is passed as 'profile_name' just for logging/debug,
+    # but technically path+ctx_size is enough to unique identify.
+    return _load_llama_instance_cached(path, config["ctx_size"], profile)
 
 def generate_response(messages: list, profile: str) -> str:
     """Generates a response from the loaded model."""
