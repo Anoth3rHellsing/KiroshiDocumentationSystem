@@ -5931,14 +5931,25 @@ def _iter_case_autosaves(case_id: str) -> list[Path]:
     if not autosave_dir.exists():
         return []
 
-    pattern = f"autosave_{safe_case_id}_*.json"
+    # Bolt Optimization: Replace glob + stat with os.scandir for faster iteration
+    # especially when the autosave directory grows large.
+    prefix = f"autosave_{safe_case_id}_"
+    suffix = ".json"
     candidates = []
-    for path in autosave_dir.glob(pattern):
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        candidates.append((mtime, path))
+
+    try:
+        with os.scandir(str(autosave_dir)) as entries:
+            for entry in entries:
+                name = entry.name
+                if name.startswith(prefix) and name.lower().endswith(suffix) and entry.is_file():
+                    try:
+                        # entry.stat() is cached on Windows from scandir result
+                        mtime = entry.stat().st_mtime
+                        candidates.append((mtime, Path(entry.path)))
+                    except OSError:
+                        continue
+    except OSError:
+        return []
 
     return [path for _, path in sorted(candidates, key=lambda item: item[0], reverse=True)]
 
