@@ -7913,9 +7913,9 @@ def build_incident_report_pdf(
 # ──────────────── CASE TAB MEMORY ────────────────
 
 
-def _load_case_tab_memory() -> list[dict[str, object]]:
-    if not CASE_TAB_MEMORY_FILE.exists():
-        return []
+@st.cache_data(ttl=None, max_entries=1)
+def _load_case_tab_memory_worker(mtime: float) -> list[dict[str, object]]:
+    """Load case tab memory from disk, cached until modification time changes."""
     try:
         payload = json.loads(CASE_TAB_MEMORY_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -7925,6 +7925,16 @@ def _load_case_tab_memory() -> list[dict[str, object]]:
     if not isinstance(tabs, list):
         return []
     return [dict(entry) for entry in tabs if isinstance(entry, Mapping)]
+
+
+def _load_case_tab_memory() -> list[dict[str, object]]:
+    if not CASE_TAB_MEMORY_FILE.exists():
+        return []
+    try:
+        mtime = CASE_TAB_MEMORY_FILE.stat().st_mtime
+    except OSError:
+        return []
+    return _load_case_tab_memory_worker(mtime)
 
 
 def _write_case_tab_memory(entries: list[dict[str, object]]) -> None:
