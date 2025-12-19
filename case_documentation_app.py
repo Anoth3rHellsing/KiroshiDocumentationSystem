@@ -20326,7 +20326,10 @@ End with: We look forward to your reply."""
             )
 
         st.subheader("Recent cases")
-        for idx, case in enumerate(load_recent_cases()):
+        recent_cases = load_recent_cases()
+        if not recent_cases:
+            st.info("No recent cases found. Your history will appear here once you load or save a case.")
+        for idx, case in enumerate(recent_cases):
             info_col, btn_col = st.columns([3, 1])
             last_modified_display = format_last_modified(case.get("last_modified"))
             if last_modified_display:
