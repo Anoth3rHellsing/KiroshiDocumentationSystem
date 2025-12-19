@@ -35,7 +35,7 @@ def test_buttons_have_tooltips():
                 if node.args:
                     if isinstance(node.args[0], ast.Constant): # python 3.8+
                         label = node.args[0].value
-                    elif isinstance(node.args[0], ast.Str): # older python
+                    elif hasattr(ast, "Str") and isinstance(node.args[0], ast.Str): # older python
                         label = node.args[0].s
 
                 # Check kwargs if label not in args
@@ -44,7 +44,7 @@ def test_buttons_have_tooltips():
                         if kw.arg == "label":
                             if isinstance(kw.value, ast.Constant):
                                 label = kw.value.value
-                            elif isinstance(kw.value, ast.Str):
+                            elif hasattr(ast, "Str") and isinstance(kw.value, ast.Str):
                                 label = kw.value.s
 
                 if label in target_buttons:

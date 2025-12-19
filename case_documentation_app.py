@@ -7913,9 +7913,9 @@ def build_incident_report_pdf(
 # ──────────────── CASE TAB MEMORY ────────────────
 
 
-def _load_case_tab_memory() -> list[dict[str, object]]:
-    if not CASE_TAB_MEMORY_FILE.exists():
-        return []
+@st.cache_data(ttl=None, max_entries=1)
+def _load_case_tab_memory_worker(mtime: float) -> list[dict[str, object]]:
+    """Load case tab memory from disk, cached until modification time changes."""
     try:
         payload = json.loads(CASE_TAB_MEMORY_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -7925,6 +7925,16 @@ def _load_case_tab_memory() -> list[dict[str, object]]:
     if not isinstance(tabs, list):
         return []
     return [dict(entry) for entry in tabs if isinstance(entry, Mapping)]
+
+
+def _load_case_tab_memory() -> list[dict[str, object]]:
+    if not CASE_TAB_MEMORY_FILE.exists():
+        return []
+    try:
+        mtime = CASE_TAB_MEMORY_FILE.stat().st_mtime
+    except OSError:
+        return []
+    return _load_case_tab_memory_worker(mtime)
 
 
 def _write_case_tab_memory(entries: list[dict[str, object]]) -> None:
@@ -8977,39 +8987,39 @@ def _coerce_case_mapping(data: object) -> dict | None:
     return None
 
 
-_tracked_cases_cache: list[dict[str, object]] | None = None
-_tracked_cases_signature: tuple[float, int] | None = None
-_tracked_context: tuple[str, str] | None = None
-
-
 def _tracked_files_signature() -> tuple[float, int]:
     latest_mtime = 0.0
     file_count = 0
-    for path in itertools.chain(DATABASE_DIR.glob("*.json"), TRACKED_CASES_DIR.glob("*.json")):
+
+    def _scan(directory: Path):
+        nonlocal latest_mtime, file_count
         try:
-            stat = path.stat()
-        except FileNotFoundError:
-            continue
-        latest_mtime = max(latest_mtime, stat.st_mtime)
-        file_count += 1
+            # os.scandir is faster than Path.glob + stat because it retrieves
+            # file attributes from the directory entry without extra system calls.
+            # Convert Path to str for compatibility.
+            with os.scandir(str(directory)) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.lower().endswith(".json"):
+                        try:
+                            # entry.stat() is cached on Windows from the directory listing
+                            mtime = entry.stat().st_mtime
+                            if mtime > latest_mtime:
+                                latest_mtime = mtime
+                            file_count += 1
+                        except OSError:
+                            continue
+        except OSError:
+            pass
+
+    _scan(DATABASE_DIR)
+    _scan(TRACKED_CASES_DIR)
+
     return latest_mtime, file_count
 
 
-def _reset_tracked_cases_cache() -> None:
-    global _tracked_cases_cache, _tracked_cases_signature, _tracked_context
-    _tracked_cases_cache = None
-    _tracked_cases_signature = None
-    _tracked_context = None
-
-
-def load_tracked_cases() -> list:
-    global _tracked_cases_cache, _tracked_cases_signature, _tracked_context
-    current_context = (str(DATABASE_DIR), str(TRACKED_CASES_DIR))
-    if _tracked_context and _tracked_context != current_context:
-        _reset_tracked_cases_cache()
-    signature = _tracked_files_signature()
-    if _tracked_cases_cache is not None and _tracked_cases_signature == signature:
-        return _tracked_cases_cache
+@st.cache_data(ttl=None)
+def _load_tracked_cases_worker(signature: tuple[float, int]) -> list:
+    """Load and parse tracked cases, cached until the file signature changes."""
     cases = []
     # Load modern tracked cases directly from the database directory.
     for p in DATABASE_DIR.glob("*.json"):
@@ -9124,10 +9134,12 @@ def load_tracked_cases() -> list:
                 "last_modified": last_modified,
             }
         )
-    _tracked_cases_cache = cases
-    _tracked_cases_signature = signature
-    _tracked_context = current_context
     return cases
+
+
+def load_tracked_cases() -> list:
+    signature = _tracked_files_signature()
+    return _load_tracked_cases_worker(signature)
 
 
 def update_tracked_case_file(
@@ -9331,9 +9343,10 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
         st.error(f"Failed to untrack case: {exc}")
 
 
-def load_sprint_state() -> SprintState:
-    if not SPRINT_STATE_FILE.exists():
-        return SprintState(date=_utc_now_z().split("T")[0])
+@st.cache_data(ttl=None, max_entries=1)
+def _load_sprint_state_worker(mtime: float) -> SprintState:
+    """Worker to load sprint state, cached until file modification time changes."""
+    # The mtime argument ensures cache invalidation when the file updates.
     try:
         data = json.loads(SPRINT_STATE_FILE.read_text(encoding="utf-8"))
         tasks_data = data.get("tasks", [])
@@ -9345,6 +9358,16 @@ def load_sprint_state() -> SprintState:
         )
     except Exception as exc:
         logging.error("Failed to load sprint state: %s", exc)
+        return SprintState(date=_utc_now_z().split("T")[0])
+
+
+def load_sprint_state() -> SprintState:
+    if not SPRINT_STATE_FILE.exists():
+        return SprintState(date=_utc_now_z().split("T")[0])
+    try:
+        mtime = SPRINT_STATE_FILE.stat().st_mtime
+        return _load_sprint_state_worker(mtime)
+    except OSError:
         return SprintState(date=_utc_now_z().split("T")[0])
 
 
@@ -9650,14 +9673,19 @@ def _list_saved_cases_worker(files_with_mtimes: tuple[tuple[str, float], ...]) -
 
 
 def list_saved_cases() -> list:
-    files = sorted(
-        DATABASE_DIR.glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    entries = []
+    try:
+        with os.scandir(DATABASE_DIR) as it:
+            for entry in it:
+                if entry.is_file() and entry.name.endswith(".json"):
+                    entries.append((entry.path, entry.stat().st_mtime))
+    except OSError:
+        return []
+
+    entries.sort(key=lambda x: x[1], reverse=True)
     # Create a cache key based on file paths and their modification times.
     # If a file is added, removed, or modified, this tuple changes, invalidating the cache.
-    files_with_mtimes = tuple((str(p), p.stat().st_mtime) for p in files)
+    files_with_mtimes = tuple(entries)
     return _list_saved_cases_worker(files_with_mtimes)
 
 
@@ -19558,11 +19586,40 @@ End with: We look forward to your reply."""
                 container=col_pc2,
                 help="e.g. Alienware Aurora R16, Dell Precision 3660.",
             )
-            auto_text_input("Windows version", "windows_version", container=col_pc1)
-            auto_text_input("BIOS version", "bios_version", container=col_pc2)
-            auto_text_input("Graphics Card", "graphics_card", container=col_pc1)
-            auto_text_input("Processor", "processor", container=col_pc2)
-            auto_text_input("Warranty", "warranty")
+            auto_text_input(
+                "Windows version",
+                "windows_version",
+                container=col_pc1,
+                help="Type 'winver' in Start menu to find this.",
+                placeholder="e.g. Windows 11 Pro 23H2",
+            )
+            auto_text_input(
+                "BIOS version",
+                "bios_version",
+                container=col_pc2,
+                help="Found in System Information (msinfo32).",
+                placeholder="e.g. 1.2.3",
+            )
+            auto_text_input(
+                "Graphics Card",
+                "graphics_card",
+                container=col_pc1,
+                help="Check Task Manager > Performance > GPU.",
+                placeholder="e.g. NVIDIA RTX 4070",
+            )
+            auto_text_input(
+                "Processor",
+                "processor",
+                container=col_pc2,
+                help="Check System > About.",
+                placeholder="e.g. Intel Core i9-14900K",
+            )
+            auto_text_input(
+                "Warranty",
+                "warranty",
+                help="Check support.dell.com with Service Tag.",
+                placeholder="e.g. ProSupport ends 2026-10-15",
+            )
             st.subheader("Scanner Hardware Issue")
             col_sc1, col_sc2 = st.columns(2)
             auto_text_input(
@@ -20426,62 +20483,67 @@ End with: We look forward to your reply."""
     _reset_capture_footer_registry()
     _maybe_tick_case_milestones()
 
-resolution_notice = st.session_state.pop("_milestone_resolution_notice", None)
-if resolution_notice:
-    st.success(resolution_notice)
+def main():
+    resolution_notice = st.session_state.pop("_milestone_resolution_notice", None)
+    if resolution_notice:
+        st.success(resolution_notice)
 
-visible_case_indices = _visible_case_index_list()
-case_labels = [
-    _case_display_name(idx) for idx in visible_case_indices
-] + ["+ New Case"]
-tab_labels: list[str] = ["Dashboard", "Sprint", "Saved Cases", "Settings"]
-if st.session_state.debug_mode:
-    tab_labels.append("Debug")
-tab_labels.append("Report")
-tab_labels += case_labels
-all_tabs = st.tabs(tab_labels)
+    visible_case_indices = _visible_case_index_list()
+    case_labels = [
+        _case_display_name(idx) for idx in visible_case_indices
+    ] + ["+ New Case"]
+    tab_labels: list[str] = ["Dashboard", "Sprint", "Saved Cases", "Settings"]
+    if st.session_state.debug_mode:
+        tab_labels.append("Debug")
+    tab_labels.append("Report")
+    tab_labels += case_labels
+    all_tabs = st.tabs(tab_labels)
 
-tab_index = 0
-with all_tabs[tab_index]:
-    render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
-tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor("Sprint", render_sprint_tab, tab_label="Sprint")
-tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor(
-        "Saved Cases", render_saved_cases_page, tab_label="Saved Cases"
-    )
-tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor("Settings", render_settings_panel, tab_label="Settings")
-tab_index += 1
-if st.session_state.debug_mode:
+    tab_index = 0
     with all_tabs[tab_index]:
-        render_with_monitor("Debug", render_debug_panel, tab_label="Debug")
+        render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
     tab_index += 1
-with all_tabs[tab_index]:
-    render_with_monitor("Report", render_report_panel, tab_label="Report")
-tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor("Sprint", render_sprint_tab, tab_label="Sprint")
+    tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor(
+            "Saved Cases", render_saved_cases_page, tab_label="Saved Cases"
+        )
+    tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor("Settings", render_settings_panel, tab_label="Settings")
+    tab_index += 1
+    if st.session_state.debug_mode:
+        with all_tabs[tab_index]:
+            render_with_monitor("Debug", render_debug_panel, tab_label="Debug")
+        tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor("Report", render_report_panel, tab_label="Report")
+    tab_index += 1
 
-case_tabs = all_tabs[tab_index:]
-for idx, tab in enumerate(case_tabs):
-    with tab:
-        if idx == len(visible_case_indices):
-            if st.button("Add Case", help="Create a new case workspace"):
-                st.session_state.case_sessions.append(CaseSession(case=CaseData()))
-                _sync_case_memory_from_sessions()
-                st.rerun()
-        else:
-            case_label = case_labels[idx]
-            actual_idx = visible_case_indices[idx]
-            render_with_monitor(
-                f"Case: {case_label}",
-                _render_case_tab,
-                actual_idx,
-                tab_label=case_label,
-                case_index=actual_idx,
-            )
+    case_tabs = all_tabs[tab_index:]
+    for idx, tab in enumerate(case_tabs):
+        with tab:
+            if idx == len(visible_case_indices):
+                if st.button("Add Case", help="Create a new case workspace"):
+                    st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+                    _sync_case_memory_from_sessions()
+                    st.rerun()
+            else:
+                case_label = case_labels[idx]
+                actual_idx = visible_case_indices[idx]
+                render_with_monitor(
+                    f"Case: {case_label}",
+                    _render_case_tab,
+                    actual_idx,
+                    tab_label=case_label,
+                    case_index=actual_idx,
+                )
 
-show_failure_modal()
-show_incident_report_modal()
+    show_failure_modal()
+    show_incident_report_modal()
+
+
+if __name__ == "__main__":
+    main()
