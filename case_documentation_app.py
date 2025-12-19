@@ -20467,7 +20467,11 @@ End with: We look forward to your reply."""
                 "zealous",
                 "hot-headed",
             ]
-            if st.button("Explore", key=bored_tab_key("bored_explore")):
+            if st.button(
+                "Explore",
+                key=bored_tab_key("bored_explore"),
+                help="Venture into the unknown to fight monsters and earn rewards",
+            ):
                 adventure = random.choice(area)
                 encounter = random.choice(monster)
                 descript = random.choice(description)
@@ -20533,7 +20537,11 @@ End with: We look forward to your reply."""
             st.markdown(f"Power ranking: {game['power_ranking']}")
 
             st.subheader("Secret Arena")
-            if st.button("Launch arena", key=widget_key("launch_arena", case_idx)):
+            if st.button(
+                "Launch arena",
+                key=widget_key("launch_arena", case_idx),
+                help="Launch the Kiroshi Doom clone in a new window",
+            ):
                 game_path = Path(__file__).parent / "doom_game.py"
                 subprocess.Popen([sys.executable, str(game_path)])
 
