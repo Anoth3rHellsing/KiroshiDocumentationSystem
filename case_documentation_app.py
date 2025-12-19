@@ -12839,7 +12839,11 @@ def render_smart_aid_panel() -> None:
                 if meta_bits:
                     st.caption(" • ".join(meta_bits))
                 remove_key = global_widget_key(f"smart_remove_{note.get('id', '')}")
-                if st.button("Remove", key=remove_key):
+                if st.button(
+                    "Remove",
+                    key=remove_key,
+                    help="Delete this calibration note",
+                ):
                     remaining = [n for n in notes if n.get("id") != note.get("id")]
                     set_assistant_notes(remaining)
                     save_memory(st.session_state.kiroshi_chat_history)
@@ -16948,6 +16952,7 @@ def render_case_attachments_panel(
                     if st.button(
                         "Remove",
                         key=attachments_key(f"attachments_rem_shot_{i}"),
+                        help="Delete this screenshot",
                     ):
                         screenshots.pop(i)
                         set_active_screenshots(screenshots)
@@ -20090,6 +20095,7 @@ End with: We look forward to your reply."""
             if cols[2].button(
                 "Clear notes",
                 key=remote_tab_key("notes_clear"),
+                help="Delete all text in the notes field",
             ):
                 st.session_state[notes_key] = ""
                 st.rerun()
