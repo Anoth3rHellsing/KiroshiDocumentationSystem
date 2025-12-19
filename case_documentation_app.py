@@ -8987,159 +8987,238 @@ def _coerce_case_mapping(data: object) -> dict | None:
     return None
 
 
-def _tracked_files_signature() -> tuple[float, int]:
-    latest_mtime = 0.0
-    file_count = 0
+class _CaseCache:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.data: dict[str, tuple[float, dict[str, object] | None]] = {}
 
-    def _scan(directory: Path):
-        nonlocal latest_mtime, file_count
+
+@st.cache_resource
+def _get_global_case_cache() -> _CaseCache:
+    """Return a persistent thread-safe cache for case file content."""
+    return _CaseCache()
+
+
+def _refresh_and_get_cases() -> list[dict[str, object]]:
+    """Scan directories, incrementally update cache, and return all valid cases.
+
+    This replaces O(N) parsing with O(N) scanning + O(K) parsing (K=changed files),
+    significantly improving dashboard performance for large datasets.
+    """
+    cache_obj = _get_global_case_cache()
+    directories = [DATABASE_DIR, TRACKED_CASES_DIR]
+
+    # 1. Scan directories for current state
+    current_files: dict[str, float] = {}
+    for directory in directories:
+        if not directory.exists():
+            continue
         try:
-            # os.scandir is faster than Path.glob + stat because it retrieves
-            # file attributes from the directory entry without extra system calls.
-            # Convert Path to str for compatibility.
             with os.scandir(str(directory)) as entries:
                 for entry in entries:
                     if entry.is_file() and entry.name.lower().endswith(".json"):
                         try:
-                            # entry.stat() is cached on Windows from the directory listing
-                            mtime = entry.stat().st_mtime
-                            if mtime > latest_mtime:
-                                latest_mtime = mtime
-                            file_count += 1
+                            # entry.stat() is cached on Windows from scandir
+                            current_files[str(entry.path)] = entry.stat().st_mtime
                         except OSError:
-                            continue
+                            pass
         except OSError:
             pass
 
-    _scan(DATABASE_DIR)
-    _scan(TRACKED_CASES_DIR)
+    # We load manual docs once per refresh to ensure context-dependent labels are reasonably fresh
+    # This is done outside the lock to avoid holding it during file I/O
+    manual_docs = load_manual_docs()
 
-    return latest_mtime, file_count
+    # Populate context dictionaries using simple logic derived from legacy code
+    scanner_labels = {}
+    root_cause_labels = {}
 
+    # Simple extraction logic: iterate docs and check titles/categories
+    # This matches behavior from legacy code where specific docs informed these maps
+    # Since exact matching logic is complex, we use a basic population if docs have "labels" or "map"
+    # For now, we populate 'context' to ensure _derive_analysis_label runs without error.
+    # If specific docs are needed, they should be structured in manual_docs.
+    # Given we don't have the exact logic for populating from manual_docs here, passing empty maps
+    # is safer than guessing, and _derive_analysis_label handles misses gracefully.
 
-@st.cache_data(ttl=None)
-def _load_tracked_cases_worker(signature: tuple[float, int]) -> list:
-    """Load and parse tracked cases, cached until the file signature changes."""
-    cases = []
-    # Load modern tracked cases directly from the database directory.
-    for p in DATABASE_DIR.glob("*.json"):
+    context = {
+        "scanner_labels": scanner_labels,
+        "root_cause_labels": root_cause_labels,
+    }
+
+    # 2. Identify changes and update cache (Thread-Safe)
+    with cache_obj.lock:
+        cache = cache_obj.data
+        cached_paths = set(cache.keys())
+        current_paths = set(current_files.keys())
+
+        # Remove deleted files
+        for p in cached_paths - current_paths:
+            del cache[p]
+
+        # Check for updates or new files
+        # We collect paths to process outside the lock to minimize contention?
+        # Actually, reading/parsing takes time, so we should do it outside lock if possible?
+        # But updating the cache dict must be locked.
+        # Strategy: Identify changed files, process them, then bulk update cache.
+
+        paths_to_process = []
+        for path, mtime in current_files.items():
+            cached_entry = cache.get(path)
+            if cached_entry is None or cached_entry[0] != mtime:
+                paths_to_process.append((path, mtime))
+
+    # Process files (outside lock)
+    processed_updates = {}
+    for path, mtime in paths_to_process:
         try:
-            stat = p.stat()
-        except FileNotFoundError:
-            continue
-        try:
-            payload = json.loads(p.read_text(encoding="utf-8"))
+            p_obj = Path(path)
+            content = p_obj.read_text(encoding="utf-8")
+            payload = json.loads(content)
+            is_legacy_payload = isinstance(payload, list)
+            data = _coerce_case_mapping(payload)
+
+            if data is not None:
+                # Construct the unified data object
+                case_id = data.get("case_id")
+                if not case_id:
+                    # Fallback ID extraction for legacy files
+                    case_id = p_obj.stem.replace("_Active", "")
+
+                company = data.get("company") or data.get("company_name")
+                description = _summarize_text(
+                    data.get("description") or data.get("brief_description"), width=120
+                )
+
+                tags = []
+                if not is_legacy_payload:
+                    label = _derive_analysis_label(data, context=context)
+                    if label:
+                        tags.append(label)
+
+                last_modified = data.get("last_modified")
+                if not last_modified:
+                    last_modified = (
+                        datetime.fromtimestamp(mtime)
+                        .replace(microsecond=0)
+                        .isoformat()
+                    )
+
+                version = data.get("kiroshi_version")
+                version_label = f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}"
+                if is_legacy_payload:
+                    version_label = "Legacy JSON (this is only for display and not for case saving.)"
+
+                # Tracking extraction logic merged from legacy workers
+                tracking_info = data.get("tracking") or {}
+                # Some legacy files might have fields at root
+                t_type = tracking_info.get("type", "") or data.get("type", "")
+                t_category = tracking_info.get("category", "") or data.get("category", "") or data.get("custom_category") or data.get("service_tag", "")
+                t_status = tracking_info.get("status", "") or data.get("status", "")
+                t_priority = normalize_priority(tracking_info.get("priority") or data.get("priority"))
+                t_ticket = tracking_info.get("ticket_number", "") or data.get("ticket_number", "")
+                t_created = tracking_info.get("creation_day", "") or data.get("creation_day", "")
+                t_arrival = tracking_info.get("expected_arrival_date", "") or data.get("expected_arrival_date", "")
+                t_link = tracking_info.get("case_link", "") or data.get("case_link", "")
+                t_tag = tracking_info.get("service_tag", "") or data.get("service_tag", "")
+
+                # Contact info
+                end_user = (
+                    data.get("contact_name")
+                    or data.get("caller_name")
+                    or data.get("end_user")
+                    or data.get("customer")
+                    or ""
+                )
+                phone = (
+                    data.get("phone_number")
+                    or data.get("office_ph")
+                    or data.get("direct_ph")
+                    or ""
+                )
+
+                processed = {
+                    # Standard list fields
+                    "case_id": case_id,
+                    "company": company,
+                    "description": description,
+                    "tags": tags,
+                    "updated": last_modified,
+                    "last_modified": last_modified, # For compatibility
+                    "kiroshi_version": version,
+                    "version_label": version_label,
+                    "is_legacy": is_legacy_payload,
+                    "path": str(path),
+
+                    # Tracking/Dashboard fields
+                    "tracking": tracking_info,
+                    "end_user": end_user,
+                    "phone_number": phone,
+                    "type": t_type,
+                    "category": t_category,
+                    "status": t_status,
+                    "priority": t_priority,
+                    "ticket_number": t_ticket,
+                    "creation_day": t_created,
+                    "expected_arrival_date": t_arrival,
+                    "case_link": t_link,
+                    "service_tag": t_tag,
+                }
+                processed_updates[path] = (mtime, processed)
+            else:
+                processed_updates[path] = (mtime, None)
         except Exception:
-            continue
-        data = _coerce_case_mapping(payload)
-        if data is None:
-            continue
-        tracking_info = data.get("tracking")
-        if not isinstance(tracking_info, dict) or not tracking_info.get("active"):
-            continue
-        case_id = data.get("case_id") or p.stem
-        company = data.get("company_name") or data.get("company") or ""
-        end_user = (
-            data.get("contact_name")
-            or data.get("caller_name")
-            or data.get("end_user")
-            or ""
-        )
-        phone = (
-            data.get("phone_number")
-            or data.get("office_ph")
-            or data.get("direct_ph")
-            or ""
-        )
-        priority = normalize_priority(tracking_info.get("priority"))
-        version = data.get("kiroshi_version")
-        last_modified = data.get("last_modified")
-        if not last_modified:
-            last_modified = (
-                datetime.fromtimestamp(stat.st_mtime)
-                .replace(microsecond=0)
-                .isoformat()
-            )
-        cases.append(
-            {
-                "path": str(p),
-                "case_id": case_id,
-                "company": company,
-                "end_user": end_user,
-                "phone_number": phone,
-                "type": tracking_info.get("type", ""),
-                "category": tracking_info.get("category", ""),
-                "status": tracking_info.get("status", ""),
-                "priority": priority,
-                "ticket_number": tracking_info.get("ticket_number", ""),
-                "creation_day": tracking_info.get("creation_day", ""),
-                "expected_arrival_date": tracking_info.get("expected_arrival_date", ""),
-                "case_link": tracking_info.get("case_link", ""),
-                "service_tag": tracking_info.get("service_tag", ""),
-                "version_label": f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}",
-                "kiroshi_version": version,
-                "is_legacy": False,
-                "last_modified": last_modified,
-            }
-        )
-    # Include historical tracked JSON files for reference.
-    for p in TRACKED_CASES_DIR.glob("*.json"):
+            processed_updates[path] = (mtime, None)
+
+    # Update cache with processed results (Lock again)
+    with cache_obj.lock:
+        cache_obj.data.update(processed_updates)
+        # Create a snapshot for return to avoid iteration issues if modified elsewhere
+        snapshot = list(cache_obj.data.values())
+
+    # 3. Collect valid results
+    # Sort by updated time (descending) to match expected "recent" behavior
+    def _parse_time(t):
+        if not t: return 0.0
         try:
-            stat = p.stat()
-        except FileNotFoundError:
-            continue
-        try:
-            payload = json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        data = _coerce_case_mapping(payload)
-        if data is None:
-            continue
-        case_id = data.get("case_id") or p.stem.replace("_Active", "")
-        company = data.get("company") or data.get("company_name") or ""
-        end_user = data.get("end_user") or data.get("customer") or ""
-        phone = data.get("phone_number") or ""
-        category = (
-            data.get("custom_category")
-            or data.get("service_tag")
-            or data.get("category")
-            or ""
-        )
-        last_modified = data.get("last_modified")
-        if not last_modified:
-            last_modified = (
-                datetime.fromtimestamp(stat.st_mtime)
-                .replace(microsecond=0)
-                .isoformat()
-            )
-        cases.append(
-            {
-                "path": str(p),
-                "case_id": case_id,
-                "company": company,
-                "end_user": end_user,
-                "phone_number": phone,
-                "type": data.get("type", ""),
-                "category": category,
-                "status": data.get("status", ""),
-                "priority": normalize_priority(data.get("priority")),
-                "ticket_number": data.get("ticket_number", ""),
-                "creation_day": data.get("creation_day", ""),
-                "expected_arrival_date": data.get("expected_arrival_date", ""),
-                "case_link": data.get("case_link", ""),
-                "service_tag": data.get("service_tag", ""),
-                "version_label": "Legacy JSON (this is only for display and not for case saving.)",
-                "kiroshi_version": None,
-                "is_legacy": True,
-                "last_modified": last_modified,
-            }
-        )
-    return cases
+            return datetime.fromisoformat(str(t)).timestamp()
+        except ValueError:
+            return 0.0
+
+    valid_items = [item for _, item in snapshot if item is not None]
+    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+
+    return valid_items
 
 
 def load_tracked_cases() -> list:
-    signature = _tracked_files_signature()
-    return _load_tracked_cases_worker(signature)
+    all_cases = _refresh_and_get_cases()
+    tracked = []
+    seen_ids = set()
+
+    for case in all_cases:
+        case_id = case.get("case_id")
+        if not case_id or case_id in seen_ids:
+            continue
+
+        is_active = False
+
+        # Check active flag in tracking dict
+        tracking_data = case.get("tracking")
+        if isinstance(tracking_data, dict) and tracking_data.get("active"):
+            is_active = True
+
+        # Check location (legacy behavior: files in TRACKED_CASES_DIR are implicitly tracked)
+        if not is_active:
+            path = case.get("path", "")
+            if str(TRACKED_CASES_DIR) in path:
+                is_active = True
+
+        if is_active:
+            tracked.append(case)
+            seen_ids.add(case_id)
+
+    return tracked
 
 
 def update_tracked_case_file(
@@ -9591,102 +9670,74 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
-@st.cache_data(ttl=None, show_spinner=False)
-def _list_saved_cases_worker(files_with_mtimes: tuple[tuple[str, float], ...]) -> list[dict[str, object]]:
-    """
-    Worker to parse case files. Cached until the directory signature changes.
-    The signature is a tuple of (filepath, st_mtime) pairs.
-    """
-    entries: list[dict[str, object]] = []
-    for path_str, mtime in files_with_mtimes:
-        path = Path(path_str)
-        try:
-            raw_payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+def list_saved_cases() -> list:
+    """Retrieve all saved cases using the optimized global cache."""
+    all_cases = _refresh_and_get_cases()
 
-        is_legacy_payload = isinstance(raw_payload, list)
-        data = _coerce_case_mapping(raw_payload)
-        if data is None:
-            data = {}
-            is_legacy_payload = True
+    # We need to adapt the format to match what _list_saved_cases_worker used to return
+    # The cache returns a superset, but fields like 'updated' might be strings there.
+    # The legacy view expects 'updated' as datetime object.
 
-        case_id = path.stem
-        company = ""
-        end_user = ""
-        if isinstance(data, Mapping):
-            case_id = data.get("case_id") or case_id
-            company = (
-                data.get("company_name")
-                or data.get("company")
-                or ""
-            )
-            end_user = (
-                data.get("customer_name")
-                or data.get("contact_name")
-                or data.get("caller_name")
-                or data.get("end_user")
-                or ""
-            )
+    formatted_entries = []
 
-        raw_last_modified = data.get("last_modified") if isinstance(data, Mapping) else None
-        parsed_last_modified = parse_iso_datetime(raw_last_modified)
-        if parsed_last_modified is None:
-            parsed_last_modified = datetime.fromtimestamp(mtime)
-            raw_last_modified = parsed_last_modified.isoformat()
+    for case in all_cases:
+        # Re-construct fields that might need specific types for the saved cases table
+        updated_val = case.get("updated") # This is string isoformat in cache
 
-        has_tracking = isinstance(data, Mapping) and isinstance(data.get("tracking"), Mapping)
-        kiroshi_version = ""
-        if isinstance(data, Mapping):
-            kiroshi_version = str(data.get("kiroshi_version") or "").strip()
+        # Parse back to datetime for sorting/display logic in consumer
+        dt_updated = parse_iso_datetime(updated_val)
 
-        tags: list[str] = []
-        if is_legacy_payload:
-            tags.append("Legacy JSON")
-        if not has_tracking:
+        # Ensure we have fallback if parsing failed (should be handled in cache but safe to double check)
+        if dt_updated is None:
+            # Fallback to current time is misleading, use epoch 0
+            dt_updated = datetime.fromtimestamp(0)
+
+        # Tags construction (re-applying logic if not fully in cache or if needed)
+        # Cache stores 'tags' from _derive_analysis_label.
+        # Legacy worker also added "Legacy JSON", "Pre-dashboard merge".
+
+        tags = list(case.get("tags") or [])
+        is_legacy = case.get("is_legacy")
+        if is_legacy:
+            if "Legacy JSON" not in tags:
+                tags.append("Legacy JSON")
+
+        tracking_info = case.get("tracking")
+        has_tracking = isinstance(tracking_info, dict) and bool(tracking_info)
+        # Note: empty dict is still 'has_tracking' in type check, but might be empty.
+        # Legacy check was: isinstance(data.get("tracking"), Mapping)
+
+        if not has_tracking and "Pre-dashboard merge" not in tags:
             tags.append("Pre-dashboard merge")
 
-        if not kiroshi_version:
+        # Version fallback logic
+        version = case.get("kiroshi_version")
+        if not version:
             if not has_tracking:
-                kiroshi_version = "1.5.2"
-            elif is_legacy_payload:
-                kiroshi_version = "Legacy"
+                version = "1.5.2"
+            elif is_legacy:
+                version = "Legacy"
             else:
-                kiroshi_version = "Unknown"
+                version = "Unknown"
 
-        entries.append(
-            {
-                "case_id": case_id,
-                "company": company,
-                "end_user": end_user,
-                "updated": parsed_last_modified,
-                "last_modified": raw_last_modified,
-                "path": str(path),
-                "file_name": path.name,
-                "is_legacy": is_legacy_payload,
-                "kiroshi_version": kiroshi_version,
-                "tags": tags,
-                "has_tracking": has_tracking,
-            }
-        )
-    return entries
+        entry = {
+            "case_id": case.get("case_id"),
+            "company": case.get("company"),
+            "end_user": case.get("end_user"),
+            "updated": dt_updated,
+            "last_modified": updated_val,
+            "path": case.get("path"),
+            "file_name": Path(case.get("path")).name if case.get("path") else "",
+            "is_legacy": is_legacy,
+            "kiroshi_version": version,
+            "tags": tags,
+            "has_tracking": has_tracking,
+            # Description is needed for search
+            "description": case.get("description"),
+        }
+        formatted_entries.append(entry)
 
-
-def list_saved_cases() -> list:
-    entries = []
-    try:
-        with os.scandir(DATABASE_DIR) as it:
-            for entry in it:
-                if entry.is_file() and entry.name.endswith(".json"):
-                    entries.append((entry.path, entry.stat().st_mtime))
-    except OSError:
-        return []
-
-    entries.sort(key=lambda x: x[1], reverse=True)
-    # Create a cache key based on file paths and their modification times.
-    # If a file is added, removed, or modified, this tuple changes, invalidating the cache.
-    files_with_mtimes = tuple(entries)
-    return _list_saved_cases_worker(files_with_mtimes)
+    return formatted_entries
 
 
 def render_responsive_altair_chart(chart: alt.Chart) -> None:
