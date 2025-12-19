@@ -7913,9 +7913,9 @@ def build_incident_report_pdf(
 # ──────────────── CASE TAB MEMORY ────────────────
 
 
-def _load_case_tab_memory() -> list[dict[str, object]]:
-    if not CASE_TAB_MEMORY_FILE.exists():
-        return []
+@st.cache_data(ttl=None, max_entries=1)
+def _load_case_tab_memory_worker(mtime: float) -> list[dict[str, object]]:
+    """Load case tab memory from disk, cached until modification time changes."""
     try:
         payload = json.loads(CASE_TAB_MEMORY_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -7925,6 +7925,16 @@ def _load_case_tab_memory() -> list[dict[str, object]]:
     if not isinstance(tabs, list):
         return []
     return [dict(entry) for entry in tabs if isinstance(entry, Mapping)]
+
+
+def _load_case_tab_memory() -> list[dict[str, object]]:
+    if not CASE_TAB_MEMORY_FILE.exists():
+        return []
+    try:
+        mtime = CASE_TAB_MEMORY_FILE.stat().st_mtime
+    except OSError:
+        return []
+    return _load_case_tab_memory_worker(mtime)
 
 
 def _write_case_tab_memory(entries: list[dict[str, object]]) -> None:
@@ -10050,7 +10060,11 @@ def render_tracked_cases_dashboard(
 
             action_cols = st.columns(2)
             with action_cols[0]:
-                if st.button("Load", key=f"dash_load_{unique_suffix}"):
+                if st.button(
+                    "Load",
+                    key=f"dash_load_{unique_suffix}",
+                    help="Load this case into a new tab in the workspace",
+                ):
                     request_load_from_path(case["path"], prefer_new_tab=True)
             with action_cols[1]:
                 button_label = "Untrack" if case.get("is_legacy") else "Stop Tracking"
@@ -10320,7 +10334,9 @@ def render_saved_cases_dashboard() -> None:
         row_cols[2].write(case.get("kiroshi_version") or "Unknown")
         row_cols[3].write(case["updated"].strftime("%Y-%m-%d %H:%M"))
         if row_cols[4].button(
-            "Load", key=f"saved_load_{Path(case['path']).stem}"
+            "Load",
+            key=f"saved_load_{Path(case['path']).stem}",
+            help="Load this case into a new tab in the workspace",
         ):
             request_load_from_path(case["path"], prefer_new_tab=True)
 
@@ -10473,6 +10489,7 @@ def render_saved_cases_page() -> None:
         if action_cols[0].button(
             "Load in current tab",
             key=global_widget_key("saved_cases_load_current"),
+            help="Overwrite current tab with this case data",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=False)
@@ -10481,6 +10498,7 @@ def render_saved_cases_page() -> None:
         if action_cols[1].button(
             "Load in new case tab",
             key=global_widget_key("saved_cases_load_new"),
+            help="Open this case in a new tab",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=True)
@@ -10630,7 +10648,11 @@ def _render_settings_workspace_tab() -> None:
         st.warning(
             "The interactive tutorial will launch automatically for first-time users. Complete it to log your onboarding status."
         )
-    if st.button("Repeat interactive tutorial", key=global_widget_key("tutorial_repeat")):
+    if st.button(
+        "Repeat interactive tutorial",
+        key=global_widget_key("tutorial_repeat"),
+        help="Launch the onboarding walkthrough again",
+    ):
         st.session_state.show_tutorial = True
         st.session_state.tutorial_step = 0
         st.rerun()
@@ -17239,12 +17261,18 @@ def render_case_ui(case_idx: int):
             ai_assist_summary = st.session_state.get("ai_assist_result") or ""
             ai_autocorrect_summary = st.session_state.get("ai_autocorrect_result") or ""
 
-            if st.button("Save case", key=case_tab_key("quick_save"), width="stretch"):
+            if st.button(
+                "Save case",
+                key=case_tab_key("quick_save"),
+                width="stretch",
+                help="Persist current case data to disk",
+            ):
                 save_case_to_database(D)
             if st.button(
                 "Clear all",
                 key=case_tab_key("clear_all_button"),
                 width="stretch",
+                help="Reset all fields in this case to their default state",
             ):
                 logging.info("Clear all button clicked")
                 with case_loading_overlay("Cycling the workspace back to zero…"):
@@ -17517,7 +17545,7 @@ def render_case_ui(case_idx: int):
                 "Ask",
                 key=case_tab_key("ask_button"),
                 width="stretch",
-                help="Ask Kiroshi AI for suggestions based on the case description",
+                help="Query Kiroshi about this specific case",
             ):
                 logging.info("Ask button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
@@ -17569,7 +17597,7 @@ def render_case_ui(case_idx: int):
                 "QA Verify",
                 key=case_tab_key("verify_button"),
                 width="stretch",
-                help="Run automated quality assurance checks on your documentation",
+                help="Run quality assurance checks on case documentation",
             ):
                 logging.info("QA Verify button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
