@@ -7,6 +7,7 @@
 ## 2025-12-18 - Monolithic Streamlit Testability
 **Learning:** Testing individual functions in a monolithic Streamlit script (`case_documentation_app.py`) is difficult because importing the module immediately executes the top-level UI rendering code, which requires a full Streamlit context.
 **Action:** Encapsulate the main execution logic in a `main()` function and use `if __name__ == "__main__": main()` to allow the module to be imported by test suites without side effects.
-## 2025-12-23 - OS Scandir Optimization
-**Learning:** For file listing operations where metadata (like mtime) is needed, replacing `pathlib.Path.glob` followed by individual `stat` calls with `os.scandir` can yield significant performance gains (approx 2x-3x speedup on Linux for large directories) by utilizing cached directory entry attributes.
-**Action:** Prefer `os.scandir` for iteration when file attributes are required immediately during the loop, especially in hot paths or large directories.
+
+## 2025-12-19 - Efficient Directory Scanning on Windows
+**Learning:** Using `Path.glob` combined with `path.stat().st_mtime` in a loop creates significant overhead due to repeated system calls and object instantiation, especially on Windows. `os.scandir` provides a much faster alternative by retrieving directory entries and their attributes in a single pass.
+**Action:** Replace `Path.glob` iterations with `os.scandir` when filtering files and accessing their metadata (like modification time) for caching purposes.
