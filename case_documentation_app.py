@@ -9663,14 +9663,23 @@ def _list_saved_cases_worker(files_with_mtimes: tuple[tuple[str, float], ...]) -
 
 
 def list_saved_cases() -> list:
-    files = sorted(
-        DATABASE_DIR.glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
+    entries = []
+    try:
+        with os.scandir(DATABASE_DIR) as it:
+            for entry in it:
+                if entry.name.endswith(".json") and entry.is_file():
+                    entries.append(entry)
+    except OSError:
+        return []
+
+    sorted_entries = sorted(
+        entries,
+        key=lambda e: e.stat().st_mtime,
         reverse=True,
     )
     # Create a cache key based on file paths and their modification times.
     # If a file is added, removed, or modified, this tuple changes, invalidating the cache.
-    files_with_mtimes = tuple((str(p), p.stat().st_mtime) for p in files)
+    files_with_mtimes = tuple((entry.path, entry.stat().st_mtime) for entry in sorted_entries)
     return _list_saved_cases_worker(files_with_mtimes)
 
 
