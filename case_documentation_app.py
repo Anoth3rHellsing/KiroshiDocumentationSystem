@@ -9036,25 +9036,12 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
         except OSError:
             pass
 
-    # We load manual docs once per refresh to ensure context-dependent labels are reasonably fresh
-    # This is done outside the lock to avoid holding it during file I/O
-    manual_docs = load_manual_docs()
-
     # Populate context dictionaries using simple logic derived from legacy code
-    scanner_labels = {}
-    root_cause_labels = {}
-
-    # Simple extraction logic: iterate docs and check titles/categories
-    # This matches behavior from legacy code where specific docs informed these maps
-    # Since exact matching logic is complex, we use a basic population if docs have "labels" or "map"
-    # For now, we populate 'context' to ensure _derive_analysis_label runs without error.
-    # If specific docs are needed, they should be structured in manual_docs.
-    # Given we don't have the exact logic for populating from manual_docs here, passing empty maps
-    # is safer than guessing, and _derive_analysis_label handles misses gracefully.
-
+    # NOTE: manual_docs was previously loaded here but was unused.
+    # For now, we populate 'context' with empty maps to ensure _derive_analysis_label runs without error.
     context = {
-        "scanner_labels": scanner_labels,
-        "root_cause_labels": root_cause_labels,
+        "scanner_labels": {},
+        "root_cause_labels": {},
     }
 
     # 2. Identify changes and update cache (Thread-Safe)
