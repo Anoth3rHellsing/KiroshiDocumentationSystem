@@ -7924,6 +7924,31 @@ def build_incident_report_pdf(
 # ──────────────── CASE TAB MEMORY ────────────────
 
 
+@st.cache_data(ttl=2, show_spinner=False)
+def _scan_case_directories_cached(directories_str: list[str]) -> dict[str, float]:
+    """Scan directories for JSON files and return their modification times.
+
+    Cached for 2 seconds to prevent excessive disk I/O during rapid Streamlit reruns.
+    """
+    current_files: dict[str, float] = {}
+    for directory_str in directories_str:
+        directory = Path(directory_str)
+        if not directory.exists():
+            continue
+        try:
+            with os.scandir(str(directory)) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.lower().endswith(".json"):
+                        try:
+                            # entry.stat() is cached on Windows from scandir
+                            current_files[str(entry.path)] = entry.stat().st_mtime
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+    return current_files
+
+
 @st.cache_data(ttl=None, max_entries=1)
 def _load_case_tab_memory_worker(mtime: float) -> list[dict[str, object]]:
     """Load case tab memory from disk, cached until modification time changes."""
@@ -9019,22 +9044,9 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     cache_obj = _get_global_case_cache()
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
 
-    # 1. Scan directories for current state
-    current_files: dict[str, float] = {}
-    for directory in directories:
-        if not directory.exists():
-            continue
-        try:
-            with os.scandir(str(directory)) as entries:
-                for entry in entries:
-                    if entry.is_file() and entry.name.lower().endswith(".json"):
-                        try:
-                            # entry.stat() is cached on Windows from scandir
-                            current_files[str(entry.path)] = entry.stat().st_mtime
-                        except OSError:
-                            pass
-        except OSError:
-            pass
+    # 1. Scan directories for current state (Using cached scanner)
+    # We pass paths as strings to be cache-friendly
+    current_files = _scan_case_directories_cached([str(d) for d in directories])
 
     # We load manual docs once per refresh to ensure context-dependent labels are reasonably fresh
     # This is done outside the lock to avoid holding it during file I/O
