@@ -13,3 +13,6 @@
 ## 2025-12-19 - Optimization of Autosave Scanning
 **Learning:** File system operations like `path.glob` combined with `path.stat()` in a loop can be significantly slower than `os.scandir` which yields `DirEntry` objects with cached stat information, especially on Windows or when dealing with many files.
 **Action:** Replaced `path.glob` with `os.scandir` in `_iter_case_autosaves` to improve performance of autosave resolution and cleanup. Benchmarking showed ~1.25x speedup in a synthetic test with 2000 files.
+## 2025-05-15 - Incremental Resource Loading in Hot Loops
+**Learning:** Functions like `_refresh_and_get_cases` are called frequently in Streamlit. Even with cached workers, unconditionally invoking helpers that perform file I/O (like `load_manual_docs`) adds overhead.
+**Action:** Defer resource loading until *after* change detection confirms there is actual work to do. If the dataset hasn't changed (the common case), skip the setup entirely.

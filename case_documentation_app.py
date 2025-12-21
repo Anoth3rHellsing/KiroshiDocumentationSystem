@@ -9036,28 +9036,11 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
         except OSError:
             pass
 
-    # We load manual docs once per refresh to ensure context-dependent labels are reasonably fresh
-    # This is done outside the lock to avoid holding it during file I/O
-    manual_docs = load_manual_docs()
-
-    # Populate context dictionaries using simple logic derived from legacy code
-    scanner_labels = {}
-    root_cause_labels = {}
-
-    # Simple extraction logic: iterate docs and check titles/categories
-    # This matches behavior from legacy code where specific docs informed these maps
-    # Since exact matching logic is complex, we use a basic population if docs have "labels" or "map"
-    # For now, we populate 'context' to ensure _derive_analysis_label runs without error.
-    # If specific docs are needed, they should be structured in manual_docs.
-    # Given we don't have the exact logic for populating from manual_docs here, passing empty maps
-    # is safer than guessing, and _derive_analysis_label handles misses gracefully.
-
-    context = {
-        "scanner_labels": scanner_labels,
-        "root_cause_labels": root_cause_labels,
-    }
-
     # 2. Identify changes and update cache (Thread-Safe)
+    # We identify which files need processing first, so we only load external resources (manual docs)
+    # if we actually have work to do.
+    paths_to_process = []
+
     with cache_obj.lock:
         cache = cache_obj.data
         cached_paths = set(cache.keys())
@@ -9068,16 +9051,30 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             del cache[p]
 
         # Check for updates or new files
-        # We collect paths to process outside the lock to minimize contention?
-        # Actually, reading/parsing takes time, so we should do it outside lock if possible?
-        # But updating the cache dict must be locked.
-        # Strategy: Identify changed files, process them, then bulk update cache.
-
-        paths_to_process = []
         for path, mtime in current_files.items():
             cached_entry = cache.get(path)
             if cached_entry is None or cached_entry[0] != mtime:
                 paths_to_process.append((path, mtime))
+
+    # If no files need updating, we can skip the heavy setup logic entirely.
+    context = {}
+    if paths_to_process:
+        # We load manual docs only when we have files to process.
+        # This prevents unnecessary file I/O on every refresh cycle when data is stable.
+        manual_docs = load_manual_docs()
+
+        # Populate context dictionaries using simple logic derived from legacy code
+        scanner_labels = {}
+        root_cause_labels = {}
+
+        # Simple extraction logic: iterate docs and check titles/categories
+        # This matches behavior from legacy code where specific docs informed these maps
+        # Since exact matching logic is complex, we use a basic population if docs have "labels" or "map"
+        # For now, we populate 'context' to ensure _derive_analysis_label runs without error.
+        context = {
+            "scanner_labels": scanner_labels,
+            "root_cause_labels": root_cause_labels,
+        }
 
     # Process files (outside lock)
     processed_updates = {}
