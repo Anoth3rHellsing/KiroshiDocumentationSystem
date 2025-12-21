@@ -9002,6 +9002,7 @@ class _CaseCache:
     def __init__(self):
         self.lock = threading.Lock()
         self.data: dict[str, tuple[float, dict[str, object] | None]] = {}
+        self.last_scan_ts: float = 0.0
 
 
 @st.cache_resource
@@ -9017,6 +9018,27 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     significantly improving dashboard performance for large datasets.
     """
     cache_obj = _get_global_case_cache()
+
+    # Simple throttle: if scanned < 2s ago, return current snapshot
+    # This prevents hammering filesystem on rapid re-renders
+    now = time.time()
+    if now - cache_obj.last_scan_ts < 2.0:
+        with cache_obj.lock:
+            # Create a snapshot for return to avoid iteration issues if modified elsewhere
+            snapshot = list(cache_obj.data.values())
+
+        # We must still perform the sorting logic for the snapshot
+        def _parse_time_snapshot(t):
+            if not t: return 0.0
+            try:
+                return datetime.fromisoformat(str(t)).timestamp()
+            except ValueError:
+                return 0.0
+
+        valid_items_snapshot = [item for _, item in snapshot if item is not None]
+        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        return valid_items_snapshot
+
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
 
     # 1. Scan directories for current state
@@ -9184,6 +9206,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     # Update cache with processed results (Lock again)
     with cache_obj.lock:
         cache_obj.data.update(processed_updates)
+        cache_obj.last_scan_ts = time.time()
         # Create a snapshot for return to avoid iteration issues if modified elsewhere
         snapshot = list(cache_obj.data.values())
 
