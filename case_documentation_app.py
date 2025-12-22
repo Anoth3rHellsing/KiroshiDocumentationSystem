@@ -10332,7 +10332,9 @@ def render_sprint_tab() -> None:
                 with col_action:
                     if task.status != "Completed":
                         if st.button(
-                            "Mark Complete", key=f"btn_comp_{task.case_id}_{idx}"
+                            "Mark Complete",
+                            key=f"btn_comp_{task.case_id}_{idx}",
+                            help="Mark this task as completed and resolve the case globally",
                         ):
                             task.status = "Completed"
                             # Also mark case as Resolved globally
@@ -10354,7 +10356,11 @@ def render_sprint_tab() -> None:
                             st.rerun()
                     else:
                         st.success("Completed")
-                        if st.button("Reopen", key=f"btn_reopen_{task.case_id}_{idx}"):
+                        if st.button(
+                            "Reopen",
+                            key=f"btn_reopen_{task.case_id}_{idx}",
+                            help="Reopen this task for further work",
+                        ):
                             task.status = "Pending"
                             save_sprint_state(st.session_state.sprint_state)
                             st.rerun()
@@ -12890,7 +12896,11 @@ def render_smart_aid_panel() -> None:
                 if meta_bits:
                     st.caption(" • ".join(meta_bits))
                 remove_key = global_widget_key(f"smart_remove_{note.get('id', '')}")
-                if st.button("Remove", key=remove_key):
+                if st.button(
+                    "Remove",
+                    key=remove_key,
+                    help="Remove this note from assistant memory",
+                ):
                     remaining = [n for n in notes if n.get("id") != note.get("id")]
                     set_assistant_notes(remaining)
                     save_memory(st.session_state.kiroshi_chat_history)
