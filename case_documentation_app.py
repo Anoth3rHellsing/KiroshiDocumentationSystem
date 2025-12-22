@@ -19109,7 +19109,11 @@ End with: We look forward to your reply."""
                     value=st.session_state.get(scan_time_toggle_key, False),
                     key=scan_time_toggle_key,
                 )
-                if st.button("Use GPT-OSS", key=email_tab_key("use_gpt")):
+                if st.button(
+                    "Use GPT-OSS",
+                    key=email_tab_key("use_gpt"),
+                    help="Generate the email content using the configured AI model",
+                ):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
                     base_url = st.session_state.ai_base_url
