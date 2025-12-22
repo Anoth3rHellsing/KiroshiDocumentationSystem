@@ -7924,6 +7924,31 @@ def build_incident_report_pdf(
 # ──────────────── CASE TAB MEMORY ────────────────
 
 
+@st.cache_data(ttl=2, show_spinner=False)
+def _scan_case_directories_cached(directories_str: list[str]) -> dict[str, float]:
+    """Scan directories for JSON files and return their modification times.
+
+    Cached for 2 seconds to prevent excessive disk I/O during rapid Streamlit reruns.
+    """
+    current_files: dict[str, float] = {}
+    for directory_str in directories_str:
+        directory = Path(directory_str)
+        if not directory.exists():
+            continue
+        try:
+            with os.scandir(str(directory)) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.lower().endswith(".json"):
+                        try:
+                            # entry.stat() is cached on Windows from scandir
+                            current_files[str(entry.path)] = entry.stat().st_mtime
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+    return current_files
+
+
 @st.cache_data(ttl=None, max_entries=1)
 def _load_case_tab_memory_worker(mtime: float) -> list[dict[str, object]]:
     """Load case tab memory from disk, cached until modification time changes."""
@@ -8826,59 +8851,51 @@ def _reset_recent_cases_cache() -> None:
 
 
 @st.cache_data(ttl=None, max_entries=1)
-def _load_recent_cases_from_disk_cached(mtime: float) -> list:
-    """Load recent cases from disk, cached until the file mtime changes."""
-    try:
-        payload = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-    if not isinstance(payload, list):
-        return []
-    recent: list[dict[str, object]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        recent.append(
-            {
-                "case_id": item.get("case_id", ""),
-                "path": item.get("path", ""),
-                "last_modified": item.get("last_modified", ""),
-            }
-        )
-    return recent
-
-
-def load_recent_cases() -> list:
+def _load_recent_cases_worker(mtime: float) -> list:
+    """Worker for load_recent_cases, cached by modification time."""
     if not RECENT_CASES_PATH.exists():
         return []
     try:
-        current_mtime = RECENT_CASES_PATH.stat().st_mtime
+        data = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        # Sort by last_modified descending
+        data.sort(key=lambda x: x.get("last_modified", ""), reverse=True)
+        return data
     except Exception:
         return []
 
-    return _load_recent_cases_from_disk_cached(current_mtime)
+
+def load_recent_cases() -> list:
+    """Load the recent cases list, using a cache invalidating on file modification."""
+    if not RECENT_CASES_PATH.exists():
+        return []
+    try:
+        mtime = RECENT_CASES_PATH.stat().st_mtime
+    except OSError:
+        return []
+    return _load_recent_cases_worker(mtime)
 
 
-def update_recent_cases(case_id: str, path: str) -> None:
+def update_recent_cases(case_id: str, path: str, last_modified: str | None = None) -> None:
     global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
     recents = [c for c in load_recent_cases() if c.get("path") != path]
-    last_modified = ""
-    try:
-        case_path = Path(path)
-        if case_path.exists():
-            data = json.loads(case_path.read_text(encoding="utf-8"))
-            mapping = _coerce_case_mapping(data)
-            if isinstance(mapping, Mapping):
-                last_modified = str(mapping.get("last_modified") or "")
-            if not last_modified:
-                last_modified = (
-                    datetime.fromtimestamp(case_path.stat().st_mtime)
-                    .replace(microsecond=0)
-                    .isoformat()
-                )
-    except Exception:
-        last_modified = ""
+    if not last_modified:
+        try:
+            case_path = Path(path)
+            if case_path.exists():
+                data = json.loads(case_path.read_text(encoding="utf-8"))
+                mapping = _coerce_case_mapping(data)
+                if isinstance(mapping, Mapping):
+                    last_modified = str(mapping.get("last_modified") or "")
+                if not last_modified:
+                    last_modified = (
+                        datetime.fromtimestamp(case_path.stat().st_mtime)
+                        .replace(microsecond=0)
+                        .isoformat()
+                    )
+        except Exception:
+            last_modified = ""
     recents.insert(0, {"case_id": case_id, "path": path, "last_modified": last_modified})
     recents = recents[:10]
     RECENT_CASES_PATH.write_text(json.dumps(recents, indent=2), encoding="utf-8")
@@ -9002,6 +9019,7 @@ class _CaseCache:
     def __init__(self):
         self.lock = threading.Lock()
         self.data: dict[str, tuple[float, dict[str, object] | None]] = {}
+        self.last_scan_ts: float = 0.0
 
 
 @st.cache_resource
@@ -9017,6 +9035,27 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     significantly improving dashboard performance for large datasets.
     """
     cache_obj = _get_global_case_cache()
+
+    # Simple throttle: if scanned < 2s ago, return current snapshot
+    # This prevents hammering filesystem on rapid re-renders
+    now = time.time()
+    if now - cache_obj.last_scan_ts < 2.0:
+        with cache_obj.lock:
+            # Create a snapshot for return to avoid iteration issues if modified elsewhere
+            snapshot = list(cache_obj.data.values())
+
+        # We must still perform the sorting logic for the snapshot
+        def _parse_time_snapshot(t):
+            if not t: return 0.0
+            try:
+                return datetime.fromisoformat(str(t)).timestamp()
+            except ValueError:
+                return 0.0
+
+        valid_items_snapshot = [item for _, item in snapshot if item is not None]
+        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        return valid_items_snapshot
+
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
 
     # 1. Scan directories for current state
@@ -9036,28 +9075,11 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
         except OSError:
             pass
 
-    # We load manual docs once per refresh to ensure context-dependent labels are reasonably fresh
-    # This is done outside the lock to avoid holding it during file I/O
-    manual_docs = load_manual_docs()
-
-    # Populate context dictionaries using simple logic derived from legacy code
-    scanner_labels = {}
-    root_cause_labels = {}
-
-    # Simple extraction logic: iterate docs and check titles/categories
-    # This matches behavior from legacy code where specific docs informed these maps
-    # Since exact matching logic is complex, we use a basic population if docs have "labels" or "map"
-    # For now, we populate 'context' to ensure _derive_analysis_label runs without error.
-    # If specific docs are needed, they should be structured in manual_docs.
-    # Given we don't have the exact logic for populating from manual_docs here, passing empty maps
-    # is safer than guessing, and _derive_analysis_label handles misses gracefully.
-
-    context = {
-        "scanner_labels": scanner_labels,
-        "root_cause_labels": root_cause_labels,
-    }
-
     # 2. Identify changes and update cache (Thread-Safe)
+    # We identify which files need processing first, so we only load external resources (manual docs)
+    # if we actually have work to do.
+    paths_to_process = []
+
     with cache_obj.lock:
         cache = cache_obj.data
         cached_paths = set(cache.keys())
@@ -9068,16 +9090,30 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             del cache[p]
 
         # Check for updates or new files
-        # We collect paths to process outside the lock to minimize contention?
-        # Actually, reading/parsing takes time, so we should do it outside lock if possible?
-        # But updating the cache dict must be locked.
-        # Strategy: Identify changed files, process them, then bulk update cache.
-
-        paths_to_process = []
         for path, mtime in current_files.items():
             cached_entry = cache.get(path)
             if cached_entry is None or cached_entry[0] != mtime:
                 paths_to_process.append((path, mtime))
+
+    # If no files need updating, we can skip the heavy setup logic entirely.
+    context = {}
+    if paths_to_process:
+        # We load manual docs only when we have files to process.
+        # This prevents unnecessary file I/O on every refresh cycle when data is stable.
+        manual_docs = load_manual_docs()
+
+        # Populate context dictionaries using simple logic derived from legacy code
+        scanner_labels = {}
+        root_cause_labels = {}
+
+        # Simple extraction logic: iterate docs and check titles/categories
+        # This matches behavior from legacy code where specific docs informed these maps
+        # Since exact matching logic is complex, we use a basic population if docs have "labels" or "map"
+        # For now, we populate 'context' to ensure _derive_analysis_label runs without error.
+        context = {
+            "scanner_labels": scanner_labels,
+            "root_cause_labels": root_cause_labels,
+        }
 
     # Process files (outside lock)
     processed_updates = {}
@@ -9184,6 +9220,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     # Update cache with processed results (Lock again)
     with cache_obj.lock:
         cache_obj.data.update(processed_updates)
+        cache_obj.last_scan_ts = time.time()
         # Create a snapshot for return to avoid iteration issues if modified elsewhere
         snapshot = list(cache_obj.data.values())
 
@@ -9202,8 +9239,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     return valid_items
 
 
-def load_tracked_cases() -> list:
-    all_cases = _refresh_and_get_cases()
+def load_tracked_cases(source_data: list[dict[str, object]] | None = None) -> list:
+    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
     tracked = []
     seen_ids = set()
 
@@ -9435,30 +9472,29 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
 
 @st.cache_data(ttl=None, max_entries=1)
 def _load_sprint_state_worker(mtime: float) -> SprintState:
-    """Worker to load sprint state, cached until file modification time changes."""
-    # The mtime argument ensures cache invalidation when the file updates.
+    """Load sprint state from disk, cached until modification time changes."""
     try:
         data = json.loads(SPRINT_STATE_FILE.read_text(encoding="utf-8"))
-        tasks_data = data.get("tasks", [])
-        tasks = [SprintTask(**t) for t in tasks_data]
-        return SprintState(
-            date=data.get("date", _utc_now_z().split("T")[0]),
-            tasks=tasks,
-            is_active=data.get("is_active", False),
-        )
-    except Exception as exc:
-        logging.error("Failed to load sprint state: %s", exc)
-        return SprintState(date=_utc_now_z().split("T")[0])
+        # Clean up corrupted entries if any
+        if "completed_cases" in data:
+            data["completed_cases"] = [
+                entry
+                for entry in data["completed_cases"]
+                if isinstance(entry, dict) and "case_id" in entry
+            ]
+        return SprintState(**data)
+    except Exception:
+        return SprintState()
 
 
 def load_sprint_state() -> SprintState:
-    if not SPRINT_STATE_FILE.exists():
-        return SprintState(date=_utc_now_z().split("T")[0])
-    try:
-        mtime = SPRINT_STATE_FILE.stat().st_mtime
-        return _load_sprint_state_worker(mtime)
-    except OSError:
-        return SprintState(date=_utc_now_z().split("T")[0])
+    mtime = 0.0
+    if SPRINT_STATE_FILE.exists():
+        try:
+            mtime = SPRINT_STATE_FILE.stat().st_mtime
+        except OSError:
+            pass
+    return _load_sprint_state_worker(mtime)
 
 
 def save_sprint_state(state: SprintState) -> None:
@@ -9681,9 +9717,9 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
-def list_saved_cases() -> list:
+def list_saved_cases(source_data: list[dict[str, object]] | None = None) -> list:
     """Retrieve all saved cases using the optimized global cache."""
-    all_cases = _refresh_and_get_cases()
+    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
 
     # We need to adapt the format to match what _list_saved_cases_worker used to return
     # The cache returns a superset, but fields like 'updated' might be strings there.
@@ -10316,8 +10352,8 @@ def render_sprint_tab() -> None:
                             st.rerun()
 
 
-def render_saved_cases_dashboard() -> None:
-    saved_cases = list_saved_cases()
+def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
+    saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
         st.info("No saved cases found in your database.")
         return
@@ -10397,17 +10433,20 @@ def render_saved_cases_page() -> None:
             "Missing merged dashboards",
         ),
         key=global_widget_key("saved_cases_tracking_filter"),
+        help="Filter cases based on whether they have dashboard tracking data enabled.",
     )
     selected_versions = filter_cols[1].multiselect(
         "Version",
         options=version_options,
         default=version_options,
         key=global_widget_key("saved_cases_version_filter"),
+        help="Filter cases by the Kiroshi version used to create them.",
     )
     legacy_scope = filter_cols[2].selectbox(
         "Legacy",
         ("All", "Modern only", "Legacy only"),
         key=global_widget_key("saved_cases_legacy_filter"),
+        help="Filter cases based on their data structure format (Modern vs Legacy).",
     )
 
     filtered_df = saved_df.copy()
@@ -10597,7 +10636,11 @@ def render_dashboard() -> None:
     if notice_idx is not None:
         st.info(f"Loaded case into Case tab {notice_idx + 1}.")
         st.session_state.dashboard_load_notice = None
-    tracked_cases = load_tracked_cases()
+
+    # Fetch all cases once to avoid redundant directory scanning in child components
+    all_cases = _refresh_and_get_cases()
+
+    tracked_cases = load_tracked_cases(source_data=all_cases)
     charts_col, main_col = st.columns([1.1, 2.4])
     with charts_col:
         render_tracked_case_insights(tracked_cases)
@@ -10632,7 +10675,7 @@ def render_dashboard() -> None:
         with st.container():
             st.markdown("<div class='dashboard-section'>", unsafe_allow_html=True)
             st.subheader("All My Saved Cases")
-            render_saved_cases_dashboard()
+            render_saved_cases_dashboard(source_data=all_cases)
             st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -13182,25 +13225,23 @@ def _create_ai_learning_dataset_from_cases(
 
 @st.cache_data(ttl=None, max_entries=1)
 def _load_ai_learning_dataset_worker(mtime: float) -> dict[str, object] | None:
+    """Load AI learning dataset from disk, cached until modification time changes."""
     try:
-        with AI_LEARNING_FILE.open("r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-    except Exception as exc:
-        logging.error("Failed to load AI learning dataset: %s", exc)
+        data = json.loads(AI_LEARNING_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        return data
+    except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, Mapping):
-        logging.error("AI learning dataset is not a JSON object")
-        return None
-    return dict(payload)
 
 
 def load_ai_learning_dataset() -> dict[str, object] | None:
-    if not AI_LEARNING_FILE.exists():
-        return None
-    try:
-        mtime = AI_LEARNING_FILE.stat().st_mtime
-    except OSError:
-        return None
+    mtime = 0.0
+    if AI_LEARNING_FILE.exists():
+        try:
+            mtime = AI_LEARNING_FILE.stat().st_mtime
+        except OSError:
+            pass
     return _load_ai_learning_dataset_worker(mtime)
 
 
@@ -14699,7 +14740,7 @@ def save_case_to_database(
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(case_payload, f, indent=2)
     if update_history:
-        update_recent_cases(case.case_id, str(file_path))
+        update_recent_cases(case.case_id, str(file_path), last_modified=case.last_modified)
     if notify:
         st.success(f"Case saved to {file_path}")
     st.session_state.ai_learning_signature = None
@@ -14764,7 +14805,7 @@ def _apply_case_payload(
 
     autosave()
     if record_recent and source_path:
-        update_recent_cases(case_obj.case_id, source_path)
+        update_recent_cases(case_obj.case_id, source_path, last_modified=case_obj.last_modified)
     if persist_to_database:
         save_case_to_database(
             case_obj,
