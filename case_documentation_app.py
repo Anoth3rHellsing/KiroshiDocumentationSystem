@@ -10430,17 +10430,20 @@ def render_saved_cases_page() -> None:
             "Missing merged dashboards",
         ),
         key=global_widget_key("saved_cases_tracking_filter"),
+        help="Filter cases based on whether they have dashboard tracking data enabled.",
     )
     selected_versions = filter_cols[1].multiselect(
         "Version",
         options=version_options,
         default=version_options,
         key=global_widget_key("saved_cases_version_filter"),
+        help="Filter cases by the Kiroshi version used to create them.",
     )
     legacy_scope = filter_cols[2].selectbox(
         "Legacy",
         ("All", "Modern only", "Legacy only"),
         key=global_widget_key("saved_cases_legacy_filter"),
+        help="Filter cases based on their data structure format (Modern vs Legacy).",
     )
 
     filtered_df = saved_df.copy()
