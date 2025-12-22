@@ -9271,11 +9271,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     return valid_items
 
 
-@st.cache_data(ttl=None, max_entries=1)
-def _load_tracked_cases_worker(signature: str) -> list:
-    """Load tracked cases from the global case list, cached by signature."""
-    # The signature is derived from directory state to invalidate the cache
-    all_cases = _refresh_and_get_cases()
+def _filter_tracked_cases(all_cases: list) -> list:
+    """Filter a list of cases to return only those that are tracked."""
     tracked = []
     seen_ids = set()
 
@@ -9304,7 +9301,18 @@ def _load_tracked_cases_worker(signature: str) -> list:
     return tracked
 
 
-def load_tracked_cases() -> list:
+@st.cache_data(ttl=None, max_entries=1)
+def _load_tracked_cases_worker(signature: str) -> list:
+    """Load tracked cases from the global case list, cached by signature."""
+    # The signature is derived from directory state to invalidate the cache
+    all_cases = _refresh_and_get_cases()
+    return _filter_tracked_cases(all_cases)
+
+
+def load_tracked_cases(source_data: list | None = None) -> list:
+    if source_data is not None:
+        return _filter_tracked_cases(source_data)
+
     # Compute a lightweight signature of the directory state
     # We use the mtime of the TrackedCases directory and Utilities/recent_cases.json
     # as a proxy for 'something relevant might have changed'.
