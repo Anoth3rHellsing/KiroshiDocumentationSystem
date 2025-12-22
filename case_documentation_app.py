@@ -20292,12 +20292,22 @@ End with: We look forward to your reply."""
                 )
                 st.session_state[notes_key] = completion_text
                 st.rerun()
-            if cols[2].button(
+            confirm_key = remote_tab_key("notes_clear_confirm")
+            if st.session_state.get(confirm_key):
+                cols[2].warning("Are you sure?")
+                if cols[2].button("Yes, clear", key=remote_tab_key("notes_clear_yes")):
+                    st.session_state[notes_key] = ""
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+                if cols[2].button("Cancel", key=remote_tab_key("notes_clear_no")):
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+            elif cols[2].button(
                 "Clear notes",
                 key=remote_tab_key("notes_clear"),
                 help="Delete all text in the notes field",
             ):
-                st.session_state[notes_key] = ""
+                st.session_state[confirm_key] = True
                 st.rerun()
 
             st.text_area(
