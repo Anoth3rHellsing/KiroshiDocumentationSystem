@@ -9028,12 +9028,28 @@ def _get_global_case_cache() -> _CaseCache:
     return _CaseCache()
 
 
+@dataclass
+class _RefreshThrottle:
+    last_run: float = 0.0
+    data: list[dict[str, object]] = field(default_factory=list)
+
+
+@st.cache_resource
+def _get_refresh_throttle() -> _RefreshThrottle:
+    return _RefreshThrottle()
+
+
 def _refresh_and_get_cases() -> list[dict[str, object]]:
     """Scan directories, incrementally update cache, and return all valid cases.
 
     This replaces O(N) parsing with O(N) scanning + O(K) parsing (K=changed files),
     significantly improving dashboard performance for large datasets.
     """
+    throttle = _get_refresh_throttle()
+    # Return cached result if called recently (throttling I/O)
+    if time.time() - throttle.last_run < 2.0:
+        return list(throttle.data)
+
     cache_obj = _get_global_case_cache()
 
     # Simple throttle: if scanned < 2s ago, return current snapshot
@@ -9243,6 +9259,10 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     valid_items = [item for _, item in snapshot if item is not None]
     valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+
+    # Update throttle cache
+    throttle.data = valid_items
+    throttle.last_run = time.time()
 
     return valid_items
 
