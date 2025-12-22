@@ -9075,6 +9075,14 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
         except OSError:
             pass
 
+    # Populate context dictionaries using simple logic derived from legacy code
+    # NOTE: manual_docs was previously loaded here but was unused.
+    # For now, we populate 'context' with empty maps to ensure _derive_analysis_label runs without error.
+    context = {
+        "scanner_labels": {},
+        "root_cause_labels": {},
+    }
+
     # 2. Identify changes and update cache (Thread-Safe)
     # We identify which files need processing first, so we only load external resources (manual docs)
     # if we actually have work to do.
