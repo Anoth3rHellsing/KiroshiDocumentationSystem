@@ -663,7 +663,7 @@ def main():
                     st.markdown(reply)
                 save_memory(st.session_state.kiroshi_chat_history)
 
-    if st.button("Clear memory"):
+    if st.button("Clear memory", help="Permanently delete conversation history"):
         st.session_state.kiroshi_chat_history = []
         save_memory([])
         st.rerun()
