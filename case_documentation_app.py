@@ -8849,15 +8849,28 @@ def _load_recent_cases_from_disk_cached(mtime: float) -> list:
     return recent
 
 
-def load_recent_cases() -> list:
-    if not RECENT_CASES_PATH.exists():
-        return []
+@st.cache_data(ttl=None, max_entries=1)
+def _load_recent_cases_worker(mtime: float) -> list:
+    """Load recent cases from disk, cached until modification time changes."""
     try:
-        current_mtime = RECENT_CASES_PATH.stat().st_mtime
-    except Exception:
+        content = RECENT_CASES_PATH.read_text(encoding="utf-8")
+        cases = json.loads(content)
+        if isinstance(cases, list):
+            return cases
+        return []
+    except (OSError, json.JSONDecodeError):
         return []
 
-    return _load_recent_cases_from_disk_cached(current_mtime)
+
+def load_recent_cases() -> list:
+    """Return the list of recently accessed cases, sorted by timestamp."""
+    mtime = 0.0
+    if RECENT_CASES_PATH.exists():
+        try:
+            mtime = RECENT_CASES_PATH.stat().st_mtime
+        except OSError:
+            pass
+    return _load_recent_cases_worker(mtime)
 
 
 def update_recent_cases(case_id: str, path: str) -> None:
@@ -9435,30 +9448,29 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
 
 @st.cache_data(ttl=None, max_entries=1)
 def _load_sprint_state_worker(mtime: float) -> SprintState:
-    """Worker to load sprint state, cached until file modification time changes."""
-    # The mtime argument ensures cache invalidation when the file updates.
+    """Load sprint state from disk, cached until modification time changes."""
     try:
         data = json.loads(SPRINT_STATE_FILE.read_text(encoding="utf-8"))
-        tasks_data = data.get("tasks", [])
-        tasks = [SprintTask(**t) for t in tasks_data]
-        return SprintState(
-            date=data.get("date", _utc_now_z().split("T")[0]),
-            tasks=tasks,
-            is_active=data.get("is_active", False),
-        )
-    except Exception as exc:
-        logging.error("Failed to load sprint state: %s", exc)
-        return SprintState(date=_utc_now_z().split("T")[0])
+        # Clean up corrupted entries if any
+        if "completed_cases" in data:
+            data["completed_cases"] = [
+                entry
+                for entry in data["completed_cases"]
+                if isinstance(entry, dict) and "case_id" in entry
+            ]
+        return SprintState(**data)
+    except Exception:
+        return SprintState()
 
 
 def load_sprint_state() -> SprintState:
-    if not SPRINT_STATE_FILE.exists():
-        return SprintState(date=_utc_now_z().split("T")[0])
-    try:
-        mtime = SPRINT_STATE_FILE.stat().st_mtime
-        return _load_sprint_state_worker(mtime)
-    except OSError:
-        return SprintState(date=_utc_now_z().split("T")[0])
+    mtime = 0.0
+    if SPRINT_STATE_FILE.exists():
+        try:
+            mtime = SPRINT_STATE_FILE.stat().st_mtime
+        except OSError:
+            pass
+    return _load_sprint_state_worker(mtime)
 
 
 def save_sprint_state(state: SprintState) -> None:
@@ -13182,25 +13194,23 @@ def _create_ai_learning_dataset_from_cases(
 
 @st.cache_data(ttl=None, max_entries=1)
 def _load_ai_learning_dataset_worker(mtime: float) -> dict[str, object] | None:
+    """Load AI learning dataset from disk, cached until modification time changes."""
     try:
-        with AI_LEARNING_FILE.open("r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-    except Exception as exc:
-        logging.error("Failed to load AI learning dataset: %s", exc)
+        data = json.loads(AI_LEARNING_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        return data
+    except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, Mapping):
-        logging.error("AI learning dataset is not a JSON object")
-        return None
-    return dict(payload)
 
 
 def load_ai_learning_dataset() -> dict[str, object] | None:
-    if not AI_LEARNING_FILE.exists():
-        return None
-    try:
-        mtime = AI_LEARNING_FILE.stat().st_mtime
-    except OSError:
-        return None
+    mtime = 0.0
+    if AI_LEARNING_FILE.exists():
+        try:
+            mtime = AI_LEARNING_FILE.stat().st_mtime
+        except OSError:
+            pass
     return _load_ai_learning_dataset_worker(mtime)
 
 
