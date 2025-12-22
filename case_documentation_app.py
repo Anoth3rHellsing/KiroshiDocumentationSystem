@@ -8860,13 +8860,18 @@ def load_recent_cases() -> list:
     return _load_recent_cases_from_disk_cached(current_mtime)
 
 
-def update_recent_cases(case_id: str, path: str) -> None:
+def update_recent_cases(
+    case_id: str, path: str, case_data: Mapping[str, object] | None = None
+) -> None:
     global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
     recents = [c for c in load_recent_cases() if c.get("path") != path]
     last_modified = ""
     try:
         case_path = Path(path)
-        if case_path.exists():
+        if case_data:
+            last_modified = str(case_data.get("last_modified") or "")
+
+        if not last_modified and case_path.exists():
             data = json.loads(case_path.read_text(encoding="utf-8"))
             mapping = _coerce_case_mapping(data)
             if isinstance(mapping, Mapping):
@@ -9389,7 +9394,7 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
             return
         _reset_tracked_cases_cache()
         if target_case_id:
-            update_recent_cases(target_case_id, str(case_path))
+            update_recent_cases(target_case_id, str(case_path), case_data=payload)
         if D.case_id == target_case_id:
             D.tracking.active = False
             st.session_state.track_case = False
@@ -9423,7 +9428,7 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
 
         case_path.unlink(missing_ok=True)
         _reset_tracked_cases_cache()
-        update_recent_cases(case_id_value, str(dest))
+        update_recent_cases(case_id_value, str(dest), case_data=payload)
         st.toast("Case removed from tracking.") if hasattr(st, "toast") else st.success(
             "Case removed from tracking."
         )
@@ -14699,7 +14704,7 @@ def save_case_to_database(
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(case_payload, f, indent=2)
     if update_history:
-        update_recent_cases(case.case_id, str(file_path))
+        update_recent_cases(case.case_id, str(file_path), case_data=case_payload)
     if notify:
         st.success(f"Case saved to {file_path}")
     st.session_state.ai_learning_signature = None
@@ -14764,7 +14769,9 @@ def _apply_case_payload(
 
     autosave()
     if record_recent and source_path:
-        update_recent_cases(case_obj.case_id, source_path)
+        update_recent_cases(
+            case_obj.case_id, source_path, case_data=asdict(case_obj)
+        )
     if persist_to_database:
         save_case_to_database(
             case_obj,
