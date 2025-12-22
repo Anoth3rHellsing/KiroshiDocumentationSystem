@@ -1,5 +1,3 @@
-# Bolt's Journal
-
 ## 2025-12-16 - Streamlit File I/O Bottleneck
 **Learning:** In Streamlit apps, the entire script re-runs on every interaction. Synchronous file I/O (like reading JSON configuration or history files) at the top level or in main rendering functions becomes a performance tax paid on every click.
 **Action:** Use `@st.cache_data` for file readers, passing the file's `st_mtime` as an argument to automatically invalidate the cache only when the file actually changes.
@@ -13,3 +11,7 @@
 ## 2025-12-19 - Optimization of Autosave Scanning
 **Learning:** File system operations like `path.glob` combined with `path.stat()` in a loop can be significantly slower than `os.scandir` which yields `DirEntry` objects with cached stat information, especially on Windows or when dealing with many files.
 **Action:** Replaced `path.glob` with `os.scandir` in `_iter_case_autosaves` to improve performance of autosave resolution and cleanup. Benchmarking showed ~1.25x speedup in a synthetic test with 2000 files.
+
+## 2025-10-27 - Redundant I/O in Hot Paths
+**Learning:** In high-traffic functions (like dashboard refreshes in Streamlit), verifying if an intermediate variable is actually used before computing it can save significant I/O. Loading a file "just in case" is a common anti-pattern in monolithic scripts.
+**Action:** Removed redundant `load_manual_docs()` call from `_refresh_and_get_cases` after verifying the variable was assigned but never used. This saves one file stat+read operation per dashboard refresh.
