@@ -19114,7 +19114,7 @@ End with: We look forward to your reply."""
                 if st.button(
                     "Use GPT-OSS",
                     key=email_tab_key("use_gpt"),
-                    help="Generate the email content using the configured AI model",
+                    help="Generate an email draft using the configured LLM",
                 ):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
@@ -20109,6 +20109,7 @@ End with: We look forward to your reply."""
             if cols[0].button(
                 "Insert timestamp",
                 key=remote_tab_key("notes_add_timestamp"),
+                help="Insert the current UTC timestamp into the notes",
             ):
                 stamp = _utc_now_z()
                 existing = st.session_state.get(notes_key, "")
@@ -20122,6 +20123,7 @@ End with: We look forward to your reply."""
             if cols[1].button(
                 "Mark session complete",
                 key=remote_tab_key("notes_mark_complete"),
+                help="Append a completion timestamp and marker to close the session",
             ):
                 completion_stamp = _utc_now_z()
                 existing = st.session_state.get(notes_key, "")
@@ -20135,6 +20137,7 @@ End with: We look forward to your reply."""
             if cols[2].button(
                 "Clear notes",
                 key=remote_tab_key("notes_clear"),
+                help="Permanently clear all text from the notes field",
             ):
                 st.session_state[notes_key] = ""
                 st.rerun()
@@ -20356,7 +20359,11 @@ End with: We look forward to your reply."""
         dex_case_id = st.text_input(
             "Case ID", key=save_tab_key("case_dex_id")
         )
-        if st.button("Fetch Case Dex", key=save_tab_key("fetch_case_dex")):
+        if st.button(
+            "Fetch Case Dex",
+            key=save_tab_key("fetch_case_dex"),
+            help="Retrieve case data from the external Case Dex system",
+        ):
             if dex_case_id:
                 try:
                     dex_bytes = request_case_dex(dex_case_id)
@@ -20394,7 +20401,11 @@ End with: We look forward to your reply."""
                 )
             else:
                 info_col.write(f"{case['case_id']}\n{case['path']}")
-            if btn_col.button("Load", key=save_tab_key(f"recent_load_{idx}")):
+            if btn_col.button(
+                "Load",
+                key=save_tab_key(f"recent_load_{idx}"),
+                help="Restore this case to the active workspace",
+            ):
                 request_load_from_path(case["path"])
 
         pending = st.session_state.get("pending_load")
