@@ -623,6 +623,11 @@ _CASE_REFERENCE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SERIAL_PATTERN = re.compile(r"\b[A-Z]{2,}\d{3,}\b")
+_URL_PATTERN = re.compile(r"https?://\S+")
+_NON_ALPHANUMERIC_PATTERN = re.compile(r"[^0-9A-Za-z]+")
+_LOWER_ALPHANUM_PATTERN = re.compile(r"[^0-9a-z]+")
+_WHITESPACE_PATTERN = re.compile(r"\s+")
+
 _GENERIC_STOPWORDS = {
     "the",
     "and",
@@ -959,8 +964,8 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 def _tokenize_issue_description(text: str) -> list[str]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
-    cleaned = re.sub(r"https?://\S+", " ", cleaned)
-    cleaned = re.sub(r"[^0-9A-Za-z]+", " ", cleaned)
+    cleaned = _URL_PATTERN.sub(" ", cleaned)
+    cleaned = _NON_ALPHANUMERIC_PATTERN.sub(" ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
     return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
 
@@ -969,8 +974,8 @@ def _normalize_title_similarity(value: object) -> str:
     if not isinstance(value, str):
         return ""
     lowered = value.lower()
-    cleaned = re.sub(r"[^0-9a-z]+", " ", lowered)
-    return re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
+    return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
 
 
 def _title_similarity_tokens(title: object) -> set[str]:
@@ -1068,7 +1073,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 def _normalize_text_field(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    return re.sub(r"\s+", " ", value).strip().lower()
+    return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
 
 
 def _coerce_int(value: object, default: int = 0) -> int:
@@ -10190,6 +10195,7 @@ def render_tracked_cases_dashboard(
                 if st.button(
                     button_label,
                     key=f"dash_untrack_{unique_suffix}",
+                    help="Remove this case from the dashboard tracking list (data is preserved)",
                 ):
                     untrack_case(
                         case["path"],
@@ -10328,6 +10334,7 @@ def render_sprint_tab() -> None:
             file_name=f"Sprint_Report_{st.session_state.sprint_state.date}.pdf",
             mime="application/pdf",
             key="end_shift_btn",
+            help="Generate a PDF report of completed tasks and close the current sprint",
         ):
             pass
 
