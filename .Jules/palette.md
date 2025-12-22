@@ -12,6 +12,6 @@
 **Learning:** Iterating directly over lists without checking for emptiness (e.g., `for item in load_items():`) is a common pattern that misses the opportunity for helpful empty states. Users are left wondering if the feature is broken or just empty.
 **Action:** Always capture list results into a variable first, check `if not list:` to render an `st.info` or `st.caption` guidance message, and then iterate.
 
-## 2025-05-24 - Destructive Action Clarity
-**Learning:** Users often hesitate to use "Remove" or "Stop" buttons on dashboards because they fear data loss.
-**Action:** Always add a `help` tooltip to destructive actions clarifying whether data is preserved or permanently deleted (e.g., "Remove this case from view (data is preserved)").
+## 2025-05-23 - Destructive Action Confirmation
+**Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
+**Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
