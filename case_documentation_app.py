@@ -19132,7 +19132,7 @@ End with: We look forward to your reply."""
                 if st.button(
                     "Use GPT-OSS",
                     key=email_tab_key("use_gpt"),
-                    help="Generate an email draft using the configured LLM",
+                    help="Generate an email draft using the configured AI model based on your prompt.",
                 ):
                     api_key = st.session_state.openai_api_key
                     model = st.session_state.openai_model
