@@ -9247,8 +9247,11 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     return valid_items
 
 
-def load_tracked_cases(source_data: list[dict[str, object]] | None = None) -> list:
-    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
+@st.cache_data(ttl=None, max_entries=1)
+def _load_tracked_cases_worker(signature: str) -> list:
+    """Load tracked cases from the global case list, cached by signature."""
+    # The signature is derived from directory state to invalidate the cache
+    all_cases = _refresh_and_get_cases()
     tracked = []
     seen_ids = set()
 
@@ -9275,6 +9278,35 @@ def load_tracked_cases(source_data: list[dict[str, object]] | None = None) -> li
             seen_ids.add(case_id)
 
     return tracked
+
+
+def load_tracked_cases() -> list:
+    # Compute a lightweight signature of the directory state
+    # We use the mtime of the TrackedCases directory and Utilities/recent_cases.json
+    # as a proxy for 'something relevant might have changed'.
+    # Note: Directory mtime only changes on file add/remove/rename, not content change.
+    # However, save_case_to_database updates recent_cases.json on every save,
+    # so RECENT_CASES_PATH mtime is a reliable signal for content updates.
+    try:
+        parts = []
+        if TRACKED_CASES_DIR.exists():
+            parts.append(f"{TRACKED_CASES_DIR.stat().st_mtime:.6f}")
+        if RECENT_CASES_PATH.exists():
+            parts.append(f"{RECENT_CASES_PATH.stat().st_mtime:.6f}")
+
+        # Mix in the last saved case timestamp from session state if available
+        # to ensure immediate updates after saving within the same session
+        if hasattr(st, "session_state"):
+            last_save = st.session_state.get("last_save_time")
+            if last_save:
+                parts.append(str(last_save))
+
+        signature = hashlib.md5("".join(parts).encode("utf-8")).hexdigest()
+    except Exception:
+        # Fallback to current time to force refresh if signature computation fails
+        signature = str(time.time())
+
+    return _load_tracked_cases_worker(signature)
 
 
 def update_tracked_case_file(
