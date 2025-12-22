@@ -9057,9 +9057,22 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     cache_obj = _get_global_case_cache()
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
 
-    # 1. Scan directories for current state (Using cached scanner)
-    # We pass paths as strings to be cache-friendly
-    current_files = _scan_case_directories_cached([str(d) for d in directories])
+    # 1. Scan directories for current state
+    current_files: dict[str, float] = {}
+    for directory in directories:
+        if not directory.exists():
+            continue
+        try:
+            with os.scandir(str(directory)) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.lower().endswith(".json"):
+                        try:
+                            # entry.stat() is cached on Windows from scandir
+                            current_files[str(entry.path)] = entry.stat().st_mtime
+                        except OSError:
+                            pass
+        except OSError:
+            pass
 
     # Populate context dictionaries using simple logic derived from legacy code
     scanner_labels = {}
@@ -9069,9 +9082,9 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     # This matches behavior from legacy code where specific docs informed these maps
     # Since exact matching logic is complex, we use a basic population if docs have "labels" or "map"
     # For now, we populate 'context' to ensure _derive_analysis_label runs without error.
-    # If specific docs are needed, they should be structured in manual_docs.
-    # Given we don't have the exact logic for populating from manual_docs here, passing empty maps
-    # is safer than guessing, and _derive_analysis_label handles misses gracefully.
+    # Note: manual_docs were previously loaded here, but the result was not used for populating
+    # the context labels (scanner_labels and root_cause_labels remained empty).
+    # Removed unnecessary load_manual_docs() call to avoid IO/overhead in this critical loop.
 
     context = {
         "scanner_labels": scanner_labels,
