@@ -9049,10 +9049,6 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
         except OSError:
             pass
 
-    # We load manual docs once per refresh to ensure context-dependent labels are reasonably fresh
-    # This is done outside the lock to avoid holding it during file I/O
-    manual_docs = load_manual_docs()
-
     # Populate context dictionaries using simple logic derived from legacy code
     scanner_labels = {}
     root_cause_labels = {}
