@@ -9202,8 +9202,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     return valid_items
 
 
-def load_tracked_cases() -> list:
-    all_cases = _refresh_and_get_cases()
+def load_tracked_cases(source_data: list[dict[str, object]] | None = None) -> list:
+    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
     tracked = []
     seen_ids = set()
 
@@ -9681,9 +9681,9 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
-def list_saved_cases() -> list:
+def list_saved_cases(source_data: list[dict[str, object]] | None = None) -> list:
     """Retrieve all saved cases using the optimized global cache."""
-    all_cases = _refresh_and_get_cases()
+    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
 
     # We need to adapt the format to match what _list_saved_cases_worker used to return
     # The cache returns a superset, but fields like 'updated' might be strings there.
@@ -10316,8 +10316,8 @@ def render_sprint_tab() -> None:
                             st.rerun()
 
 
-def render_saved_cases_dashboard() -> None:
-    saved_cases = list_saved_cases()
+def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
+    saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
         st.info("No saved cases found in your database.")
         return
@@ -10597,7 +10597,11 @@ def render_dashboard() -> None:
     if notice_idx is not None:
         st.info(f"Loaded case into Case tab {notice_idx + 1}.")
         st.session_state.dashboard_load_notice = None
-    tracked_cases = load_tracked_cases()
+
+    # Fetch all cases once to avoid redundant directory scanning in child components
+    all_cases = _refresh_and_get_cases()
+
+    tracked_cases = load_tracked_cases(source_data=all_cases)
     charts_col, main_col = st.columns([1.1, 2.4])
     with charts_col:
         render_tracked_case_insights(tracked_cases)
@@ -10632,7 +10636,7 @@ def render_dashboard() -> None:
         with st.container():
             st.markdown("<div class='dashboard-section'>", unsafe_allow_html=True)
             st.subheader("All My Saved Cases")
-            render_saved_cases_dashboard()
+            render_saved_cases_dashboard(source_data=all_cases)
             st.markdown("</div>", unsafe_allow_html=True)
 
 
