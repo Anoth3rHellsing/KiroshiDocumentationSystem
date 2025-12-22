@@ -1,4 +1,4 @@
-streamlit==1.52.1
+streamlit==1.52.2
 altair==6.0.0
 pandas==2.3.3
 reportlab==4.4.6
