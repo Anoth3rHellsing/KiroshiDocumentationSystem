@@ -7,3 +7,4 @@ JavaSTools/node_modules/
 JavaSTools/dist/
 JavaSTools/build/
 .env
+temp_benchmark_data/
