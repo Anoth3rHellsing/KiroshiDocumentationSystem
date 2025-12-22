@@ -10190,6 +10190,7 @@ def render_tracked_cases_dashboard(
                 if st.button(
                     button_label,
                     key=f"dash_untrack_{unique_suffix}",
+                    help="Remove this case from the dashboard tracking list (data is preserved)",
                 ):
                     untrack_case(
                         case["path"],
@@ -10328,6 +10329,7 @@ def render_sprint_tab() -> None:
             file_name=f"Sprint_Report_{st.session_state.sprint_state.date}.pdf",
             mime="application/pdf",
             key="end_shift_btn",
+            help="Generate a PDF report of completed tasks and close the current sprint",
         ):
             pass
 

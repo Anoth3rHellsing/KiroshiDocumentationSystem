@@ -11,3 +11,7 @@
 ## 2025-05-23 - Empty States in Lists
 **Learning:** Iterating directly over lists without checking for emptiness (e.g., `for item in load_items():`) is a common pattern that misses the opportunity for helpful empty states. Users are left wondering if the feature is broken or just empty.
 **Action:** Always capture list results into a variable first, check `if not list:` to render an `st.info` or `st.caption` guidance message, and then iterate.
+
+## 2025-05-24 - Destructive Action Clarity
+**Learning:** Users often hesitate to use "Remove" or "Stop" buttons on dashboards because they fear data loss.
+**Action:** Always add a `help` tooltip to destructive actions clarifying whether data is preserved or permanently deleted (e.g., "Remove this case from view (data is preserved)").
