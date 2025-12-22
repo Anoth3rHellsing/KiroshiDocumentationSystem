@@ -8886,25 +8886,31 @@ def load_recent_cases() -> list:
     return _load_recent_cases_worker(mtime)
 
 
-def update_recent_cases(case_id: str, path: str, last_modified: str | None = None) -> None:
+
+def update_recent_cases(
+    case_id: str, path: str, case_data: Mapping[str, object] | None = None
+) -> None:
     global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
     recents = [c for c in load_recent_cases() if c.get("path") != path]
-    if not last_modified:
-        try:
-            case_path = Path(path)
-            if case_path.exists():
-                data = json.loads(case_path.read_text(encoding="utf-8"))
-                mapping = _coerce_case_mapping(data)
-                if isinstance(mapping, Mapping):
-                    last_modified = str(mapping.get("last_modified") or "")
-                if not last_modified:
-                    last_modified = (
-                        datetime.fromtimestamp(case_path.stat().st_mtime)
-                        .replace(microsecond=0)
-                        .isoformat()
-                    )
-        except Exception:
-            last_modified = ""
+    last_modified = ""
+    try:
+        case_path = Path(path)
+        if case_data:
+            last_modified = str(case_data.get("last_modified") or "")
+
+        if not last_modified and case_path.exists():
+            data = json.loads(case_path.read_text(encoding="utf-8"))
+            mapping = _coerce_case_mapping(data)
+            if isinstance(mapping, Mapping):
+                last_modified = str(mapping.get("last_modified") or "")
+            if not last_modified:
+                last_modified = (
+                    datetime.fromtimestamp(case_path.stat().st_mtime)
+                    .replace(microsecond=0)
+                    .isoformat()
+                )
+    except Exception:
+        last_modified = ""
     recents.insert(0, {"case_id": case_id, "path": path, "last_modified": last_modified})
     recents = recents[:10]
     RECENT_CASES_PATH.write_text(json.dumps(recents, indent=2), encoding="utf-8")
@@ -9503,7 +9509,7 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
             return
         _reset_tracked_cases_cache()
         if target_case_id:
-            update_recent_cases(target_case_id, str(case_path))
+            update_recent_cases(target_case_id, str(case_path), case_data=payload)
         if D.case_id == target_case_id:
             D.tracking.active = False
             st.session_state.track_case = False
@@ -9537,7 +9543,7 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
 
         case_path.unlink(missing_ok=True)
         _reset_tracked_cases_cache()
-        update_recent_cases(case_id_value, str(dest))
+        update_recent_cases(case_id_value, str(dest), case_data=payload)
         st.toast("Case removed from tracking.") if hasattr(st, "toast") else st.success(
             "Case removed from tracking."
         )
@@ -14879,7 +14885,7 @@ def save_case_to_database(
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(case_payload, f, indent=2)
     if update_history:
-        update_recent_cases(case.case_id, str(file_path), last_modified=case.last_modified)
+        update_recent_cases(case.case_id, str(file_path), case_data=case_payload)
     if notify:
         st.success(f"Case saved to {file_path}")
     st.session_state.ai_learning_signature = None
@@ -14944,7 +14950,9 @@ def _apply_case_payload(
 
     autosave()
     if record_recent and source_path:
-        update_recent_cases(case_obj.case_id, source_path, last_modified=case_obj.last_modified)
+        update_recent_cases(
+            case_obj.case_id, source_path, case_data=asdict(case_obj)
+        )
     if persist_to_database:
         save_case_to_database(
             case_obj,
