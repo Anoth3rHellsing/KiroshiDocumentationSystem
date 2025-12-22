@@ -8851,50 +8851,29 @@ def _reset_recent_cases_cache() -> None:
 
 
 @st.cache_data(ttl=None, max_entries=1)
-def _load_recent_cases_from_disk_cached(mtime: float) -> list:
-    """Load recent cases from disk, cached until the file mtime changes."""
-    try:
-        payload = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-    if not isinstance(payload, list):
-        return []
-    recent: list[dict[str, object]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        recent.append(
-            {
-                "case_id": item.get("case_id", ""),
-                "path": item.get("path", ""),
-                "last_modified": item.get("last_modified", ""),
-            }
-        )
-    return recent
-
-
-@st.cache_data(ttl=None, max_entries=1)
 def _load_recent_cases_worker(mtime: float) -> list:
-    """Load recent cases from disk, cached until modification time changes."""
-    try:
-        content = RECENT_CASES_PATH.read_text(encoding="utf-8")
-        cases = json.loads(content)
-        if isinstance(cases, list):
-            return cases
+    """Worker for load_recent_cases, cached by modification time."""
+    if not RECENT_CASES_PATH.exists():
         return []
-    except (OSError, json.JSONDecodeError):
+    try:
+        data = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        # Sort by last_modified descending
+        data.sort(key=lambda x: x.get("last_modified", ""), reverse=True)
+        return data
+    except Exception:
         return []
 
 
 def load_recent_cases() -> list:
-    """Return the list of recently accessed cases, sorted by timestamp."""
-    mtime = 0.0
-    if RECENT_CASES_PATH.exists():
-        try:
-            mtime = RECENT_CASES_PATH.stat().st_mtime
-        except OSError:
-            pass
+    """Load the recent cases list, using a cache invalidating on file modification."""
+    if not RECENT_CASES_PATH.exists():
+        return []
+    try:
+        mtime = RECENT_CASES_PATH.stat().st_mtime
+    except OSError:
+        return []
     return _load_recent_cases_worker(mtime)
 
 
