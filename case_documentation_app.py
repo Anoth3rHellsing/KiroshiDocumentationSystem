@@ -8447,16 +8447,20 @@ _autosave_cached_serialized: str | None = None
 _autosave_field_fingerprints: dict[str, str] = {}
 
 
-def autosave_payload() -> dict:
-    case_payload = asdict(D)
-    cached_case = st.session_state.get("_autosave_cached_case")
+def autosave_payload(case: CaseData | None = None) -> dict:
+    target = case if case is not None else D
+    case_payload = asdict(target)
 
-    if cached_case is not None and cached_case == case_payload:
-        st.session_state["_autosave_case_dirty"] = False
-        return {"case": cached_case}
+    # Only cache if we are saving the active case to avoid cache thrashing
+    if case is None or case is D:
+        cached_case = st.session_state.get("_autosave_cached_case")
 
-    st.session_state["_autosave_cached_case"] = case_payload
-    st.session_state["_autosave_case_dirty"] = True
+        if cached_case is not None and cached_case == case_payload:
+            st.session_state["_autosave_case_dirty"] = False
+            return {"case": cached_case}
+
+        st.session_state["_autosave_cached_case"] = case_payload
+        st.session_state["_autosave_case_dirty"] = True
 
     return {"case": case_payload}
 
@@ -8513,10 +8517,10 @@ def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
     return serialized_payload, payload_hash
 
 
-def autosave():
+def autosave(case: CaseData | None = None):
     global _pending_autosave, _pending_autosave_timer
 
-    payload = autosave_payload()
+    payload = autosave_payload(case)
     serialized_payload, payload_hash = _serialize_autosave_payload(payload)
 
     with _autosave_lock:
@@ -13410,6 +13414,33 @@ def merge_ai_learning_datasets(
     return dataset
 
 
+def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
+    """Yield paths and loaded data for all saved case files."""
+    if not DATABASE_DIR.exists():
+        return
+
+    try:
+        for entry in os.scandir(DATABASE_DIR):
+            if entry.is_file() and entry.name.lower().endswith(".json"):
+                if entry.name in (
+                    "settings.json",
+                    "sprint_state.json",
+                    "case_tabs_memory.json",
+                    "kiroshi_tables_hotkeys.ahk",
+                ):
+                    continue
+
+                try:
+                    path = Path(entry.path)
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        yield path, data
+                except (OSError, json.JSONDecodeError):
+                    continue
+    except OSError:
+        return
+
+
 def build_ai_learning_dataset(
     *, signature: Iterable[tuple[str, float]] | None = None
 ) -> dict[str, object] | None:
@@ -13493,6 +13524,29 @@ def _sync_ai_learning_signature_from_dataset(
         st.session_state.ai_learning_signature = signature_payload
     else:
         st.session_state.ai_learning_signature = None
+
+
+def _saved_case_files_signature() -> tuple[tuple[str, float], ...]:
+    """Return a signature of the current state of saved case files."""
+    if not DATABASE_DIR.exists():
+        return ()
+
+    files: list[tuple[str, float]] = []
+    try:
+        for entry in os.scandir(DATABASE_DIR):
+            if entry.is_file() and entry.name.lower().endswith(".json"):
+                if entry.name in (
+                    "settings.json",
+                    "sprint_state.json",
+                    "case_tabs_memory.json",
+                    "kiroshi_tables_hotkeys.ahk",
+                ):
+                    continue
+                files.append((entry.name, entry.stat().st_mtime))
+    except OSError:
+        return ()
+
+    return tuple(sorted(files))
 
 
 def ensure_ai_learning_dataset(force: bool = False) -> dict[str, object] | None:
@@ -15049,20 +15103,27 @@ def request_case_dex(case_id: str) -> bytes:
     return response.content
 
 
-def touch_case_last_modified(*, timestamp: str | None = None) -> str:
-    """Update the active case ``last_modified`` timestamp and return it."""
+def touch_case_last_modified(
+    *, timestamp: str | None = None, case: CaseData | None = None
+) -> str:
+    """Update the active (or specified) case ``last_modified`` timestamp and return it."""
 
     if timestamp is None:
         timestamp = _utc_now_z()
 
-    if isinstance(D, CaseData):
-        D.last_modified = timestamp
+    target = case if case is not None else D
 
-    case_obj = st.session_state.get("case")
-    if isinstance(case_obj, CaseData):
-        case_obj.last_modified = timestamp
+    if isinstance(target, CaseData):
+        target.last_modified = timestamp
 
-    st.session_state["last_modified"] = timestamp
+    # If no specific case was provided, ensure global state mirrors the update
+    if case is None:
+        case_obj = st.session_state.get("case")
+        if isinstance(case_obj, CaseData) and case_obj is not target:
+            case_obj.last_modified = timestamp
+
+        st.session_state["last_modified"] = timestamp
+
     return timestamp
 
 
@@ -15224,11 +15285,28 @@ def _update_field(
     if state_key is None:
         state_key = persisted_key
 
+    # Resolve target case from key if possible, falling back to global state
+    target_idx = CURRENT_CASE_IDX
+    if state_key is not None:
+        # Standard widget keys are formatted as f"{field}_{idx}"
+        prefix = f"{field}_"
+        if state_key.startswith(prefix):
+            try:
+                suffix = state_key[len(prefix):]
+                target_idx = int(suffix)
+            except ValueError:
+                pass
+
+    try:
+        case_obj = st.session_state.case_sessions[target_idx].case
+    except (IndexError, AttributeError, TypeError):
+        case_obj = D
+
     if state_key is None:
-        state_key = widget_state_key(field, CURRENT_CASE_IDX)
+        state_key = widget_state_key(field, target_idx)
 
     new_value_raw = st.session_state.get(state_key)
-    previous = getattr(D, field, None)
+    previous = getattr(case_obj, field, None)
 
     is_text_field = isinstance(previous, str) or isinstance(
         new_value_raw, (str, bytes, type(None))
@@ -15241,20 +15319,20 @@ def _update_field(
         st.session_state[f"{state_key}__seed"] = new_value
 
         if new_value != previous_normalized or not isinstance(previous, str):
-            setattr(D, field, new_value)
+            setattr(case_obj, field, new_value)
 
         if new_value != previous_normalized:
-            touch_case_last_modified()
-            autosave()
+            touch_case_last_modified(case=case_obj)
+            autosave(case=case_obj)
         return
 
     # Non-text widgets (e.g., toggles) should preserve their native value types.
     st.session_state[f"{state_key}__seed"] = new_value_raw
 
     if new_value_raw != previous:
-        setattr(D, field, new_value_raw)
-        touch_case_last_modified()
-        autosave()
+        setattr(case_obj, field, new_value_raw)
+        touch_case_last_modified(case=case_obj)
+        autosave(case=case_obj)
 
 
 def auto_text_input(
