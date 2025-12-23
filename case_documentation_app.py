@@ -9592,11 +9592,24 @@ def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
     return load_tracked_cases()
 
 
-def load_full_case_data(path: str) -> dict[str, object]:
+@st.cache_data(ttl=None, max_entries=100)
+def _load_full_case_data_worker(path: str, mtime: float) -> dict[str, object]:
+    """Worker for load_full_case_data, cached by modification time."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def load_full_case_data(path: str) -> dict[str, object]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return {}
+    return _load_full_case_data_worker(path, mtime)
 
 
 def update_case_fields(path: str, fields: dict[str, object]) -> None:
