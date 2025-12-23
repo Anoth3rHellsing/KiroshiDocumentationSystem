@@ -991,6 +991,15 @@ def _title_similarity_tokens(title: object) -> set[str]:
 def _title_similarity_score(
     tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
 ) -> float:
+    # If both sets have tokens but share no common tokens, the maximum possible
+    # score is 0.6 * 1.0 (base) + 0.4 * 0.0 (jaccard) = 0.6.
+    # Since the clustering threshold is 0.68, a disjoint set score will never
+    # meet the threshold for clustering. Return 0.0 to skip the expensive
+    # SequenceMatcher calculation.
+    # WARNING: This optimization assumes the clustering threshold is > 0.6.
+    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
+        return 0.0
+
     base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
