@@ -961,21 +961,21 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 }
 
 
-@lru_cache(maxsize=2048)
-def _tokenize_issue_description(text: str) -> tuple[str, ...]:
+@lru_cache(maxsize=4096)
+def _tokenize_issue_description_cached(text: str) -> tuple[str, ...]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
     cleaned = _URL_PATTERN.sub(" ", cleaned)
     cleaned = _NON_ALPHANUMERIC_PATTERN.sub(" ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
-    return tuple(
-        token
-        for token in tokens
-        if token not in _GENERIC_STOPWORDS and not token.isdigit()
-    )
+    return tuple(token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit())
 
 
-@lru_cache(maxsize=2048)
+def _tokenize_issue_description(text: str) -> list[str]:
+    return list(_tokenize_issue_description_cached(text))
+
+
+@lru_cache(maxsize=4096)
 def _normalize_title_similarity_cached(value: str) -> str:
     lowered = value.lower()
     cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
@@ -1083,7 +1083,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     return assignments, label_map
 
 
-@lru_cache(maxsize=2048)
+@lru_cache(maxsize=4096)
 def _normalize_text_field_cached(value: str) -> str:
     return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
 
