@@ -10661,7 +10661,7 @@ def render_saved_cases_page() -> None:
         selected_case = filtered_records[selection]
         case_path = Path(selected_case["path"])
 
-        action_cols = st.columns(3)
+        action_cols = st.columns(4)
         if action_cols[0].button(
             "📂 Load in current tab",
             key=global_widget_key("saved_cases_load_current"),
@@ -10705,6 +10705,36 @@ def render_saved_cases_page() -> None:
             action_cols[2].warning(
                 f"Unable to export this case ({export_error or 'unknown error'})."
             )
+
+        delete_key = global_widget_key(f"saved_delete_{selection}")
+        confirm_key = f"{delete_key}_confirm"
+
+        if st.session_state.get(confirm_key):
+            if action_cols[3].button(
+                "Confirm Delete",
+                key=f"{delete_key}_yes",
+                type="primary",
+                help="Permanently delete this case file",
+            ):
+                try:
+                    case_path.unlink(missing_ok=True)
+                    st.toast(f"Deleted case: {case_path.name}")
+                    st.session_state[confirm_key] = False
+                    time.sleep(0.5)
+                    st.rerun()
+                except OSError as e:
+                    st.error(f"Error deleting file: {e}")
+            elif action_cols[3].button("Cancel", key=f"{delete_key}_no"):
+                st.session_state[confirm_key] = False
+                st.rerun()
+        else:
+            if action_cols[3].button(
+                "Delete",
+                key=delete_key,
+                help="Permanently delete this case file",
+            ):
+                st.session_state[confirm_key] = True
+                st.rerun()
     else:
         st.info(
             "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
