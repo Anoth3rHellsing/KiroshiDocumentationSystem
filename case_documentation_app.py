@@ -10661,18 +10661,19 @@ def render_saved_cases_page() -> None:
 
         action_cols = st.columns(3)
         if action_cols[0].button(
-            "Load in current tab",
+            "📂 Load in current tab",
             key=global_widget_key("saved_cases_load_current"),
-            help="Overwrite current tab with this case data",
+            help="⚠️ Overwrite the currently active case tab with this data. Unsaved changes in the active tab will be lost.",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=False)
             else:
                 st.error("Case file could not be found on disk.")
         if action_cols[1].button(
-            "Load in new case tab",
+            "✨ Load in new tab",
             key=global_widget_key("saved_cases_load_new"),
-            help="Open this case in a new tab",
+            type="primary",
+            help="Open this case in a new workspace tab. Safe and recommended.",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=True)
@@ -10691,18 +10692,21 @@ def render_saved_cases_page() -> None:
 
         if export_bytes is not None:
             action_cols[2].download_button(
-                "Export JSON",
+                "⬇️ Export JSON",
                 export_bytes,
                 file_name=case_path.name,
                 mime="application/json",
                 key=global_widget_key("saved_cases_export_json"),
+                help="Download the raw JSON file for backup or sharing.",
             )
         else:
             action_cols[2].warning(
                 f"Unable to export this case ({export_error or 'unknown error'})."
             )
     else:
-        st.info("No cases match the current filters.")
+        st.info(
+            "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
+        )
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
