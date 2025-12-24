@@ -35,7 +35,7 @@ import threading
 from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from functools import partial
+from functools import partial, lru_cache
 from typing import Any, Dict, List, Literal
 from html import escape
 import textwrap
@@ -961,21 +961,31 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 }
 
 
-def _tokenize_issue_description(text: str) -> list[str]:
+@lru_cache(maxsize=4096)
+def _tokenize_issue_description_cached(text: str) -> tuple[str, ...]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
     cleaned = _URL_PATTERN.sub(" ", cleaned)
     cleaned = _NON_ALPHANUMERIC_PATTERN.sub(" ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
-    return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+    return tuple(token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit())
+
+
+def _tokenize_issue_description(text: str) -> list[str]:
+    return list(_tokenize_issue_description_cached(text))
+
+
+@lru_cache(maxsize=4096)
+def _normalize_title_similarity_cached(value: str) -> str:
+    lowered = value.lower()
+    cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
+    return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
 
 
 def _normalize_title_similarity(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    lowered = value.lower()
-    cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
-    return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
+    return _normalize_title_similarity_cached(value)
 
 
 def _title_similarity_tokens(title: object) -> set[str]:
@@ -1070,10 +1080,15 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     return assignments, label_map
 
 
+@lru_cache(maxsize=4096)
+def _normalize_text_field_cached(value: str) -> str:
+    return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
+
+
 def _normalize_text_field(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
+    return _normalize_text_field_cached(value)
 
 
 def _coerce_int(value: object, default: int = 0) -> int:
