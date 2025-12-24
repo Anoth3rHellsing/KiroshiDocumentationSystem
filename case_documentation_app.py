@@ -35,7 +35,7 @@ import threading
 from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from functools import partial
+from functools import partial, lru_cache
 from typing import Any, Dict, List, Literal
 from html import escape
 import textwrap
@@ -961,21 +961,31 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 }
 
 
-def _tokenize_issue_description(text: str) -> list[str]:
+@lru_cache(maxsize=2048)
+def _tokenize_issue_description(text: str) -> tuple[str, ...]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
     cleaned = _URL_PATTERN.sub(" ", cleaned)
     cleaned = _NON_ALPHANUMERIC_PATTERN.sub(" ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
-    return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+    return tuple(
+        token
+        for token in tokens
+        if token not in _GENERIC_STOPWORDS and not token.isdigit()
+    )
+
+
+@lru_cache(maxsize=2048)
+def _normalize_title_similarity_cached(value: str) -> str:
+    lowered = value.lower()
+    cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
+    return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
 
 
 def _normalize_title_similarity(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    lowered = value.lower()
-    cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
-    return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
+    return _normalize_title_similarity_cached(value)
 
 
 def _title_similarity_tokens(title: object) -> set[str]:
@@ -1076,10 +1086,15 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     return assignments, label_map
 
 
+@lru_cache(maxsize=2048)
+def _normalize_text_field_cached(value: str) -> str:
+    return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
+
+
 def _normalize_text_field(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
+    return _normalize_text_field_cached(value)
 
 
 def _coerce_int(value: object, default: int = 0) -> int:
@@ -9598,11 +9613,24 @@ def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
     return load_tracked_cases()
 
 
-def load_full_case_data(path: str) -> dict[str, object]:
+@st.cache_data(ttl=None, max_entries=100)
+def _load_full_case_data_worker(path: str, mtime: float) -> dict[str, object]:
+    """Worker for load_full_case_data, cached by modification time."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def load_full_case_data(path: str) -> dict[str, object]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return {}
+    return _load_full_case_data_worker(path, mtime)
 
 
 def update_case_fields(path: str, fields: dict[str, object]) -> None:
@@ -10632,20 +10660,21 @@ def render_saved_cases_page() -> None:
         selected_case = filtered_records[selection]
         case_path = Path(selected_case["path"])
 
-        action_cols = st.columns(3)
+        action_cols = st.columns(4)
         if action_cols[0].button(
-            "Load in current tab",
+            "📂 Load in current tab",
             key=global_widget_key("saved_cases_load_current"),
-            help="Overwrite current tab with this case data",
+            help="⚠️ Overwrite the currently active case tab with this data. Unsaved changes in the active tab will be lost.",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=False)
             else:
                 st.error("Case file could not be found on disk.")
         if action_cols[1].button(
-            "Load in new case tab",
+            "✨ Load in new tab",
             key=global_widget_key("saved_cases_load_new"),
-            help="Open this case in a new tab",
+            type="primary",
+            help="Open this case in a new workspace tab. Safe and recommended.",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=True)
@@ -10664,18 +10693,51 @@ def render_saved_cases_page() -> None:
 
         if export_bytes is not None:
             action_cols[2].download_button(
-                "Export JSON",
+                "⬇️ Export JSON",
                 export_bytes,
                 file_name=case_path.name,
                 mime="application/json",
                 key=global_widget_key("saved_cases_export_json"),
+                help="Download the raw JSON file for backup or sharing.",
             )
         else:
             action_cols[2].warning(
                 f"Unable to export this case ({export_error or 'unknown error'})."
             )
+
+        delete_key = global_widget_key(f"saved_delete_{selection}")
+        confirm_key = f"{delete_key}_confirm"
+
+        if st.session_state.get(confirm_key):
+            if action_cols[3].button(
+                "Confirm Delete",
+                key=f"{delete_key}_yes",
+                type="primary",
+                help="Permanently delete this case file",
+            ):
+                try:
+                    case_path.unlink(missing_ok=True)
+                    st.toast(f"Deleted case: {case_path.name}")
+                    st.session_state[confirm_key] = False
+                    time.sleep(0.5)
+                    st.rerun()
+                except OSError as e:
+                    st.error(f"Error deleting file: {e}")
+            elif action_cols[3].button("Cancel", key=f"{delete_key}_no"):
+                st.session_state[confirm_key] = False
+                st.rerun()
+        else:
+            if action_cols[3].button(
+                "Delete",
+                key=delete_key,
+                help="Permanently delete this case file",
+            ):
+                st.session_state[confirm_key] = True
+                st.rerun()
     else:
-        st.info("No cases match the current filters.")
+        st.info(
+            "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
+        )
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
