@@ -9616,8 +9616,9 @@ def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
     return load_tracked_cases()
 
 
-@st.cache_data(ttl=None)
+@st.cache_data(ttl=None, max_entries=100)
 def _load_full_case_data_worker(path: str, mtime: float) -> dict[str, object]:
+    """Worker for load_full_case_data, cached by modification time."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:
