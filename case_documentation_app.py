@@ -8861,16 +8861,16 @@ def create_case_autosave_snapshot(case_id: str) -> Path | None:
         return None
 
 
-_recent_cases_cache: list[dict[str, object]] | None = None
-_recent_cases_mtime: float | None = None
-_recent_cases_path: str | None = None
+class _RecentCasesCache:
+    def __init__(self):
+        self.data: list[dict[str, object]] | None = None
+        self.mtime: float | None = None
 
 
-def _reset_recent_cases_cache() -> None:
-    global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
-    _recent_cases_cache = None
-    _recent_cases_mtime = None
-    _recent_cases_path = None
+@st.cache_resource
+def _get_recent_cases_cache() -> _RecentCasesCache:
+    """Return a persistent cache object for recent cases that survives reruns."""
+    return _RecentCasesCache()
 
 
 @st.cache_data(ttl=None, max_entries=1)
@@ -8895,16 +8895,24 @@ def load_recent_cases() -> list:
         return []
     try:
         mtime = RECENT_CASES_PATH.stat().st_mtime
+        cache = _get_recent_cases_cache()
+        if cache.mtime == mtime and cache.data is not None:
+            return cache.data
     except OSError:
         return []
-    return _load_recent_cases_worker(mtime)
+    data = _load_recent_cases_worker(mtime)
+    try:
+        cache.mtime = mtime
+        cache.data = data
+    except Exception:
+        pass
+    return data
 
 
 
 def update_recent_cases(
     case_id: str, path: str, case_data: Mapping[str, object] | None = None
 ) -> None:
-    global _recent_cases_cache, _recent_cases_mtime, _recent_cases_path
     recents = [c for c in load_recent_cases() if c.get("path") != path]
     last_modified = ""
     try:
@@ -8929,11 +8937,11 @@ def update_recent_cases(
     recents = recents[:10]
     RECENT_CASES_PATH.write_text(json.dumps(recents, indent=2), encoding="utf-8")
     try:
-        _recent_cases_cache = recents
-        _recent_cases_mtime = RECENT_CASES_PATH.stat().st_mtime
-        _recent_cases_path = str(RECENT_CASES_PATH)
+        cache = _get_recent_cases_cache()
+        cache.data = recents
+        cache.mtime = RECENT_CASES_PATH.stat().st_mtime
     except Exception:
-        _reset_recent_cases_cache()
+        pass
 
 
 def normalize_priority(value) -> str:
