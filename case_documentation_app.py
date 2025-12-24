@@ -9158,10 +9158,6 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     # If no files need updating, we can skip the heavy setup logic entirely.
     context = {}
     if paths_to_process:
-        # We load manual docs only when we have files to process.
-        # This prevents unnecessary file I/O on every refresh cycle when data is stable.
-        manual_docs = load_manual_docs()
-
         # Populate context dictionaries using simple logic derived from legacy code
         scanner_labels = {}
         root_cause_labels = {}
