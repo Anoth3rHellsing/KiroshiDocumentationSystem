@@ -35,7 +35,7 @@ import threading
 from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from functools import partial
+from functools import partial, lru_cache
 from typing import Any, Dict, List, Literal
 from html import escape
 import textwrap
@@ -961,21 +961,34 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 }
 
 
-def _tokenize_issue_description(text: str) -> list[str]:
+@lru_cache(maxsize=4096)
+def _tokenize_issue_description_worker(text: str) -> tuple[str, ...]:
+    # Cached worker returns immutable tuple to safely share across calls.
+    # This avoids re-running expensive regexes on identical inputs.
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
     cleaned = _URL_PATTERN.sub(" ", cleaned)
     cleaned = _NON_ALPHANUMERIC_PATTERN.sub(" ", cleaned)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
-    return [token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit()]
+    return tuple(token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit())
+
+
+def _tokenize_issue_description(text: str) -> list[str]:
+    # Wrapper converts cached tuple back to mutable list for callers.
+    return list(_tokenize_issue_description_worker(text))
+
+
+@lru_cache(maxsize=4096)
+def _normalize_title_similarity_worker(value: str) -> str:
+    lowered = value.lower()
+    cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
+    return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
 
 
 def _normalize_title_similarity(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    lowered = value.lower()
-    cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
-    return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
+    return _normalize_title_similarity_worker(value)
 
 
 def _title_similarity_tokens(title: object) -> set[str]:
