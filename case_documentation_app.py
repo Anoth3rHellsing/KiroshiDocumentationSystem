@@ -1004,6 +1004,12 @@ def _title_similarity_tokens(title: object) -> set[str]:
 def _title_similarity_score(
     tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
 ) -> float:
+    # Optimization: If tokens are present but completely disjoint, the maximum possible
+    # score is 0.6 * 1.0 + 0 = 0.6. This is strictly less than the minimum clustering
+    # threshold (0.68), so we can skip the expensive SequenceMatcher call entirely.
+    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
+        return 0.0
+
     base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
