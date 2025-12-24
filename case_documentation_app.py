@@ -16595,11 +16595,20 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
         )
         if av_choice == "Yes":
             av_name_key = widget_key("antivirus_name", CURRENT_CASE_IDX)
-            av_name = av_col.text_input("Antivirus Name", key=av_name_key)
+            av_name = av_col.text_input(
+                "Antivirus Name",
+                key=av_name_key,
+                placeholder="e.g. Norton, Windows Defender",
+                help="Specify the antivirus software found on the system.",
+            )
         else:
             av_name = ""
 
-        if av_col.button("Insert", key=widget_key("av_insert", CURRENT_CASE_IDX)):
+        if av_col.button(
+            "Insert",
+            key=widget_key("av_insert", CURRENT_CASE_IDX),
+            help="Append the selected antivirus status to the Additional Details field below.",
+        ):
             av_text = ""
             if av_choice == "Yes":
                 name_str = av_name.strip() or "[Name]"
@@ -16626,7 +16635,11 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
             horizontal=True,
             key=fw_key,
         )
-        if fw_col.button("Insert", key=widget_key("fw_insert", CURRENT_CASE_IDX)):
+        if fw_col.button(
+            "Insert",
+            key=widget_key("fw_insert", CURRENT_CASE_IDX),
+            help="Append the selected firewall status to the Additional Details field below.",
+        ):
             fw_text = ""
             if fw_choice == "Yes":
                 fw_text = "Firewalls are ON"
