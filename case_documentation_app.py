@@ -962,9 +962,7 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 
 
 @lru_cache(maxsize=4096)
-def _tokenize_issue_description_worker(text: str) -> tuple[str, ...]:
-    # Cached worker returns immutable tuple to safely share across calls.
-    # This avoids re-running expensive regexes on identical inputs.
+def _cached_tokenize(text: str) -> tuple[str, ...]:
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
     cleaned = _URL_PATTERN.sub(" ", cleaned)
@@ -974,12 +972,11 @@ def _tokenize_issue_description_worker(text: str) -> tuple[str, ...]:
 
 
 def _tokenize_issue_description(text: str) -> list[str]:
-    # Wrapper converts cached tuple back to mutable list for callers.
-    return list(_tokenize_issue_description_worker(text))
+    return list(_cached_tokenize(text))
 
 
 @lru_cache(maxsize=4096)
-def _normalize_title_similarity_worker(value: str) -> str:
+def _cached_normalize_title(value: str) -> str:
     lowered = value.lower()
     cleaned = _LOWER_ALPHANUM_PATTERN.sub(" ", lowered)
     return _WHITESPACE_PATTERN.sub(" ", cleaned).strip()
@@ -988,7 +985,7 @@ def _normalize_title_similarity_worker(value: str) -> str:
 def _normalize_title_similarity(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    return _normalize_title_similarity_worker(value)
+    return _cached_normalize_title(value)
 
 
 def _title_similarity_tokens(title: object) -> set[str]:
@@ -1089,10 +1086,15 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     return assignments, label_map
 
 
+@lru_cache(maxsize=4096)
+def _cached_normalize_text(value: str) -> str:
+    return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
+
+
 def _normalize_text_field(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
+    return _cached_normalize_text(value)
 
 
 def _coerce_int(value: object, default: int = 0) -> int:
