@@ -997,6 +997,9 @@ def _title_similarity_tokens(title: object) -> set[str]:
 def _title_similarity_score(
     tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
 ) -> float:
+    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
+        return 0.0
+
     base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
@@ -9148,10 +9151,6 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     # If no files need updating, we can skip the heavy setup logic entirely.
     context = {}
     if paths_to_process:
-        # We load manual docs only when we have files to process.
-        # This prevents unnecessary file I/O on every refresh cycle when data is stable.
-        manual_docs = load_manual_docs()
-
         # Populate context dictionaries using simple logic derived from legacy code
         scanner_labels = {}
         root_cause_labels = {}
@@ -9603,11 +9602,24 @@ def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
     return load_tracked_cases()
 
 
-def load_full_case_data(path: str) -> dict[str, object]:
+@st.cache_data(ttl=None, max_entries=100)
+def _load_full_case_data_worker(path: str, mtime: float) -> dict[str, object]:
+    """Worker for load_full_case_data, cached by modification time."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def load_full_case_data(path: str) -> dict[str, object]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return {}
+    return _load_full_case_data_worker(path, mtime)
 
 
 def update_case_fields(path: str, fields: dict[str, object]) -> None:
@@ -10637,20 +10649,21 @@ def render_saved_cases_page() -> None:
         selected_case = filtered_records[selection]
         case_path = Path(selected_case["path"])
 
-        action_cols = st.columns(3)
+        action_cols = st.columns(4)
         if action_cols[0].button(
-            "Load in current tab",
+            "📂 Load in current tab",
             key=global_widget_key("saved_cases_load_current"),
-            help="Overwrite current tab with this case data",
+            help="⚠️ Overwrite the currently active case tab with this data. Unsaved changes in the active tab will be lost.",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=False)
             else:
                 st.error("Case file could not be found on disk.")
         if action_cols[1].button(
-            "Load in new case tab",
+            "✨ Load in new tab",
             key=global_widget_key("saved_cases_load_new"),
-            help="Open this case in a new tab",
+            type="primary",
+            help="Open this case in a new workspace tab. Safe and recommended.",
         ):
             if case_path.exists():
                 request_load_from_path(str(case_path), prefer_new_tab=True)
@@ -10669,18 +10682,51 @@ def render_saved_cases_page() -> None:
 
         if export_bytes is not None:
             action_cols[2].download_button(
-                "Export JSON",
+                "⬇️ Export JSON",
                 export_bytes,
                 file_name=case_path.name,
                 mime="application/json",
                 key=global_widget_key("saved_cases_export_json"),
+                help="Download the raw JSON file for backup or sharing.",
             )
         else:
             action_cols[2].warning(
                 f"Unable to export this case ({export_error or 'unknown error'})."
             )
+
+        delete_key = global_widget_key(f"saved_delete_{selection}")
+        confirm_key = f"{delete_key}_confirm"
+
+        if st.session_state.get(confirm_key):
+            if action_cols[3].button(
+                "Confirm Delete",
+                key=f"{delete_key}_yes",
+                type="primary",
+                help="Permanently delete this case file",
+            ):
+                try:
+                    case_path.unlink(missing_ok=True)
+                    st.toast(f"Deleted case: {case_path.name}")
+                    st.session_state[confirm_key] = False
+                    time.sleep(0.5)
+                    st.rerun()
+                except OSError as e:
+                    st.error(f"Error deleting file: {e}")
+            elif action_cols[3].button("Cancel", key=f"{delete_key}_no"):
+                st.session_state[confirm_key] = False
+                st.rerun()
+        else:
+            if action_cols[3].button(
+                "Delete",
+                key=delete_key,
+                help="Permanently delete this case file",
+            ):
+                st.session_state[confirm_key] = True
+                st.rerun()
     else:
-        st.info("No cases match the current filters.")
+        st.info(
+            "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
+        )
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
