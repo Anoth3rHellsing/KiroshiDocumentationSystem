@@ -16379,18 +16379,21 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Company name",
             "company_name",
             container=name_cols[0],
+            placeholder="e.g. Acme Dental Clinic",
             help="The full legal name of the clinic or lab.",
         )
         auto_text_input(
             "Subscription ID",
             "subscription_id",
             container=name_cols[1],
+            placeholder="e.g. 1234567890",
             help="The unique **Dongle ID** or **Subscription ID** identifying the customer license.",
         )
         auto_text_input(
             "Case ID",
             "case_id",
             container=name_cols[2],
+            placeholder="e.g. CS-0012345",
             help="The CRM ticket number (e.g. CS-0012345) for this incident.",
         )
 
@@ -16399,6 +16402,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            placeholder="e.g. Unite crashes on startup",
+            help="A short summary of the issue for quick reference.",
         )
         version_col = details_cols[1]
         auto_text_input(
