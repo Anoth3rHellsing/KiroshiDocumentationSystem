@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-24 - Optimization of Case Title Clustering
+**Learning:** O(N^2) clustering algorithms on the "Saved Cases" page become a bottleneck as history grows. Using an inverted index (token -> cluster indices) allows skipping comparison with disjoint clusters entirely.
+**Action:** Replaced the nested loop in `_cluster_case_titles` with an inverted index lookup, reducing complexity from O(N*M) to O(N*K) where K is the number of overlapping clusters.
