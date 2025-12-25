@@ -19469,7 +19469,12 @@ End with: We look forward to your reply."""
             st.session_state[priority_key] = normalize_priority(
                 st.session_state.get(priority_key)
             )
-            st.selectbox("Priority", PRIORITY_OPTIONS, key=priority_key)
+            st.selectbox(
+                "Priority",
+                PRIORITY_OPTIONS,
+                key=priority_key,
+                help="Determines urgency level on the Dashboard.",
+            )
 
             category_key = tracking_tab_key("track_category")
             st.text_input(
@@ -19488,7 +19493,12 @@ End with: We look forward to your reply."""
                     status_choices = [current_status] + [
                         opt for opt in status_choices if opt != current_status
                     ]
-                st.selectbox("Status", status_choices, key=status_key)
+                st.selectbox(
+                    "Status",
+                    status_choices,
+                    key=status_key,
+                    help="Current status of the case.",
+                )
             else:
                 st.text_input(
                     "Status",
@@ -19506,9 +19516,18 @@ End with: We look forward to your reply."""
                     and D.service_tag
                 ):
                     st.session_state[service_tag_key] = D.service_tag
-                st.text_input("Service Tag", key=service_tag_key)
+                st.text_input(
+                    "Service Tag",
+                    key=service_tag_key,
+                    help="The 7-character alphanumeric Service Tag (e.g. 8X3J9Z1).",
+                    placeholder="e.g. 8X3J9Z1",
+                )
             elif tracking_type == "FedEx":
-                st.date_input("Expected arrival date", key=expected_key)
+                st.date_input(
+                    "Expected arrival date",
+                    key=expected_key,
+                    help="The estimated delivery date provided by the courier.",
+                )
 
             if st.button(
                 "Save and track",
