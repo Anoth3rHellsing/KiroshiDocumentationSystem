@@ -16475,7 +16475,11 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
         else:
             ft_case_ref = ""
 
-        if description_col.button("Insert into Additional Info", key=widget_key("ft_insert", CURRENT_CASE_IDX)):
+        if description_col.button(
+            "Insert into Additional Info",
+            key=widget_key("ft_insert", CURRENT_CASE_IDX),
+            help="Append the generated reference text to the additional info field",
+        ):
             to_append = ""
             if ft_choice == "Yes":
                 to_append = "This is the first time this issue happens."
@@ -20903,7 +20907,11 @@ def main():
     for idx, tab in enumerate(case_tabs):
         with tab:
             if idx == len(visible_case_indices):
-                if st.button("Add Case", help="Create a new case workspace"):
+                if st.button(
+                    "✨ Add Case",
+                    help="Create a new case workspace",
+                    type="primary",
+                ):
                     st.session_state.case_sessions.append(CaseSession(case=CaseData()))
                     _sync_case_memory_from_sessions()
                     st.rerun()
