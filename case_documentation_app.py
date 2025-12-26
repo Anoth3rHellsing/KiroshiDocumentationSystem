@@ -11192,7 +11192,8 @@ def _render_settings_ai_tab() -> None:
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The endpoint URL for the API (default: https://api.openai.com/v1)."
+            help="The endpoint URL for the API (default: https://api.openai.com/v1).",
+            placeholder="https://api.openai.com/v1",
         )
 
         # Ensure default model is selected if current selection is invalid
@@ -11210,7 +11211,8 @@ def _render_settings_ai_tab() -> None:
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio)."
+            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio).",
+            placeholder="http://localhost:1234/v1",
         )
         st.text_input(
             "API Key (optional)",
@@ -19506,7 +19508,12 @@ End with: We look forward to your reply."""
                     and D.service_tag
                 ):
                     st.session_state[service_tag_key] = D.service_tag
-                st.text_input("Service Tag", key=service_tag_key)
+                st.text_input(
+                    "Service Tag",
+                    key=service_tag_key,
+                    help="Dell Service Tag (7 characters)",
+                    placeholder="e.g. 8X9Y1Z2",
+                )
             elif tracking_type == "FedEx":
                 st.date_input("Expected arrival date", key=expected_key)
 
@@ -20605,7 +20612,10 @@ End with: We look forward to your reply."""
 
         st.subheader("Case Dex")
         dex_case_id = st.text_input(
-            "Case ID", key=save_tab_key("case_dex_id")
+            "Case ID",
+            key=save_tab_key("case_dex_id"),
+            help="Enter the Case ID to fetch from the external Dex system.",
+            placeholder="e.g. CS-0012345",
         )
         if st.button(
             "Fetch Case Dex",
