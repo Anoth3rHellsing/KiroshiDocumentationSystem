@@ -13500,6 +13500,17 @@ def merge_ai_learning_datasets(
     return dataset
 
 
+@st.cache_data(ttl=None)
+def _load_single_case_record_cached(path_str: str, mtime: float) -> dict[str, object] | None:
+    """Load a single case record, cached by modification time."""
+    try:
+        # We use path_str to ensure hashability
+        data = json.loads(Path(path_str).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
     """Yield paths and loaded data for all saved case files."""
     if not DATABASE_DIR.exists():
@@ -13517,11 +13528,13 @@ def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
                     continue
 
                 try:
-                    path = Path(entry.path)
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        yield path, data
-                except (OSError, json.JSONDecodeError):
+                    # Use cached loader based on mtime
+                    # entry.stat() is cached on Windows from scandir
+                    mtime = entry.stat().st_mtime
+                    data = _load_single_case_record_cached(entry.path, mtime)
+                    if data is not None:
+                        yield Path(entry.path), data
+                except OSError:
                     continue
     except OSError:
         return
