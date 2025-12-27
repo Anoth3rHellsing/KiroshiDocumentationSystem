@@ -1,5 +1,3 @@
-# Palette's Journal
-
 ## 2024-05-22 - Initial Setup
 **Learning:** Streamlit apps require different UX strategies than React apps. Standard HTML/CSS tweaks are harder to inject cleanly.
 **Action:** Focus on Streamlit's native parameters (like `help=`, `placeholder=`, `on_click=`) and use `st.markdown` carefully for styling.
@@ -15,3 +13,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-23 - Static Verification of UI Attributes
+**Learning:** Runtime verification of Streamlit widget properties (like `placeholder`) is difficult in headless tests because they don't produce standard HTML output until rendered by the frontend.
+**Action:** Use Python's `ast` (Abstract Syntax Tree) module to statically analyze the codebase for the presence of specific keyword arguments in `st.*` calls, ensuring critical UX attributes are present without needing a full browser harness.

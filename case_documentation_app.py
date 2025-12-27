@@ -12272,6 +12272,7 @@ def show_incident_report_modal() -> None:
             shot_name = st.text_input(
                 "Screenshot name",
                 key=global_widget_key("incident_screenshot_name"),
+                placeholder="e.g. Error Dialog",
                 help="Used to label the image inside the PDF.",
             )
             capture_error = st.session_state.get("incident_reporter_capture_error")
@@ -12704,7 +12705,12 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             type=["txt"],
             key=chat_tab_key("doc_file"),
         )
-        doc_title = st.text_input("Title", key=chat_tab_key("doc_title"))
+        doc_title = st.text_input(
+            "Title",
+            key=chat_tab_key("doc_title"),
+            placeholder="e.g. VPN Troubleshooting Guide",
+            help="A descriptive title for this knowledge base entry.",
+        )
         if st.button("Save document", key=chat_tab_key("save_doc")):
             if doc_file and doc_title:
                 content = doc_file.getvalue().decode("utf-8", errors="ignore")
@@ -12759,7 +12765,12 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             _record_global_chat_exchange(prompt_payload, reply_text)
             return reply_text
 
-        search_query = st.text_input("Search query", key=chat_tab_key("db_query"))
+        search_query = st.text_input(
+            "Search query",
+            key=chat_tab_key("db_query"),
+            placeholder="e.g. error 500",
+            help="Search the local knowledge base for matching terms.",
+        )
         if st.button("Search in database", key=chat_tab_key("db_search_button")):
             if not search_query:
                 st.error("Enter a search query.")
@@ -12965,7 +12976,10 @@ def render_smart_aid_panel() -> None:
     areas_key = global_widget_key("smart_areas")
 
     supervisor_name = st.text_input(
-        "Supervisor (optional)", key=supervisor_key
+        "Supervisor (optional)",
+        key=supervisor_key,
+        placeholder="e.g. Senior Agent Smith",
+        help="Name of the supervisor providing this guidance.",
     )
     feedback_text = st.text_area(
         "Supervisor feedback or reminder",
