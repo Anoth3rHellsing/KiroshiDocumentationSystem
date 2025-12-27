@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Actionable Empty State Content
+**Learning:** Empty states are prime real estate for onboarding. A passive "No items" message is a missed opportunity to teach the user how the feature works.
+**Action:** Rewrite empty state messages to answer "How do I get items here?" (e.g., instead of "No tracked cases", use "Track a case by clicking the Star icon").

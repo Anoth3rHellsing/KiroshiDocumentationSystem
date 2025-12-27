@@ -9910,7 +9910,7 @@ def render_responsive_altair_chart(chart: alt.Chart) -> None:
 def render_tracked_case_insights(cases: list) -> None:
     st.subheader("Tracked Case Insights")
     if not cases:
-        st.caption("No tracked cases to visualize yet.")
+        st.caption("Insights will appear here once you start tracking cases.")
         return
 
     df = pd.DataFrame(cases)
@@ -9998,7 +9998,10 @@ def render_tracked_cases_dashboard(
     key_namespace: str = "tracked",
 ) -> None:
     if not cases:
-        st.info("No cases are currently being tracked.")
+        st.info(
+            "No active cases on the radar. Open a case and click 'Save and Track' "
+            "in the Tracking tab to pin it here."
+        )
         return
     filtered_cases = cases
     query = search_query.strip().lower()
@@ -10263,7 +10266,7 @@ def render_dell_fedex_dashboard(cases: list) -> None:
             key_namespace="dell_dashboard",
         )
     else:
-        st.caption("No Dell escalations in the queue.")
+        st.caption("No Dell escalations pending. Flag a case as 'Dell' in Tracking to monitor it here.")
 
     st.markdown("**FedEx Replacements**")
     if fedex_cases:
@@ -10273,7 +10276,7 @@ def render_dell_fedex_dashboard(cases: list) -> None:
             key_namespace="fedex_dashboard",
         )
     else:
-        st.caption("No FedEx replacements awaiting action.")
+        st.caption("No FedEx shipments pending. Flag a case as 'FedEx' in Tracking to monitor it here.")
 
 
 def _start_day_logic(today_date: str):
@@ -10477,7 +10480,7 @@ def render_sprint_tab() -> None:
 def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
     saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        st.info("Your case history is empty. Start your first mission by clicking '+ New Case' in the tabs above.")
         return
     st.caption("Preview of your most recent saved cases. Use the Saved Cases tab for the full index.")
     preview = saved_cases[:5]
@@ -10807,7 +10810,7 @@ def render_dashboard() -> None:
             for path in recent:
                 st.write(path.stem)
         else:
-            st.caption("No historical tracked files yet.")
+            st.caption("Recently tracked files will list here for quick access.")
     with main_col:
         with st.container():
             st.markdown("<div class='dashboard-section'>", unsafe_allow_html=True)
