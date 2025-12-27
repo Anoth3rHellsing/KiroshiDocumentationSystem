@@ -20605,7 +20605,10 @@ End with: We look forward to your reply."""
 
         st.subheader("Case Dex")
         dex_case_id = st.text_input(
-            "Case ID", key=save_tab_key("case_dex_id")
+            "Case ID",
+            key=save_tab_key("case_dex_id"),
+            placeholder="e.g. CS-12345",
+            help="Enter the Case ID to fetch the Case Dex package.",
         )
         if st.button(
             "Fetch Case Dex",
