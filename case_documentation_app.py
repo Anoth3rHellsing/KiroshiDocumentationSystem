@@ -19924,6 +19924,7 @@ End with: We look forward to your reply."""
                 "service_tag",
                 container=col_pc1,
                 help="Found on the back of the PC or via 'wmic bios get serialnumber'.",
+                placeholder="e.g. ABC1234",
             )
             auto_text_input(
                 "PC Model",
@@ -19972,17 +19973,26 @@ End with: We look forward to your reply."""
                 "scanner_sn",
                 container=col_sc1,
                 help="The serial number usually located on the scanner or its base (e.g. s12345678).",
+                placeholder="e.g. s12345678",
             )
-            auto_text_input("Base serial", "base_sn", container=col_sc2)
+            auto_text_input(
+                "Base serial",
+                "base_sn",
+                container=col_sc2,
+                help="The serial number of the pod/base (e.g. p12345678).",
+                placeholder="e.g. p12345678",
+            )
             auto_text_input(
                 "TRIOS module version",
                 "trios_module_version",
                 container=col_sc1,
+                placeholder="e.g. 1.2.3.4",
             )
             auto_text_input(
                 "Dongle deployment date (YYYY-MM-DD)",
                 "dongle_deployment_date",
                 container=col_sc2,
+                placeholder="YYYY-MM-DD",
             )
             auto_number_input(
                 "Number of previous replacements",
