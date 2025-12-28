@@ -13612,6 +13612,7 @@ def _sync_ai_learning_signature_from_dataset(
         st.session_state.ai_learning_signature = None
 
 
+@st.cache_data(ttl=2)
 def _saved_case_files_signature() -> tuple[tuple[str, float], ...]:
     """Return a signature of the current state of saved case files."""
     if not DATABASE_DIR.exists():
