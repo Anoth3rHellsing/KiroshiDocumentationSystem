@@ -16380,18 +16380,21 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "company_name",
             container=name_cols[0],
             help="The full legal name of the clinic or lab.",
+            placeholder="e.g. Smile Dental Clinic",
         )
         auto_text_input(
             "Subscription ID",
             "subscription_id",
             container=name_cols[1],
             help="The unique **Dongle ID** or **Subscription ID** identifying the customer license.",
+            placeholder="e.g. 123456789",
         )
         auto_text_input(
             "Case ID",
             "case_id",
             container=name_cols[2],
             help="The CRM ticket number (e.g. CS-0012345) for this incident.",
+            placeholder="e.g. CS-0012345",
         )
 
         details_cols = card.columns((2, 1))
