@@ -628,6 +628,13 @@ _NON_ALPHANUMERIC_PATTERN = re.compile(r"[^0-9A-Za-z]+")
 _LOWER_ALPHANUM_PATTERN = re.compile(r"[^0-9a-z]+")
 _WHITESPACE_PATTERN = re.compile(r"\s+")
 
+_TOKEN_CLEANUP_PATTERN = re.compile(
+    r"(?i:\b(?:case|caso|ticket|inc(?:ident)?|sr|cs|bug|pr|issue)[-_\s]*\d+\b)|"
+    r"(?:\b[A-Z]{2,}\d{3,}\b)|"
+    r"(?:https?://\S+)|"
+    r"(?:[^0-9A-Za-z]+)"
+)
+
 _GENERIC_STOPWORDS = {
     "the",
     "and",
@@ -963,10 +970,7 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 
 @lru_cache(maxsize=1024)
 def _tokenize_issue_description(text: str) -> tuple[str, ...]:
-    cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
-    cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
-    cleaned = _URL_PATTERN.sub(" ", cleaned)
-    cleaned = _NON_ALPHANUMERIC_PATTERN.sub(" ", cleaned)
+    cleaned = _TOKEN_CLEANUP_PATTERN.sub(" ", text)
     tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
     return tuple(token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit())
 
