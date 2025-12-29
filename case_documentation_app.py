@@ -199,7 +199,7 @@ AUTOSAVE_DIR = Path("autosaves")
 _AUTOSAVE_SESSION_ID = uuid.uuid4().hex
 DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
-    "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",
+    "",  # SECURITY: API key must be provided via environment variable or UI settings. Do not hardcode.
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 DEFAULT_AI_MODE = "Cloud"
