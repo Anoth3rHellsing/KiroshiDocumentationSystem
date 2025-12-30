@@ -9807,12 +9807,8 @@ def format_tracking_date(value) -> str:
         return str(value)
 
 
-def parse_iso_datetime(value) -> datetime | None:
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value
-    text = str(value)
+@lru_cache(maxsize=10000)
+def _cached_parse_iso_str(text: str) -> datetime | None:
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
@@ -9822,6 +9818,16 @@ def parse_iso_datetime(value) -> datetime | None:
         return parsed
     except Exception:
         return None
+
+
+def parse_iso_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return _cached_parse_iso_str(value)
+    return _cached_parse_iso_str(str(value))
 
 
 def format_last_modified(value) -> str:
