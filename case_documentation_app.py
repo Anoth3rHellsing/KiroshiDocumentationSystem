@@ -1013,19 +1013,28 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index: token -> set of cluster indices
+    token_map: dict[str, set[int]] = defaultdict(set)
+    # Track clusters that have NO tokens (for blank/symbol-only titles)
+    clusters_without_tokens: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
         if not normalized and not tokens:
-            blank_index = next(
-                (
-                    idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
-                ),
-                None,
-            )
+            if clusters_without_tokens:
+                blank_index = next(
+                    (
+                        idx
+                        for idx in clusters_without_tokens
+                        if not clusters[idx].get("normalized")
+                    ),
+                    None,
+                )
+            else:
+                blank_index = None
+
             if blank_index is None:
                 clusters.append(
                     {
@@ -1035,12 +1044,27 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                clusters_without_tokens.add(blank_index)
             assignments.append(blank_index)
             continue
 
+        candidates: set[int]
+        if tokens:
+            candidates = set()
+            for t in tokens:
+                candidates.update(token_map.get(t, []))
+            candidates.update(clusters_without_tokens)
+        else:
+            # If no tokens, we must check everything (or at least all without tokens,
+            # but string similarity might match even if one side has tokens and other doesn't?)
+            # Logic: if tokens_a is empty, disjoint check in _title_similarity_score won't trigger.
+            candidates = set(range(len(clusters)))
+
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+        # Iterate over sorted candidates to ensure deterministic tie-breaking
+        for idx in sorted(candidates):
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1056,6 +1080,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if label_source
                 else "Caso sin título"
             )
+            new_index = len(clusters)
             clusters.append(
                 {
                     "normalized": normalized,
@@ -1063,11 +1088,22 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            assignments.append(new_index)
+            if tokens:
+                for t in tokens:
+                    token_map[t].add(new_index)
+            else:
+                clusters_without_tokens.add(new_index)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+            if not cluster_tokens and tokens:
+                clusters_without_tokens.discard(best_index)
             cluster_tokens.update(tokens)
+            if tokens:
+                for t in tokens:
+                    token_map[t].add(best_index)
+
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)
