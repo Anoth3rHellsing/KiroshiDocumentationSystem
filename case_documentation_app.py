@@ -10517,7 +10517,22 @@ def render_saved_cases_page() -> None:
     )
     saved_cases = list_saved_cases()
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        empty_col1, empty_col2, empty_col3 = st.columns([1, 2, 1])
+        with empty_col2:
+            st.info("No saved cases found in your database.")
+            st.markdown("### Ready to start?")
+            st.markdown(
+                "Launch a new case workspace to begin tracking your first issue."
+            )
+            if st.button(
+                "✨ Create New Case",
+                type="primary",
+                key="saved_cases_empty_create",
+                use_container_width=True,
+            ):
+                st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+                _sync_case_memory_from_sessions()
+                st.rerun()
         return
 
     saved_df = pd.DataFrame(saved_cases)
