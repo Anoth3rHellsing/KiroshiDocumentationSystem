@@ -12704,7 +12704,9 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             type=["txt"],
             key=chat_tab_key("doc_file"),
         )
-        doc_title = st.text_input("Title", key=chat_tab_key("doc_title"))
+        doc_title = st.text_input(
+            "Title", key=chat_tab_key("doc_title"), placeholder="e.g. Error 404 Troubleshooting"
+        )
         if st.button("Save document", key=chat_tab_key("save_doc")):
             if doc_file and doc_title:
                 content = doc_file.getvalue().decode("utf-8", errors="ignore")
@@ -12759,7 +12761,9 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             _record_global_chat_exchange(prompt_payload, reply_text)
             return reply_text
 
-        search_query = st.text_input("Search query", key=chat_tab_key("db_query"))
+        search_query = st.text_input(
+            "Search query", key=chat_tab_key("db_query"), placeholder="e.g. installation error"
+        )
         if st.button("Search in database", key=chat_tab_key("db_search_button")):
             if not search_query:
                 st.error("Enter a search query.")
@@ -12965,7 +12969,7 @@ def render_smart_aid_panel() -> None:
     areas_key = global_widget_key("smart_areas")
 
     supervisor_name = st.text_input(
-        "Supervisor (optional)", key=supervisor_key
+        "Supervisor (optional)", key=supervisor_key, placeholder="e.g. Jane Doe"
     )
     feedback_text = st.text_area(
         "Supervisor feedback or reminder",
@@ -19506,7 +19510,12 @@ End with: We look forward to your reply."""
                     and D.service_tag
                 ):
                     st.session_state[service_tag_key] = D.service_tag
-                st.text_input("Service Tag", key=service_tag_key)
+                st.text_input(
+                    "Service Tag",
+                    key=service_tag_key,
+                    placeholder="e.g. 1A2B3C4",
+                    help="Found on the back of the PC or via 'wmic bios get serialnumber'.",
+                )
             elif tracking_type == "FedEx":
                 st.date_input("Expected arrival date", key=expected_key)
 
@@ -20605,7 +20614,9 @@ End with: We look forward to your reply."""
 
         st.subheader("Case Dex")
         dex_case_id = st.text_input(
-            "Case ID", key=save_tab_key("case_dex_id")
+            "Case ID",
+            key=save_tab_key("case_dex_id"),
+            placeholder="e.g. CS-12345",
         )
         if st.button(
             "Fetch Case Dex",
