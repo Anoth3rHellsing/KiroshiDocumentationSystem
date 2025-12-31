@@ -12479,6 +12479,48 @@ def render_with_monitor(
         st.stop()
 
 
+def render_copy_button(text_content: str, label: str, unique_key: str) -> None:
+    """Render a copy-to-clipboard button for the provided text."""
+    copy_suffix_raw = f"{unique_key}".lower()
+    copy_suffix = re.sub(r"[^0-9a-z]+", "", copy_suffix_raw)
+    if not copy_suffix:
+        copy_suffix = "copy"
+    if copy_suffix[0].isdigit():
+        copy_suffix = f"a{copy_suffix}"
+
+    # We need to reimplement script_safe_json logic here because script_safe_json
+    # is defined later in the file. Since Python functions are resolved at runtime,
+    # we could just call it, but if this function is moved or used during import
+    # (unlikely), it might fail. To be safe and self-contained:
+    text_payload = json.dumps(text_content).replace("</", "<\\/")
+
+    components.html(
+        f"""
+        <div style="display:flex;align-items:center;margin-bottom:0.1rem;">
+            <button onclick="copyContent{copy_suffix}()"
+                    style="padding:0.25rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;font-family:inherit;font-size:0.85rem;color:#333;">
+                {label}
+            </button>
+            <span id="feedback-{copy_suffix}" style="font-size:0.75rem;color:#4CAF50;margin-left:0.5rem;"></span>
+        </div>
+        <script>
+            function copyContent{copy_suffix}() {{
+                navigator.clipboard.writeText({text_payload}).then(() => {{
+                    const feedback = document.getElementById('feedback-{copy_suffix}');
+                    if (feedback) {{
+                        feedback.textContent = 'Copied!';
+                        setTimeout(() => {{
+                            feedback.textContent = '';
+                        }}, 2000);
+                    }}
+                }});
+            }}
+        </script>
+        """,
+        height=32,
+    )
+
+
 def _render_case_tab(idx: int) -> None:
     """Render a single case tab inside the failure monitor."""
 
@@ -18847,6 +18889,8 @@ Remember that this process will not have a cost.
 Please also remember to send us back the faulty {device} using the shipping label you will find in the box. Please be informed that if we do not receive the faulty scanner within 32 days of your receipt of the new device, your TRIOS licenses will expire.
 
 Wishing you the best again!"""
+                current_text = st.session_state.get(email_tab_key("generated_email"), email_text)
+                render_copy_button(current_text, "Copy email", email_tab_key("fedex_copy"))
                 st.text_area(
                     "Email",
                     email_text,
@@ -19004,6 +19048,8 @@ Wishing you the best again!"""
                     f"\n\nBest regards,\n{agent}\n3Shape Support"
                 )
                 email_text = f"{intro}\n{body}\n\n{closing}"
+                current_text = st.session_state.get(email_tab_key("generated_email"), email_text)
+                render_copy_button(current_text, "Copy email", email_tab_key("replacement_copy"))
                 st.text_area(
                     "Email",
                     email_text,
@@ -19059,6 +19105,8 @@ Please remember to send us back the faulty scanner using the shipping label incl
 You may schedule a pickup with FedEx here: {pickup}
 
 Wishing you the best again!"""
+                current_text = st.session_state.get(email_tab_key("generated_email"), email_text)
+                render_copy_button(current_text, "Copy email", email_tab_key("wired_copy"))
                 st.text_area(
                     "Email",
                     email_text,
@@ -19095,6 +19143,8 @@ We sincerely appreciate your patience and understanding throughout this process.
 Do remember that 10 would be the highest score to rate the following survey: {survey}
 
 Wishing you the best again!"""
+                current_text = st.session_state.get(email_tab_key("generated_email"), email_text)
+                render_copy_button(current_text, "Copy email", email_tab_key("move_copy"))
                 st.text_area(
                     "Email",
                     email_text,
@@ -19204,6 +19254,8 @@ End with: We look forward to your reply."""
                     dell_escalation_dataframe(D), width="stretch"
                 )
                 email_text = build_dell_escalation_email(D)
+                current_text = st.session_state.get(email_tab_key("generated_email"), email_text)
+                render_copy_button(current_text, "Copy email", email_tab_key("dell_copy"))
                 st.text_area(
                     "Email",
                     email_text,
@@ -19398,6 +19450,9 @@ End with: We look forward to your reply."""
                                 save_memory(st.session_state.kiroshi_chat_history)
                                 st.session_state.generated_email = reply
                                 st.session_state[generated_email_key] = reply
+
+            final_email_content = st.session_state.get(generated_email_key, "")
+            render_copy_button(final_email_content, "Copy email", email_tab_key("generic_copy"))
             st.session_state.generated_email = st.text_area(
                 "Generated Email",
                 height=300,
