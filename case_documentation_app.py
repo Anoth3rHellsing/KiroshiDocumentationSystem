@@ -9807,12 +9807,8 @@ def format_tracking_date(value) -> str:
         return str(value)
 
 
-def parse_iso_datetime(value) -> datetime | None:
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value
-    text = str(value)
+@lru_cache(maxsize=1024)
+def _cached_parse_iso_str(text: str) -> datetime | None:
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
@@ -9822,6 +9818,15 @@ def parse_iso_datetime(value) -> datetime | None:
         return parsed
     except Exception:
         return None
+
+
+def parse_iso_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value)
+    return _cached_parse_iso_str(text)
 
 
 def format_last_modified(value) -> str:
@@ -10510,15 +10515,16 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
-def render_saved_cases_page() -> None:
-    st.markdown(
-        "<div class='dashboard-title'>Saved Cases</div>",
-        unsafe_allow_html=True,
-    )
+@st.cache_data
+def _get_saved_cases_dataframe(scan_ts: float) -> pd.DataFrame:
+    """Cache the transformation of saved cases list to DataFrame.
+
+    This prevents re-iterating, re-parsing dates, and re-building the DataFrame
+    on every UI interaction when the underlying files haven't changed.
+    """
     saved_cases = list_saved_cases()
     if not saved_cases:
-        st.info("No saved cases found in your database.")
-        return
+        return pd.DataFrame()
 
     saved_df = pd.DataFrame(saved_cases)
     saved_df["updated"] = pd.to_datetime(saved_df["updated"])
@@ -10527,6 +10533,21 @@ def render_saved_cases_page() -> None:
         lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
     )
     saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
+    return saved_df
+
+
+def render_saved_cases_page() -> None:
+    st.markdown(
+        "<div class='dashboard-title'>Saved Cases</div>",
+        unsafe_allow_html=True,
+    )
+
+    cache_obj = _get_global_case_cache()
+    saved_df = _get_saved_cases_dataframe(cache_obj.last_scan_ts)
+
+    if saved_df.empty:
+        st.info("No saved cases found in your database.")
+        return
 
     version_options = sorted(
         {str(v) for v in saved_df["kiroshi_version"].dropna().unique() if str(v).strip()}
