@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-12-31 - Interactive List Items
+**Learning:** `st.write` inside loops creates dead ends. `st.button` with `use_container_width=True` can simulate interactive list items effectively in Streamlit, turning read-only history into actionable shortcuts.
+**Action:** When displaying lists of files or cases, default to using full-width buttons instead of text to reduce friction.

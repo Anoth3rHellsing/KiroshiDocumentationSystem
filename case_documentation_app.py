@@ -10805,7 +10805,13 @@ def render_dashboard() -> None:
         recent = recent_tracked_files(tracked_cases)
         if recent:
             for path in recent:
-                st.write(path.stem)
+                if st.button(
+                    f"📂 {path.stem}",
+                    key=f"recent_track_{path}",
+                    help=f"Load case {path.stem} in a new tab",
+                    use_container_width=True,
+                ):
+                    request_load_from_path(str(path), prefer_new_tab=True)
         else:
             st.caption("No historical tracked files yet.")
     with main_col:
