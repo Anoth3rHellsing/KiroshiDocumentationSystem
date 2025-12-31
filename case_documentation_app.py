@@ -20429,6 +20429,11 @@ End with: We look forward to your reply."""
             "repro_steps",
             height=180,
             container=st,
+            placeholder=(
+                "1. Open 3Shape Unite\n"
+                "2. Go to Patients\n"
+                "3. Click on..."
+            ),
         )
 
     # ================== TABLES TAB =================
