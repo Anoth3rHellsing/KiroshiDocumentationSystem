@@ -9831,6 +9831,28 @@ def format_last_modified(value) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
+@st.cache_data(show_spinner=False)
+def _get_saved_cases_dataframe(saved_cases: list[dict[str, object]]) -> pd.DataFrame:
+    """Efficiently convert saved cases list to a DataFrame with formatting."""
+    if not saved_cases:
+        return pd.DataFrame()
+
+    saved_df = pd.DataFrame(saved_cases)
+    # Optimize datetime conversion
+    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
+    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
+
+    # Vectorized or optimized tag processing
+    # Using a list comprehension is generally faster than apply for simple string joins
+    saved_df["tags_text"] = [
+        ", ".join(dict.fromkeys(tags)) if tags else ""
+        for tags in saved_df["tags"]
+    ]
+
+    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
+    return saved_df
+
+
 def list_saved_cases(source_data: list[dict[str, object]] | None = None) -> list:
     """Retrieve all saved cases using the optimized global cache."""
     all_cases = source_data if source_data is not None else _refresh_and_get_cases()
@@ -10520,13 +10542,7 @@ def render_saved_cases_page() -> None:
         st.info("No saved cases found in your database.")
         return
 
-    saved_df = pd.DataFrame(saved_cases)
-    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
-    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
-    saved_df["tags_text"] = saved_df["tags"].apply(
-        lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
-    )
-    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
+    saved_df = _get_saved_cases_dataframe(saved_cases)
 
     version_options = sorted(
         {str(v) for v in saved_df["kiroshi_version"].dropna().unique() if str(v).strip()}
