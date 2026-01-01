@@ -995,16 +995,30 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str],
+    tokens_b: set[str],
+    norm_a: str,
+    norm_b: str,
+    threshold: float = 0.0,
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    jaccard = 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
         jaccard = (intersection / union) if union else 0.0
+
+        # Optimization: Early exit if max possible score cannot reach threshold
+        # Max possible score assumes base (SequenceMatcher) = 1.0
+        # Score = 0.6 * base + 0.4 * jaccard
+        # Max Score = 0.6 + 0.4 * jaccard
+        if threshold > 0 and (0.6 + 0.4 * jaccard) < threshold:
+            return 0.0
+
+    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if tokens_a and tokens_b:
         return 0.6 * base + 0.4 * jaccard
     return base
 
@@ -1040,16 +1054,22 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         best_index = -1
         best_score = 0.0
+        base_threshold = 0.68 if tokens else 0.8
+
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            # Pass the higher of the current best score or the base threshold
+            # to enable aggressive pruning in _title_similarity_score.
+            min_required = max(best_score, base_threshold)
+            score = _title_similarity_score(
+                tokens, cluster_tokens, normalized, cluster_norm, threshold=min_required
+            )
             if score > best_score:
                 best_score = score
                 best_index = idx
 
-        threshold = 0.68 if tokens else 0.8
-        if best_index == -1 or best_score < threshold:
+        if best_index == -1 or best_score < base_threshold:
             label_source = title if isinstance(title, str) and title.strip() else normalized
             label = (
                 _summarize_text(label_source, width=80)
