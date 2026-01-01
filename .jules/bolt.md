@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - DataFrame Construction Caching
+**Learning:** In Streamlit apps, repetitive DataFrame construction and transformation (like `pd.to_datetime` and string manipulation) inside main view functions can add significant latency (e.g. 30-50ms per rerun for 3k rows) because they run on every interaction.
+**Action:** Extracted the DataFrame construction logic into a separate function `_get_saved_cases_dataframe` decorated with `@st.cache_data`. This ensures that the expensive pandas operations are only performed when the underlying data actually changes, making the UI feel much snappier.

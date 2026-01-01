@@ -10510,6 +10510,24 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
+@st.cache_data(show_spinner=False)
+def _get_saved_cases_dataframe(saved_cases: list[dict[str, object]]) -> pd.DataFrame:
+    """Convert saved cases list to DataFrame with formatted fields, cached for performance."""
+    if not saved_cases:
+        return pd.DataFrame()
+    saved_df = pd.DataFrame(saved_cases)
+    if "updated" in saved_df.columns:
+        saved_df["updated"] = pd.to_datetime(saved_df["updated"])
+        saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
+
+    if "tags" in saved_df.columns:
+        saved_df["tags_text"] = [
+            ", ".join(dict.fromkeys(t)) if isinstance(t, (list, tuple)) and t else ""
+            for t in saved_df["tags"]
+        ]
+    return saved_df
+
+
 def render_saved_cases_page() -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
@@ -10520,12 +10538,7 @@ def render_saved_cases_page() -> None:
         st.info("No saved cases found in your database.")
         return
 
-    saved_df = pd.DataFrame(saved_cases)
-    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
-    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
-    saved_df["tags_text"] = saved_df["tags"].apply(
-        lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
-    )
+    saved_df = _get_saved_cases_dataframe(saved_cases)
     saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
 
     version_options = sorted(
