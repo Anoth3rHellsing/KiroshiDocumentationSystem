@@ -12703,8 +12703,14 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             "Add document",
             type=["txt"],
             key=chat_tab_key("doc_file"),
+            help="Upload a text file containing knowledge base articles or notes.",
         )
-        doc_title = st.text_input("Title", key=chat_tab_key("doc_title"))
+        doc_title = st.text_input(
+            "Title",
+            key=chat_tab_key("doc_title"),
+            placeholder="e.g. Printer Troubleshooting Guide",
+            help="A descriptive title for this document to aid in search.",
+        )
         if st.button("Save document", key=chat_tab_key("save_doc")):
             if doc_file and doc_title:
                 content = doc_file.getvalue().decode("utf-8", errors="ignore")
