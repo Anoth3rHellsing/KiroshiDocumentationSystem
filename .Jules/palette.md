@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-23 - Placeholder Value
+**Learning:** In text-heavy workflows like "Sprint" or "Incident Reporting", users often freeze on blank inputs ("what format do they want?"). Simple example placeholders (`e.g. Network timeout`) significantly reduce this friction without cluttering the UI with label help text.
+**Action:** Audit all `st.text_input` and `st.text_area` calls in new features for `placeholder` arguments, specifically providing *examples* rather than just restating the label.
