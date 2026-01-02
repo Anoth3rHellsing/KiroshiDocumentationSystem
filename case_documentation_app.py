@@ -9807,21 +9807,31 @@ def format_tracking_date(value) -> str:
         return str(value)
 
 
+@st.cache_resource
+def _get_persistent_iso_parser() -> Callable[[str], datetime | None]:
+    """Return a cached ISO date parser that persists across reruns."""
+    @lru_cache(maxsize=4096)
+    def _parse(text: str) -> datetime | None:
+        try:
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            return parsed
+        except Exception:
+            return None
+    return _parse
+
+
 def parse_iso_datetime(value) -> datetime | None:
     if not value:
         return None
     if isinstance(value, datetime):
         return value
     text = str(value)
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-        if parsed.tzinfo is not None:
-            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-        return parsed
-    except Exception:
-        return None
+    parser = _get_persistent_iso_parser()
+    return parser(text)
 
 
 def format_last_modified(value) -> str:
