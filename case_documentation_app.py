@@ -19697,27 +19697,60 @@ End with: We look forward to your reply."""
 
             st.markdown("##### Clinic contact information")
             clinic_col1, clinic_col2 = st.columns(2)
-            auto_text_input("Clinic name", "clinic_name", container=clinic_col1)
+            auto_text_input(
+                "Clinic name",
+                "clinic_name",
+                container=clinic_col1,
+                placeholder="e.g. Smile Dental Clinic",
+            )
             auto_text_input(
                 "Full name of person responsible for receiving the equipment",
                 "clinic_contact_name",
                 container=clinic_col2,
+                placeholder="e.g. Dr. John Doe",
             )
             auto_text_input(
                 "Phone number",
                 "clinic_contact_phone",
                 container=clinic_col1,
+                placeholder="e.g. +1 555-0123",
             )
             auto_text_input(
                 "Email address",
                 "clinic_contact_email",
                 container=clinic_col2,
+                placeholder="e.g. contact@smiledental.com",
             )
-            auto_text_input("Address 1", "clinic_address_line_1", container=clinic_col1)
-            auto_text_input("Address 2 (Suite, etc.)", "clinic_address_line_2", container=clinic_col2)
-            auto_text_input("City", "clinic_city", container=clinic_col1)
-            auto_text_input("State", "clinic_state", container=clinic_col2)
-            auto_text_input("Zip Code", "clinic_postal_code", container=clinic_col1)
+            auto_text_input(
+                "Address 1",
+                "clinic_address_line_1",
+                container=clinic_col1,
+                placeholder="e.g. 123 Main St",
+            )
+            auto_text_input(
+                "Address 2 (Suite, etc.)",
+                "clinic_address_line_2",
+                container=clinic_col2,
+                placeholder="e.g. Suite 400",
+            )
+            auto_text_input(
+                "City",
+                "clinic_city",
+                container=clinic_col1,
+                placeholder="e.g. New York",
+            )
+            auto_text_input(
+                "State",
+                "clinic_state",
+                container=clinic_col2,
+                placeholder="e.g. NY",
+            )
+            auto_text_input(
+                "Zip Code",
+                "clinic_postal_code",
+                container=clinic_col1,
+                placeholder="e.g. 10001",
+            )
 
             st.markdown("##### Dell escalation table preview")
             dell_table = dell_escalation_dataframe(D)
