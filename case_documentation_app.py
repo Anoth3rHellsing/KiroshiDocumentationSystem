@@ -12335,7 +12335,11 @@ def show_incident_report_modal() -> None:
                 if isinstance(candidate_case, CaseData):
                     case_data = candidate_case
 
-        if st.button("Generate PDF", key=global_widget_key("incident_generate_pdf")):
+        if st.button(
+            "Generate PDF",
+            key=global_widget_key("incident_generate_pdf"),
+            help="Compile the incident report into a downloadable PDF.",
+        ):
             logs = _collect_recent_logs()
             case_snapshot = _case_metadata_snapshot(case_idx_int)
             try:
@@ -12352,7 +12356,11 @@ def show_incident_report_modal() -> None:
                 st.session_state.incident_reporter_pdf = pdf_bytes
                 st.success("Incident PDF generated. Download below.")
 
-        if st.button("Create Helpjuice guide", key=global_widget_key("incident_helpjuice")):
+        if st.button(
+            "Create Helpjuice guide",
+            key=global_widget_key("incident_helpjuice"),
+            help="Draft a Knowledge Base article based on this incident.",
+        ):
             logs = _collect_recent_logs()
             matches = st.session_state.get("ai_learning_matches") or []
             manual_docs = st.session_state.get("manual_docs") or []
