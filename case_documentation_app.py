@@ -10517,7 +10517,12 @@ def render_saved_cases_page() -> None:
     )
     saved_cases = list_saved_cases()
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        col1, col2 = st.columns([2, 1])
+        col1.info("No saved cases found in your database. Start your first mission now.")
+        if col2.button("✨ Create new case", type="primary", use_container_width=True):
+            st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+            _sync_case_memory_from_sessions()
+            st.rerun()
         return
 
     saved_df = pd.DataFrame(saved_cases)
