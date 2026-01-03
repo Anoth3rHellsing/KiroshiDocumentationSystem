@@ -13500,6 +13500,19 @@ def merge_ai_learning_datasets(
     return dataset
 
 
+@st.cache_data(ttl=None, max_entries=5000)
+def _load_single_case_record_cached(path_str: str, mtime: float) -> dict[str, object] | None:
+    """Load and parse a single case file, cached by modification time."""
+    try:
+        path = Path(path_str)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, json.JSONDecodeError):
+        return None
+    return None
+
+
 def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
     """Yield paths and loaded data for all saved case files."""
     if not DATABASE_DIR.exists():
@@ -13516,13 +13529,11 @@ def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
                 ):
                     continue
 
-                try:
-                    path = Path(entry.path)
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        yield path, data
-                except (OSError, json.JSONDecodeError):
-                    continue
+                # Bolt Optimization: Use incremental caching for individual files
+                # to prevent O(N) re-parsing of the entire database on every rerun.
+                data = _load_single_case_record_cached(entry.path, entry.stat().st_mtime)
+                if data is not None:
+                    yield Path(entry.path), data
     except OSError:
         return
 
