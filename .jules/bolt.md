@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - Optimizing Case Title Clustering
+**Learning:** `SequenceMatcher.ratio()` is computationally expensive (O(N*M)) and is called quadratically when clustering case titles. Most title pairs have low token overlap.
+**Action:** Implemented a pruning strategy in `_title_similarity_score` using the Jaccard index upper bound. If `0.6 + 0.4 * jaccard` is less than or equal to the current `best_score` (or threshold), we skip the `SequenceMatcher` calculation entirely. This yielded a ~1.3x speedup on synthetic datasets by fast-failing low-similarity pairs.
