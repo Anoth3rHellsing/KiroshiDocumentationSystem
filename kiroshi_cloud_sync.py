@@ -54,7 +54,6 @@ class AgentBlockedError(CloudError):
 
 
 DEFAULT_USERNAME = "admin"
-DEFAULT_PASSWORD = "admin123!"
 DEFAULT_OVERLAY_PROVIDER = "Tailscale, ZeroTier, or WireGuard"
 DEFAULT_OVERLAY_INSTRUCTIONS = """
 1. **Install the overlay agent** – deploy a mesh VPN such as
@@ -248,26 +247,10 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _synchronise_default_flag(config: dict[str, Any]) -> bool:
-    try:
-        salt_encoded = config.get("password_salt")
-        password_hash = config.get("password_hash")
-        if not isinstance(salt_encoded, str) or not isinstance(password_hash, str):
-            return False
-        salt = _decode_salt(salt_encoded)
-    except Exception:  # pragma: no cover - configuration corruption guard
-        return False
-
-    expected_default = _hash_password(DEFAULT_PASSWORD, salt)
-    using_defaults = (
-        config.get("username") == DEFAULT_USERNAME
-        and secrets.compare_digest(password_hash, expected_default)
-    )
-
-    if config.get("uses_default_credentials") == using_defaults:
-        return False
-
-    config["uses_default_credentials"] = using_defaults
-    return True
+    if "uses_default_credentials" not in config:
+        config["uses_default_credentials"] = True
+        return True
+    return False
 
 
 def _ensure_optional_fields(config: dict[str, Any]) -> bool:
@@ -289,7 +272,9 @@ def _ensure_optional_fields(config: dict[str, Any]) -> bool:
         config["overlay_instructions"] = DEFAULT_OVERLAY_INSTRUCTIONS.strip()
         updated = True
 
-    return updated or _synchronise_default_flag(config)
+    # Note: _synchronise_default_flag only checks existence now, so its logic is basically
+    # covered by the check above, but we keep it safe.
+    return updated
 
 
 def _upgrade_config(config: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -318,16 +303,20 @@ def _upgrade_config(config: dict[str, Any], path: Path) -> dict[str, Any]:
     return config
 
 
-def _initialize_default_config(path: Path) -> dict[str, Any]:
+def _initialize_default_config(path: Path) -> tuple[dict[str, Any], str]:
     salt_password = os.urandom(16)
     salt_encryption = os.urandom(16)
     instance_id = str(uuid.uuid4())
     now = _utc_timestamp()
+
+    # Generate a random password for the initial setup
+    password = secrets.token_urlsafe(16)
+
     config = {
         "version": CONFIG_VERSION,
         "username": DEFAULT_USERNAME,
         "password_salt": base64.urlsafe_b64encode(salt_password).decode("utf-8"),
-        "password_hash": _hash_password(DEFAULT_PASSWORD, salt_password),
+        "password_hash": _hash_password(password, salt_password),
         "encryption_salt": base64.urlsafe_b64encode(salt_encryption).decode("utf-8"),
         "instance_id": instance_id,
         "created_at": now,
@@ -337,10 +326,10 @@ def _initialize_default_config(path: Path) -> dict[str, Any]:
         "overlay_instructions": DEFAULT_OVERLAY_INSTRUCTIONS.strip(),
     }
     _write_json(path, config)
-    return config
+    return config, password
 
 
-def load_cloud_config(create_if_missing: bool = True) -> dict[str, Any]:
+def load_cloud_config(create_if_missing: bool = True) -> tuple[dict[str, Any], str | None]:
     """Load the persistent cloud configuration, creating a default one if needed."""
 
     _ensure_directories()
@@ -348,16 +337,19 @@ def load_cloud_config(create_if_missing: bool = True) -> dict[str, Any]:
         config_exists = CLOUD_CONFIG_PATH.exists()
     except OSError as exc:
         raise CloudError(_cloud_share_error_message(exc)) from exc
+
     if config_exists:
         try:
             config = _read_json(CLOUD_CONFIG_PATH)
         except json.JSONDecodeError as exc:  # pragma: no cover - defensive guard
             raise CloudError(f"Invalid cloud configuration file: {exc}") from exc
-        return _upgrade_config(config, CLOUD_CONFIG_PATH)
+        return _upgrade_config(config, CLOUD_CONFIG_PATH), None
+
     if not create_if_missing:
         raise CloudError("Kiroshi Cloud configuration is missing.")
-    config = _initialize_default_config(CLOUD_CONFIG_PATH)
-    return _upgrade_config(config, CLOUD_CONFIG_PATH)
+
+    config, password = _initialize_default_config(CLOUD_CONFIG_PATH)
+    return _upgrade_config(config, CLOUD_CONFIG_PATH), password
 
 
 def _decode_salt(encoded: str) -> bytes:
@@ -868,7 +860,7 @@ class CloudSession:
 def open_cloud_session(username: str, password: str) -> CloudSession:
     """Authenticate against the encrypted Kiroshi Cloud store."""
 
-    config = load_cloud_config(create_if_missing=True)
+    config, _ = load_cloud_config(create_if_missing=True)
     stored_username = config.get("username")
     if stored_username != username:
         raise AuthenticationError("The provided username does not match the cloud configuration.")
@@ -1019,7 +1011,7 @@ def save_local_ai_dataset(dataset: dict[str, Any]) -> None:
 def overlay_guidance(config: dict[str, Any] | None = None) -> dict[str, str]:
     if config is None:
         try:
-            config = load_cloud_config()
+            config, _ = load_cloud_config()
         except CloudError:
             config = {}
 
@@ -1130,7 +1122,6 @@ __all__ = [
     "CLOUD_DEVICES_PATH",
     "CLOUD_EDUCATE_PATH",
     "DEFAULT_USERNAME",
-    "DEFAULT_PASSWORD",
     "DEFAULT_OVERLAY_INSTRUCTIONS",
     "DEFAULT_OVERLAY_PROVIDER",
     "ensure_cloud_share",
@@ -1148,4 +1139,3 @@ __all__ = [
     "summarize_dataset",
     "update_device_status",
 ]
-

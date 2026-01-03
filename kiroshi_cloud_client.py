@@ -15,7 +15,6 @@ from kiroshi_cloud_sync import (
     AuthenticationError,
     CloudError,
     CloudSession,
-    DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
     cloud_share_status,
     overlay_guidance,
@@ -128,7 +127,13 @@ def _render_login() -> None:
         st.error(share_status["message"])
         st.stop()
 
-    config = load_cloud_config()
+    config, new_password = load_cloud_config()
+
+    if new_password:
+        st.session_state.newly_generated_password = new_password
+
+    generated_password = st.session_state.get("newly_generated_password")
+
     if config.get("uses_default_credentials"):
         st.warning(
             "The cloud instance is still using the default credentials. Update them in the "
@@ -141,10 +146,17 @@ def _render_login() -> None:
         submitted = st.form_submit_button("Connect to Kiroshi Cloud", type="primary")
 
     if not submitted:
-        st.info(
-            "Default credentials: **%s / %s**.\n\nChange them immediately after the first login."
-            % (DEFAULT_USERNAME, DEFAULT_PASSWORD)
-        )
+        if generated_password:
+             st.info(
+                f"A secure default password has been generated: **{generated_password}**\n\n"
+                f"Username: **{DEFAULT_USERNAME}**\n\n"
+                "Please save this password securely. You can change it in the Security tab after logging in."
+            )
+        else:
+             st.info(
+                "Please log in with your credentials.\n"
+                "If you have lost the default password, delete 'cloud_config.json' to generate a new one."
+            )
         return
 
     try:
@@ -631,7 +643,7 @@ def _render_analytics() -> None:
 
 def _render_security() -> None:
     session: CloudSession = st.session_state.cloud_session
-    config = load_cloud_config()
+    config, _ = load_cloud_config()
 
     st.subheader("Credentials")
     st.caption("Rotate the username and password used by Kiroshi clients to connect to this cloud instance.")
@@ -659,7 +671,7 @@ def _render_security() -> None:
             else:
                 st.session_state.cloud_username = username.strip()
                 st.success("Credentials updated. Remember to update each Kiroshi workstation.")
-                config = load_cloud_config()
+                config, _ = load_cloud_config()
 
     st.divider()
     st.subheader("Security posture")
@@ -762,4 +774,3 @@ if st.session_state.cloud_session is None:
     _render_login()
 else:
     _render_authenticated()
-
