@@ -15,3 +15,6 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+## 2025-05-23 - Sprint Task Input Guidance
+**Learning:** Adding placeholders and help text to 'Root Cause' and 'Solution' fields in the Sprint tab significantly improves user guidance, clarifying the expected input format and detail level for task completion.
+**Action:** Always include placeholder examples and help tooltips for free-text inputs in task management interfaces to reduce ambiguity.
