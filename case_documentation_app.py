@@ -2669,11 +2669,13 @@ def _normalize_hex_color(value: str) -> str:
     return f"#{color.lower()}"
 
 
+@lru_cache(maxsize=1024)
 def _hex_to_rgb_tuple(value: str) -> tuple[int, int, int]:
     color = _normalize_hex_color(value).lstrip("#")
     return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
 
 
+@lru_cache(maxsize=1024)
 def _blend_hex_colors(base: str, mix: str, ratio: float) -> str:
     """Mix two colors together, clamping the ratio between 0 and 1."""
 
@@ -2694,6 +2696,7 @@ def _rgba(color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha_str})"
 
 
+@lru_cache(maxsize=1024)
 def _relative_luminance(color: str) -> float:
     """Return the W3C relative luminance for the provided hex color."""
 
@@ -2712,6 +2715,7 @@ def _relative_luminance(color: str) -> float:
     )
 
 
+@lru_cache(maxsize=1024)
 def _preferred_text_for_background(background: str, preferred: str) -> str:
     """Return a text color with adequate contrast for the given background."""
 
