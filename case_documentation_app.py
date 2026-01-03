@@ -8025,6 +8025,26 @@ def _attachments_loader() -> Callable[
     return _noop_loader
 
 
+@st.cache_data(ttl=None, max_entries=100)
+def _load_full_case_data_worker(path: str, mtime: float) -> dict[str, object]:
+    """Worker for load_full_case_data, cached by modification time."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def load_full_case_data(path: str) -> dict[str, object]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return {}
+    return _load_full_case_data_worker(path, mtime)
+
+
 def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
     sessions: list[CaseSession] = []
     for entry in _load_case_tab_memory():
@@ -8037,13 +8057,13 @@ def _hydrate_case_sessions_from_memory() -> list[CaseSession]:
 
         if source_path:
             try:
-                raw = json.loads(Path(source_path).read_text(encoding="utf-8"))
+                raw = load_full_case_data(source_path)
                 if isinstance(raw, Mapping):
                     case_payload = {
                         k: v for k, v in raw.items() if k in CaseData.__annotations__
                     }
                     attachments_index = _normalise_attachments_index(raw.get("attachments"))
-            except (OSError, json.JSONDecodeError) as exc:
+            except Exception as exc:
                 logging.warning("Unable to refresh case %s from disk: %s", source_path, exc)
 
         if isinstance(case_payload, Mapping):
@@ -9608,26 +9628,6 @@ def save_sprint_state(state: SprintState) -> None:
 
 def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
     return load_tracked_cases()
-
-
-@st.cache_data(ttl=None, max_entries=100)
-def _load_full_case_data_worker(path: str, mtime: float) -> dict[str, object]:
-    """Worker for load_full_case_data, cached by modification time."""
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def load_full_case_data(path: str) -> dict[str, object]:
-    p = Path(path)
-    if not p.exists():
-        return {}
-    try:
-        mtime = p.stat().st_mtime
-    except OSError:
-        return {}
-    return _load_full_case_data_worker(path, mtime)
 
 
 def update_case_fields(path: str, fields: dict[str, object]) -> None:
