@@ -995,17 +995,29 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str],
+    tokens_b: set[str],
+    norm_a: str,
+    norm_b: str,
+    threshold: float = 0.0,
 ) -> float:
-    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
-        return 0.0
-
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     if tokens_a and tokens_b:
+        if tokens_a.isdisjoint(tokens_b):
+            return 0.0
+
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
         jaccard = (intersection / union) if union else 0.0
+
+        # Optimization: Upper bound check
+        # Max possible score is 0.6 * 1.0 (perfect match) + 0.4 * jaccard
+        if (0.6 + 0.4 * jaccard) < threshold:
+            return 0.0
+
+        base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
         return 0.6 * base + 0.4 * jaccard
+
+    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     return base
 
 
@@ -1040,16 +1052,29 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         best_index = -1
         best_score = 0.0
+
+        # Calculate threshold early to use for pruning
+        global_threshold = 0.68 if tokens else 0.8
+
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
+            # Prune candidates that cannot beat the current best score OR the minimum threshold
+            prune_threshold = max(best_score, global_threshold)
+
+            score = _title_similarity_score(
+                tokens,
+                cluster_tokens,
+                normalized,
+                cluster_norm,
+                threshold=prune_threshold,
+            )
             if score > best_score:
                 best_score = score
                 best_index = idx
 
-        threshold = 0.68 if tokens else 0.8
-        if best_index == -1 or best_score < threshold:
+        if best_index == -1 or best_score < global_threshold:
             label_source = title if isinstance(title, str) and title.strip() else normalized
             label = (
                 _summarize_text(label_source, width=80)
@@ -1102,7 +1127,8 @@ def _coerce_int(value: object, default: int = 0) -> int:
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
-    token_counter = Counter(token.lower() for token in tokens if token)
+    # tokens are already lowercased and filtered by _tokenize_issue_description
+    token_counter = Counter(tokens)
     if not token_counter:
         return None
 
