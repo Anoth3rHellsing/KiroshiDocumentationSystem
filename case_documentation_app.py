@@ -995,16 +995,30 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str],
+    tokens_b: set[str],
+    norm_a: str,
+    norm_b: str,
+    threshold: float = 0.0,
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    # Calculate Jaccard similarity first (fast set operation)
+    jaccard = 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
         jaccard = (intersection / union) if union else 0.0
+
+        # Optimization: Check upper bound before expensive sequence matching
+        # The maximum possible base score is 1.0.
+        # If (0.6 * 1.0 + 0.4 * jaccard) < threshold, we can't possibly beat the threshold.
+        if (0.6 + 0.4 * jaccard) < threshold:
+            return 0.0
+
+    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if tokens_a and tokens_b:
         return 0.6 * base + 0.4 * jaccard
     return base
 
@@ -1040,16 +1054,26 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         best_index = -1
         best_score = 0.0
+
+        # Optimization: Start with the minimum required threshold for a match.
+        # This allows _title_similarity_score to prune candidates that can't possibly meet it.
+        base_threshold = 0.68 if tokens else 0.8
+        current_threshold = base_threshold
+
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            score = _title_similarity_score(
+                tokens, cluster_tokens, normalized, cluster_norm, threshold=current_threshold
+            )
             if score > best_score:
                 best_score = score
                 best_index = idx
+                # If we found a match better than the current threshold, raise the bar.
+                if score > current_threshold:
+                    current_threshold = score
 
-        threshold = 0.68 if tokens else 0.8
-        if best_index == -1 or best_score < threshold:
+        if best_index == -1 or best_score < base_threshold:
             label_source = title if isinstance(title, str) and title.strip() else normalized
             label = (
                 _summarize_text(label_source, width=80)

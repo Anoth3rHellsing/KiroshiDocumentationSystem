@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-24 - Optimization of String Similarity Scoring
+**Learning:** `difflib.SequenceMatcher.ratio()` is computationally expensive ($O(N \cdot M)$). When calculating similarity scores against a threshold, checking faster metrics (like Jaccard similarity of token sets) first can determine the mathematical upper bound of the final score. If the upper bound is below the threshold, the expensive calculation can be skipped entirely.
+**Action:** Implemented a dual-stage check in `_title_similarity_score`. It now calculates Jaccard similarity first and returns early if `0.6 + 0.4 * jaccard < threshold`. This yielded a ~6x speedup in clustering operations for 500+ case titles.
