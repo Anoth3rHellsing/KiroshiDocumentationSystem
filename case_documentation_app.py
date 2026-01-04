@@ -10510,6 +10510,26 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
+def _reset_saved_cases_filters() -> None:
+    """Callback to reset all search and filter widgets in Saved Cases to their defaults."""
+    search_key = global_widget_key("saved_cases_search")
+    if search_key in st.session_state:
+        st.session_state[search_key] = ""
+
+    tracking_key = global_widget_key("saved_cases_tracking_filter")
+    if tracking_key in st.session_state:
+        st.session_state[tracking_key] = "All records"
+
+    legacy_key = global_widget_key("saved_cases_legacy_filter")
+    if legacy_key in st.session_state:
+        st.session_state[legacy_key] = "All"
+
+    # For multiselect, deleting the key forces it to re-initialize with the 'default' argument
+    version_key = global_widget_key("saved_cases_version_filter")
+    if version_key in st.session_state:
+        del st.session_state[version_key]
+
+
 def render_saved_cases_page() -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
@@ -10732,8 +10752,13 @@ def render_saved_cases_page() -> None:
                 st.session_state[confirm_key] = True
                 st.rerun()
     else:
-        st.info(
-            "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
+        st.info("No cases match the current filters.")
+        st.button(
+            "Clear Filters",
+            key=global_widget_key("saved_cases_clear_filters"),
+            on_click=_reset_saved_cases_filters,
+            type="primary",
+            help="Reset search and filters to show all saved cases.",
         )
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
