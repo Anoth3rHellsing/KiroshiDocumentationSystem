@@ -10410,10 +10410,18 @@ def render_sprint_tab() -> None:
                     sol_key = f"sol_{task.case_id}_{idx}"
 
                     new_rc = st.text_input(
-                        "Root Cause", value=task.root_cause, key=rc_key
+                        "Root Cause",
+                        value=task.root_cause,
+                        key=rc_key,
+                        placeholder="e.g. Network timeout caused by firewall",
+                        help="Briefly describe the underlying issue.",
                     )
                     new_sol = st.text_area(
-                        "Solution", value=task.solution, key=sol_key
+                        "Solution",
+                        value=task.solution,
+                        key=sol_key,
+                        placeholder="e.g. Added exception to firewall rules",
+                        help="Describe the steps taken to resolve the issue.",
                     )
 
                     # Detect changes and sync to DB
