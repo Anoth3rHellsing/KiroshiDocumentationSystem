@@ -12703,9 +12703,18 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             "Add document",
             type=["txt"],
             key=chat_tab_key("doc_file"),
+            help="Upload a text file to add to the knowledge base",
         )
-        doc_title = st.text_input("Title", key=chat_tab_key("doc_title"))
-        if st.button("Save document", key=chat_tab_key("save_doc")):
+        doc_title = st.text_input(
+            "Title",
+            key=chat_tab_key("doc_title"),
+            placeholder="e.g. Printer Troubleshooting Guide",
+        )
+        if st.button(
+            "Save document",
+            key=chat_tab_key("save_doc"),
+            help="Save the uploaded document to the manual knowledge base",
+        ):
             if doc_file and doc_title:
                 content = doc_file.getvalue().decode("utf-8", errors="ignore")
                 st.session_state.manual_docs.append({"title": doc_title, "content": content})
@@ -12759,8 +12768,16 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             _record_global_chat_exchange(prompt_payload, reply_text)
             return reply_text
 
-        search_query = st.text_input("Search query", key=chat_tab_key("db_query"))
-        if st.button("Search in database", key=chat_tab_key("db_search_button")):
+        search_query = st.text_input(
+            "Search query",
+            key=chat_tab_key("db_query"),
+            placeholder="e.g. How do I reset the network settings?",
+        )
+        if st.button(
+            "Search in database",
+            key=chat_tab_key("db_search_button"),
+            help="Search through uploaded manual documents using AI",
+        ):
             if not search_query:
                 st.error("Enter a search query.")
             elif not _chat_ready():
@@ -19550,15 +19567,29 @@ End with: We look forward to your reply."""
                     ensure_tracking_session_defaults(case_idx, D.tracking)
                     st.session_state.track_case = True
                     st.success("Tracking information saved.")
-            if st.button(
-                "Close case & stop tracking",
-                key=tracking_tab_key("close_tracking"),
-                help="Remove this case from the Dashboard tracking list and save changes",
-            ):
-                D.tracking.active = False
-                save_case_to_database(D, notify=False)
-                st.session_state.track_case = False
-                st.rerun()
+            close_tracking_key = tracking_tab_key("close_tracking")
+            confirm_close_key = f"{close_tracking_key}_confirm"
+
+            if st.session_state.get(confirm_close_key):
+                st.warning("Are you sure you want to stop tracking this case?")
+                col_yes, col_no = st.columns(2)
+                if col_yes.button("Yes, close tracking", key=f"{close_tracking_key}_yes"):
+                    D.tracking.active = False
+                    save_case_to_database(D, notify=False)
+                    st.session_state.track_case = False
+                    st.session_state[confirm_close_key] = False
+                    st.rerun()
+                if col_no.button("Cancel", key=f"{close_tracking_key}_no"):
+                    st.session_state[confirm_close_key] = False
+                    st.rerun()
+            else:
+                if st.button(
+                    "Close case & stop tracking",
+                    key=close_tracking_key,
+                    help="Remove this case from the Dashboard tracking list and save changes",
+                ):
+                    st.session_state[confirm_close_key] = True
+                    st.rerun()
 
 
 
