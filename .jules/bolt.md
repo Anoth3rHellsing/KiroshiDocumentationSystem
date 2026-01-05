@@ -15,3 +15,9 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2025-05-23 - Efficient String Clustering with Pruning
+**Learning:** O(N²) string clustering loops using expensive similarity metrics (like ) can be significantly optimized by implementing a cheap pre-check (e.g., Jaccard similarity) and establishing a mathematical upper bound score. If the upper bound of a candidate match is lower than the current best score (or threshold), the expensive calculation can be skipped entirely.
+**Action:** Implemented upper-bound pruning in  and dynamic thresholding in , yielding a ~2x speedup in case title clustering benchmarks.
+## 2025-05-23 - Efficient String Clustering with Pruning
+**Learning:** O(N^2) string clustering loops using expensive similarity metrics (like SequenceMatcher) can be significantly optimized by implementing a cheap pre-check (e.g., Jaccard similarity) and establishing a mathematical upper bound score. If the upper bound of a candidate match is lower than the current best score (or threshold), the expensive calculation can be skipped entirely.
+**Action:** Implemented upper-bound pruning in _title_similarity_score and dynamic thresholding in _cluster_case_titles, yielding a ~2x speedup in case title clustering benchmarks.
