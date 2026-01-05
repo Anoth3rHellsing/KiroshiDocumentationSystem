@@ -19924,12 +19924,14 @@ End with: We look forward to your reply."""
                 "service_tag",
                 container=col_pc1,
                 help="Found on the back of the PC or via 'wmic bios get serialnumber'.",
+                placeholder="e.g. 8K1L2M3",
             )
             auto_text_input(
                 "PC Model",
                 "pc_model",
                 container=col_pc2,
                 help="e.g. Alienware Aurora R16, Dell Precision 3660.",
+                placeholder="e.g. Alienware Aurora R16",
             )
             auto_text_input(
                 "Windows version",
