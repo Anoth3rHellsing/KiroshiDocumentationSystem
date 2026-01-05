@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2024-10-25 - Clustering Performance Optimization
+**Learning:** Optimizing `_cluster_case_titles` with Jaccard-based pruning and lifting `SequenceMatcher` instantiation yielded a ~2x speedup on synthetic data. Reusing the `SequenceMatcher` object for the fixed "left" string in the inner loop reduces overhead significantly when comparing against many "right" strings.
+**Action:** Apply this "lift and reuse" pattern whenever performing one-to-many string comparisons using `SequenceMatcher`.
