@@ -352,6 +352,19 @@ UPDATES_DIR = UTILITIES_DIR / "updates"
 RECENT_CASES_PATH = UTILITIES_DIR / "recent_cases.json"
 TRACKED_CASES_DIR = DATABASE_DIR / "TrackedCases"
 
+
+@st.cache_data(ttl=None, max_entries=1)
+def _load_recent_cases_from_disk_cached(mtime: float) -> list:
+    """Load and parse recent cases, cached until modification time changes."""
+    try:
+        data = json.loads(RECENT_CASES_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        return data
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
 CASE_TAB_MEMORY_FILE = DATABASE_DIR / "case_tabs_memory.json"
 
 # Location for persisted case attachments
