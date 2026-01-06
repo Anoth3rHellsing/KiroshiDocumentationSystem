@@ -10510,6 +10510,20 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
+def _reset_saved_cases_filters() -> None:
+    """Reset all filter widgets on the Saved Cases page to their default states."""
+    keys = [
+        "saved_cases_search",
+        "saved_cases_tracking_filter",
+        "saved_cases_version_filter",
+        "saved_cases_legacy_filter",
+    ]
+    for base in keys:
+        key = global_widget_key(base)
+        if key in st.session_state:
+            del st.session_state[key]
+
+
 def render_saved_cases_page() -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
@@ -10734,6 +10748,12 @@ def render_saved_cases_page() -> None:
     else:
         st.info(
             "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
+        )
+        st.button(
+            "Clear Filters",
+            on_click=_reset_saved_cases_filters,
+            key=global_widget_key("saved_cases_clear_filters"),
+            help="Reset all search and filter criteria to show all cases.",
         )
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
