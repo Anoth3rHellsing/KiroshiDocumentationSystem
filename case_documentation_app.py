@@ -12479,7 +12479,7 @@ def render_with_monitor(
         st.stop()
 
 
-def _render_case_tab(idx: int) -> None:
+def _render_case_tab(idx: int, recent_cases: list | None = None) -> None:
     """Render a single case tab inside the failure monitor."""
 
     load_case_state(idx)
@@ -12503,7 +12503,7 @@ def _render_case_tab(idx: int) -> None:
             unsafe_allow_html=True,
         )
 
-    render_case_ui(idx)
+    render_case_ui(idx, recent_cases=recent_cases)
     save_case_state(idx)
 
 
@@ -17475,7 +17475,7 @@ def _record_global_chat_exchange(user_payload: str, assistant_reply: str) -> Non
     st.session_state["kiroshi_chat_history"] = history
     save_memory(history)
 
-def render_case_ui(case_idx: int):
+def render_case_ui(case_idx: int, recent_cases: list | None = None):
     global CURRENT_CASE_IDX
     CURRENT_CASE_IDX = case_idx
     _sync_case_text_state(case_idx)
@@ -20637,7 +20637,9 @@ End with: We look forward to your reply."""
             )
 
         st.subheader("Recent cases")
-        recent_cases = load_recent_cases()
+        # Use cached list if provided to avoid redundant file stats
+        if recent_cases is None:
+            recent_cases = load_recent_cases()
         if not recent_cases:
             st.info("No recent cases found. Your history will appear here once you load or save a case.")
         for idx, case in enumerate(recent_cases):
@@ -20900,6 +20902,7 @@ def main():
     tab_index += 1
 
     case_tabs = all_tabs[tab_index:]
+    recent_cases_cache = load_recent_cases()
     for idx, tab in enumerate(case_tabs):
         with tab:
             if idx == len(visible_case_indices):
@@ -20916,6 +20919,7 @@ def main():
                     actual_idx,
                     tab_label=case_label,
                     case_index=actual_idx,
+                    recent_cases=recent_cases_cache,
                 )
 
     show_failure_modal()

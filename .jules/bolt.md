@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-21 - Reducing Redundant Stat Calls in Streamlit Reruns
+**Learning:** In a Streamlit app with multiple tabs (like case tabs), rendering functions are called for each tab on every rerun. If these functions perform file checks (like `stat().st_mtime`), it results in N redundant syscalls per rerun.
+**Action:** Load the data once at the top level of the `main` loop and pass it down as an argument to the rendering functions (`_render_case_tab` -> `render_case_ui`). This reduces O(N) stat calls to O(1) per rerun.
