@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-06 - Fuzzy Clustering Optimization
+**Learning:** Inverted indexing alone for text clustering failed due to high token overlap (common words connecting unrelated clusters). Combining inverted indexing with Jaccard-based score pruning (upper bound check) was required to achieve a ~1.7x speedup. The bottleneck was `SequenceMatcher`, and skipping it using a cheaper mathematical bound (Jaccard) was the key win.
+**Action:** When optimizing fuzzy matching, always look for a cheap "upper bound" metric (like Jaccard or token overlap count) to prune candidates before running expensive edit-distance algorithms.
