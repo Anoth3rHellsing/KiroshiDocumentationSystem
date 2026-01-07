@@ -19417,6 +19417,7 @@ End with: We look forward to your reply."""
                 "Tracking type",
                 ["Dell", "FedEx", "Custom"],
                 key=tracking_type_key,
+                help="Choose the vendor or method for tracking this case.",
             )
 
             st.text_input(
@@ -19469,7 +19470,12 @@ End with: We look forward to your reply."""
             st.session_state[priority_key] = normalize_priority(
                 st.session_state.get(priority_key)
             )
-            st.selectbox("Priority", PRIORITY_OPTIONS, key=priority_key)
+            st.selectbox(
+                "Priority",
+                PRIORITY_OPTIONS,
+                key=priority_key,
+                help="Set the urgency level for dashboard sorting.",
+            )
 
             category_key = tracking_tab_key("track_category")
             st.text_input(
@@ -19488,7 +19494,12 @@ End with: We look forward to your reply."""
                     status_choices = [current_status] + [
                         opt for opt in status_choices if opt != current_status
                     ]
-                st.selectbox("Status", status_choices, key=status_key)
+                st.selectbox(
+                    "Status",
+                    status_choices,
+                    key=status_key,
+                    help="Current stage in the tracking workflow.",
+                )
             else:
                 st.text_input(
                     "Status",
@@ -19506,9 +19517,18 @@ End with: We look forward to your reply."""
                     and D.service_tag
                 ):
                     st.session_state[service_tag_key] = D.service_tag
-                st.text_input("Service Tag", key=service_tag_key)
+                st.text_input(
+                    "Service Tag",
+                    key=service_tag_key,
+                    help="The Dell Service Tag for the device being tracked.",
+                    placeholder="e.g. 8X3N2V1",
+                )
             elif tracking_type == "FedEx":
-                st.date_input("Expected arrival date", key=expected_key)
+                st.date_input(
+                    "Expected arrival date",
+                    key=expected_key,
+                    help="When is the package expected to arrive?",
+                )
 
             if st.button(
                 "Save and track",
