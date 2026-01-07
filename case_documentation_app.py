@@ -9098,15 +9098,26 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             snapshot = list(cache_obj.data.values())
 
         # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
-            try:
-                return datetime.fromisoformat(str(t)).timestamp()
-            except ValueError:
-                return 0.0
+        def _get_sort_key(item):
+            # Bolt optimization: prefer pre-calculated timestamp to avoid expensive
+            # datetime.fromisoformat calls during sort (O(N)).
+            ts = item.get("_updated_ts")
+            if ts is not None:
+                return ts
+            # Fallback for legacy cache entries: calculate and backfill
+            t = item.get("updated")
+            if not t:
+                ts = 0.0
+            else:
+                try:
+                    ts = datetime.fromisoformat(str(t)).timestamp()
+                except ValueError:
+                    ts = 0.0
+            item["_updated_ts"] = ts
+            return ts
 
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=_get_sort_key, reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
