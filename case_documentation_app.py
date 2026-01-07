@@ -11192,7 +11192,8 @@ def _render_settings_ai_tab() -> None:
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The endpoint URL for the API (default: https://api.openai.com/v1)."
+            help="The endpoint URL for the API (default: https://api.openai.com/v1).",
+            placeholder="https://api.openai.com/v1",
         )
 
         # Ensure default model is selected if current selection is invalid
@@ -11210,7 +11211,8 @@ def _render_settings_ai_tab() -> None:
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio)."
+            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio).",
+            placeholder="http://localhost:1234/v1",
         )
         st.text_input(
             "API Key (optional)",
