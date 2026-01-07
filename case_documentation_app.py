@@ -11486,6 +11486,7 @@ def _render_settings_cloud_tab() -> None:
         "Usuario del cloud",
         key="kiroshi_cloud_username",
         help="Credencial configurada en la consola de Kiroshi Cloud.",
+        placeholder="e.g. usuario@empresa.com",
         on_change=_on_setting_change("kiroshi_cloud_username"),
     )
     st.text_input(
@@ -11493,10 +11494,12 @@ def _render_settings_cloud_tab() -> None:
         type="password",
         key="kiroshi_cloud_password",
         help="Se guarda únicamente durante esta sesión.",
+        placeholder="Introduce tu contraseña del cloud",
     )
     token_value = st.text_area(
         "Token de conexión del dispositivo",
         key="kiroshi_cloud_token",
+        placeholder="Pega aquí el token de conexión...",
         help=(
             "Pega el token generado para esta estación en la consola de Kiroshi Cloud."
             " El token vincula el ID del dispositivo y el secreto compartido."
