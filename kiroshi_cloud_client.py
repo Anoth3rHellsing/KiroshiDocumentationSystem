@@ -15,8 +15,9 @@ from kiroshi_cloud_sync import (
     AuthenticationError,
     CloudError,
     CloudSession,
-    DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
+    LEGACY_DEFAULT_PASSWORD,
+    check_is_legacy_default,
     cloud_share_status,
     overlay_guidance,
     add_device,
@@ -129,9 +130,16 @@ def _render_login() -> None:
         st.stop()
 
     config = load_cloud_config()
+
+    # Store the generated password in session state so we can display it persistently
+    # during the setup phase.
+    new_password = config.get("_generated_password")
+    if new_password:
+        st.session_state.cloud_initial_password = new_password
+
     if config.get("uses_default_credentials"):
         st.warning(
-            "The cloud instance is still using the default credentials. Update them in the "
+            "The cloud instance is using default credentials. Update them in the "
             "Security tab after logging in."
         )
 
@@ -141,9 +149,18 @@ def _render_login() -> None:
         submitted = st.form_submit_button("Connect to Kiroshi Cloud", type="primary")
 
     if not submitted:
+        # Determine what password to show
+        initial_pw = st.session_state.get("cloud_initial_password")
+        if initial_pw:
+            display_password = initial_pw
+        elif check_is_legacy_default(config):
+            display_password = LEGACY_DEFAULT_PASSWORD
+        else:
+            display_password = "Unknown (Randomly Generated) - Check logs or reset config if lost."
+
         st.info(
             "Default credentials: **%s / %s**.\n\nChange them immediately after the first login."
-            % (DEFAULT_USERNAME, DEFAULT_PASSWORD)
+            % (DEFAULT_USERNAME, display_password)
         )
         return
 
