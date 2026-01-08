@@ -17592,6 +17592,7 @@ def render_case_ui(case_idx: int):
                 "Track case",
                 key=case_tab_key("track_case_button"),
                 width="stretch",
+                help="Pin this case to the Dashboard for long-term tracking",
             ):
                 st.session_state.track_case = True
                 st.rerun()
@@ -17599,6 +17600,7 @@ def render_case_ui(case_idx: int):
                 "AI Assistance",
                 key=case_tab_key("assist_button"),
                 width="stretch",
+                help="Analyze the case with AI to find missing info, suggestions, and potential solutions",
             ):
                 logging.info("AI Assistance button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
