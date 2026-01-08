@@ -10510,23 +10510,82 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
+def _get_saved_cases_signature() -> str:
+    """Compute a signature for the state of saved cases based on directory mtimes."""
+    try:
+        parts = []
+        if DATABASE_DIR.exists():
+            parts.append(f"{DATABASE_DIR.stat().st_mtime:.6f}")
+        if TRACKED_CASES_DIR.exists():
+            parts.append(f"{TRACKED_CASES_DIR.stat().st_mtime:.6f}")
+        if RECENT_CASES_PATH.exists():
+            parts.append(f"{RECENT_CASES_PATH.stat().st_mtime:.6f}")
+
+        # Mix in the last saved case timestamp from session state if available
+        # to ensure immediate updates after saving within the same session
+        if hasattr(st, "session_state"):
+            last_save = st.session_state.get("last_save_time")
+            if last_save:
+                parts.append(str(last_save))
+
+        return hashlib.md5("".join(parts).encode("utf-8")).hexdigest()
+    except Exception as exc:
+        logging.warning("Failed to compute saved cases signature: %s", exc)
+        return str(time.time())
+
+
+@st.cache_data(ttl=None)
+def _get_cached_saved_cases_df(signature: str) -> pd.DataFrame:
+    """Return a processed DataFrame of saved cases, cached by directory signature."""
+    # signature argument is solely for cache invalidation
+    saved_cases = list_saved_cases()
+    if not saved_cases:
+        return pd.DataFrame()
+
+    saved_df = pd.DataFrame(saved_cases)
+
+    # Ensure required columns exist to avoid KeyError later
+    if "updated" not in saved_df.columns:
+        saved_df["updated"] = pd.NaT
+
+    saved_df["updated"] = pd.to_datetime(saved_df["updated"], errors="coerce")
+    saved_df["display_last_modified"] = saved_df["updated"].apply(
+        lambda x: x.strftime("%Y-%m-%d %H:%M") if pd.notnull(x) else ""
+    )
+
+    # Optimization: pre-calculate unique sorted tags string
+    def _fmt_tags(tags):
+        if not tags:
+            return ""
+        # dict.fromkeys preserves order but deduplicates
+        return ", ".join(dict.fromkeys(tags))
+
+    saved_df["tags_text"] = saved_df["tags"].apply(_fmt_tags)
+    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
+
+    # Ensure has_tracking is present for filtering
+    if "has_tracking" not in saved_df.columns:
+        if "tracking" in saved_df.columns:
+            saved_df["has_tracking"] = saved_df["tracking"].apply(lambda t: isinstance(t, dict) and bool(t))
+        else:
+            saved_df["has_tracking"] = False
+
+    return saved_df
+
+
 def render_saved_cases_page() -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
         unsafe_allow_html=True,
     )
-    saved_cases = list_saved_cases()
-    if not saved_cases:
+
+    # Use cached DataFrame construction
+    signature = _get_saved_cases_signature()
+    saved_df = _get_cached_saved_cases_df(signature)
+
+    if saved_df.empty:
         st.info("No saved cases found in your database.")
         return
-
-    saved_df = pd.DataFrame(saved_cases)
-    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
-    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
-    saved_df["tags_text"] = saved_df["tags"].apply(
-        lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
-    )
-    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
 
     version_options = sorted(
         {str(v) for v in saved_df["kiroshi_version"].dropna().unique() if str(v).strip()}
