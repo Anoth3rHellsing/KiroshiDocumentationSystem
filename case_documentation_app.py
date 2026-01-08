@@ -9845,13 +9845,10 @@ def list_saved_cases(source_data: list[dict[str, object]] | None = None) -> list
         # Re-construct fields that might need specific types for the saved cases table
         updated_val = case.get("updated") # This is string isoformat in cache
 
-        # Parse back to datetime for sorting/display logic in consumer
-        dt_updated = parse_iso_datetime(updated_val)
-
-        # Ensure we have fallback if parsing failed (should be handled in cache but safe to double check)
-        if dt_updated is None:
-            # Fallback to current time is misleading, use epoch 0
-            dt_updated = datetime.fromtimestamp(0)
+        # Bolt Optimization: Skip per-row datetime parsing in Python loop.
+        # Pass the ISO string directly to the DataFrame which uses vectorized pd.to_datetime.
+        # dt_updated = parse_iso_datetime(updated_val) <-- SLOW loop
+        dt_updated = updated_val
 
         # Tags construction (re-applying logic if not fully in cache or if needed)
         # Cache stores 'tags' from _derive_analysis_label.
@@ -10521,7 +10518,10 @@ def render_saved_cases_page() -> None:
         return
 
     saved_df = pd.DataFrame(saved_cases)
-    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
+    # Bolt Optimization: Vectorized parsing of ISO strings
+    saved_df["updated"] = pd.to_datetime(saved_df["updated"], format="mixed", errors="coerce")
+    # Restore fallback behavior for invalid dates (NaT -> Epoch 0) to match previous logic
+    saved_df["updated"] = saved_df["updated"].fillna(pd.Timestamp(0))
     saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
     saved_df["tags_text"] = saved_df["tags"].apply(
         lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
