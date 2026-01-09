@@ -10410,10 +10410,18 @@ def render_sprint_tab() -> None:
                     sol_key = f"sol_{task.case_id}_{idx}"
 
                     new_rc = st.text_input(
-                        "Root Cause", value=task.root_cause, key=rc_key
+                        "Root Cause",
+                        value=task.root_cause,
+                        key=rc_key,
+                        placeholder="e.g. Network timeout caused by firewall",
+                        help="Identify the underlying technical reason for the issue.",
                     )
                     new_sol = st.text_area(
-                        "Solution", value=task.solution, key=sol_key
+                        "Solution",
+                        value=task.solution,
+                        key=sol_key,
+                        placeholder="e.g. Added exception to firewall rules",
+                        help="Describe the steps taken to resolve the issue.",
                     )
 
                     # Detect changes and sync to DB
@@ -20605,7 +20613,10 @@ End with: We look forward to your reply."""
 
         st.subheader("Case Dex")
         dex_case_id = st.text_input(
-            "Case ID", key=save_tab_key("case_dex_id")
+            "Case ID",
+            key=save_tab_key("case_dex_id"),
+            placeholder="e.g. CS-12345",
+            help="Enter the Case ID to retrieve from the archive.",
         )
         if st.button(
             "Fetch Case Dex",
