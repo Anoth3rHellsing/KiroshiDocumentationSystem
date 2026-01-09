@@ -10510,12 +10510,12 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
-def render_saved_cases_page() -> None:
+def render_saved_cases_page(source_data: list[dict[str, object]] | None = None) -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
         unsafe_allow_html=True,
     )
-    saved_cases = list_saved_cases()
+    saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
         st.info("No saved cases found in your database.")
         return
@@ -10745,7 +10745,7 @@ def render_saved_cases_page() -> None:
         key=global_widget_key("saved_cases_export_table"),
     )
 
-def render_dashboard() -> None:
+def render_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
     """Render the high-level dashboard overview tab."""
 
     st.markdown(
@@ -10794,7 +10794,7 @@ def render_dashboard() -> None:
         st.session_state.dashboard_load_notice = None
 
     # Fetch all cases once to avoid redundant directory scanning in child components
-    all_cases = _refresh_and_get_cases()
+    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
 
     tracked_cases = load_tracked_cases(source_data=all_cases)
     charts_col, main_col = st.columns([1.1, 2.4])
@@ -20865,6 +20865,10 @@ def main():
     if resolution_notice:
         st.success(resolution_notice)
 
+    # Pre-fetch recent cases once to avoid redundant I/O and throttle checks
+    # when rendering the Dashboard and Saved Cases tabs.
+    recent_cases_data = _refresh_and_get_cases()
+
     visible_case_indices = _visible_case_index_list()
     case_labels = [
         _case_display_name(idx) for idx in visible_case_indices
@@ -20878,14 +20882,22 @@ def main():
 
     tab_index = 0
     with all_tabs[tab_index]:
-        render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
+        render_with_monitor(
+            "Dashboard",
+            render_dashboard,
+            recent_cases_data,
+            tab_label="Dashboard"
+        )
     tab_index += 1
     with all_tabs[tab_index]:
         render_with_monitor("Sprint", render_sprint_tab, tab_label="Sprint")
     tab_index += 1
     with all_tabs[tab_index]:
         render_with_monitor(
-            "Saved Cases", render_saved_cases_page, tab_label="Saved Cases"
+            "Saved Cases",
+            render_saved_cases_page,
+            recent_cases_data,
+            tab_label="Saved Cases"
         )
     tab_index += 1
     with all_tabs[tab_index]:
