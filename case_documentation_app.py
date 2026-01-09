@@ -963,12 +963,19 @@ _STRUCTURED_CATEGORY_HINTS: dict[str, dict[str, object]] = {
 
 @lru_cache(maxsize=1024)
 def _tokenize_issue_description(text: str) -> tuple[str, ...]:
+    # Optimisation: Single-pass tokenization using a generator expression.
+    # Checks length before lowercasing to avoid allocating short strings that will be discarded.
     cleaned = _CASE_REFERENCE_PATTERN.sub(" ", text)
     cleaned = _SERIAL_PATTERN.sub(" ", cleaned)
     cleaned = _URL_PATTERN.sub(" ", cleaned)
     cleaned = _NON_ALPHANUMERIC_PATTERN.sub(" ", cleaned)
-    tokens = [token.lower() for token in cleaned.split() if len(token) >= 3]
-    return tuple(token for token in tokens if token not in _GENERIC_STOPWORDS and not token.isdigit())
+    return tuple(
+        lower_t
+        for t in cleaned.split()
+        if len(t) >= 3
+        for lower_t in (t.lower(),)
+        if lower_t not in _GENERIC_STOPWORDS and not lower_t.isdigit()
+    )
 
 
 @lru_cache(maxsize=1024)
@@ -1102,7 +1109,9 @@ def _coerce_int(value: object, default: int = 0) -> int:
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
-    token_counter = Counter(token.lower() for token in tokens if token)
+    # Optimisation: 'tokens' are pre-normalized (lowercase) by _tokenize_issue_description.
+    # Direct Counter construction avoids O(N) redundant lowercasing loop.
+    token_counter = Counter(tokens)
     if not token_counter:
         return None
 
@@ -1175,7 +1184,8 @@ def _infer_structured_category(
     recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     structured_scores: dict[str, int] = {}
 
-    token_set = {token.lower() for token in tokens}
+    # Optimisation: 'tokens' are pre-normalized (lowercase) by _tokenize_issue_description.
+    token_set = set(tokens)
 
     for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
         score = 0
