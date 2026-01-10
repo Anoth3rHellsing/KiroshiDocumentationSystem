@@ -10510,6 +10510,20 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
+def _reset_saved_cases_filters() -> None:
+    """Clear all filter state variables for the Saved Cases page."""
+
+    keys = [
+        global_widget_key("saved_cases_search"),
+        global_widget_key("saved_cases_tracking_filter"),
+        global_widget_key("saved_cases_version_filter"),
+        global_widget_key("saved_cases_legacy_filter"),
+    ]
+    for key in keys:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
 def render_saved_cases_page() -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
@@ -10733,8 +10747,15 @@ def render_saved_cases_page() -> None:
                 st.rerun()
     else:
         st.info(
-            "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
+            "No cases match your current filters. Try adjusting the search terms or clearing the filters."
         )
+        if st.button(
+            "Clear Filters",
+            key=global_widget_key("saved_cases_clear_filters"),
+            help="Reset search text and all dropdown filters to their default states.",
+        ):
+            _reset_saved_cases_filters()
+            st.rerun()
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
