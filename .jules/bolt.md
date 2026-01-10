@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-21 - Caching Mutable Returns
+**Learning:** When using `@lru_cache` or `@st.cache_data`, the return value must be immutable (like a `tuple` or `frozenset`) if the consumer might modify it. Caching a list or dictionary means one modification corrupts the cache for all future calls.
+**Action:** Converted `compute_us_holidays` to return a `tuple` of tuples instead of a `list` of tuples before applying `@lru_cache`, ensuring thread safety and cache integrity.

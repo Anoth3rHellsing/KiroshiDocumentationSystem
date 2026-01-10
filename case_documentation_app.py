@@ -1084,6 +1084,103 @@ def _cached_normalize_text(value: str) -> str:
     return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
 
 
+@lru_cache(maxsize=1024)
+def _hex_to_rgb_tuple(value: str) -> tuple[int, int, int]:
+    color = _normalize_hex_color(value).lstrip("#")
+    return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
+
+
+@lru_cache(maxsize=1024)
+def _blend_hex_colors(base: str, mix: str, ratio: float) -> str:
+    """Mix two colors together, clamping the ratio between 0 and 1."""
+
+    ratio = min(max(ratio, 0.0), 1.0)
+    base_rgb = _hex_to_rgb_tuple(base)
+    mix_rgb = _hex_to_rgb_tuple(mix)
+    blended = []
+    for base_channel, mix_channel in zip(base_rgb, mix_rgb):
+        value = round(base_channel * (1 - ratio) + mix_channel * ratio)
+        blended.append(max(0, min(255, value)))
+    return "#" + "".join(f"{channel:02x}" for channel in blended)
+
+
+@lru_cache(maxsize=1024)
+def _relative_luminance(color: str) -> float:
+    """Return the W3C relative luminance for the provided hex color."""
+
+    r, g, b = _hex_to_rgb_tuple(color)
+
+    def _channel_luminance(channel: int) -> float:
+        normalized = channel / 255
+        if normalized <= 0.03928:
+            return normalized / 12.92
+        return ((normalized + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * _channel_luminance(r)
+        + 0.7152 * _channel_luminance(g)
+        + 0.0722 * _channel_luminance(b)
+    )
+
+
+@lru_cache(maxsize=1024)
+def _preferred_text_for_background(background: str, preferred: str) -> str:
+    """Return a text color with adequate contrast for the given background."""
+
+    background_luminance = _relative_luminance(background)
+    preferred_luminance = _relative_luminance(preferred)
+
+    if background_luminance >= 0.6 and preferred_luminance >= 0.55:
+        return "#111827"
+    if background_luminance <= 0.2 and preferred_luminance <= 0.35:
+        return "#f8fafc"
+    return preferred
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday_index: int, occurrence: int) -> date:
+    count = 0
+    for day in range(1, 32):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            break
+        if candidate.weekday() == weekday_index:
+            count += 1
+            if count == occurrence:
+                return candidate
+    raise ValueError("Invalid weekday occurrence")
+
+
+def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
+    for day in range(31, 0, -1):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if candidate.weekday() == weekday_index:
+            return candidate
+    raise ValueError("Invalid weekday for month")
+
+
+@lru_cache(maxsize=12)
+def compute_us_holidays(year: int) -> tuple[tuple[date, str], ...]:
+    holidays: list[tuple[date, str]] = [
+        (date(year, 1, 1), "New Year's Day"),
+        (date(year, 2, 8), "Day of Liberty"),
+        (_nth_weekday_of_month(year, 1, calendar.MONDAY, 3), "Martin Luther King Jr. Day"),
+        (_nth_weekday_of_month(year, 2, calendar.MONDAY, 3), "Presidents' Day"),
+        (_last_weekday_of_month(year, 5, calendar.MONDAY), "Memorial Day"),
+        (date(year, 6, 19), "Juneteenth National Independence Day"),
+        (date(year, 7, 4), "Independence Day"),
+        (_nth_weekday_of_month(year, 9, calendar.MONDAY, 1), "Labor Day"),
+        (_nth_weekday_of_month(year, 10, calendar.MONDAY, 2), "Columbus Day"),
+        (date(year, 11, 11), "Veterans Day"),
+        (_nth_weekday_of_month(year, 11, calendar.THURSDAY, 4), "Thanksgiving Day"),
+        (date(year, 12, 25), "Christmas Day"),
+    ]
+    return tuple(holidays)
+
+
 def _normalize_text_field(value: object) -> str:
     if not isinstance(value, str):
         return ""
@@ -2669,60 +2766,11 @@ def _normalize_hex_color(value: str) -> str:
     return f"#{color.lower()}"
 
 
-def _hex_to_rgb_tuple(value: str) -> tuple[int, int, int]:
-    color = _normalize_hex_color(value).lstrip("#")
-    return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
-
-
-def _blend_hex_colors(base: str, mix: str, ratio: float) -> str:
-    """Mix two colors together, clamping the ratio between 0 and 1."""
-
-    ratio = min(max(ratio, 0.0), 1.0)
-    base_rgb = _hex_to_rgb_tuple(base)
-    mix_rgb = _hex_to_rgb_tuple(mix)
-    blended = []
-    for base_channel, mix_channel in zip(base_rgb, mix_rgb):
-        value = round(base_channel * (1 - ratio) + mix_channel * ratio)
-        blended.append(max(0, min(255, value)))
-    return "#" + "".join(f"{channel:02x}" for channel in blended)
-
-
 def _rgba(color: str, alpha: float) -> str:
     r, g, b = _hex_to_rgb_tuple(color)
     alpha = min(max(alpha, 0.0), 1.0)
     alpha_str = f"{alpha:.3f}".rstrip("0").rstrip(".")
     return f"rgba({r}, {g}, {b}, {alpha_str})"
-
-
-def _relative_luminance(color: str) -> float:
-    """Return the W3C relative luminance for the provided hex color."""
-
-    r, g, b = _hex_to_rgb_tuple(color)
-
-    def _channel_luminance(channel: int) -> float:
-        normalized = channel / 255
-        if normalized <= 0.03928:
-            return normalized / 12.92
-        return ((normalized + 0.055) / 1.055) ** 2.4
-
-    return (
-        0.2126 * _channel_luminance(r)
-        + 0.7152 * _channel_luminance(g)
-        + 0.0722 * _channel_luminance(b)
-    )
-
-
-def _preferred_text_for_background(background: str, preferred: str) -> str:
-    """Return a text color with adequate contrast for the given background."""
-
-    background_luminance = _relative_luminance(background)
-    preferred_luminance = _relative_luminance(preferred)
-
-    if background_luminance >= 0.6 and preferred_luminance >= 0.55:
-        return "#111827"
-    if background_luminance <= 0.2 and preferred_luminance <= 0.35:
-        return "#f8fafc"
-    return preferred
 
 
 DEFAULT_THEME = ThemePalette(
@@ -3006,47 +3054,8 @@ def get_kiroshi_message(theme: ThemePalette | None = None) -> str:
     return rng.choice(messages)
 
 
-def _nth_weekday_of_month(year: int, month: int, weekday_index: int, occurrence: int) -> date:
-    count = 0
-    for day in range(1, 32):
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            break
-        if candidate.weekday() == weekday_index:
-            count += 1
-            if count == occurrence:
-                return candidate
-    raise ValueError("Invalid weekday occurrence")
 
 
-def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
-    for day in range(31, 0, -1):
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            continue
-        if candidate.weekday() == weekday_index:
-            return candidate
-    raise ValueError("Invalid weekday for month")
-
-
-def compute_us_holidays(year: int) -> list[tuple[date, str]]:
-    holidays: list[tuple[date, str]] = [
-        (date(year, 1, 1), "New Year's Day"),
-        (date(year, 2, 8), "Day of Liberty"),
-        (_nth_weekday_of_month(year, 1, calendar.MONDAY, 3), "Martin Luther King Jr. Day"),
-        (_nth_weekday_of_month(year, 2, calendar.MONDAY, 3), "Presidents' Day"),
-        (_last_weekday_of_month(year, 5, calendar.MONDAY), "Memorial Day"),
-        (date(year, 6, 19), "Juneteenth National Independence Day"),
-        (date(year, 7, 4), "Independence Day"),
-        (_nth_weekday_of_month(year, 9, calendar.MONDAY, 1), "Labor Day"),
-        (_nth_weekday_of_month(year, 10, calendar.MONDAY, 2), "Columbus Day"),
-        (date(year, 11, 11), "Veterans Day"),
-        (_nth_weekday_of_month(year, 11, calendar.THURSDAY, 4), "Thanksgiving Day"),
-        (date(year, 12, 25), "Christmas Day"),
-    ]
-    return holidays
 
 
 def _is_within_period(target: date, start_tuple: tuple[int, int], end_tuple: tuple[int, int]) -> bool:
