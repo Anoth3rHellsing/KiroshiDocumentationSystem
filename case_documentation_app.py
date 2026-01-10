@@ -9105,8 +9105,14 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             except ValueError:
                 return 0.0
 
+        def _get_sort_key_snapshot(item):
+            ts = item.get("_updated_ts")
+            if ts is not None:
+                return ts
+            return _parse_time_snapshot(item.get("updated"))
+
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=_get_sort_key_snapshot, reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9201,7 +9207,14 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         tags.append(label)
 
                 last_modified = data.get("last_modified")
-                if not last_modified:
+                updated_ts = 0.0
+                if last_modified:
+                    try:
+                        updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except ValueError:
+                        updated_ts = float(mtime)
+                else:
+                    updated_ts = float(mtime)
                     last_modified = (
                         datetime.fromtimestamp(mtime)
                         .replace(microsecond=0)
@@ -9248,6 +9261,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": updated_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
@@ -9290,8 +9304,14 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
         except ValueError:
             return 0.0
 
+    def _get_sort_key(item):
+        ts = item.get("_updated_ts")
+        if ts is not None:
+            return ts
+        return _parse_time(item.get("updated"))
+
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    valid_items.sort(key=_get_sort_key, reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
