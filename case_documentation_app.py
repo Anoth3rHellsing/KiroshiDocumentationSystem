@@ -13146,16 +13146,27 @@ def render_debug_panel() -> None:
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
     if cases is None:
         cases = load_tracked_cases()
-    files: list[Path] = []
+
+    candidates: list[tuple[Path, str]] = []
     for entry in cases:
-        path_value = entry.get("path") if isinstance(entry, Mapping) else None
+        if not isinstance(entry, Mapping):
+            continue
+
+        path_value = entry.get("path")
         if not path_value:
             continue
+
         candidate = Path(path_value)
         if candidate.exists():
-            files.append(candidate)
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[:20]
+            # Optimization: Use the timestamp already loaded in memory to avoid
+            # an extra stat() call during sorting.
+            # _refresh_and_get_cases guarantees this is a valid ISO string or fallback.
+            ts = str(entry.get("last_modified") or entry.get("updated") or "")
+            candidates.append((candidate, ts))
+
+    # Sort by ISO timestamp string (descending)
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    return [x[0] for x in candidates[:20]]
 
 
 def _summarize_text(text: str, width: int = 200) -> str:
