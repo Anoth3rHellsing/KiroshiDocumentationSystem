@@ -3031,6 +3031,7 @@ def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
     raise ValueError("Invalid weekday for month")
 
 
+@lru_cache(maxsize=32)
 def compute_us_holidays(year: int) -> list[tuple[date, str]]:
     holidays: list[tuple[date, str]] = [
         (date(year, 1, 1), "New Year's Day"),

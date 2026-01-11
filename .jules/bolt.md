@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-24 - Verification of Cached Functions
+**Learning:** Memory descriptions of code optimization can be stale or inaccurate. Always verify the actual source code before assuming a function is cached. In this case, `compute_us_holidays` was documented as cached but was running synchronously on every re-render.
+**Action:** Double-check function decorators in `read_file` output before searching for other bottlenecks.
