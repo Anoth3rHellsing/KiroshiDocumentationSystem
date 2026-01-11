@@ -1079,6 +1079,18 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     return assignments, label_map
 
 
+@st.cache_data(ttl=None, max_entries=5000)
+def _load_single_case_record_cached(path_str: str, mtime: float) -> dict[str, object] | None:
+    try:
+        path = Path(path_str)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return None
+
+
 @lru_cache(maxsize=1024)
 def _cached_normalize_text(value: str) -> str:
     return _WHITESPACE_PATTERN.sub(" ", value).strip().lower()
@@ -13516,13 +13528,9 @@ def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
                 ):
                     continue
 
-                try:
-                    path = Path(entry.path)
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        yield path, data
-                except (OSError, json.JSONDecodeError):
-                    continue
+                data = _load_single_case_record_cached(entry.path, entry.stat().st_mtime)
+                if data:
+                    yield Path(entry.path), data
     except OSError:
         return
 
