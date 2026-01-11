@@ -10653,6 +10653,7 @@ def render_saved_cases_page() -> None:
             options=list(range(len(filtered_records))),
             format_func=lambda idx: option_labels[idx],
             key=global_widget_key("saved_cases_select"),
+            help="Choose a case from the list to view available actions.",
         )
         selected_case = filtered_records[selection]
         case_path = Path(selected_case["path"])
@@ -10732,9 +10733,33 @@ def render_saved_cases_page() -> None:
                 st.session_state[confirm_key] = True
                 st.rerun()
     else:
-        st.info(
-            "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
-        )
+        st.info("No cases match the current filters.")
+        if st.button(
+            "Clear Filters",
+            key=global_widget_key("saved_cases_clear_filters"),
+            help="Reset search and filters to default",
+        ):
+            # Reset search
+            search_key = global_widget_key("saved_cases_search")
+            if search_key in st.session_state:
+                del st.session_state[search_key]
+
+            # Reset tracking filter
+            track_key = global_widget_key("saved_cases_tracking_filter")
+            if track_key in st.session_state:
+                del st.session_state[track_key]
+
+            # Reset version filter
+            ver_key = global_widget_key("saved_cases_version_filter")
+            if ver_key in st.session_state:
+                del st.session_state[ver_key]
+
+            # Reset legacy filter
+            leg_key = global_widget_key("saved_cases_legacy_filter")
+            if leg_key in st.session_state:
+                del st.session_state[leg_key]
+
+            st.rerun()
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
