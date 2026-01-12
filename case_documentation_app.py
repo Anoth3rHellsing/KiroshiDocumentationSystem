@@ -13146,16 +13146,43 @@ def render_debug_panel() -> None:
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
     if cases is None:
         cases = load_tracked_cases()
-    files: list[Path] = []
+    candidates: list[tuple[float, Path]] = []
     for entry in cases:
         path_value = entry.get("path") if isinstance(entry, Mapping) else None
         if not path_value:
             continue
-        candidate = Path(path_value)
-        if candidate.exists():
-            files.append(candidate)
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[:20]
+        # Optimization: Use cached timestamp instead of synchronous disk I/O (stat/exists)
+        # The 'updated' field is standardized by _refresh_and_get_cases
+        ts = 0.0
+        updated_val = entry.get("updated")
+        if updated_val:
+            dt = parse_iso_datetime(updated_val)
+            if dt:
+                ts = dt.timestamp()
+
+        # Fallback to last_modified if updated is missing
+        if ts == 0.0:
+            last_mod = entry.get("last_modified")
+            if last_mod:
+                dt = parse_iso_datetime(last_mod)
+                if dt:
+                    ts = dt.timestamp()
+
+        candidates.append((ts, Path(path_value)))
+
+    # Sort by timestamp descending
+    candidates.sort(key=lambda x: x[0], reverse=True)
+
+    # Optimization: Verify existence lazily on the sorted top candidates.
+    # This restores the original behavior (filtering deleted files) while avoiding
+    # O(N) I/O. We only check files until we fill the quota or run out.
+    valid_files: list[Path] = []
+    for _, path in candidates:
+        if path.exists():
+            valid_files.append(path)
+            if len(valid_files) >= 20:
+                break
+    return valid_files
 
 
 def _summarize_text(text: str, width: int = 200) -> str:
