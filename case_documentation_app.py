@@ -9606,8 +9606,8 @@ def save_sprint_state(state: SprintState) -> None:
         logging.error("Failed to save sprint state: %s", exc)
 
 
-def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
-    return load_tracked_cases()
+def get_tracked_cases_for_sprint(source_data: list[dict[str, object]] | None = None) -> list[dict[str, object]]:
+    return load_tracked_cases(source_data=source_data)
 
 
 @st.cache_data(ttl=None, max_entries=100)
@@ -10276,9 +10276,9 @@ def render_dell_fedex_dashboard(cases: list) -> None:
         st.caption("No FedEx replacements awaiting action.")
 
 
-def _start_day_logic(today_date: str):
+def _start_day_logic(today_date: str, source_data: list[dict[str, object]] | None = None):
     """Populates the sprint tasks from tracked cases."""
-    tracked_cases = get_tracked_cases_for_sprint()
+    tracked_cases = get_tracked_cases_for_sprint(source_data=source_data)
     tasks = []
 
     with st.spinner("AI Scrum Master is prioritizing your day..."):
@@ -10318,7 +10318,7 @@ def _start_day_logic(today_date: str):
     st.success(f"Day started! {len(tasks)} tasks loaded.")
 
 
-def render_sprint_tab() -> None:
+def render_sprint_tab(source_data: list[dict[str, object]] | None = None) -> None:
     st.markdown(
         "<div class='dashboard-title'>Sprint & Task Execution</div>",
         unsafe_allow_html=True,
@@ -10337,7 +10337,7 @@ def render_sprint_tab() -> None:
     with col1:
         if not st.session_state.sprint_state.is_active:
             if st.button("Start Day", help="Reset session counters and prepare for a new shift"):
-                _start_day_logic(today_date)
+                _start_day_logic(today_date, source_data=source_data)
                 st.rerun()
         else:
             st.info(f"Sprint Active for {st.session_state.sprint_state.date}")
@@ -10510,12 +10510,12 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
-def render_saved_cases_page() -> None:
+def render_saved_cases_page(source_data: list[dict[str, object]] | None = None) -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
         unsafe_allow_html=True,
     )
-    saved_cases = list_saved_cases()
+    saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
         st.info("No saved cases found in your database.")
         return
@@ -10745,7 +10745,7 @@ def render_saved_cases_page() -> None:
         key=global_widget_key("saved_cases_export_table"),
     )
 
-def render_dashboard() -> None:
+def render_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
     """Render the high-level dashboard overview tab."""
 
     st.markdown(
@@ -10794,7 +10794,7 @@ def render_dashboard() -> None:
         st.session_state.dashboard_load_notice = None
 
     # Fetch all cases once to avoid redundant directory scanning in child components
-    all_cases = _refresh_and_get_cases()
+    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
 
     tracked_cases = load_tracked_cases(source_data=all_cases)
     charts_col, main_col = st.columns([1.1, 2.4])
@@ -20876,16 +20876,32 @@ def main():
     tab_labels += case_labels
     all_tabs = st.tabs(tab_labels)
 
+    # Pre-fetch cases once for all tabs to eliminate redundant I/O and scanning
+    all_cases = _refresh_and_get_cases()
+
     tab_index = 0
     with all_tabs[tab_index]:
-        render_with_monitor("Dashboard", render_dashboard, tab_label="Dashboard")
-    tab_index += 1
-    with all_tabs[tab_index]:
-        render_with_monitor("Sprint", render_sprint_tab, tab_label="Sprint")
+        render_with_monitor(
+            "Dashboard",
+            render_dashboard,
+            tab_label="Dashboard",
+            source_data=all_cases,
+        )
     tab_index += 1
     with all_tabs[tab_index]:
         render_with_monitor(
-            "Saved Cases", render_saved_cases_page, tab_label="Saved Cases"
+            "Sprint",
+            render_sprint_tab,
+            tab_label="Sprint",
+            source_data=all_cases,
+        )
+    tab_index += 1
+    with all_tabs[tab_index]:
+        render_with_monitor(
+            "Saved Cases",
+            render_saved_cases_page,
+            tab_label="Saved Cases",
+            source_data=all_cases,
         )
     tab_index += 1
     with all_tabs[tab_index]:
