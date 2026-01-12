@@ -13500,11 +13500,17 @@ def merge_ai_learning_datasets(
     return dataset
 
 
+@st.cache_resource
+def _get_global_case_cache() -> tuple[threading.Lock, dict[str, tuple[float, dict[str, object]]]]:
+    return threading.Lock(), {}
+
+
 def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
     """Yield paths and loaded data for all saved case files."""
     if not DATABASE_DIR.exists():
         return
 
+    lock, cache = _get_global_case_cache()
     try:
         for entry in os.scandir(DATABASE_DIR):
             if entry.is_file() and entry.name.lower().endswith(".json"):
@@ -13517,10 +13523,23 @@ def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
                     continue
 
                 try:
-                    path = Path(entry.path)
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        yield path, data
+                    mtime = entry.stat().st_mtime
+                    path_str = entry.path
+
+                    # Optimistic read (atomic get) to avoid lock contention on hits
+                    cached_entry = cache.get(path_str)
+                    if cached_entry and cached_entry[0] == mtime:
+                        yield Path(path_str), cached_entry[1]
+                        continue
+
+                    # Cache miss or stale: load from disk
+                    path = Path(path_str)
+                    with open(path, "r", encoding="utf-8") as fh:
+                        data = json.load(fh)
+
+                    with lock:
+                        cache[path_str] = (mtime, data)
+                    yield path, data
                 except (OSError, json.JSONDecodeError):
                     continue
     except OSError:
