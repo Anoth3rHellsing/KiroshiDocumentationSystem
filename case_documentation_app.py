@@ -10410,10 +10410,18 @@ def render_sprint_tab() -> None:
                     sol_key = f"sol_{task.case_id}_{idx}"
 
                     new_rc = st.text_input(
-                        "Root Cause", value=task.root_cause, key=rc_key
+                        "Root Cause",
+                        value=task.root_cause,
+                        key=rc_key,
+                        placeholder="e.g. Network timeout caused by firewall",
+                        help="Briefly describe the technical origin of the issue.",
                     )
                     new_sol = st.text_area(
-                        "Solution", value=task.solution, key=sol_key
+                        "Solution",
+                        value=task.solution,
+                        key=sol_key,
+                        placeholder="e.g. Added exception to firewall rules",
+                        help="Describe the steps taken to resolve the issue.",
                     )
 
                     # Detect changes and sync to DB
@@ -10517,7 +10525,9 @@ def render_saved_cases_page() -> None:
     )
     saved_cases = list_saved_cases()
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        st.info(
+            "No saved cases found. Your case history will appear here once you save your first case from the 'Add Case' tab."
+        )
         return
 
     saved_df = pd.DataFrame(saved_cases)
@@ -18649,10 +18659,12 @@ def render_case_ui(case_idx: int):
                             f"""
                             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                                 <button onclick=\"copyTitle{copy_suffix}()\"
+                                        title=\"Copy table title to clipboard\"
                                         style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                                     Copy title
                                 </button>
                                 <button onclick=\"copyTable{copy_suffix}()\"
+                                        title=\"Copy table content to clipboard\"
                                         style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                                     Copy table
                                 </button>
@@ -19736,6 +19748,7 @@ End with: We look forward to your reply."""
                     f"""
                     <div style=\"display:flex;gap:0.5rem;align-items:center;\">
                         <button onclick=\"copyDellTable{copy_suffix}()\"
+                                title=\"Copy Dell escalation table\"
                                 style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                             Copy Dell table
                         </button>
@@ -19896,6 +19909,7 @@ End with: We look forward to your reply."""
                     }}
                     </script>
                     <button onclick="copyThirdLineEscalation{case_idx}()"
+                            title="Copy 3rd line message"
                             style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;">
                         Copy escalation message
                     </button>
@@ -20040,10 +20054,12 @@ End with: We look forward to your reply."""
                 f"""
                 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                     <button onclick=\"copyTitle{copy_suffix_hr}()\"
+                            title=\"Copy table title to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix_hr}()\"
+                            title=\"Copy table content to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy table
                     </button>
@@ -20481,10 +20497,12 @@ End with: We look forward to your reply."""
                 f"""
                 <div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;\">
                     <button onclick=\"copyTitle{copy_suffix}()\"
+                            title=\"Copy table title to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix}()\"
+                            title=\"Copy table content to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy table
                     </button>
