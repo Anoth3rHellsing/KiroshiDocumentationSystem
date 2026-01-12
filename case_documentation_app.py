@@ -11265,7 +11265,7 @@ def _render_settings_ai_tab() -> None:
         "Enable AI Educate",
         key="ai_educate_enabled",
         on_change=_on_setting_change("ai_educate_enabled"),
-        help="Activa el conjunto de herramientas avanzadas de AI Educate.",
+        help="Activates the advanced AI Educate toolset.",
     )
     ai_dataset = None
     if not st.session_state.ai_educate_enabled:
@@ -11281,21 +11281,21 @@ def _render_settings_ai_tab() -> None:
         if st.session_state.get("ai_assist_mode") != "Standard":
             st.session_state.ai_assist_mode = "Standard"
             _persist_setting("ai_assist_mode")
-        st.caption("AI Assistance enviará las solicitudes sin el contexto de Educate.")
+        st.caption("AI Assistance will send requests without Educate context.")
     else:
         st.session_state.ai_assist_mode = "AI Educate"
         _persist_setting("ai_assist_mode")
-        st.markdown("#### Configuración de Educate")
+        st.markdown("#### Educate Configuration")
         refresh_requested = st.button(
             "Educate",
-            help="Ejecuta nuevamente el protocolo de análisis para refrescar los aprendizajes.",
+            help="Re-runs the analysis protocol to refresh learnings.",
             key=global_widget_key("ai_educate_refresh"),
         )
         dataset_updated = False
         ai_dataset = ensure_ai_learning_dataset(force=refresh_requested)
         if refresh_requested:
             if ai_dataset:
-                st.success("AI Educate actualizó el conocimiento con los casos guardados.")
+                st.success("AI Educate updated knowledge base with saved cases.")
                 dataset_updated = True
                 try:
                     st.session_state.ai_educate_report_cache = collect_ai_educate_report_data(
@@ -11305,7 +11305,7 @@ def _render_settings_ai_tab() -> None:
                     logging.debug("Failed to build report cache after refresh: %s", exc)
             else:
                 st.warning(
-                    "No se encontraron casos guardados para analizar. Guarda casos primero."
+                    "No saved cases found for analysis. Please save cases first."
                 )
         elif ai_dataset is None:
             ai_dataset = ensure_ai_learning_dataset()
@@ -11314,20 +11314,20 @@ def _render_settings_ai_tab() -> None:
             "Report",
             key="ai_educate_report_enabled",
             on_change=_on_setting_change("ai_educate_report_enabled"),
-            help="Habilita la pestaña Report para visualizar métricas y generar el PDF.",
+            help="Enables the Report tab to view metrics and generate the PDF.",
         )
         advanced_enabled = st.toggle(
             "Advanced AI Assistance",
             key="ai_educate_advanced",
             on_change=_on_setting_change("ai_educate_advanced"),
             help=(
-                "Cuando está activo, AI Assistance compara el caso con errores recientes, "
-                "soluciones históricas y sesiones de remote desktop para sugerir acciones."
+                "When active, AI Assistance compares the case with recent errors, "
+                "historical solutions, and remote desktop sessions to suggest actions."
             ),
         )
         if not advanced_enabled:
             st.caption(
-                "AI Assistance enviará la información básica sin contexto histórico adicional."
+                "AI Assistance will send basic information without additional historical context."
             )
             st.session_state.ai_learning_matches = []
         elif ai_dataset:
@@ -11911,16 +11911,16 @@ def render_report_panel() -> None:
         if insights:
             st.session_state.ai_educate_report_cache = insights
     if not insights:
-        st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
+        st.info("Not enough cases saved yet to generate statistics.")
         return
 
     view_order = ["30d", "all_time"]
-    view_labels = {"30d": "Últimos 30 días", "all_time": "Todo el historial"}
+    view_labels = {"30d": "Last 30 days", "all_time": "All time history"}
     default_view = st.session_state.get("ai_report_view", "30d")
     if default_view not in view_order:
         default_view = "30d"
     selected_view = st.radio(
-        "Rango de tiempo",
+        "Time Range",
         options=view_order,
         index=view_order.index(default_view),
         format_func=lambda key: view_labels.get(key, key),
@@ -11934,49 +11934,49 @@ def render_report_panel() -> None:
 
     cols = st.columns(4)
     cols[0].metric(
-        f"Casos ({view_labels[selected_view]})",
+        f"Cases ({view_labels[selected_view]})",
         current_totals.get("case_total", 0),
     )
     cols[1].metric(
-        "Tipos de caso únicos",
+        "Unique case types",
         current_totals.get("unique_labels", 0),
     )
     cols[2].metric(
-        "Solucionados como bug",
+        "Solved as bug",
         current_totals.get("bug_solution_count", 0),
     )
     cols[3].metric(
-        "Menciones de 'bug'",
+        "Mentions of 'bug'",
         current_totals.get("bug_mentions_count", 0),
     )
 
     if selected_view != "all_time":
         overall_totals = view_totals.get("all_time", {})
         st.caption(
-            f"Historial completo: {overall_totals.get('case_total', 0)} casos · "
-            f"{overall_totals.get('unique_labels', 0)} tipos únicos"
+            f"Full history: {overall_totals.get('case_total', 0)} cases · "
+            f"{overall_totals.get('unique_labels', 0)} unique types"
         )
 
     highlight_label = insights.get("highlight_label")
     if highlight_label:
         st.markdown(
-            f"**Caso prioritario:** {highlight_label} "
-            f"(detectado {insights.get('highlight_count', 0)} veces)."
+            f"**Priority Case:** {highlight_label} "
+            f"(detected {insights.get('highlight_count', 0)} times)."
         )
         highlight_case = insights.get("highlight_case") or {}
         solution_excerpt = highlight_case.get("solution_excerpt")
         if solution_excerpt:
-            st.caption(f"Insight de solución: {solution_excerpt}")
+            st.caption(f"Solution Insight: {solution_excerpt}")
 
     counts_map = insights.get("counts", {})
     selected_counts = counts_map.get(selected_view)
     if isinstance(selected_counts, pd.DataFrame) and not selected_counts.empty:
         st.markdown(
-            f"### Casos más frecuentes ({view_labels[selected_view]})"
+            f"### Most frequent cases ({view_labels[selected_view]})"
         )
         st.dataframe(
             selected_counts.rename(
-                columns={"analysis_label": "Caso", "count": "Frecuencia"}
+                columns={"analysis_label": "Case", "count": "Frequency"}
             ),
             width="stretch",
         )
@@ -11984,11 +11984,11 @@ def render_report_panel() -> None:
             alt.Chart(selected_counts)
             .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
             .encode(
-                x=alt.X("count:Q", title="Casos"),
-                y=alt.Y("analysis_label:N", sort="-x", title="Caso"),
+                x=alt.X("count:Q", title="Cases"),
+                y=alt.Y("analysis_label:N", sort="-x", title="Case"),
                 tooltip=[
-                    alt.Tooltip("analysis_label:N", title="Caso"),
-                    alt.Tooltip("count:Q", title="Frecuencia"),
+                    alt.Tooltip("analysis_label:N", title="Case"),
+                    alt.Tooltip("count:Q", title="Frequency"),
                 ],
                 color=alt.value("#2563eb"),
             )
@@ -12002,16 +12002,16 @@ def render_report_panel() -> None:
     }
     selected_timeline = timeline_map.get(selected_view)
     if isinstance(selected_timeline, pd.DataFrame) and not selected_timeline.empty:
-        st.markdown(f"### Tendencia de casos ({view_labels[selected_view]})")
+        st.markdown(f"### Case Trend ({view_labels[selected_view]})")
         timeline_chart = (
             alt.Chart(selected_timeline)
             .mark_line(point=True, color="#16a34a")
             .encode(
-                x=alt.X("timestamp:T", title="Fecha"),
-                y=alt.Y("count:Q", title="Casos"),
+                x=alt.X("timestamp:T", title="Date"),
+                y=alt.Y("count:Q", title="Cases"),
                 tooltip=[
-                    alt.Tooltip("timestamp:T", title="Fecha"),
-                    alt.Tooltip("count:Q", title="Casos"),
+                    alt.Tooltip("timestamp:T", title="Date"),
+                    alt.Tooltip("count:Q", title="Cases"),
                 ],
             )
             .properties(height=260)
@@ -12020,41 +12020,41 @@ def render_report_panel() -> None:
 
     recurring_df = insights.get("recurring_issue_types")
     if isinstance(recurring_df, pd.DataFrame) and not recurring_df.empty:
-        st.markdown("### Patrones recurrentes")
+        st.markdown("### Recurring Patterns")
         st.dataframe(
             recurring_df.rename(
-                columns={"analysis_label": "Caso", "count": "Recurrencias"}
+                columns={"analysis_label": "Case", "count": "Recurrences"}
             ),
             width="stretch",
         )
 
     root_cause_df = insights.get("common_root_causes")
     if isinstance(root_cause_df, pd.DataFrame) and not root_cause_df.empty:
-        st.markdown("### Causas raíz más comunes")
+        st.markdown("### Common Root Causes")
         st.dataframe(
-            root_cause_df.rename(columns={"root_cause": "Causa", "count": "Casos"}),
+            root_cause_df.rename(columns={"root_cause": "Cause", "count": "Cases"}),
             width="stretch",
         )
 
     scanner_df = insights.get("common_scanner_models")
     if isinstance(scanner_df, pd.DataFrame) and not scanner_df.empty:
-        st.markdown("### Modelos de escáner reportados")
+        st.markdown("### Reported Scanner Models")
         st.dataframe(
-            scanner_df.rename(columns={"scanner": "Modelo", "count": "Casos"}),
+            scanner_df.rename(columns={"scanner": "Model", "count": "Cases"}),
             width="stretch",
         )
 
     bug_report = st.session_state.get("ai_bug_report")
     bug_cases = insights.get("bug_cases")
     if isinstance(bug_cases, pd.DataFrame) and not bug_cases.empty:
-        st.markdown("### Casos con mención de bug")
+        st.markdown("### Cases mentioning bugs")
         st.dataframe(
             bug_cases[["case_id", "title", "saved_at"]]
             .rename(
                 columns={
                     "case_id": "Case ID",
-                    "title": "Título",
-                    "saved_at": "Guardado",
+                    "title": "Title",
+                    "saved_at": "Saved",
                 }
             )
             .head(15),
@@ -12066,11 +12066,11 @@ def render_report_panel() -> None:
         try:
             pdf_bytes = generate_ai_educate_report_pdf(insights, bug_report)
         except Exception as exc:
-            st.error(f"No se pudo generar el PDF del reporte: {exc}")
+            st.error(f"Could not generate report PDF: {exc}")
             pdf_bytes = None
         if pdf_bytes:
             st.download_button(
-                "Descargar reporte PDF",
+                "Download Report PDF",
                 pdf_bytes,
                 file_name="ai_educate_report.pdf",
                 mime="application/pdf",
@@ -12079,18 +12079,18 @@ def render_report_panel() -> None:
     with col_bug:
         if st.button(
             "Bug Detector",
-            help="Analiza todos los casos guardados para encontrar patrones de bug.",
+            help="Analyzes all saved cases to find bug patterns.",
             key=global_widget_key("ai_bug_detector"),
         ):
             bug_report = run_bug_detector(dataset)
             st.session_state.ai_bug_report = bug_report
             if bug_report:
-                st.success("Bug Detector completó el análisis.")
+                st.success("Bug Detector completed analysis.")
             else:
-                st.info("No se detectaron bugs ni patrones recurrentes en los casos analizados.")
+                st.info("No bugs or recurring patterns detected in analyzed cases.")
     bug_report = st.session_state.get("ai_bug_report")
     if bug_report:
-        st.markdown("### Resultados de Bug Detector")
+        st.markdown("### Bug Detector Results")
         st.write(bug_report.get("summary"))
         recurring = bug_report.get("recurring_patterns") or []
         if recurring:
@@ -12101,7 +12101,7 @@ def render_report_panel() -> None:
                 display_df = recurring_df
             st.table(
                 display_df.rename(
-                    columns={"pattern": "Patrón", "count": "Recurrencias"}
+                    columns={"pattern": "Pattern", "count": "Recurrences"}
                 )
             )
 
@@ -12113,13 +12113,13 @@ def render_report_panel() -> None:
                 and entry.get("pattern")
             ]
             if eligible_patterns:
-                st.markdown("#### Generar guía para patrones recurrentes")
+                st.markdown("#### Generate Recurring Pattern Guide")
                 options = [
                     f"{str(entry.get('pattern'))} ({int(entry.get('count', 0))})"
                     for entry in eligible_patterns
                 ]
                 selected_label = st.selectbox(
-                    "Selecciona un patrón",
+                    "Select a pattern",
                     options,
                     key=global_widget_key("recurring_pattern_select"),
                 )
@@ -12135,13 +12135,13 @@ def render_report_panel() -> None:
                             dataset=dataset,
                         )
                     except Exception as exc:
-                        st.error(f"No se pudo generar la guía del patrón: {exc}")
+                        st.error(f"Could not generate pattern guide: {exc}")
                     else:
-                        raw_name = str(selected_entry.get("pattern", "patron"))
+                        raw_name = str(selected_entry.get("pattern", "pattern"))
                         slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_name.lower()).strip("-")
-                        file_name = f"recurring_{slug or 'patron'}.pdf"
+                        file_name = f"recurring_{slug or 'pattern'}.pdf"
                         st.download_button(
-                            "Descargar guía PDF",
+                            "Download Guide PDF",
                             pattern_pdf,
                             file_name=file_name,
                             mime="application/pdf",
@@ -14198,24 +14198,24 @@ def generate_ai_educate_report_pdf(
     totals_all = view_totals.get("all_time", {}) if isinstance(view_totals, Mapping) else {}
 
     summary_data = [
-        ["Métrica", "30 días", "Historial"],
+        ["Metric", "30 days", "History"],
         [
-            "Casos analizados",
+            "Analyzed cases",
             str(totals_recent.get("case_total", insights.get("recent_total", 0))),
             str(totals_all.get("case_total", insights.get("case_total", 0))),
         ],
         [
-            "Tipos de caso únicos",
+            "Unique case types",
             str(totals_recent.get("unique_labels", 0)),
             str(totals_all.get("unique_labels", 0)),
         ],
         [
-            "Soluciones marcadas como bug",
+            "Solutions marked as bug",
             str(totals_recent.get("bug_solution_count", insights.get("bug_solution_recent", 0))),
             str(totals_all.get("bug_solution_count", insights.get("bug_solution_count", 0))),
         ],
         [
-            "Casos con mención de bug",
+            "Cases mentioning bug",
             str(totals_recent.get("bug_mentions_count", insights.get("bug_mentions_recent", 0))),
             str(totals_all.get("bug_mentions_count", insights.get("bug_mentions_count", 0))),
         ],
@@ -14241,8 +14241,8 @@ def generate_ai_educate_report_pdf(
     if highlight_label:
         highlight_details = insights.get("highlight_case") or {}
         highlight_text = (
-            f"Caso que requiere atención: {highlight_label}"
-            f" (repetido {insights.get('highlight_count', 0)} veces)."
+            f"Priority Case: {highlight_label}"
+            f" (repeated {insights.get('highlight_count', 0)} times)."
         )
         story.append(Paragraph(highlight_text, heading_style))
         ghost_snippets.append(highlight_text)
@@ -14260,8 +14260,8 @@ def generate_ai_educate_report_pdf(
     counts_map_raw = insights.get("counts")
     counts_map = counts_map_raw if isinstance(counts_map_raw, Mapping) else {}
     chart_specs = [
-        ("30d", "Casos más frecuentes (30 días)"),
-        ("all_time", "Casos más frecuentes (historial)")
+        ("30d", "Most frequent cases (30 days)"),
+        ("all_time", "Most frequent cases (history)")
     ]
     for key, title in chart_specs:
         counts_df = counts_map.get(key) if isinstance(counts_map, Mapping) else None
@@ -14274,15 +14274,15 @@ def generate_ai_educate_report_pdf(
             except Exception:
                 story.append(
                     Paragraph(
-                        f"No se pudo renderizar el gráfico de frecuencia ({title}).",
+                        f"Could not render frequency chart ({title}).",
                         body_style,
                     )
                 )
                 ghost_snippets.append(title)
 
     timeline_map = [
-        (insights.get("timeline"), "Volumen diario (30 días)"),
-        (insights.get("timeline_all"), "Volumen diario (historial)"),
+        (insights.get("timeline"), "Daily volume (30 days)"),
+        (insights.get("timeline_all"), "Daily volume (history)"),
     ]
     for timeline_df, title in timeline_map:
         if isinstance(timeline_df, pd.DataFrame) and not timeline_df.empty:
@@ -14294,7 +14294,7 @@ def generate_ai_educate_report_pdf(
             except Exception:
                 story.append(
                     Paragraph(
-                        f"No se pudieron renderizar los gráficos de tendencia ({title}).",
+                        f"Could not render trend charts ({title}).",
                         body_style,
                     )
                 )
@@ -14302,9 +14302,9 @@ def generate_ai_educate_report_pdf(
 
     recurring_df = insights.get("recurring_issue_types")
     if isinstance(recurring_df, pd.DataFrame) and not recurring_df.empty:
-        story.append(Paragraph("Patrones recurrentes", heading_style))
-        ghost_snippets.append("Patrones recurrentes")
-        rows = [["Caso", "Recurrencias"]]
+        story.append(Paragraph("Recurring Patterns", heading_style))
+        ghost_snippets.append("Recurring Patterns")
+        rows = [["Case", "Recurrences"]]
         for _, row in recurring_df.head(10).iterrows():
             rows.append(
                 [str(row.get("analysis_label", "")), str(row.get("count", 0))]
@@ -14327,9 +14327,9 @@ def generate_ai_educate_report_pdf(
 
     root_cause_df = insights.get("common_root_causes")
     if isinstance(root_cause_df, pd.DataFrame) and not root_cause_df.empty:
-        story.append(Paragraph("Causas raíz más comunes", heading_style))
-        ghost_snippets.append("Causas raíz más comunes")
-        rows = [["Causa", "Casos"]]
+        story.append(Paragraph("Common Root Causes", heading_style))
+        ghost_snippets.append("Common Root Causes")
+        rows = [["Cause", "Cases"]]
         for _, row in root_cause_df.head(10).iterrows():
             rows.append(
                 [str(row.get("root_cause", "")), str(row.get("count", 0))]
@@ -14352,9 +14352,9 @@ def generate_ai_educate_report_pdf(
 
     scanner_df = insights.get("common_scanner_models")
     if isinstance(scanner_df, pd.DataFrame) and not scanner_df.empty:
-        story.append(Paragraph("Modelos de escáner reportados", heading_style))
-        ghost_snippets.append("Modelos de escáner reportados")
-        rows = [["Modelo", "Casos"]]
+        story.append(Paragraph("Reported Scanner Models", heading_style))
+        ghost_snippets.append("Reported Scanner Models")
+        rows = [["Model", "Cases"]]
         for _, row in scanner_df.head(10).iterrows():
             rows.append([str(row.get("scanner", "")), str(row.get("count", 0))])
         for row in rows:
@@ -14375,9 +14375,9 @@ def generate_ai_educate_report_pdf(
 
     bug_cases = insights.get("bug_cases")
     if isinstance(bug_cases, pd.DataFrame) and not bug_cases.empty:
-        story.append(Paragraph("Casos relacionados con bugs", heading_style))
-        ghost_snippets.append("Casos relacionados con bugs")
-        rows = [["Case ID", "Título", "Guardado"]]
+        story.append(Paragraph("Bug related cases", heading_style))
+        ghost_snippets.append("Bug related cases")
+        rows = [["Case ID", "Title", "Saved"]]
         for _, row in bug_cases.head(10).iterrows():
             saved_at = row.get("saved_at") or row.get("saved_at_dt")
             if isinstance(saved_at, pd.Timestamp):
@@ -14404,15 +14404,15 @@ def generate_ai_educate_report_pdf(
         story.append(Spacer(1, 12))
 
     if bug_report:
-        story.append(Paragraph("Resultados de Bug Detector", heading_style))
-        ghost_snippets.append("Resultados de Bug Detector")
+        story.append(Paragraph("Bug Detector Results", heading_style))
+        ghost_snippets.append("Bug Detector Results")
         summary = bug_report.get("summary")
         if summary:
             story.append(Paragraph(summary, body_style))
             ghost_snippets.append(str(summary))
         recurring = bug_report.get("recurring_patterns") or []
         if recurring:
-            rows = [["Patrón", "Recurrencias"]]
+            rows = [["Pattern", "Recurrences"]]
             for item in recurring[:10]:
                 rows.append([str(item.get("pattern", "")), str(item.get("count", 0))])
             for row in rows:

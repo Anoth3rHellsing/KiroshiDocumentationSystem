@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Localization Consistency
+**Learning:** Mixed languages (Spanish text in English UI) in hardcoded strings can easily slip through in specialized panels like "Reports" or "PDF Generation". Visual inspection of every new tab/feature is critical.
+**Action:** When working on reporting or analysis features, specifically verify that labels, metrics, and generated artifacts (PDFs) respect the application's primary language (English).
