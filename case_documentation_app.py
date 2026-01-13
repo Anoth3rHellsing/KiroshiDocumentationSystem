@@ -18818,16 +18818,22 @@ List each question and provide any known answer beneath it, ready for the custom
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_fedex_tracking", "agent_name", case_idx),
+                    help="The name of the support agent sending the email.",
+                    placeholder="e.g. Alex",
                 )
                 ext["device_type"] = st.text_input(
                     "Device type (scanner or Move+)",
                     ext.get("device_type", ""),
                     key=case_widget_key("email_fedex_tracking", "device_type", case_idx),
+                    help="Specify whether the replacement is a 'scanner' or 'Move+'.",
+                    placeholder="e.g. scanner",
                 )
                 ext["tracking_number"] = st.text_input(
                     "FedEx tracking number",
                     ext.get("tracking_number", ""),
                     key=case_widget_key("email_fedex_tracking", "tracking_number", case_idx),
+                    help="The tracking number provided by FedEx for the shipment.",
+                    placeholder="e.g. 123456789012",
                 )
                 customer = D.caller_name or "(Caller Name)"
                 company = D.company_name or "(Company Name)"
@@ -18860,6 +18866,8 @@ Wishing you the best again!"""
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_replacement_dispatch", "agent_name", case_idx),
+                    help="The name of the support agent sending the email.",
+                    placeholder="e.g. Alex",
                 )
                 device_options = ["TRIOS", "Pod", "Spare item"]
                 prev_choice = ext.get("replacement_device_type", device_options[0])
@@ -18898,6 +18906,8 @@ Wishing you the best again!"""
                         key=case_widget_key(
                             "email_replacement_dispatch", "spare_item", case_idx
                         ),
+                        help="Describe the spare part being sent (e.g. 'Power Supply Unit').",
+                        placeholder="e.g. Power Supply Unit",
                     )
                     ext["spare_item_name"] = spare_item_name
                     toggle_default = ext.get("spare_return_required")
@@ -18923,6 +18933,8 @@ Wishing you the best again!"""
                     key=case_widget_key(
                         "email_replacement_dispatch", "serial_number", case_idx
                     ),
+                    help="The serial number of the faulty device that is being replaced.",
+                    placeholder="e.g. s12345678",
                 )
                 intro = build_email_intro(D)
                 agent = ext["agent_name"] or "(Agent Name)"
@@ -19017,6 +19029,8 @@ Wishing you the best again!"""
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_replacement_wired", "agent_name", case_idx),
+                    help="The name of the support agent sending the email.",
+                    placeholder="e.g. Alex",
                 )
                 ext["fedex_pickup_link"] = st.text_input(
                     "FedEx pickup link",
@@ -19025,6 +19039,8 @@ Wishing you the best again!"""
                         "https://www.fedex.com/en-us/shipping/schedule-manage-pickups.html",
                     ),
                     key=case_widget_key("email_replacement_wired", "fedex_pickup_link", case_idx),
+                    help="Link for the customer to schedule a FedEx pickup for the return.",
+                    placeholder="https://www.fedex.com/...",
                 )
                 customer = D.caller_name or "(Caller Name)"
                 company = D.company_name or "(Company Name)"
@@ -19072,6 +19088,8 @@ Wishing you the best again!"""
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_replacement_move", "agent_name", case_idx),
+                    help="The name of the support agent sending the email.",
+                    placeholder="e.g. Alex",
                 )
                 customer = D.caller_name or "(Caller Name)"
                 company = D.company_name or "(Company Name)"
