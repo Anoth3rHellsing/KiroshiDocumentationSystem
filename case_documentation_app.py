@@ -18649,10 +18649,14 @@ def render_case_ui(case_idx: int):
                             f"""
                             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                                 <button onclick=\"copyTitle{copy_suffix}()\"
+                                        title=\"Copy title to clipboard\"
+                                        aria-label=\"Copy title to clipboard\"
                                         style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                                     Copy title
                                 </button>
                                 <button onclick=\"copyTable{copy_suffix}()\"
+                                        title=\"Copy table to clipboard\"
+                                        aria-label=\"Copy table to clipboard\"
                                         style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                                     Copy table
                                 </button>
@@ -19736,6 +19740,8 @@ End with: We look forward to your reply."""
                     f"""
                     <div style=\"display:flex;gap:0.5rem;align-items:center;\">
                         <button onclick=\"copyDellTable{copy_suffix}()\"
+                                title=\"Copy Dell escalation table to clipboard\"
+                                aria-label=\"Copy Dell escalation table to clipboard\"
                                 style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                             Copy Dell table
                         </button>
@@ -20040,10 +20046,14 @@ End with: We look forward to your reply."""
                 f"""
                 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                     <button onclick=\"copyTitle{copy_suffix_hr}()\"
+                            title=\"Copy title to clipboard\"
+                            aria-label=\"Copy title to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix_hr}()\"
+                            title=\"Copy table to clipboard\"
+                            aria-label=\"Copy table to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy table
                     </button>
@@ -20481,10 +20491,14 @@ End with: We look forward to your reply."""
                 f"""
                 <div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;\">
                     <button onclick=\"copyTitle{copy_suffix}()\"
+                            title=\"Copy title to clipboard\"
+                            aria-label=\"Copy title to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix}()\"
+                            title=\"Copy table to clipboard\"
+                            aria-label=\"Copy table to clipboard\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy table
                     </button>
