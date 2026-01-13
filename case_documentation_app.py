@@ -1009,6 +1009,8 @@ def _title_similarity_score(
     return base
 
 
+# Cache clustering results to prevent expensive O(N^2) re-computation on every script rerun.
+@st.cache_data(show_spinner=False)
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
