@@ -13500,10 +13500,18 @@ def merge_ai_learning_datasets(
     return dataset
 
 
+@st.cache_resource
+def _get_global_case_record_cache() -> dict[Path, tuple[float, dict[str, object]]]:
+    """Return a thread-safe cache for saved case records."""
+    return {}
+
+
 def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
     """Yield paths and loaded data for all saved case files."""
     if not DATABASE_DIR.exists():
         return
+
+    cache = _get_global_case_record_cache()
 
     try:
         for entry in os.scandir(DATABASE_DIR):
@@ -13518,9 +13526,25 @@ def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
 
                 try:
                     path = Path(entry.path)
+                    # We rely on mtime to invalidate the cache.
+                    # os.scandir provides stat info for free on most platforms.
+                    stat = entry.stat()
+                    mtime = stat.st_mtime
+
+                    # Check if we have a valid cached entry
+                    if path in cache:
+                        cached_mtime, cached_data = cache[path]
+                        if cached_mtime == mtime:
+                            # Yield a copy to prevent consumers from mutating the shared cache
+                            yield path, cached_data.copy()
+                            continue
+
+                    # Cache miss or stale entry
                     data = json.loads(path.read_text(encoding="utf-8"))
                     if isinstance(data, dict):
-                        yield path, data
+                        cache[path] = (mtime, data)
+                        # Yield a copy to prevent consumers from mutating the shared cache
+                        yield path, data.copy()
                 except (OSError, json.JSONDecodeError):
                     continue
     except OSError:

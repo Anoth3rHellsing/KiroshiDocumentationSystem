@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-12 - Benchmarking Streamlit Monoliths
+**Learning:** Creating performance verification scripts for monolithic Streamlit applications is prone to `RecursionError` when mocking `st.session_state` and objects containing `MagicMock` if the app uses `deepcopy`. Top-level execution on import makes it hard to isolate the function under test.
+**Action:** When optimizing specific helper functions in a monolith, verify logic by copying the function to a standalone script or rely on code review and existing regression tests rather than attempting to import the whole app in a benchmark harness.
