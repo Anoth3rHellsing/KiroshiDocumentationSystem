@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-13 - Optimized Case Parsing for AI Dataset
+**Learning:** The `iter_saved_case_records` function was re-parsing every JSON file on every execution (e.g., during AI dataset refreshes), which is O(N) IO.
+**Action:** Introduced `_load_single_case_record_cached` decorated with `@st.cache_data` and keyed by file modification time. This reduces the operation to O(K) where K is the number of changed files, leveraging Streamlit's caching to avoid redundant disk reads and JSON parsing.
