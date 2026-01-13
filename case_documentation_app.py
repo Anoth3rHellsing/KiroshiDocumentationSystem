@@ -500,6 +500,16 @@ PERSISTENT_SETTINGS_DEFAULTS: dict[str, object] = {
 }
 
 
+@st.cache_data(max_entries=5000, show_spinner=False)
+def _load_single_case_record_cached(file_path: str, mtime: float) -> dict[str, object] | None:
+    """Load and parse a single case file, cached by modification time."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=None, max_entries=1)
 def _load_settings_from_disk_cached(mtime: float) -> dict[str, object]:
     """Load and parse the settings file, cached until modification time changes."""
@@ -13517,10 +13527,12 @@ def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
                     continue
 
                 try:
-                    path = Path(entry.path)
-                    data = json.loads(path.read_text(encoding="utf-8"))
+                    # We need to open and parse the JSON to get details. This can be slow
+                    # if there are thousands of files, so we cache the result per file/mtime.
+                    mtime = entry.stat().st_mtime
+                    data = _load_single_case_record_cached(entry.path, mtime)
                     if isinstance(data, dict):
-                        yield path, data
+                        yield Path(entry.path), data
                 except (OSError, json.JSONDecodeError):
                     continue
     except OSError:
