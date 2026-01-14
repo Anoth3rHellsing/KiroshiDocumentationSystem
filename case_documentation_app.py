@@ -10735,6 +10735,22 @@ def render_saved_cases_page() -> None:
         st.info(
             "No cases match the current filters. Try clearing the search bar or selecting 'All records' in the Layout filter."
         )
+        if st.button(
+            "Clear Filters",
+            key=global_widget_key("saved_cases_clear_filters"),
+            type="primary",
+            help="Reset all filters to their default values.",
+        ):
+            for key in [
+                "saved_cases_search",
+                "saved_cases_tracking_filter",
+                "saved_cases_version_filter",
+                "saved_cases_legacy_filter",
+            ]:
+                full_key = global_widget_key(key)
+                if full_key in st.session_state:
+                    del st.session_state[full_key]
+            st.rerun()
 
     export_table = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
