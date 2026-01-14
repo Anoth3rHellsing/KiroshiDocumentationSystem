@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-14 - Optimization of Text Analysis Loop
+**Learning:** Functions accepting unhashable arguments (like dicts) cannot be cached directly. When used in a tight loop (e.g. Pandas `apply` on render), this causes massive redundant re-computation. By extracting the core logic into pure functions accepting hashable inputs (tuples, strings), we can leverage `@lru_cache`.
+**Action:** Refactored `_derive_analysis_label` to extract scalar values from the row dictionary and call cached worker functions (`_cached_infer_structured_category`, `_cached_infer_report_category`), speeding up the operation by ~2.5x per row.

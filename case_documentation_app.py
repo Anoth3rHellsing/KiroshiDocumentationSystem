@@ -1099,19 +1099,13 @@ def _coerce_int(value: object, default: int = 0) -> int:
         return default
 
 
-def _infer_report_category(
-    row: Mapping[str, object], tokens: list[str]
+@lru_cache(maxsize=2048)
+def _cached_infer_report_category(
+    tokens: tuple[str, ...], category_blob: str
 ) -> str | None:
     token_counter = Counter(token.lower() for token in tokens if token)
     if not token_counter:
         return None
-
-    category_fields: list[str] = []
-    for key in ("category", "classification", "topic"):
-        value = row.get(key)
-        if isinstance(value, str) and value.strip():
-            category_fields.append(value.lower())
-    category_blob = " ".join(category_fields)
 
     scores: dict[str, int] = {}
     for label, hints in _REPORT_CATEGORY_HINTS.items():
@@ -1146,35 +1140,15 @@ def _infer_report_category(
     return None
 
 
-def _infer_structured_category(
-    row: Mapping[str, object], tokens: list[str], context: Mapping[str, object] | None = None
+@lru_cache(maxsize=2048)
+def _cached_infer_structured_category(
+    tokens: tuple[str, ...],
+    scanner_norm: str,
+    root_cause_code_norm: str,
+    root_cause_text_norm: str,
+    recurrence_count: int,
 ) -> tuple[str, int] | None:
-    context = context or {}
-    scanner_candidates = [
-        row.get("scanner_model"),
-        row.get("scanner"),
-        row.get("scanner_type"),
-        row.get("scanner_sn"),
-    ]
-    scanner_model = ""
-    for candidate in scanner_candidates:
-        if isinstance(candidate, str) and candidate.strip():
-            scanner_model = candidate.strip()
-            break
-
-    scanner_norm = _normalize_text_field(scanner_model)
-    root_cause_code = row.get("root_cause_code") or row.get("root_cause_id")
-    if isinstance(root_cause_code, str):
-        root_cause_code_norm = _normalize_text_field(root_cause_code)
-    elif isinstance(root_cause_code, (int, float)):
-        root_cause_code_norm = str(root_cause_code)
-    else:
-        root_cause_code_norm = ""
-
-    root_cause_text = _normalize_text_field(row.get("root_cause"))
-    recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     structured_scores: dict[str, int] = {}
-
     token_set = {token.lower() for token in tokens}
 
     for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
@@ -1190,7 +1164,7 @@ def _infer_structured_category(
                     or root_cause_code_norm.startswith(candidate_norm)
                 ):
                     score += 8
-                if candidate_norm and candidate_norm in root_cause_text:
+                if candidate_norm and candidate_norm in root_cause_text_norm:
                     score += 3
         scanner_models = hints.get("scanner_models")
         if scanner_models and scanner_norm:
@@ -1258,9 +1232,8 @@ def _derive_analysis_label(
             if isinstance(keyword, str) and keyword.strip():
                 tokens.extend(_tokenize_issue_description(keyword))
 
-    structured_match = _infer_structured_category(row, tokens, context)
-    scanner_label_map: Mapping[str, str] = context.get("scanner_labels", {}) if context else {}
-    root_cause_label_map: Mapping[str, str] = context.get("root_cause_labels", {}) if context else {}
+    tokens_tuple = tuple(tokens)
+
     scanner_model = ""
     for candidate in (
         row.get("scanner_model"),
@@ -1272,15 +1245,36 @@ def _derive_analysis_label(
             scanner_model = candidate.strip()
             break
 
+    scanner_norm = _normalize_text_field(scanner_model)
+
     root_cause_code = row.get("root_cause_code") or row.get("root_cause_id")
     if isinstance(root_cause_code, str):
         root_cause_code_display = root_cause_code.strip().upper()
-    elif root_cause_code is not None:
+        root_cause_code_norm = _normalize_text_field(root_cause_code)
+    elif isinstance(root_cause_code, (int, float)):
         root_cause_code_display = str(root_cause_code)
+        root_cause_code_norm = str(root_cause_code)
     else:
         root_cause_code_display = ""
+        root_cause_code_norm = ""
 
     root_cause_text_norm = _normalize_text_field(row.get("root_cause"))
+
+    structured_match = _cached_infer_structured_category(
+        tokens_tuple,
+        scanner_norm,
+        root_cause_code_norm,
+        root_cause_text_norm,
+        recurrence_count,
+    )
+
+    scanner_label_map: Mapping[str, str] = (
+        context.get("scanner_labels", {}) if context else {}
+    )
+    root_cause_label_map: Mapping[str, str] = (
+        context.get("root_cause_labels", {}) if context else {}
+    )
+
     root_cause_display = (
         root_cause_label_map.get(root_cause_text_norm)
         if root_cause_label_map
@@ -1297,7 +1291,14 @@ def _derive_analysis_label(
             return f"{label} (Recurring)"
         return label
 
-    inferred_category = _infer_report_category(row, tokens)
+    category_fields: list[str] = []
+    for key in ("category", "classification", "topic"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            category_fields.append(value.lower())
+    category_blob = " ".join(category_fields)
+
+    inferred_category = _cached_infer_report_category(tokens_tuple, category_blob)
     if inferred_category:
         if recurrence_count >= 3:
             return f"{inferred_category} (Recurring)"
@@ -1307,7 +1308,6 @@ def _derive_analysis_label(
         return f"Root Cause – {root_cause_code_display}"
 
     if scanner_model:
-        scanner_norm = _normalize_text_field(scanner_model)
         display = scanner_label_map.get(scanner_norm, scanner_model)
         return f"Scanner – {display}"
 
