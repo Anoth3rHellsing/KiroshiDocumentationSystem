@@ -10510,26 +10510,83 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
+@st.cache_data(ttl=5, show_spinner=False)
+def _get_saved_cases_view_df() -> pd.DataFrame:
+    """Cached DataFrame creation for the Saved Cases view.
+
+    This prevents rebuilding the DataFrame and performing O(N) string formatting
+    on every interaction (search, filter) within the short TTL window.
+    """
+    saved_cases = list_saved_cases()
+    if not saved_cases:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(saved_cases)
+    # Ensure updated is datetime64 for sorting
+    if "updated" in df.columns:
+        df["updated"] = pd.to_datetime(df["updated"], errors="coerce")
+
+    # Pre-calculate display strings to avoid apply on every render
+    if "updated" in df.columns:
+        df["display_last_modified"] = df["updated"].dt.strftime("%Y-%m-%d %H:%M")
+
+    if "tags" in df.columns:
+        # Join tags once
+        df["tags_text"] = df["tags"].apply(
+            lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
+        )
+    else:
+        df["tags_text"] = ""
+
+    if "is_legacy" in df.columns:
+        df["legacy_label"] = df["is_legacy"].map({True: "Yes", False: "No"})
+
+    # Pre-calculate search blob for vectorized filtering
+    search_columns = [
+        "case_id",
+        "company",
+        "end_user",
+        "file_name",
+        "path",
+        "kiroshi_version",
+        "tags_text",
+    ]
+    # Ensure columns exist before using them
+    available_search_cols = [c for c in search_columns if c in df.columns]
+
+    # Vectorized string concatenation for search
+    # fillna("") is important to avoid 'nan' strings if we converted to str directly
+    # astype(str) ensures everything is string
+    if available_search_cols:
+        df["_search_blob"] = (
+            df[available_search_cols]
+            .fillna("")
+            .astype(str)
+            .agg(" ".join, axis=1)
+            .str.lower()
+        )
+    else:
+        df["_search_blob"] = ""
+
+    return df
+
+
 def render_saved_cases_page() -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
         unsafe_allow_html=True,
     )
-    saved_cases = list_saved_cases()
-    if not saved_cases:
+    saved_df = _get_saved_cases_view_df()
+    if saved_df.empty:
         st.info("No saved cases found in your database.")
         return
 
-    saved_df = pd.DataFrame(saved_cases)
-    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
-    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
-    saved_df["tags_text"] = saved_df["tags"].apply(
-        lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
-    )
-    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
-
     version_options = sorted(
-        {str(v) for v in saved_df["kiroshi_version"].dropna().unique() if str(v).strip()}
+        {
+            str(v)
+            for v in saved_df["kiroshi_version"].dropna().unique()
+            if str(v).strip()
+        }
     )
     total_cases = len(saved_df)
     legacy_total = int(saved_df["is_legacy"].sum())
@@ -10589,24 +10646,11 @@ def render_saved_cases_page() -> None:
 
     search_value = search_term.strip().lower()
     if search_value:
-        search_columns = [
-            "case_id",
-            "company",
-            "end_user",
-            "file_name",
-            "path",
-            "kiroshi_version",
-            "tags_text",
-        ]
-        filtered_df = filtered_df[
-            filtered_df.apply(
-                lambda row: any(
-                    search_value in str(row.get(col, "")).lower()
-                    for col in search_columns
-                ),
-                axis=1,
-            )
-        ]
+        # Vectorized search is much faster than apply(axis=1)
+        if "_search_blob" in filtered_df.columns:
+            filtered_df = filtered_df[
+                filtered_df["_search_blob"].str.contains(search_value, regex=False)
+            ]
 
     filtered_df = filtered_df.sort_values("updated", ascending=False)
     display_df = filtered_df[
