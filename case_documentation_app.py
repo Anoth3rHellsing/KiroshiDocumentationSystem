@@ -18608,6 +18608,7 @@ def render_case_ui(case_idx: int):
                     "Experience level (new / experienced)",
                     ext.get("experience", ""),
                     key=case_widget_key("email_broken_scanner", "experience", case_idx),
+                    placeholder="e.g. New user / Experienced",
                 )
                 st.info(
                     "Fill in internal notes, conclusion, additional information, and support fee details "
@@ -19620,21 +19621,25 @@ End with: We look forward to your reply."""
                 "Dell Command Updates status",
                 "dell_command_updates_status",
                 container=diag_col1,
+                placeholder="e.g. Critical updates installed",
             )
             auto_text_input(
                 "Power Options setup",
                 "dell_power_options_setup",
                 container=diag_col2,
+                placeholder="e.g. High Performance",
             )
             auto_text_input(
                 "Dell Optimizer setup",
                 "dell_optimizer_setup",
                 container=diag_col1,
+                placeholder="e.g. Optimized / Disabled",
             )
             auto_text_input(
                 "Intel Processor Power Management Utility installed?",
                 "dell_intel_ppm_installed",
                 container=diag_col2,
+                placeholder="e.g. Yes / No",
             )
 
             st.markdown("##### Performance & drivers")
@@ -20903,7 +20908,7 @@ def main():
     for idx, tab in enumerate(case_tabs):
         with tab:
             if idx == len(visible_case_indices):
-                if st.button("Add Case", help="Create a new case workspace"):
+                if st.button("➕ Add Case", help="Create a new case workspace"):
                     st.session_state.case_sessions.append(CaseSession(case=CaseData()))
                     _sync_case_memory_from_sessions()
                     st.rerun()
