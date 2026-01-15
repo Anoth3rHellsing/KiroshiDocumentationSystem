@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-15 - Cached Batch Loading for Saved Cases
+**Learning:** Iterating over `DATABASE_DIR` and parsing every JSON file in `iter_saved_case_records` is an O(N) operation that blocks the Streamlit main thread on every rerun of the "Saved Cases" tab.
+**Action:** Extracted the file loading logic into `_get_saved_case_records_cached`, decorated with `@st.cache_data(ttl=15, show_spinner=False)`, to serve the full list from memory for 15 seconds, eliminating disk I/O on rapid re-renders.

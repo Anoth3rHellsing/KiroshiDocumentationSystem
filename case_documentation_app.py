@@ -13500,10 +13500,12 @@ def merge_ai_learning_datasets(
     return dataset
 
 
-def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
-    """Yield paths and loaded data for all saved case files."""
+@st.cache_data(ttl=15, show_spinner=False)
+def _get_saved_case_records_cached() -> list[tuple[Path, dict[str, object]]]:
+    """Load all saved case records with short-term caching."""
+    results = []
     if not DATABASE_DIR.exists():
-        return
+        return results
 
     try:
         for entry in os.scandir(DATABASE_DIR):
@@ -13520,11 +13522,17 @@ def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
                     path = Path(entry.path)
                     data = json.loads(path.read_text(encoding="utf-8"))
                     if isinstance(data, dict):
-                        yield path, data
+                        results.append((path, data))
                 except (OSError, json.JSONDecodeError):
                     continue
     except OSError:
-        return
+        pass
+    return results
+
+
+def iter_saved_case_records() -> Iterable[tuple[Path, dict[str, object]]]:
+    """Yield paths and loaded data for all saved case files."""
+    return _get_saved_case_records_cached()
 
 
 def build_ai_learning_dataset(
