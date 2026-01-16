@@ -1013,20 +1013,23 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Indices to speed up lookup for O(N) performance
+    cluster_indices_by_token: defaultdict[str, set[int]] = defaultdict(set)
+    clusters_with_empty_tokens: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
         if not normalized and not tokens:
-            blank_index = next(
-                (
-                    idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
-                ),
-                None,
-            )
-            if blank_index is None:
+            blank_index = -1
+            if clusters_with_empty_tokens:
+                for idx in clusters_with_empty_tokens:
+                    if not clusters[idx].get("normalized"):
+                        blank_index = idx
+                        break
+
+            if blank_index == -1:
                 clusters.append(
                     {
                         "normalized": "",
@@ -1035,12 +1038,23 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                clusters_with_empty_tokens.add(blank_index)
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        candidates: set[int] = set()
+        if tokens:
+            for t in tokens:
+                candidates.update(cluster_indices_by_token[t])
+            candidates.update(clusters_with_empty_tokens)
+        else:
+            candidates = set(range(len(clusters)))
+
+        for idx in candidates:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1063,10 +1077,23 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            assignments.append(new_idx)
+
+            if tokens:
+                for t in tokens:
+                    cluster_indices_by_token[t].add(new_idx)
+            else:
+                clusters_with_empty_tokens.add(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+
+            new_tokens = tokens - cluster_tokens
+            if new_tokens:
+                for t in new_tokens:
+                    cluster_indices_by_token[t].add(best_index)
+
             cluster_tokens.update(tokens)
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
@@ -1074,6 +1101,9 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
             assignments.append(best_index)
+
+            if tokens and best_index in clusters_with_empty_tokens:
+                clusters_with_empty_tokens.remove(best_index)
 
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
     return assignments, label_map
@@ -1102,7 +1132,8 @@ def _coerce_int(value: object, default: int = 0) -> int:
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
-    token_counter = Counter(token.lower() for token in tokens if token)
+    # Optimization: tokens are guaranteed to be lowercase and non-empty by _tokenize_issue_description
+    token_counter = Counter(tokens)
     if not token_counter:
         return None
 
@@ -1175,7 +1206,7 @@ def _infer_structured_category(
     recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     structured_scores: dict[str, int] = {}
 
-    token_set = {token.lower() for token in tokens}
+    token_set = set(tokens)
 
     for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
         score = 0
