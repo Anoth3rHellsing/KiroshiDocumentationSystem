@@ -11487,12 +11487,14 @@ def _render_settings_cloud_tab() -> None:
         key="kiroshi_cloud_username",
         help="Credencial configurada en la consola de Kiroshi Cloud.",
         on_change=_on_setting_change("kiroshi_cloud_username"),
+        placeholder="p.ej. admin",
     )
     st.text_input(
         "Contraseña del cloud",
         type="password",
         key="kiroshi_cloud_password",
         help="Se guarda únicamente durante esta sesión.",
+        placeholder="••••••••",
     )
     token_value = st.text_area(
         "Token de conexión del dispositivo",
@@ -11502,6 +11504,7 @@ def _render_settings_cloud_tab() -> None:
             " El token vincula el ID del dispositivo y el secreto compartido."
         ),
         on_change=_on_setting_change("kiroshi_cloud_token"),
+        placeholder="Pegar token aquí (comienza con 'eyJ...')",
     )
     token_details = None
     token_value_stripped = token_value.strip()
