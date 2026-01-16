@@ -10510,6 +10510,47 @@ def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = N
             request_load_from_path(case["path"], prefer_new_tab=True)
 
 
+@st.cache_data(show_spinner=False)
+def _get_saved_cases_view_df(cases: list[dict[str, object]]) -> pd.DataFrame:
+    df = pd.DataFrame(cases)
+    if df.empty:
+        return df
+
+    # Optimize datetime conversion
+    if "updated" in df.columns:
+        df["updated"] = pd.to_datetime(df["updated"], errors="coerce")
+        df["display_last_modified"] = df["updated"].dt.strftime("%Y-%m-%d %H:%M")
+
+    # Optimize tags processing
+    if "tags" in df.columns:
+        df["tags_text"] = df["tags"].apply(
+            lambda tags: ", ".join(dict.fromkeys(tags)) if isinstance(tags, list) else ""
+        )
+
+    # Legacy label mapping
+    if "is_legacy" in df.columns:
+        df["legacy_label"] = df["is_legacy"].map({True: "Yes", False: "No"})
+
+    # Pre-calculate search blob for vectorized filtering
+    search_targets = [
+        "case_id",
+        "company",
+        "end_user",
+        "file_name",
+        "path",
+        "kiroshi_version",
+        "tags_text",
+    ]
+    # Vectorized string concatenation
+    blob = pd.Series("", index=df.index)
+    for col in search_targets:
+        if col in df.columns:
+            blob += df[col].fillna("").astype(str).str.lower() + " "
+    df["_search_blob"] = blob.str.strip()
+
+    return df
+
+
 def render_saved_cases_page() -> None:
     st.markdown(
         "<div class='dashboard-title'>Saved Cases</div>",
@@ -10520,13 +10561,7 @@ def render_saved_cases_page() -> None:
         st.info("No saved cases found in your database.")
         return
 
-    saved_df = pd.DataFrame(saved_cases)
-    saved_df["updated"] = pd.to_datetime(saved_df["updated"])
-    saved_df["display_last_modified"] = saved_df["updated"].dt.strftime("%Y-%m-%d %H:%M")
-    saved_df["tags_text"] = saved_df["tags"].apply(
-        lambda tags: ", ".join(dict.fromkeys(tags)) if tags else ""
-    )
-    saved_df["legacy_label"] = saved_df["is_legacy"].map({True: "Yes", False: "No"})
+    saved_df = _get_saved_cases_view_df(saved_cases)
 
     version_options = sorted(
         {str(v) for v in saved_df["kiroshi_version"].dropna().unique() if str(v).strip()}
@@ -10589,23 +10624,10 @@ def render_saved_cases_page() -> None:
 
     search_value = search_term.strip().lower()
     if search_value:
-        search_columns = [
-            "case_id",
-            "company",
-            "end_user",
-            "file_name",
-            "path",
-            "kiroshi_version",
-            "tags_text",
-        ]
+        # Use pre-calculated search blob for O(N) vectorized filtering
+        # instead of O(N*C) row-wise apply
         filtered_df = filtered_df[
-            filtered_df.apply(
-                lambda row: any(
-                    search_value in str(row.get(col, "")).lower()
-                    for col in search_columns
-                ),
-                axis=1,
-            )
+            filtered_df["_search_blob"].str.contains(search_value, case=False, na=False, regex=False)
         ]
 
     filtered_df = filtered_df.sort_values("updated", ascending=False)
