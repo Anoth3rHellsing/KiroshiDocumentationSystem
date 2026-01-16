@@ -54,7 +54,7 @@ class AgentBlockedError(CloudError):
 
 
 DEFAULT_USERNAME = "admin"
-DEFAULT_PASSWORD = "admin123!"
+LEGACY_DEFAULT_PASSWORD = "admin123!"
 DEFAULT_OVERLAY_PROVIDER = "Tailscale, ZeroTier, or WireGuard"
 DEFAULT_OVERLAY_INSTRUCTIONS = """
 1. **Install the overlay agent** – deploy a mesh VPN such as
@@ -257,11 +257,16 @@ def _synchronise_default_flag(config: dict[str, Any]) -> bool:
     except Exception:  # pragma: no cover - configuration corruption guard
         return False
 
-    expected_default = _hash_password(DEFAULT_PASSWORD, salt)
-    using_defaults = (
+    # Check for legacy default "admin123!" to ensure existing installs are flagged
+    expected_legacy = _hash_password(LEGACY_DEFAULT_PASSWORD, salt)
+    is_legacy_default = (
         config.get("username") == DEFAULT_USERNAME
-        and secrets.compare_digest(password_hash, expected_default)
+        and secrets.compare_digest(password_hash, expected_legacy)
     )
+
+    # If already flagged as using defaults, trust the flag (handles generated initial passwords)
+    current_flag = config.get("uses_default_credentials", False)
+    using_defaults = is_legacy_default or current_flag
 
     if config.get("uses_default_credentials") == using_defaults:
         return False
@@ -323,11 +328,20 @@ def _initialize_default_config(path: Path) -> dict[str, Any]:
     salt_encryption = os.urandom(16)
     instance_id = str(uuid.uuid4())
     now = _utc_timestamp()
+
+    # SECURITY: Generate a random password if not provided via environment
+    initial_password = os.environ.get("KIROSHI_INITIAL_ADMIN_PASSWORD")
+    if not initial_password:
+        initial_password = secrets.token_urlsafe(16)
+        import sys
+        print(f"\n[SECURITY] Generated initial Kiroshi Cloud password: {initial_password}\n"
+              f"[SECURITY] Please change this immediately after first login.\n", file=sys.stderr)
+
     config = {
         "version": CONFIG_VERSION,
         "username": DEFAULT_USERNAME,
         "password_salt": base64.urlsafe_b64encode(salt_password).decode("utf-8"),
-        "password_hash": _hash_password(DEFAULT_PASSWORD, salt_password),
+        "password_hash": _hash_password(initial_password, salt_password),
         "encryption_salt": base64.urlsafe_b64encode(salt_encryption).decode("utf-8"),
         "instance_id": instance_id,
         "created_at": now,
@@ -1130,7 +1144,7 @@ __all__ = [
     "CLOUD_DEVICES_PATH",
     "CLOUD_EDUCATE_PATH",
     "DEFAULT_USERNAME",
-    "DEFAULT_PASSWORD",
+    "LEGACY_DEFAULT_PASSWORD",
     "DEFAULT_OVERLAY_INSTRUCTIONS",
     "DEFAULT_OVERLAY_PROVIDER",
     "ensure_cloud_share",
