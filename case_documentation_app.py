@@ -1102,7 +1102,8 @@ def _coerce_int(value: object, default: int = 0) -> int:
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
-    token_counter = Counter(token.lower() for token in tokens if token)
+    # Tokens are guaranteed lowercase by _tokenize_issue_description
+    token_counter = Counter(tokens)
     if not token_counter:
         return None
 
@@ -1175,7 +1176,8 @@ def _infer_structured_category(
     recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     structured_scores: dict[str, int] = {}
 
-    token_set = {token.lower() for token in tokens}
+    # Tokens are guaranteed lowercase by _tokenize_issue_description
+    token_set = set(tokens)
 
     for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
         score = 0
@@ -13161,11 +13163,11 @@ def recent_tracked_files(cases: list | None = None) -> list[Path]:
 def _summarize_text(text: str, width: int = 200) -> str:
     if not text:
         return ""
-    cleaned = " ".join(text.split())
+    # textwrap.shorten collapses whitespace internally, so manual split/join is redundant
     try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
+        return textwrap.shorten(text, width=width, placeholder="…")
     except Exception:
-        return cleaned[:width]
+        return " ".join(text.split())[:width]
 
 
 def _extract_keywords(*texts: str) -> list[str]:

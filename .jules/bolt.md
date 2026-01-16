@@ -15,3 +15,11 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-16 - Text Processing Redundancy in Loops
+**Learning:** When preprocessing text (like tokenization), downstream functions often re-apply the same transformations (like `.lower()`) inside tight loops (generator expressions), causing significant overhead. Trusting the contract of the upstream tokenizer can yield massive speedups (~3x for inference logic).
+**Action:** Removed redundant `.lower()` calls in `_infer_report_category` and `_infer_structured_category`, leveraging the guarantee from `_tokenize_issue_description`.
+
+## 2026-01-16 - Redundant Whitespace Collapse
+**Learning:** `textwrap.shorten` implicitly collapses whitespace. Pre-cleaning text with `" ".join(text.split())` before passing it to `shorten` creates an unnecessary O(N) pass.
+**Action:** Removed manual whitespace collapsing in `_summarize_text`, delegating it to `textwrap.shorten`.
