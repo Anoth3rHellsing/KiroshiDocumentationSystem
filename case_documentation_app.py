@@ -11039,6 +11039,7 @@ def _render_settings_workspace_tab() -> None:
         key="attachments_directory",
         on_change=_on_setting_change("attachments_directory"),
         help=attachments_help,
+        placeholder="e.g. C:/Users/Public/Documents/Kiroshi/Attachments",
     )
     requested_root = _resolve_configured_attachments_directory()
     attachments_root, attachments_error = _ensure_case_attachments_root()
@@ -11186,13 +11187,15 @@ def _render_settings_ai_tab() -> None:
             type="password",
             key="openai_api_key",
             on_change=_on_setting_change("openai_api_key"),
-            help="Your API key from OpenAI platform."
+            help="Your API key from OpenAI platform.",
+            placeholder="sk-proj-...",
         )
         st.text_input(
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The endpoint URL for the API (default: https://api.openai.com/v1)."
+            help="The endpoint URL for the API (default: https://api.openai.com/v1).",
+            placeholder="https://api.openai.com/v1",
         )
 
         # Ensure default model is selected if current selection is invalid
@@ -11210,7 +11213,8 @@ def _render_settings_ai_tab() -> None:
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio)."
+            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio).",
+            placeholder="http://localhost:1234/v1",
         )
         st.text_input(
             "API Key (optional)",
@@ -11487,12 +11491,14 @@ def _render_settings_cloud_tab() -> None:
         key="kiroshi_cloud_username",
         help="Credencial configurada en la consola de Kiroshi Cloud.",
         on_change=_on_setting_change("kiroshi_cloud_username"),
+        placeholder="p.ej. admin",
     )
     st.text_input(
         "Contraseña del cloud",
         type="password",
         key="kiroshi_cloud_password",
         help="Se guarda únicamente durante esta sesión.",
+        placeholder="••••••••",
     )
     token_value = st.text_area(
         "Token de conexión del dispositivo",
@@ -11502,6 +11508,7 @@ def _render_settings_cloud_tab() -> None:
             " El token vincula el ID del dispositivo y el secreto compartido."
         ),
         on_change=_on_setting_change("kiroshi_cloud_token"),
+        placeholder="Pegar token aquí...",
     )
     token_details = None
     token_value_stripped = token_value.strip()
@@ -11577,12 +11584,14 @@ def _render_settings_cloud_tab() -> None:
                     key="kiroshi_cloud_username",
                     help="Credencial configurada en la consola de Kiroshi Cloud.",
                     on_change=_on_setting_change("kiroshi_cloud_username"),
+                    placeholder="p.ej. admin",
                 )
                 st.text_input(
                     "Contraseña del cloud",
                     type="password",
                     key="kiroshi_cloud_password",
                     help="Se guarda únicamente durante esta sesión.",
+                    placeholder="••••••••",
                 )
                 token_value = st.text_area(
                     "Token de conexión del dispositivo",
@@ -11592,6 +11601,7 @@ def _render_settings_cloud_tab() -> None:
                         " El token vincula el ID del dispositivo y el secreto compartido."
                     ),
                     on_change=_on_setting_change("kiroshi_cloud_token"),
+                    placeholder="Pegar token aquí...",
                 )
                 token_details = None
                 token_value_stripped = token_value.strip()
