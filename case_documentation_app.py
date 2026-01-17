@@ -994,24 +994,10 @@ def _title_similarity_tokens(title: object) -> set[str]:
     }
 
 
-def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
-) -> float:
-    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
-        return 0.0
-
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
-    if tokens_a and tokens_b:
-        intersection = len(tokens_a & tokens_b)
-        union = len(tokens_a | tokens_b)
-        jaccard = (intersection / union) if union else 0.0
-        return 0.6 * base + 0.4 * jaccard
-    return base
-
-
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+    token_to_cluster_indices: dict[str, set[int]] = defaultdict(set)
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
@@ -1040,10 +1026,45 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        if tokens:
+            candidate_indices = set()
+            for token in tokens:
+                if token in token_to_cluster_indices:
+                    candidate_indices.update(token_to_cluster_indices[token])
+        else:
+            candidate_indices = set(range(len(clusters)))
+
+        for idx in sorted(candidate_indices):
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
+            if tokens and cluster_tokens:
+                intersection = len(tokens & cluster_tokens)
+                union = len(tokens | cluster_tokens)
+                jaccard = (intersection / union) if union else 0.0
+
+                # Optimization: Prune if even a perfect string match (base=1.0)
+                # cannot exceed the threshold or the current best score.
+                max_possible = 0.6 + 0.4 * jaccard
+                threshold_to_beat = max(0.68, best_score)
+                if max_possible <= threshold_to_beat and max_possible < 1.0:
+                    continue
+
+                base = (
+                    SequenceMatcher(None, normalized, cluster_norm).ratio()
+                    if (normalized or cluster_norm)
+                    else 0.0
+                )
+                score = 0.6 * base + 0.4 * jaccard
+            else:
+                score = (
+                    SequenceMatcher(None, normalized, cluster_norm).ratio()
+                    if (normalized or cluster_norm)
+                    else 0.0
+                )
+
             if score > best_score:
                 best_score = score
                 best_index = idx
@@ -1056,6 +1077,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if label_source
                 else "Caso sin título"
             )
+            new_cluster_idx = len(clusters)
             clusters.append(
                 {
                     "normalized": normalized,
@@ -1063,11 +1085,17 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            assignments.append(new_cluster_idx)
+            for token in tokens:
+                token_to_cluster_indices[token].add(new_cluster_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+            new_tokens = tokens - cluster_tokens
             cluster_tokens.update(tokens)
+            for token in new_tokens:
+                token_to_cluster_indices[token].add(best_index)
+
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)

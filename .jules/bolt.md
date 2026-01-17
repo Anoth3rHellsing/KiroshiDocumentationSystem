@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-17 - Inverted Index for Clustering
+**Learning:** Naive clustering algorithms that compare each item against all existing clusters ($O(N \cdot M)$) become a bottleneck when processing large datasets (like 1000+ cases). String similarity functions like `difflib.SequenceMatcher` are expensive ($O(L^2)$) and should be avoided for obvious non-matches.
+**Action:** Implemented an inverted index mapping tokens to clusters. This allows querying only relevant candidate clusters ($O(K)$). Added a Jaccard-based pruning heuristic: if the token overlap is too low to possibly reach the similarity threshold, the expensive string comparison is skipped. This reduced runtime by ~2x for random data and ~38% for overlapping data.
