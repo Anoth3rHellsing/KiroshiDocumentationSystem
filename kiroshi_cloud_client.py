@@ -15,7 +15,6 @@ from kiroshi_cloud_sync import (
     AuthenticationError,
     CloudError,
     CloudSession,
-    DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
     cloud_share_status,
     overlay_guidance,
@@ -142,8 +141,7 @@ def _render_login() -> None:
 
     if not submitted:
         st.info(
-            "Default credentials: **%s / %s**.\n\nChange them immediately after the first login."
-            % (DEFAULT_USERNAME, DEFAULT_PASSWORD)
+            "If this is your first login, please check the server logs (stderr) for the initial password."
         )
         return
 
