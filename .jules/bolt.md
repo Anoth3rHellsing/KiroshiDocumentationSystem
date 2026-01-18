@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-18 - Optimized Case Title Clustering
+**Learning:** The O(N^2) complexity of `_cluster_case_titles` caused significant slowdowns (35s for 1000 items) due to pairwise comparisons of all titles. Using an inverted index maps tokens to clusters, allowing the algorithm to only check candidates sharing at least one token (O(N*K)).
+**Action:** Implemented an inverted index (`token -> set[cluster_indices]`) in `_cluster_case_titles` to restrict candidate comparisons. This reduced clustering time from ~35s to ~7.7s for 1000 items (~4.5x speedup) in synthetic benchmarks.
