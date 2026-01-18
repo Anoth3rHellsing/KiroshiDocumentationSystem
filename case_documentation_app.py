@@ -9907,13 +9907,17 @@ def render_responsive_altair_chart(chart: alt.Chart) -> None:
     st.altair_chart(chart, **ALTAIR_CHART_KWARGS)
 
 
-def render_tracked_case_insights(cases: list) -> None:
-    st.subheader("Tracked Case Insights")
+@st.cache_data(show_spinner=False)
+def _prepare_tracked_case_charts(
+    cases: list,
+) -> tuple[alt.Chart | None, alt.Chart | None, alt.Chart | None]:
+    """Prepare Altair charts for tracked case insights, cached by data content."""
     if not cases:
-        st.caption("No tracked cases to visualize yet.")
-        return
+        return None, None, None
 
     df = pd.DataFrame(cases)
+
+    priority_chart = None
     if "priority" in df:
         priority_counts = (
             df.assign(priority=df["priority"].fillna(DEFAULT_TRACKING_PRIORITY))
@@ -9933,8 +9937,8 @@ def render_tracked_case_insights(cases: list) -> None:
             )
             .properties(height=140)
         )
-        render_responsive_altair_chart(priority_chart)
 
+    status_chart = None
     if "status" in df:
         status_counts = (
             df.assign(status=df["status"].fillna("Unknown"))
@@ -9954,8 +9958,8 @@ def render_tracked_case_insights(cases: list) -> None:
             )
             .properties(height=200)
         )
-        render_responsive_altair_chart(status_chart)
 
+    timeline_chart = None
     if "creation_day" in df:
         created_series = pd.to_datetime(df["creation_day"], errors="coerce")
         if not created_series.isna().all():
@@ -9977,7 +9981,26 @@ def render_tracked_case_insights(cases: list) -> None:
                 )
                 .properties(height=160)
             )
-            render_responsive_altair_chart(timeline_chart)
+
+    return priority_chart, status_chart, timeline_chart
+
+
+def render_tracked_case_insights(cases: list) -> None:
+    st.subheader("Tracked Case Insights")
+    if not cases:
+        st.caption("No tracked cases to visualize yet.")
+        return
+
+    priority_chart, status_chart, timeline_chart = _prepare_tracked_case_charts(cases)
+
+    if priority_chart:
+        render_responsive_altair_chart(priority_chart)
+
+    if status_chart:
+        render_responsive_altair_chart(status_chart)
+
+    if timeline_chart:
+        render_responsive_altair_chart(timeline_chart)
 
 
 def render_crm_link_button(url: str) -> None:
