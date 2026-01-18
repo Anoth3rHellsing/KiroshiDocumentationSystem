@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2026-01-18 - Duplicate UI Blocks Impede Consistency
+**Learning:** The `render_settings_panel` logic contains duplicated input blocks for configuration (likely due to conditional logic branching), which required patching the same UX improvement twice. Streamlit apps often grow into monolithic files where UI reuse is ad-hoc.
+**Action:** When modifying settings UI, always `grep` for the label to ensure all instances are caught, as components might be copy-pasted across different conditional branches.
