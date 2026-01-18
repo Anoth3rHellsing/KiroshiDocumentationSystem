@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-18 - Set Construction Overhead vs Fast Set Intersection
+**Learning:** When optimizing an O(N*M) clustering algorithm using an inverted index (to reduce comparisons to O(N*K)), the overhead of constructing Python `set`s for candidate filtering can offset the gains if the inner loop comparison (e.g., `isdisjoint`) is extremely optimized in C. For small M (e.g., <5000), iterating all clusters with a fast check can be comparable to iterating fewer clusters with a slower setup.
+**Action:** Implemented inverted index optimization for `_cluster_case_titles` ensuring scalability for large datasets, but noted that for typical sizes (N=3000), the speedup is modest (~10%) due to `set` allocation costs.
