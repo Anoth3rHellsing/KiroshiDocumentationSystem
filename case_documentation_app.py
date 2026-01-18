@@ -10517,7 +10517,12 @@ def render_saved_cases_page() -> None:
     )
     saved_cases = list_saved_cases()
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        st.info("No saved cases found yet. Start a new case to build your database.", icon="📂")
+        if st.button("Start New Case", type="primary"):
+            st.session_state.case_sessions.append(CaseSession(case=CaseData()))
+            _sync_case_memory_from_sessions()
+            st.session_state._show_new_case_toast = True
+            st.rerun()
         return
 
     saved_df = pd.DataFrame(saved_cases)
@@ -20864,6 +20869,9 @@ def main():
     resolution_notice = st.session_state.pop("_milestone_resolution_notice", None)
     if resolution_notice:
         st.success(resolution_notice)
+
+    if st.session_state.pop("_show_new_case_toast", False):
+        st.toast("New case created! Switch to the new tab to begin.", icon="📂")
 
     visible_case_indices = _visible_case_index_list()
     case_labels = [
