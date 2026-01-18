@@ -26,6 +26,7 @@ import re
 import base64
 import binascii
 import random
+import secrets
 import subprocess
 import sys
 import math
@@ -13055,6 +13056,30 @@ def render_smart_aid_panel() -> None:
         st.info("No supervisor feedback saved yet. Add a calibration above to prime Smart Aid.")
 
 
+@st.cache_resource
+def _get_debug_credentials() -> tuple[str, str]:
+    """Retrieve or generate secure credentials for the Debug tab."""
+    user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+    password = os.environ.get("KIROSHI_DEBUG_PASSWORD")
+
+    if not password:
+        # Generate a random password if none is provided in the environment
+        # Use a consistent seed or cache it so it doesn't change on every rerun
+        # @st.cache_resource handles the persistence across reruns
+        password = secrets.token_urlsafe(16)
+        logging.warning(
+            "KIROSHI_DEBUG_PASSWORD not set. Generated temporary debug password: %s",
+            password,
+        )
+        # Also print to stderr to ensure visibility in console logs
+        print(
+            f" [SECURITY] Generated temporary debug password: {password}",
+            file=sys.stderr,
+        )
+
+    return user, password
+
+
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
@@ -13137,8 +13162,13 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            debug_user, debug_pw = _get_debug_credentials()
+            # Use constant-time comparison to prevent timing attacks
+            if secrets.compare_digest(user, debug_user) and secrets.compare_digest(
+                pw, debug_pw
+            ):
                 st.session_state.debug_auth = True
+                st.rerun()
             else:
                 st.error("Invalid credentials")
 
