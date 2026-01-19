@@ -9990,6 +9990,21 @@ def render_crm_link_button(url: str) -> None:
     )
 
 
+def render_empty_state(icon: str, title: str, description: str) -> None:
+    st.markdown(
+        f"""
+        <div style="text-align: center; padding: 2.5rem 1.5rem; border-radius: 16px; border: 2px dashed rgba(128, 128, 128, 0.2); margin: 1rem 0;">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem; opacity: 0.8; font-family: 'Segoe UI Emoji', 'Roboto', sans-serif;">{icon}</div>
+            <h4 style="margin: 0 0 0.5rem 0; font-weight: 600; font-size: 1.1rem; color: inherit;">{title}</h4>
+            <p style="font-size: 0.92rem; line-height: 1.5; margin: 0 auto; max-width: 420px; opacity: 0.7;">
+                {description}
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_tracked_cases_dashboard(
     cases: list,
     search_query: str = "",
@@ -9998,7 +10013,11 @@ def render_tracked_cases_dashboard(
     key_namespace: str = "tracked",
 ) -> None:
     if not cases:
-        st.info("No cases are currently being tracked.")
+        render_empty_state(
+            "📡",
+            "Your tracking list is empty",
+            "Pin active cases here to keep them top-of-mind. Open any case, go to the <strong>Tracking</strong> tab, and click <strong>Save and Track</strong>.",
+        )
         return
     filtered_cases = cases
     query = search_query.strip().lower()
@@ -10016,7 +10035,11 @@ def render_tracked_cases_dashboard(
             if any(query in field.lower() for field in haystack if field):
                 filtered_cases.append(case)
     if not filtered_cases:
-        st.info("No tracked cases match your search.")
+        render_empty_state(
+            "🔍",
+            "No cases match your search",
+            "Try adjusting your filters or search terms to find what you're looking for.",
+        )
         return
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     sorted_cases = sorted(
@@ -10477,7 +10500,11 @@ def render_sprint_tab() -> None:
 def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
     saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        render_empty_state(
+            "🗄️",
+            "No saved cases yet",
+            "Your case history will appear here automatically. Start a new case and save it to build your archive.",
+        )
         return
     st.caption("Preview of your most recent saved cases. Use the Saved Cases tab for the full index.")
     preview = saved_cases[:5]
