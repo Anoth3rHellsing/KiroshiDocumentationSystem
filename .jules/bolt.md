@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-19 - Inverted Index for Text Clustering
+**Learning:** Synthetic benchmarking of text clustering requires a vocabulary size comparable to the dataset size (e.g., 500+ words); small vocabularies induce artificial worst-case O(N²) collisions in inverted index lookups.
+**Action:** Implemented inverted index optimization for `_cluster_case_titles`, reducing complexity from O(N²) to near linear. Benchmarked improvement from ~188s to ~24s for 2400 items.
