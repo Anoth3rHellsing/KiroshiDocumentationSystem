@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-20 - Clustering Optimization via Inverted Index
+**Learning:** Text clustering algorithms often have O(N * C) complexity (where C grows with N), leading to O(N^2) behavior. For sparse features (like unique words/tokens), most comparisons are between disjoint sets which yield zero similarity.
+**Action:** Implemented an inverted index (token -> set[cluster_indices]) in `_cluster_case_titles` to pre-filter candidate clusters. This reduces the inner loop from checking all clusters to only checking those sharing at least one token (plus a small set of token-less clusters), effectively changing average complexity to near O(N).
