@@ -1102,7 +1102,8 @@ def _coerce_int(value: object, default: int = 0) -> int:
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
-    token_counter = Counter(token.lower() for token in tokens if token)
+    # tokens are already lowercased and filtered by _tokenize_issue_description
+    token_counter = Counter(tokens)
     if not token_counter:
         return None
 
@@ -1175,7 +1176,8 @@ def _infer_structured_category(
     recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     structured_scores: dict[str, int] = {}
 
-    token_set = {token.lower() for token in tokens}
+    # tokens are already lowercased by _tokenize_issue_description
+    token_set = set(tokens)
 
     for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
         score = 0
