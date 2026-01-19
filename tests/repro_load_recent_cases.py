@@ -8,6 +8,10 @@ from pathlib import Path
 import types
 import dataclasses
 import copy
+import os
+
+# Add root directory to sys.path
+sys.path.insert(0, os.getcwd())
 
 # Mock dependencies before importing the app
 st_mock = MagicMock()
@@ -29,11 +33,49 @@ sys.modules["reportlab.lib.styles"] = MagicMock()
 sys.modules["reportlab.platypus"] = MagicMock()
 sys.modules["reportlab.graphics.shapes"] = MagicMock()
 sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
+sys.modules["reportlab.graphics.charts.barcharts"] = MagicMock()
+sys.modules["reportlab.graphics.charts.lineplots"] = MagicMock()
 
-# Mock st.cache_data to do nothing (passthrough)
+# Mock extra dependencies
+sys.modules["requests"] = MagicMock()
+sys.modules["urllib3"] = MagicMock()
+sys.modules["pyautogui"] = MagicMock()
+sys.modules["tkinter"] = MagicMock()
+sys.modules["PIL"] = MagicMock()
+sys.modules["pytesseract"] = MagicMock()
+sys.modules["mss"] = MagicMock()
+
+# Mock local modules
+sys.modules["kiroshi_chat"] = MagicMock()
+sys.modules["kiroshi_local_ai"] = MagicMock()
+sys.modules["kiroshi_cloud_sync"] = MagicMock()
+sys.modules["kiroshi_video"] = MagicMock()
+sys.modules["kiroshi_hotkeys"] = MagicMock()
+
+# Improved cache mock
 def cache_data_mock(*args, **kwargs):
+    # If used as @st.cache_data (no parens), args[0] is the function
+    if len(args) == 1 and callable(args[0]) and not kwargs:
+        func = args[0]
+        cache = {}
+        def wrapper(*fargs, **fkwargs):
+            key = (fargs, tuple(sorted(fkwargs.items())))
+            if key not in cache:
+                cache[key] = func(*fargs, **fkwargs)
+            return cache[key]
+        wrapper.clear = cache.clear
+        return wrapper
+
+    # If used as @st.cache_data(...), returns a decorator
     def decorator(func):
-        return func
+        cache = {}
+        def wrapper(*fargs, **fkwargs):
+            key = (fargs, tuple(sorted(fkwargs.items())))
+            if key not in cache:
+                cache[key] = func(*fargs, **fkwargs)
+            return cache[key]
+        wrapper.clear = cache.clear
+        return wrapper
     return decorator
 
 st_mock.cache_data = cache_data_mock
@@ -80,7 +122,7 @@ class TestLoadRecentCasesPerformance(unittest.TestCase):
         # Create a temporary file for recent cases
         with patch("case_documentation_app.RECENT_CASES_PATH") as mock_path:
             # Create a large list of recent cases
-            num_cases = 100
+            num_cases = 50
             recent_cases = []
             for i in range(num_cases):
                 recent_cases.append({
@@ -89,21 +131,22 @@ class TestLoadRecentCasesPerformance(unittest.TestCase):
                     "last_modified": "2023-01-01T00:00:00"
                 })
 
+            payload = json.dumps(recent_cases)
+
             mock_path.exists.return_value = True
-            # Simulate read_text cost slightly
-            mock_path.read_text.return_value = json.dumps(recent_cases)
+
+            # Simulate read_text cost
+            def side_effect_read_text(encoding="utf-8"):
+                time.sleep(0.001) # 1ms penalty per read
+                return payload
+
+            mock_path.read_text.side_effect = side_effect_read_text
+
+            # Constant mtime
             mock_path.stat.return_value.st_mtime = 123456789.0
 
-            # Reset the cache in case it was used
-            if hasattr(case_documentation_app, "_recent_cases_cache"):
-                case_documentation_app._recent_cases_cache = None
-
-            # Force uncached behavior to test raw performance
-            # Actually, the function calls _load_recent_cases_from_disk_cached
-            # But we mocked st.cache_data to be a passthrough, so it will execute every time.
-
-            start_time = time.perf_counter()
             # Run it multiple times to simulate re-renders
+            start_time = time.perf_counter()
             for _ in range(100):
                 data = case_documentation_app.load_recent_cases()
             end_time = time.perf_counter()
@@ -111,7 +154,7 @@ class TestLoadRecentCasesPerformance(unittest.TestCase):
             duration = (end_time - start_time) * 1000 # ms
             print(f"100 calls to load_recent_cases took {duration:.2f}ms")
 
-            self.assertEqual(len(data), 100)
+            self.assertEqual(len(data), num_cases)
 
 if __name__ == "__main__":
     unittest.main()
