@@ -1013,20 +1013,22 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index: token -> set of cluster indices
+    inverted_index: defaultdict[str, set[int]] = defaultdict(set)
+    # Track clusters that have no tokens (candidates for match via normalized string only)
+    clusters_without_tokens: set[int] = set()
+    # Track clusters that are completely blank (no tokens, no normalized string)
+    blank_cluster_indices: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
         if not normalized and not tokens:
-            blank_index = next(
-                (
-                    idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
-                ),
-                None,
-            )
-            if blank_index is None:
+            if blank_cluster_indices:
+                # Reuse the first available blank cluster
+                blank_index = min(blank_cluster_indices)
+            else:
                 clusters.append(
                     {
                         "normalized": "",
@@ -1035,12 +1037,31 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                blank_cluster_indices.add(blank_index)
+                clusters_without_tokens.add(blank_index)
             assignments.append(blank_index)
             continue
 
+        # Determine candidate clusters to check
+        candidate_indices: set[int] = set()
+        if tokens:
+            # If title has tokens, valid matches must either share a token OR have no tokens.
+            # _title_similarity_score returns 0.0 if tokens are disjoint (and both sets non-empty).
+            for token in tokens:
+                if token in inverted_index:
+                    candidate_indices.update(inverted_index[token])
+            candidate_indices.update(clusters_without_tokens)
+        else:
+            # If title has no tokens, we must check all clusters (fallback to string matching).
+            # This is slow but rare for meaningful titles.
+            candidate_indices = set(range(len(clusters)))
+
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        # Sort candidates to ensure deterministic tie-breaking (first best match)
+        for idx in sorted(candidate_indices):
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1056,18 +1077,37 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if label_source
                 else "Caso sin título"
             )
-            clusters.append(
-                {
-                    "normalized": normalized,
-                    "tokens": set(tokens),
-                    "label": label,
-                }
-            )
-            assignments.append(len(clusters) - 1)
+            new_cluster = {
+                "normalized": normalized,
+                "tokens": set(tokens),
+                "label": label,
+            }
+            clusters.append(new_cluster)
+            new_index = len(clusters) - 1
+            if tokens:
+                for token in tokens:
+                    inverted_index[token].add(new_index)
+            else:
+                clusters_without_tokens.add(new_index)
+            assignments.append(new_index)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+            was_empty = not cluster_tokens
             cluster_tokens.update(tokens)
+
+            # If cluster was previously without tokens and now has them, update tracking
+            if was_empty and tokens:
+                if best_index in clusters_without_tokens:
+                    clusters_without_tokens.remove(best_index)
+                if best_index in blank_cluster_indices:
+                    blank_cluster_indices.remove(best_index)
+
+            # Update inverted index with new tokens
+            if tokens:
+                for token in tokens:
+                    inverted_index[token].add(best_index)
+
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)
