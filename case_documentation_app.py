@@ -1013,6 +1013,11 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index: token -> set of cluster indices
+    token_to_cluster_indices: dict[str, set[int]] = defaultdict(set)
+    # Track clusters that have no tokens (for string similarity fallback)
+    clusters_without_tokens: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
@@ -1021,8 +1026,8 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
             blank_index = next(
                 (
                     idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
+                    for idx in clusters_without_tokens
+                    if not clusters[idx].get("normalized")
                 ),
                 None,
             )
@@ -1035,12 +1040,31 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                clusters_without_tokens.add(blank_index)
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        if not tokens:
+            # If title has no tokens, we must check all clusters because the similarity
+            # will depend on the normalized string, not token overlap.
+            candidate_indices = range(len(clusters))
+        else:
+            # If title has tokens, we only check clusters that share at least one token
+            # OR clusters that have no tokens (which might match by string similarity).
+            # Using a set to deduplicate indices.
+            candidates: set[int] = set()
+            for token in tokens:
+                if token in token_to_cluster_indices:
+                    candidates.update(token_to_cluster_indices[token])
+            candidates.update(clusters_without_tokens)
+            # Sort to ensure deterministic iteration order (tie-breaking).
+            candidate_indices = sorted(candidates)
+
+        for idx in candidate_indices:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1063,10 +1087,29 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_index = len(clusters) - 1
+            assignments.append(new_index)
+
+            if tokens:
+                for token in tokens:
+                    token_to_cluster_indices[token].add(new_index)
+            else:
+                clusters_without_tokens.add(new_index)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+
+            # If the cluster is acquiring tokens for the first time, remove it
+            # from the 'without tokens' set.
+            if tokens and not cluster_tokens:
+                clusters_without_tokens.discard(best_index)
+
+            # Update the inverted index with any new tokens
+            new_tokens = tokens - cluster_tokens
+            if new_tokens:
+                for token in new_tokens:
+                    token_to_cluster_indices[token].add(best_index)
+
             cluster_tokens.update(tokens)
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
