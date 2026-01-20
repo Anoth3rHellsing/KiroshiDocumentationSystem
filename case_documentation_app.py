@@ -9098,15 +9098,22 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             snapshot = list(cache_obj.data.values())
 
         # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
+        def _get_sort_key(item):
+            # Bolt optimization: use pre-calculated float timestamp if available
+            ts = item.get("_updated_ts")
+            if ts is not None:
+                return ts
+            # Fallback for legacy cached items (slow path)
+            t = item.get("updated")
+            if not t:
+                return 0.0
             try:
                 return datetime.fromisoformat(str(t)).timestamp()
             except ValueError:
                 return 0.0
 
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=_get_sort_key, reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9201,12 +9208,20 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         tags.append(label)
 
                 last_modified = data.get("last_modified")
+                _updated_ts = 0.0
                 if not last_modified:
+                    # If deriving from mtime, we can use the float directly
+                    _updated_ts = float(mtime)
                     last_modified = (
                         datetime.fromtimestamp(mtime)
                         .replace(microsecond=0)
                         .isoformat()
                     )
+                else:
+                    try:
+                        _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except ValueError:
+                        _updated_ts = 0.0
 
                 version = data.get("kiroshi_version")
                 version_label = f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}"
@@ -9267,6 +9282,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "expected_arrival_date": t_arrival,
                     "case_link": t_link,
                     "service_tag": t_tag,
+                    "_updated_ts": _updated_ts,
                 }
                 processed_updates[path] = (mtime, processed)
             else:
