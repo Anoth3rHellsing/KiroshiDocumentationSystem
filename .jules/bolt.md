@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2025-12-24 - Streamlit Chart Caching
+**Learning:** Extracting expensive data processing logic (like Pandas DataFrame creation and Altair chart construction) into a separate function decorated with `@st.cache_data` can significantly improve performance in Streamlit apps, especially for dashboards that re-run frequently.
+**Action:** Created `_prepare_tracked_case_charts` to cache chart generation in `render_tracked_case_insights`, preventing redundant computations when the input data hasn't changed.
