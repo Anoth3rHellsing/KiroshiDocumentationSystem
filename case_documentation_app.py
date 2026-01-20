@@ -16380,18 +16380,21 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "company_name",
             container=name_cols[0],
             help="The full legal name of the clinic or lab.",
+            placeholder="e.g. Smile Dental",
         )
         auto_text_input(
             "Subscription ID",
             "subscription_id",
             container=name_cols[1],
             help="The unique **Dongle ID** or **Subscription ID** identifying the customer license.",
+            placeholder="e.g. 12345678",
         )
         auto_text_input(
             "Case ID",
             "case_id",
             container=name_cols[2],
             help="The CRM ticket number (e.g. CS-0012345) for this incident.",
+            placeholder="e.g. CS-123456",
         )
 
         details_cols = card.columns((2, 1))
@@ -16399,6 +16402,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            help="A short summary of the reported issue.",
+            placeholder="e.g. Unable to send case in Unite",
         )
         version_col = details_cols[1]
         auto_text_input(
@@ -16524,7 +16529,13 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            container=notes_col,
+            help="Name of the person who called.",
+            placeholder="e.g. Dr. Smith",
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
@@ -16538,15 +16549,39 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         else:
             contact_col.subheader(contact_header)
         first_row = contact_col.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-        auto_text_input("Phone number", "phone_number", container=first_row[1])
-        auto_text_input("Customer email", "email", container=contact_col)
+        auto_text_input(
+            "Dongle number",
+            "dongle_number",
+            container=first_row[0],
+            help="If different from Subscription ID.",
+            placeholder="e.g. 12345678",
+        )
+        auto_text_input(
+            "Phone number",
+            "phone_number",
+            container=first_row[1],
+            help="Best number to reach them back.",
+            placeholder="e.g. +1 555 010 9999",
+        )
+        auto_text_input(
+            "Customer email",
+            "email",
+            container=contact_col,
+            help="Email for follow-up and ticket updates.",
+            placeholder="e.g. contact@clinic.com",
+        )
         second_row = contact_col.columns(2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer ID",
+            "teamviewer_id",
+            container=second_row[0],
+            placeholder="e.g. 123 456 789",
+        )
         auto_text_input(
             "TeamViewer password",
             "teamviewer_password",
             container=second_row[1],
+            placeholder="e.g. a1b2c3",
         )
 
 
@@ -19612,7 +19647,11 @@ End with: We look forward to your reply."""
             st.caption(
                 "Capture the Dell-specific diagnostics and clinic contact details required for vendor escalations."
             )
-            auto_text_input("Issue start date", "dell_issue_start_date")
+            auto_text_input(
+                "Issue start date",
+                "dell_issue_start_date",
+                placeholder="YYYY-MM-DD",
+            )
 
             st.markdown("##### PC diagnostics & setup")
             diag_col1, diag_col2 = st.columns(2)
@@ -19620,11 +19659,13 @@ End with: We look forward to your reply."""
                 "Dell Command Updates status",
                 "dell_command_updates_status",
                 container=diag_col1,
+                placeholder="e.g. Up to date",
             )
             auto_text_input(
                 "Power Options setup",
                 "dell_power_options_setup",
                 container=diag_col2,
+                placeholder="e.g. High Performance",
             )
             auto_text_input(
                 "Dell Optimizer setup",
@@ -19697,16 +19738,23 @@ End with: We look forward to your reply."""
 
             st.markdown("##### Clinic contact information")
             clinic_col1, clinic_col2 = st.columns(2)
-            auto_text_input("Clinic name", "clinic_name", container=clinic_col1)
+            auto_text_input(
+                "Clinic name",
+                "clinic_name",
+                container=clinic_col1,
+                placeholder="e.g. Smile Dental",
+            )
             auto_text_input(
                 "Full name of person responsible for receiving the equipment",
                 "clinic_contact_name",
                 container=clinic_col2,
+                placeholder="e.g. Dr. Jane Doe",
             )
             auto_text_input(
                 "Phone number",
                 "clinic_contact_phone",
                 container=clinic_col1,
+                placeholder="e.g. 555-0123",
             )
             auto_text_input(
                 "Email address",
