@@ -1012,8 +1012,14 @@ def _title_similarity_score(
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+    memo: dict[str, int] = {}
 
     for title in titles:
+        # Optimization: Reuse assignment for identical titles to skip expensive similarity checks
+        if title in memo:
+            assignments.append(memo[title])
+            continue
+
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
@@ -1035,6 +1041,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+            memo[title] = blank_index
             assignments.append(blank_index)
             continue
 
@@ -1063,7 +1070,9 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            memo[title] = new_idx
+            assignments.append(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
@@ -1073,6 +1082,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 candidate_label = _summarize_text(title, width=80)
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
+            memo[title] = best_index
             assignments.append(best_index)
 
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
