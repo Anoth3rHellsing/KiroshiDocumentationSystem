@@ -1010,10 +1010,22 @@ def _title_similarity_score(
 
 
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
-    clusters: list[dict[str, object]] = []
-    assignments: list[int] = []
+    # Bolt: Optimization - Deduplicate titles to avoid redundant expensive clustering operations.
+    # This provides significant speedup when many cases share the exact same title.
+    unique_titles_map: dict[str, int] = {}
+    unique_titles_list: list[str] = []
 
-    for title in titles:
+    for t in titles:
+        # We assume titles are strings; if not, we use string representation as key
+        key = str(t)
+        if key not in unique_titles_map:
+            unique_titles_map[key] = len(unique_titles_list)
+            unique_titles_list.append(t)
+
+    clusters: list[dict[str, object]] = []
+    unique_assignments: list[int] = []
+
+    for title in unique_titles_list:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
@@ -1035,7 +1047,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
-            assignments.append(blank_index)
+            unique_assignments.append(blank_index)
             continue
 
         best_index = -1
@@ -1063,7 +1075,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            unique_assignments.append(len(clusters) - 1)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
@@ -1073,8 +1085,10 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 candidate_label = _summarize_text(title, width=80)
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
-            assignments.append(best_index)
+            unique_assignments.append(best_index)
 
+    # Map back to original list
+    assignments = [unique_assignments[unique_titles_map[str(t)]] for t in titles]
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
     return assignments, label_map
 
