@@ -1012,35 +1012,54 @@ def _title_similarity_score(
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+    # Inverted index: token -> set of cluster indices
+    token_index: dict[str, set[int]] = defaultdict(set)
+    # Set of indices for clusters that have no tokens (for fallback comparison)
+    empty_token_clusters: set[int] = set()
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
         if not normalized and not tokens:
-            blank_index = next(
-                (
-                    idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
-                ),
-                None,
+            blank_index = None
+            for idx in empty_token_clusters:
+                if not clusters[idx].get("normalized"):
+                    blank_index = idx
+                    break
+
+            if blank_index is not None:
+                assignments.append(blank_index)
+                continue
+
+            clusters.append(
+                {
+                    "normalized": "",
+                    "tokens": set(),
+                    "label": "Caso sin título",
+                }
             )
-            if blank_index is None:
-                clusters.append(
-                    {
-                        "normalized": "",
-                        "tokens": set(),
-                        "label": "Caso sin título",
-                    }
-                )
-                blank_index = len(clusters) - 1
+            blank_index = len(clusters) - 1
+            empty_token_clusters.add(blank_index)
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        candidates: Iterable[int]
+        if tokens:
+            candidates = set()
+            for t in tokens:
+                if t in token_index:
+                    candidates.update(token_index[t])
+            if empty_token_clusters:
+                candidates.update(empty_token_clusters)
+        else:
+            candidates = range(len(clusters))
+
+        for idx in candidates:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1063,16 +1082,31 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            if tokens:
+                for t in tokens:
+                    token_index[t].add(new_idx)
+            else:
+                empty_token_clusters.add(new_idx)
+            assignments.append(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+            was_empty = not cluster_tokens
+
             cluster_tokens.update(tokens)
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
+
+            if tokens:
+                for t in tokens:
+                    token_index[t].add(best_index)
+                if was_empty and best_index in empty_token_clusters:
+                    empty_token_clusters.remove(best_index)
+
             assignments.append(best_index)
 
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
