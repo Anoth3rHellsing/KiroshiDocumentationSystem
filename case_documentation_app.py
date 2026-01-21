@@ -17165,11 +17165,23 @@ def render_case_attachments_panel(
                 else:
                     remove_btn = cols[2]
 
-                if remove_btn.button(
+                upload_rem_key = attachments_key(f"attachments_rem_upload_{i}")
+                upload_confirm_key = attachments_key(f"confirm_rem_upload_{i}")
+
+                if st.session_state.get(upload_confirm_key):
+                    with remove_btn:
+                        if st.button("Confirm", key=f"{upload_rem_key}_confirm", type="primary"):
+                            uploads.pop(i)
+                            st.session_state.pop(upload_confirm_key, None)
+                            st.rerun()
+                        if st.button("Cancel", key=f"{upload_rem_key}_cancel"):
+                            st.session_state.pop(upload_confirm_key, None)
+                            st.rerun()
+                elif remove_btn.button(
                     "Remove",
-                    key=attachments_key(f"attachments_rem_upload_{i}"),
+                    key=upload_rem_key,
                 ):
-                    uploads.pop(i)
+                    st.session_state[upload_confirm_key] = True
                     st.rerun()
         if log_uploads:
             st.markdown("###### Log bundles")
@@ -17177,11 +17189,23 @@ def render_case_attachments_panel(
                 cols = st.columns([6, 2, 1])
                 cols[0].markdown(f"**{f.name}**")
                 cols[1].caption(f"Size: {len(f.getvalue()) // 1024} KB")
-                if cols[2].button(
+                log_rem_key = attachments_key(f"attachments_rem_log_{i}")
+                log_confirm_key = attachments_key(f"confirm_rem_log_{i}")
+
+                if st.session_state.get(log_confirm_key):
+                    with cols[2]:
+                        if st.button("Confirm", key=f"{log_rem_key}_confirm", type="primary"):
+                            log_uploads.pop(i)
+                            st.session_state.pop(log_confirm_key, None)
+                            st.rerun()
+                        if st.button("Cancel", key=f"{log_rem_key}_cancel"):
+                            st.session_state.pop(log_confirm_key, None)
+                            st.rerun()
+                elif cols[2].button(
                     "Remove",
-                    key=attachments_key(f"attachments_rem_log_{i}"),
+                    key=log_rem_key,
                 ):
-                    log_uploads.pop(i)
+                    st.session_state[log_confirm_key] = True
                     st.rerun()
         if screenshots:
             st.markdown("###### Captured screenshots")
@@ -17222,14 +17246,25 @@ def render_case_attachments_panel(
                     st.session_state[filename_pending_key] = sanitized
                     st.rerun()
 
+                shot_rem_key = attachments_key(f"attachments_rem_shot_{i}")
+                shot_confirm_key = attachments_key(f"confirm_rem_shot_{i}")
+
                 with edit_cols[2]:
-                    if st.button(
+                    if st.session_state.get(shot_confirm_key):
+                        if st.button("Confirm", key=f"{shot_rem_key}_confirm", type="primary"):
+                            screenshots.pop(i)
+                            set_active_screenshots(screenshots)
+                            st.session_state.pop(shot_confirm_key, None)
+                            st.rerun()
+                        if st.button("Cancel", key=f"{shot_rem_key}_cancel"):
+                            st.session_state.pop(shot_confirm_key, None)
+                            st.rerun()
+                    elif st.button(
                         "Remove",
-                        key=attachments_key(f"attachments_rem_shot_{i}"),
+                        key=shot_rem_key,
                         help="Delete this screenshot",
                     ):
-                        screenshots.pop(i)
-                        set_active_screenshots(screenshots)
+                        st.session_state[shot_confirm_key] = True
                         st.rerun()
                     st.download_button(
                         "Download",
