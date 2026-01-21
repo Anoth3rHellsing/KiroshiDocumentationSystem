@@ -67,13 +67,8 @@ def safe_asdict(obj, *, dict_factory=dict):
     return original_asdict(obj, dict_factory=dict_factory)
 dataclasses.asdict = safe_asdict
 
-# Patch deepcopy to handle mocks
-original_deepcopy = copy.deepcopy
-def safe_deepcopy(x, memo=None, _nil=[]):
-    if isinstance(x, MagicMock):
-        return x
-    return original_deepcopy(x, memo)
-copy.deepcopy = safe_deepcopy
+# Fix RecursionError in deepcopy of MagicMock
+MagicMock.__deepcopy__ = lambda self, memo: self
 
 import case_documentation_app
 
