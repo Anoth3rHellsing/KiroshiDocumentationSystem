@@ -1009,7 +1009,9 @@ def _title_similarity_score(
     return base
 
 
-def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
+def _cluster_case_titles(
+    titles: Sequence[str]
+) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
     # Inverted index: token -> set of cluster indices
@@ -1023,7 +1025,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         if not normalized and not tokens:
             blank_index = None
-            for idx in empty_token_clusters:
+            for idx in sorted(empty_token_clusters):
                 if not clusters[idx].get("normalized"):
                     blank_index = idx
                     break
