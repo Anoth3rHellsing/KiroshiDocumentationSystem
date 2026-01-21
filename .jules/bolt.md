@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-21 - Inverted Index Clustering
+**Learning:** Optimizing `_cluster_case_titles` from O(N²) to near-linear O(N) using an inverted index significantly improved performance (from ~1.0s to ~0.15s for 2000 titles).
+**Action:** When implementing clustering or similarity search on text data, always prefer inverted index lookups over brute-force pair-wise comparisons if the similarity metric allows (e.g., token overlap). Ensure deterministic results by sorting candidates.
