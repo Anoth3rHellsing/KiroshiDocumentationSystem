@@ -12816,6 +12816,8 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
     chat_container = st.container()
     with chat_container:
         history = _case_chat_history(case_idx)
+        prompt_key = chat_tab_key("prompt")
+
         if history:
             for entry in history:
                 role = entry.get("role")
@@ -12834,9 +12836,36 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
                     else:
                         st.markdown(str(content))
         else:
-            st.markdown("_No chat history yet — ask Kiroshi about this case to get started._")
+            st.markdown(
+                """
+                <div style="text-align: center; color: var(--kiroshi-muted); margin: 2rem 0; opacity: 0.85;">
+                    <div style="font-size: 3rem; margin-bottom: 0.5rem;">✨</div>
+                    <h3 style="margin: 0 0 0.5rem 0; font-size: 1.3rem;">Ready to assist</h3>
+                    <p style="margin: 0; font-size: 0.95rem;">
+                        I have full context on this case. Select a topic or type your own question.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-        prompt_key = chat_tab_key("prompt")
+            suggestions = [
+                "Summarize this case",
+                "Draft a polite follow-up email",
+                "What is the next recommended step?",
+                "Search manuals for this issue",
+            ]
+
+            s_cols = st.columns(2)
+            for i, suggestion in enumerate(suggestions):
+                if s_cols[i % 2].button(
+                    suggestion,
+                    key=chat_tab_key(f"suggestion_{i}"),
+                    use_container_width=True,
+                ):
+                    st.session_state[prompt_key] = suggestion
+                    st.rerun()
+
         user_prompt = st.text_area(
             "Message",
             key=prompt_key,

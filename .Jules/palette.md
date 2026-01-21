@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Actionable Empty States in Chat
+**Learning:** In Streamlit, empty chat states are prime real estate for "Suggestion Chips" using `st.button`. Unlike static text, these buttons can immediately populate session state (e.g., the input prompt) and trigger a rerun, effectively guiding the user's first interaction.
+**Action:** When designing a chat or search interface, if the history is empty, render a set of `st.button` elements that set the input key in `st.session_state` and call `st.rerun()`.
