@@ -1013,9 +1013,9 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
     # Inverted index: token -> set of cluster indices
-    token_index: dict[str, set[int]] = defaultdict(set)
+    token_index = defaultdict(set)
     # Set of indices for clusters that have no tokens (for fallback comparison)
-    empty_token_clusters: set[int] = set()
+    empty_token_clusters = set()
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
@@ -1047,7 +1047,6 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         best_index = -1
         best_score = 0.0
 
-        candidates: Iterable[int]
         if tokens:
             candidates = set()
             for t in tokens:
@@ -1058,6 +1057,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         else:
             candidates = range(len(clusters))
 
+        # Sort candidates to ensure deterministic cluster assignment
         for idx in sorted(candidates):
             cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
