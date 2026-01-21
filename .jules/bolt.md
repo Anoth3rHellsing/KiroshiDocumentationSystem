@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-24 - Optimization of Text Clustering
+**Learning:** `_cluster_case_titles` was performing an O(N*C) pairwise comparison where C (clusters) grows with N (cases). This becomes O(N²) effectively. For text clustering, most items share no tokens, so `isdisjoint` checks return 0.0 quickly, but iterating over all clusters is still O(C).
+**Action:** Implemented an inverted index (`token -> set[cluster_idx]`) to only check candidate clusters that share at least one token (or have no tokens). This reduced comparisons from ~4.5 million to ~66k in a synthetic benchmark with 3000 items (sparse vocabulary), a ~67x reduction in work.
