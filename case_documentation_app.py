@@ -36,7 +36,7 @@ from difflib import SequenceMatcher
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import lru_cache, partial
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Tuple
 from html import escape
 import textwrap
 import inspect
@@ -1015,9 +1015,9 @@ def _title_similarity_score(
 
 def _cluster_case_titles(
     titles: Sequence[str]
-) -> tuple[list[int], dict[int, str]]:
-    clusters: list[dict[str, object]] = []
-    assignments: list[int] = []
+) -> Tuple[List[int], Dict[int, str]]:
+    clusters: List[Dict[str, object]] = []
+    assignments: List[int] = []
     # Inverted index: token -> set of cluster indices
     token_index = defaultdict(set)
     # Set of indices for clusters that have no tokens (for fallback comparison)
