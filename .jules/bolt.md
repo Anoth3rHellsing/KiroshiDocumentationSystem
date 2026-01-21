@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-21 - Synthetic Benchmarking Pitfalls
+**Learning:** When benchmarking text clustering optimization (inverted index), using a small uniform vocabulary for synthetic data creates "dense" overlaps, negating the benefits of the index and potentially showing slowdowns due to overhead. Real-world text data is typically Zipfian/sparse, which is where the index shines.
+**Action:** Used a larger vocabulary (5000+ words) to simulate sparsity when verifying the optimization.
