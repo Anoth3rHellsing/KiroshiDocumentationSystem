@@ -1000,7 +1000,11 @@ def _title_similarity_score(
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if norm_a or norm_b:
+        base = SequenceMatcher(None, norm_a, norm_b).ratio()
+    else:
+        base = 0.0
+
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
