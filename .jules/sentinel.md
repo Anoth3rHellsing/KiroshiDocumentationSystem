@@ -1,5 +1,5 @@
 ## 2026-01-21 - [CRITICAL] Hardcoded OpenAI API Key Removed
-**Vulnerability:** A hardcoded OpenAI API key (`sk-proj-...`) was found in `case_documentation_app.py` and `kiroshi_chat.py`. This key was exposed in the source code.
+**Vulnerability:** A hardcoded OpenAI API key was found in `case_documentation_app.py` and `kiroshi_chat.py`. This key was exposed in the source code.
 **Learning:** Hardcoded credentials in source code are a critical risk as they can be extracted by anyone with access to the repository (or the distributed app). Even if intended for internal use, they bypass access controls and revocation mechanisms.
 **Prevention:**
 1. Always use environment variables for secrets (e.g., `os.environ.get("OPENAI_API_KEY")`).

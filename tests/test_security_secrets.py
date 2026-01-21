@@ -38,7 +38,7 @@ def test_default_openai_api_key_is_empty():
 
 def test_no_hardcoded_secrets_in_source():
     # Scan source files for the known leaked key pattern
-    # The key started with "sk-proj-uYyU" (obfuscated construction)
+    # We construct the prefix dynamically to avoid triggering secret scanners on this test file itself.
     p1 = "sk-proj-"
     p2 = "uYyU"
     leaked_prefix = p1 + p2
