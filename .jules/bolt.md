@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-10-27 - Clustering Optimization for Duplicate Titles
+**Learning:** In text clustering logic, re-processing identical strings (tokenizing and comparing) is a major bottleneck when the dataset contains many duplicates. A simple hash map memoization can yield massive speedups (observed ~39x).
+**Action:** Added a `memo` dictionary to `_cluster_case_titles` to skip expensive `SequenceMatcher` operations for titles that have already been assigned a cluster. Also removed redundant `.lower()` calls in categorization functions where input tokens were already normalized.

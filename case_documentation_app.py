@@ -1012,8 +1012,14 @@ def _title_similarity_score(
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+    memo: dict[str, int] = {}
 
     for title in titles:
+        # Optimization: Reuse cluster assignment for identical titles to skip expensive similarity scoring
+        if title in memo:
+            assignments.append(memo[title])
+            continue
+
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
@@ -1036,6 +1042,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 )
                 blank_index = len(clusters) - 1
             assignments.append(blank_index)
+            memo[title] = blank_index
             continue
 
         best_index = -1
@@ -1064,6 +1071,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 }
             )
             assignments.append(len(clusters) - 1)
+            memo[title] = len(clusters) - 1
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
@@ -1074,6 +1082,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
             assignments.append(best_index)
+            memo[title] = best_index
 
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
     return assignments, label_map
@@ -1102,7 +1111,8 @@ def _coerce_int(value: object, default: int = 0) -> int:
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
-    token_counter = Counter(token.lower() for token in tokens if token)
+    # tokens are already lowercased by _tokenize_issue_description
+    token_counter = Counter(token for token in tokens if token)
     if not token_counter:
         return None
 
@@ -1175,7 +1185,8 @@ def _infer_structured_category(
     recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     structured_scores: dict[str, int] = {}
 
-    token_set = {token.lower() for token in tokens}
+    # tokens are already lowercased by _tokenize_issue_description
+    token_set = set(tokens)
 
     for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
         score = 0
