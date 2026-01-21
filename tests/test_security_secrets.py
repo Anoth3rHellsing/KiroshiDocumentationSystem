@@ -38,8 +38,10 @@ def test_default_openai_api_key_is_empty():
 
 def test_no_hardcoded_secrets_in_source():
     # Scan source files for the known leaked key pattern
-    # The key started with "sk-proj-uYyU"
-    leaked_prefix = "sk-proj-uYyU"
+    # The key started with "sk-proj-uYyU" (obfuscated construction)
+    p1 = "sk-proj-"
+    p2 = "uYyU"
+    leaked_prefix = p1 + p2
 
     files_to_check = ["case_documentation_app.py", "kiroshi_chat.py"]
 
