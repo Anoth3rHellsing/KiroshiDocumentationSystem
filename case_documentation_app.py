@@ -220,12 +220,12 @@ def _collect_recent_logs(max_bytes: int = 65536) -> str:
     if isinstance(synthetic_payload, str) and synthetic_payload:
         return synthetic_payload
 
-    log_path = Path(LOG_FILE)
-    if not log_path.exists():
+    target_path = log_path if log_path else Path(LOG_FILE)
+    if not target_path.exists():
         return "Log file not found."
 
     try:
-        with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+        with target_path.open("r", encoding="utf-8", errors="replace") as handle:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
             start = max(size - max_bytes, 0)
@@ -2053,43 +2053,50 @@ def _candidate_log_directories() -> list[Path]:
     return candidates
 
 
-LOG_DIR: Path | None = None
-log_path: Path | None = None
-log_handlers: list[logging.Handler]
-for candidate in _candidate_log_directories():
-    try:
-        candidate.mkdir(parents=True, exist_ok=True)
-        prospective_log_path = candidate / LOG_FILE
-        with open(prospective_log_path, "a", encoding="utf-8"):
-            pass
-    except OSError:
-        # Cannot create the directory or open the log file here (likely permissions).
-        continue
-    LOG_DIR = candidate
-    log_path = prospective_log_path
-    break
+@st.cache_resource
+def _configure_logging() -> tuple[Path | None, Path | None, list[logging.Handler]]:
+    """Configure logging once per session to avoid repeated I/O on re-runs."""
+    found_dir: Path | None = None
+    found_path: Path | None = None
+    handlers: list[logging.Handler]
 
-if log_path is not None:
-    try:
-        log_handlers = [
-            RotatingFileHandler(
-                log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
-            ),
-            logging.StreamHandler(),
-        ]
-    except OSError:
-        log_path = None
-        log_handlers = [logging.StreamHandler()]
-else:
-    log_path = None
-    log_handlers = [logging.StreamHandler()]
+    for candidate in _candidate_log_directories():
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            prospective = candidate / LOG_FILE
+            with open(prospective, "a", encoding="utf-8"):
+                pass
+        except OSError:
+            continue
+        found_dir = candidate
+        found_path = prospective
+        break
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
-    handlers=log_handlers,
-)
-logging.captureWarnings(True)
+    if found_path is not None:
+        try:
+            handlers = [
+                RotatingFileHandler(
+                    found_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+                ),
+                logging.StreamHandler(),
+            ]
+        except OSError:
+            found_path = None
+            handlers = [logging.StreamHandler()]
+    else:
+        found_path = None
+        handlers = [logging.StreamHandler()]
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
+        handlers=handlers,
+    )
+    logging.captureWarnings(True)
+    return found_dir, found_path, handlers
+
+
+LOG_DIR, log_path, log_handlers = _configure_logging()
 
 
 def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
