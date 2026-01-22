@@ -9304,7 +9304,10 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             return 0.0
 
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    valid_items.sort(
+        key=lambda x: x.get("_updated_ts") or _parse_time(x.get("updated")),
+        reverse=True,
+    )
 
     # Update throttle cache
     throttle.data = valid_items
