@@ -1027,7 +1027,8 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 (
                     idx
                     for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
+                    if not cluster.get("tokens")
+                    and not cluster.get("normalized")
                 ),
                 None,
             )
@@ -1056,10 +1057,10 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 for idx in token_index.get(token, []):
                     cluster_overlaps[idx] += 1
 
-            # Determine candidates: any cluster sharing a token, plus empty clusters
+            # Candidates: any cluster sharing a token + empty clusters
             candidates_set = set(cluster_overlaps.keys())
             candidates_set.update(empty_token_clusters)
-            # Sorting is required to ensure deterministic assignment when scores tie
+            # Sort to ensure deterministic assignment when scores tie
             candidates = sorted(list(candidates_set))
 
             for idx in candidates:
@@ -1067,9 +1068,9 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 overlap = cluster_overlaps.get(idx, 0)
                 cluster_len = int(cluster.get("len_tokens") or 0)
 
-                # Heuristic pruning: If the cluster has tokens but overlaps are too
-                # few, the max possible Jaccard similarity may prevent reaching the
-                # threshold even with a perfect string match (base=1.0).
+                # Heuristic pruning: If overlap is too low, the max possible
+                # Jaccard similarity may prevent reaching the threshold
+                # even with a perfect string match (base=1.0).
                 # Score = 0.6 * base + 0.4 * jaccard
                 if cluster_len > 0:
                     union = len_tokens + cluster_len - overlap
@@ -1099,7 +1100,9 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         if best_index == -1 or best_score < threshold:
             label_source = (
-                title if isinstance(title, str) and title.strip() else normalized
+                title
+                if isinstance(title, str) and title.strip()
+                else normalized
             )
             label = (
                 _summarize_text(label_source, width=80)
