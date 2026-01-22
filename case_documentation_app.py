@@ -9107,7 +9107,11 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
         # Use pre-calculated timestamp for O(1) comparison
-        valid_items_snapshot.sort(key=lambda x: x.get("_updated_ts") or _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(
+            key=lambda x: x.get("_updated_ts")
+            or _parse_time_snapshot(x.get("updated")),
+            reverse=True,
+        )
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9211,7 +9215,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
                 # Pre-calculate timestamp for sorting optimization
                 try:
-                    _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    ts_obj = datetime.fromisoformat(str(last_modified))
+                    _updated_ts = ts_obj.timestamp()
                 except ValueError:
                     _updated_ts = 0.0
 
