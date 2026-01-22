@@ -1013,9 +1013,14 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index for O(K) lookup instead of O(N)
+    token_index: dict[str, list[int]] = defaultdict(list)
+    empty_token_clusters: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
+        len_tokens = len(tokens)
 
         if not normalized and not tokens:
             blank_index = next(
@@ -1031,26 +1036,71 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     {
                         "normalized": "",
                         "tokens": set(),
+                        "len_tokens": 0,
                         "label": "Caso sin título",
                     }
                 )
                 blank_index = len(clusters) - 1
+                empty_token_clusters.add(blank_index)
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
-            cluster_tokens = cluster.get("tokens") or set()
-            cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
-            if score > best_score:
-                best_score = score
-                best_index = idx
 
         threshold = 0.68 if tokens else 0.8
+
+        if tokens:
+            cluster_overlaps: dict[int, int] = defaultdict(int)
+            for token in tokens:
+                for idx in token_index.get(token, []):
+                    cluster_overlaps[idx] += 1
+
+            # Determine candidates: any cluster sharing a token, plus empty clusters
+            candidates_set = set(cluster_overlaps.keys())
+            candidates_set.update(empty_token_clusters)
+            # Sorting is required to ensure deterministic assignment when scores tie
+            candidates = sorted(list(candidates_set))
+
+            for idx in candidates:
+                cluster = clusters[idx]
+                overlap = cluster_overlaps.get(idx, 0)
+                cluster_len = int(cluster.get("len_tokens") or 0)
+
+                # Heuristic pruning: If the cluster has tokens but overlaps are too
+                # few, the max possible Jaccard similarity may prevent reaching the
+                # threshold even with a perfect string match (base=1.0).
+                # Score = 0.6 * base + 0.4 * jaccard
+                if cluster_len > 0:
+                    union = len_tokens + cluster_len - overlap
+                    jaccard = overlap / union if union else 0.0
+                    if 0.6 + 0.4 * jaccard < threshold:
+                        continue
+
+                cluster_tokens = cluster.get("tokens") or set()
+                cluster_norm = str(cluster.get("normalized") or "")
+                score = _title_similarity_score(
+                    tokens, cluster_tokens, normalized, cluster_norm
+                )
+                if score > best_score:
+                    best_score = score
+                    best_index = idx
+        else:
+            # Fallback: without tokens we must check every cluster
+            for idx, cluster in enumerate(clusters):
+                cluster_tokens = cluster.get("tokens") or set()
+                cluster_norm = str(cluster.get("normalized") or "")
+                score = _title_similarity_score(
+                    tokens, cluster_tokens, normalized, cluster_norm
+                )
+                if score > best_score:
+                    best_score = score
+                    best_index = idx
+
         if best_index == -1 or best_score < threshold:
-            label_source = title if isinstance(title, str) and title.strip() else normalized
+            label_source = (
+                title if isinstance(title, str) and title.strip() else normalized
+            )
             label = (
                 _summarize_text(label_source, width=80)
                 if label_source
@@ -1060,22 +1110,46 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 {
                     "normalized": normalized,
                     "tokens": set(tokens),
+                    "len_tokens": len_tokens,
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            if tokens:
+                for t in tokens:
+                    token_index[t].append(new_idx)
+            else:
+                empty_token_clusters.add(new_idx)
+            assignments.append(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+
+            # Calculate new tokens before in-place update
+            new_tokens_added = tokens - cluster_tokens
+            was_empty = not cluster_tokens
+
             cluster_tokens.update(tokens)
             cluster["normalized"] = cluster.get("normalized") or normalized
+            cluster["len_tokens"] = len(cluster_tokens)
+
+            for t in new_tokens_added:
+                token_index[t].append(best_index)
+
+            if was_empty and tokens:
+                if best_index in empty_token_clusters:
+                    empty_token_clusters.remove(best_index)
+
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
             assignments.append(best_index)
 
-    label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
+    label_map = {
+        idx: str(cluster.get("label") or "Caso sin título")
+        for idx, cluster in enumerate(clusters)
+    }
     return assignments, label_map
 
 
