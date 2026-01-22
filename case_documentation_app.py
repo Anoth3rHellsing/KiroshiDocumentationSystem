@@ -16399,7 +16399,9 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
-            placeholder="e.g. Scanner not connecting, Unite login error, etc.",
+            placeholder=(
+                "e.g. Scanner not connecting, Unite login error, etc."
+            ),
             help=(
                 "A short summary of the reported issue. This will appear in "
                 "the case header and email subjects."
