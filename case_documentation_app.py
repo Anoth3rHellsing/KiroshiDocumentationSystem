@@ -41,13 +41,13 @@ from html import escape
 import textwrap
 import inspect
 import traceback
+from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 import altair as alt
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit.errors import StreamlitAPIException
-from logging.handlers import RotatingFileHandler
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -16178,6 +16178,19 @@ def dell_escalation_plain_text(d: CaseData) -> str:
         display = _format_multiline(_format_display_value(raw_value))
         lines.append(f"{label}: {display}")
     return "\n".join(lines)
+
+
+def build_dell_escalation_email(d: CaseData) -> str:
+    """Generate a Dell escalation email body."""
+    intro = build_email_intro(d)
+    details = dell_escalation_plain_text(d)
+    return (
+        f"{intro}\n\n"
+        "We have completed the necessary troubleshooting and diagnostics. "
+        "Please proceed with the dispatch based on the following details:\n\n"
+        f"{details}\n\n"
+        "Let us know if you require any further information."
+    )
 
 
 def script_safe_json(value: str) -> str:
