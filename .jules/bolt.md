@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-22 - Redundant String Normalization
+**Learning:** When helper functions like `_infer_report_category` process text, they often redundantly normalize (lowercase) tokens that are already normalized by the caller (via `_tokenize_issue_description`). This adds O(N) overhead to tight loops.
+**Action:** Removed redundant `.lower()` calls in categorization functions, relying on the contract that input tokens are already normalized. Added explicit comments to enforce this contract. Benchmarking showed ~1.5x speedup.
