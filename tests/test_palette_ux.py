@@ -1,6 +1,7 @@
 import ast
 import os
 import pytest
+import sys
 
 APP_PATH = "case_documentation_app.py"
 
@@ -36,8 +37,8 @@ def test_inputs_have_ux_hints():
                 if len(node.args) >= 2:
                     if isinstance(node.args[1], ast.Constant):
                         field_id = node.args[1].value
-                    elif hasattr(ast, "Str") and isinstance(node.args[1], ast.Str):
-                        # Fallback for older python (< 3.8), though less relevant now
+                    elif sys.version_info < (3, 8) and hasattr(ast, "Str") and isinstance(node.args[1], ast.Str):
+                        # Fallback for older python (< 3.8)
                         field_id = node.args[1].s
 
                 if not field_id:
@@ -46,7 +47,7 @@ def test_inputs_have_ux_hints():
                         if kw.arg == "field":
                             if isinstance(kw.value, ast.Constant):
                                 field_id = kw.value.value
-                            elif hasattr(ast, "Str") and isinstance(kw.value, ast.Str):
+                            elif sys.version_info < (3, 8) and hasattr(ast, "Str") and isinstance(kw.value, ast.Str):
                                 field_id = kw.value.s
 
                 key = (func_name, field_id)
