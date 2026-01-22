@@ -16400,7 +16400,10 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "brief_description",
             container=details_cols[0],
             placeholder="e.g. Scanner not connecting, Unite login error, etc.",
-            help="A short summary of the reported issue. This will appear in the case header and email subjects.",
+            help=(
+                "A short summary of the reported issue. This will appear in "
+                "the case header and email subjects."
+            ),
         )
         version_col = details_cols[1]
         auto_text_input(
@@ -16539,7 +16542,10 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
             height=desc_height,
             container=notes_col,
             placeholder="Capture key details from the conversation...",
-            help="Notes from the live phone call. These are separate from the main case description.",
+            help=(
+                "Notes from the live phone call. These are separate from the "
+                "main case description."
+            ),
         )
 
         contact_header = "Contact details"
