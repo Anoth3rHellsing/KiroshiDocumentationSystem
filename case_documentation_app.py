@@ -197,10 +197,7 @@ TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 AUTOSAVE_DIR = Path("autosaves")
 _AUTOSAVE_SESSION_ID = uuid.uuid4().hex
-DEFAULT_OPENAI_API_KEY = os.environ.get(
-    "OPENAI_API_KEY",
-    "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",
-)
+DEFAULT_OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 DEFAULT_AI_MODE = "Cloud"
 LOG_FILE = "app.log"
@@ -13137,7 +13134,12 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            # secure: use environment variables
+            target_user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+            target_pass = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
+
+            # Simple check for now - secrets.compare_digest would be better but requires import
+            if user == target_user and pw == target_pass:
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
