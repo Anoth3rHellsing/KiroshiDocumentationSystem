@@ -9415,6 +9415,10 @@ def _load_tracked_cases_worker(signature: str) -> list:
     return _filter_tracked_cases(all_cases)
 
 
+def _reset_tracked_cases_cache() -> None:
+    _load_tracked_cases_worker.clear()
+
+
 def load_tracked_cases(source_data: list | None = None) -> list:
     if source_data is not None:
         return _filter_tracked_cases(source_data)
@@ -9604,7 +9608,7 @@ def untrack_case(path: str, *, case_id: str | None = None, is_legacy: bool | Non
             return
         _reset_tracked_cases_cache()
         if target_case_id:
-            update_recent_cases(target_case_id, str(case_path), case_data=payload)
+            update_recent_cases(target_case_id, str(case_path), case_data=data)
         if D.case_id == target_case_id:
             D.tracking.active = False
             st.session_state.track_case = False
@@ -9662,7 +9666,7 @@ def _load_sprint_state_worker(mtime: float) -> SprintState:
             ]
         return SprintState(**data)
     except Exception:
-        return SprintState()
+        return SprintState(date=TODAY_STR)
 
 
 def load_sprint_state() -> SprintState:
@@ -11344,6 +11348,7 @@ def _render_settings_ai_tab() -> None:
         on_change=_on_setting_change("ai_educate_enabled"),
         help="Activa el conjunto de herramientas avanzadas de AI Educate.",
     )
+    dataset_updated = False
     ai_dataset = None
     if not st.session_state.ai_educate_enabled:
         if prev_enabled:
