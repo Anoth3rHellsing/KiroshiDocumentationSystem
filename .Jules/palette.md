@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Tooltips for Onboarding
+**Learning:** Onboarding flows like tutorials are often rushed by users. Adding tooltips to navigation buttons (Back, Next, Skip) provides essential "safety rail" context without cluttering the UI, especially for the "Skip" action which can feel permanent.
+**Action:** When designing wizards or multi-step flows, always add `help=` text to navigation controls to clarify the consequence of movement (e.g., "Exit to dashboard" vs just "Skip").

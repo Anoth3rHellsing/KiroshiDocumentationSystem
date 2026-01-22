@@ -5657,10 +5657,19 @@ def render_onboarding_tutorial() -> None:
 
         nav_cols = st.columns([1.2, 1, 1, 1])
         with nav_cols[0]:
-            if st.button("Skip tutorial", key=f"tutorial_skip_{step_idx}"):
+            if st.button(
+                "Skip tutorial",
+                key=f"tutorial_skip_{step_idx}",
+                help="Exit the tutorial and go straight to the dashboard",
+            ):
                 _mark_tutorial_completion("skipped")
         with nav_cols[1]:
-            if st.button("Back", disabled=step_idx == 0, key=f"tutorial_back_{step_idx}"):
+            if st.button(
+                "Back",
+                disabled=step_idx == 0,
+                key=f"tutorial_back_{step_idx}",
+                help="Return to the previous step",
+            ):
                 st.session_state.tutorial_step = max(0, step_idx - 1)
                 st.rerun()
         with nav_cols[2]:
@@ -5672,7 +5681,12 @@ def render_onboarding_tutorial() -> None:
             )
         next_label = "Finish" if step_idx == total_steps - 1 else "Next"
         with nav_cols[3]:
-            if st.button(next_label, disabled=not can_proceed, key=f"tutorial_next_{step_idx}"):
+            if st.button(
+                next_label,
+                disabled=not can_proceed,
+                key=f"tutorial_next_{step_idx}",
+                help="Confirm selection and proceed to the next step",
+            ):
                 if step_idx == total_steps - 1:
                     _mark_tutorial_completion("completed")
                 else:
@@ -12705,7 +12719,11 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             key=chat_tab_key("doc_file"),
         )
         doc_title = st.text_input("Title", key=chat_tab_key("doc_title"))
-        if st.button("Save document", key=chat_tab_key("save_doc")):
+        if st.button(
+            "Save document",
+            key=chat_tab_key("save_doc"),
+            help="Save the current chat content as a permanent document in the knowledge base",
+        ):
             if doc_file and doc_title:
                 content = doc_file.getvalue().decode("utf-8", errors="ignore")
                 st.session_state.manual_docs.append({"title": doc_title, "content": content})
@@ -12760,7 +12778,11 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
             return reply_text
 
         search_query = st.text_input("Search query", key=chat_tab_key("db_query"))
-        if st.button("Search in database", key=chat_tab_key("db_search_button")):
+        if st.button(
+            "Search in database",
+            key=chat_tab_key("db_search_button"),
+            help="Search the local knowledge base for relevant documents",
+        ):
             if not search_query:
                 st.error("Enter a search query.")
             elif not _chat_ready():
