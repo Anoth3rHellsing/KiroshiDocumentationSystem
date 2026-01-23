@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-23 - Synthetic Text Clustering Benchmarks
+**Learning:** When benchmarking text clustering algorithms with inverted indices, using a small synthetic vocabulary (e.g., <100 words) creates artificially dense clusters where almost every item matches every cluster, negating the benefit of the index and masking performance improvements.
+**Action:** Ensure synthetic data generators use a large, realistic vocabulary size (e.g., >2000 unique tokens) mixed with common domain terms to simulate real-world sparsity and accurately measure O(N*K) vs O(N*C) behavior.

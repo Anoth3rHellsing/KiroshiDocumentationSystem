@@ -1013,6 +1013,11 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index: token -> set of cluster indices
+    token_index: dict[str, set[int]] = defaultdict(set)
+    # Set of cluster indices that have no tokens (or effectively no tokens for indexing)
+    empty_token_clusters: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
@@ -1035,12 +1040,28 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                empty_token_clusters.add(blank_index)
             assignments.append(blank_index)
             continue
 
+        candidate_indices: Iterable[int]
+        if tokens:
+            # Only consider clusters that share at least one token OR have no tokens.
+            # Clusters with disjoint tokens would return score 0.0 anyway.
+            candidates_set = set()
+            for token in tokens:
+                if token in token_index:
+                    candidates_set.update(token_index[token])
+            candidates_set.update(empty_token_clusters)
+            candidate_indices = sorted(candidates_set)
+        else:
+            # Fallback: if title has no tokens, we must check all clusters
+            candidate_indices = range(len(clusters))
+
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+        for idx in candidate_indices:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1063,11 +1084,30 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            assignments.append(new_idx)
+
+            if tokens:
+                for token in tokens:
+                    token_index[token].add(new_idx)
+            else:
+                empty_token_clusters.add(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+
+            # Calculate new tokens before updating the set
+            new_tokens = tokens - cluster_tokens
             cluster_tokens.update(tokens)
+
+            # Update inverted index
+            for token in new_tokens:
+                token_index[token].add(best_index)
+
+            # If the cluster now has tokens, remove it from empty_token_clusters
+            if cluster_tokens and best_index in empty_token_clusters:
+                empty_token_clusters.remove(best_index)
+
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)
