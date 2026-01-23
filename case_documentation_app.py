@@ -16399,6 +16399,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            placeholder="e.g. Scanner connection lost during patient scan",
+            help="A concise summary of the issue for the dashboard and reports.",
         )
         version_col = details_cols[1]
         auto_text_input(
@@ -16524,12 +16526,20 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            container=notes_col,
+            placeholder="e.g. Dr. John Smith",
+            help="The person currently on the phone or the primary contact.",
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
             height=desc_height,
             container=notes_col,
+            placeholder="e.g. User reports the scanner disconnects when moving the cable...",
+            help="Detailed notes from the conversation. What did the user say?",
         )
 
         contact_header = "Contact details"
