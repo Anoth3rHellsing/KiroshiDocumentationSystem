@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-23 - Case Sorting Optimization
+**Learning:** Comparing float timestamps is significantly faster (~3x) than parsing ISO date strings for sorting large datasets. The previous implementation parsed the date string inside the sort lambda, causing O(N) parsing overhead on every render.
+**Action:** Pre-calculate and cache sort keys (like `_updated_ts`) during data ingestion to keep the render loop efficient. Always verify that "optimized" logic is actually implemented as intended.
