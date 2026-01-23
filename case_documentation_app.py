@@ -1099,10 +1099,38 @@ def _coerce_int(value: object, default: int = 0) -> int:
         return default
 
 
+def _optimize_category_hints() -> None:
+    """Pre-process category hints to ensure efficient lookups."""
+    for hints in _REPORT_CATEGORY_HINTS.values():
+        for key in ("tokens", "category_terms"):
+            raw = hints.get(key)
+            if raw:
+                optimized = []
+                for item in raw:
+                    if isinstance(item, str) and item.strip():
+                        optimized.append(item.strip().lower())
+                hints[key] = tuple(optimized)
+
+    for hints in _STRUCTURED_CATEGORY_HINTS.values():
+        for key in ("tokens", "scanner_models", "root_cause_codes"):
+            raw = hints.get(key)
+            if raw:
+                optimized = []
+                for item in raw:
+                    norm = _normalize_text_field(item)
+                    if norm:
+                        optimized.append(norm)
+                hints[key] = tuple(optimized)
+
+
+_optimize_category_hints()
+
+
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
-    token_counter = Counter(token.lower() for token in tokens if token)
+    # Tokens are already lowercased by _tokenize_issue_description
+    token_counter = Counter(tokens)
     if not token_counter:
         return None
 
@@ -1117,17 +1145,15 @@ def _infer_report_category(
     for label, hints in _REPORT_CATEGORY_HINTS.items():
         score = 0
         category_terms = hints.get("category_terms")
-        if isinstance(category_terms, (list, tuple, set)):
+        if category_terms:
             for term in category_terms:
-                if isinstance(term, str) and term and term in category_blob:
+                if term in category_blob:
                     score += 4
         token_prefixes = hints.get("tokens")
-        if isinstance(token_prefixes, (list, tuple, set)):
+        if token_prefixes:
             for prefix in token_prefixes:
-                if not isinstance(prefix, str) or not prefix:
-                    continue
                 for token, count in token_counter.items():
-                    if token == prefix or token.startswith(prefix):
+                    if token.startswith(prefix):
                         score += count
         if score:
             scores[label] = score
@@ -1175,37 +1201,29 @@ def _infer_structured_category(
     recurrence_count = _coerce_int(row.get("recurrence_count"), 0)
     structured_scores: dict[str, int] = {}
 
-    token_set = {token.lower() for token in tokens}
+    # Tokens are already lowercased by _tokenize_issue_description
+    token_set = set(tokens)
 
     for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
         score = 0
         codes = hints.get("root_cause_codes")
         if codes:
-            for candidate in codes:
-                candidate_norm = _normalize_text_field(candidate)
-                if not candidate_norm:
-                    continue
+            for candidate_norm in codes:
                 if root_cause_code_norm and (
                     root_cause_code_norm == candidate_norm
                     or root_cause_code_norm.startswith(candidate_norm)
                 ):
                     score += 8
-                if candidate_norm and candidate_norm in root_cause_text:
+                if candidate_norm in root_cause_text:
                     score += 3
         scanner_models = hints.get("scanner_models")
         if scanner_models and scanner_norm:
-            for candidate in scanner_models:
-                candidate_norm = _normalize_text_field(candidate)
-                if not candidate_norm:
-                    continue
+            for candidate_norm in scanner_models:
                 if scanner_norm == candidate_norm or scanner_norm.startswith(candidate_norm):
                     score += 6
         token_prefixes = hints.get("tokens")
         if token_prefixes:
-            for prefix in token_prefixes:
-                prefix_norm = _normalize_text_field(prefix)
-                if not prefix_norm:
-                    continue
+            for prefix_norm in token_prefixes:
                 for token in token_set:
                     if token.startswith(prefix_norm):
                         score += 1
