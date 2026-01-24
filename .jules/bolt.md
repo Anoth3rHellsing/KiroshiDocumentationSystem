@@ -15,3 +15,11 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-24 - Clustering Algorithm Complexity
+**Learning:** The O(N * TotalClusters) complexity of  causes significant delays (up to 8s for 5000 items) when processing large reports or datasets, due to expensive  calls on unrelated clusters.
+**Action:** Implemented an inverted index () and a  set to limit comparisons to candidate clusters sharing tokens. This reduced processing time by ~4x (to 2.2s) in synthetic benchmarks.
+
+## 2026-01-24 - Clustering Algorithm Complexity
+**Learning:** The O(N * TotalClusters) complexity of `_cluster_case_titles` causes significant delays (up to 8s for 5000 items) when processing large reports or datasets, due to expensive `SequenceMatcher` calls on unrelated clusters.
+**Action:** Implemented an inverted index (`token_index`) and a `empty_token_clusters` set to limit comparisons to candidate clusters sharing tokens. This reduced processing time by ~4x (to 2.2s) in synthetic benchmarks.
