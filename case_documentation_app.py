@@ -1013,6 +1013,11 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index optimization: Map tokens to lists of cluster indices
+    token_index: dict[str, list[int]] = defaultdict(list)
+    # Track clusters with no tokens to ensure they are checked (fallback)
+    empty_token_clusters: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
@@ -1021,8 +1026,8 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
             blank_index = next(
                 (
                     idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
+                    for idx in sorted(empty_token_clusters)
+                    if not clusters[idx]["normalized"]
                 ),
                 None,
             )
@@ -1035,14 +1040,31 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                empty_token_clusters.add(blank_index)
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
-            cluster_tokens = cluster.get("tokens") or set()
-            cluster_norm = str(cluster.get("normalized") or "")
+
+        # Optimize candidate selection using inverted index
+        candidate_indices = set()
+        if tokens:
+            for token in tokens:
+                if token in token_index:
+                    candidate_indices.update(token_index[token])
+            candidate_indices.update(empty_token_clusters)
+            # Sort for deterministic processing
+            candidates_list = sorted(candidate_indices)
+        else:
+            # Fallback to checking all clusters if input has no tokens
+            candidates_list = range(len(clusters))
+
+        for idx in candidates_list:
+            cluster = clusters[idx]
+            # Micro-optimization: avoid .get() calls
+            cluster_tokens = cluster["tokens"]
+            cluster_norm = cluster["normalized"]
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
             if score > best_score:
                 best_score = score
@@ -1063,12 +1085,33 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            assignments.append(new_idx)
+
+            # Update index
+            if tokens:
+                for token in tokens:
+                    token_index[token].append(new_idx)
+            else:
+                empty_token_clusters.add(new_idx)
         else:
             cluster = clusters[best_index]
-            cluster_tokens = cluster.setdefault("tokens", set())
+            cluster_tokens = cluster["tokens"]
+
+            # Update index only for new tokens
+            # Calculate diff before update
+            new_tokens = tokens - cluster_tokens
+            if new_tokens:
+                for token in new_tokens:
+                    token_index[token].append(best_index)
+
             cluster_tokens.update(tokens)
-            cluster["normalized"] = cluster.get("normalized") or normalized
+
+            # If cluster now has tokens, remove from empty set
+            if best_index in empty_token_clusters and cluster_tokens:
+                empty_token_clusters.remove(best_index)
+
+            cluster["normalized"] = cluster["normalized"] or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
