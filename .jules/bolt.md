@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-24 - Clustering Complexity & Synthetic Benchmarks
+**Learning:** The O(N*Clusters) complexity of `_cluster_case_titles` becomes a bottleneck (O(N^2)) when titles are diverse. Synthetic benchmarks with small vocabularies can mask this by inducing artificial overlap (reducing worst-case behavior to disjoint fast-paths).
+**Action:** Use an inverted index (`token -> clusters`) to filter candidates to O(1) or O(small_k) in average case. Ensure benchmarks use realistic vocabulary sizes.
