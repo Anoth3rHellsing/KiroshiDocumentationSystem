@@ -13057,6 +13057,14 @@ def render_smart_aid_panel() -> None:
 
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
+        expected_user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+        expected_pw = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
+        if expected_user == "admin" and expected_pw == "admin":
+            st.warning(
+                "⚠️ Security Warning: Default debug credentials are in use. "
+                "Set KIROSHI_DEBUG_USER and KIROSHI_DEBUG_PASSWORD environment variables."
+            )
+
         st.subheader("Debug")
         st.info("AI Configuration has been moved to Settings > AI & Knowledge.")
 
@@ -13137,8 +13145,11 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            expected_user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+            expected_pw = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
+            if user == expected_user and pw == expected_pw:
                 st.session_state.debug_auth = True
+                st.rerun()
             else:
                 st.error("Invalid credentials")
 
