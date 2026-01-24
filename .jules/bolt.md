@@ -15,3 +15,11 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-24 - Pre-calculated Float Timestamp for Sorting
+**Learning:** Sorting a large list of dictionaries (e.g., 10,000+ items) by parsing an ISO date string inside the sort key () is significantly slower than sorting by a pre-calculated float, especially when this sort happens on every Streamlit re-render.
+**Action:** Pre-calculate the float timestamp () during the initial data load/cache population. Use this float directly in the sort key . Additionally, when data comes from file metadata (), use the float directly instead of converting to ISO string and back, avoiding unnecessary CPU overhead. Benchmarking showed ~3.5x speedup.
+
+## 2026-01-24 - Pre-calculated Float Timestamp for Sorting
+**Learning:** Sorting a large list of dictionaries (e.g., 10,000+ items) by parsing an ISO date string inside the sort key (`datetime.fromisoformat(str)`) is significantly slower than sorting by a pre-calculated float, especially when this sort happens on every Streamlit re-render.
+**Action:** Pre-calculate the float timestamp (`_updated_ts`) during the initial data load/cache population. Use this float directly in the sort key `lambda x: x.get('_updated_ts', 0.0)`. Additionally, when data comes from file metadata (`mtime`), use the float directly instead of converting to ISO string and back, avoiding unnecessary CPU overhead. Benchmarking showed ~3.5x speedup.

@@ -9106,7 +9106,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                 return 0.0
 
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        # Bolt Optimization: Use pre-calculated float timestamp if available
+        valid_items_snapshot.sort(key=lambda x: x.get("_updated_ts") if "_updated_ts" in x else _parse_time_snapshot(x.get("updated")), reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9201,7 +9202,17 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         tags.append(label)
 
                 last_modified = data.get("last_modified")
-                if not last_modified:
+                _updated_ts = 0.0
+
+                if last_modified:
+                    # Bolt Optimization: Pre-calculate float timestamp from string
+                    try:
+                        _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except (ValueError, TypeError):
+                        _updated_ts = 0.0
+                else:
+                    # Bolt Optimization: Use mtime directly to avoid round-trip parsing
+                    _updated_ts = float(mtime)
                     last_modified = (
                         datetime.fromtimestamp(mtime)
                         .replace(microsecond=0)
@@ -9248,6 +9259,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": _updated_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
