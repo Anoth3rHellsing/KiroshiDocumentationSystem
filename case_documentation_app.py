@@ -11186,12 +11186,14 @@ def _render_settings_ai_tab() -> None:
             type="password",
             key="openai_api_key",
             on_change=_on_setting_change("openai_api_key"),
+            placeholder="sk-...",
             help="Your API key from OpenAI platform."
         )
         st.text_input(
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
+            placeholder="https://api.openai.com/v1",
             help="The endpoint URL for the API (default: https://api.openai.com/v1)."
         )
 
@@ -11210,6 +11212,7 @@ def _render_settings_ai_tab() -> None:
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
+            placeholder="http://localhost:1234/v1",
             help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio)."
         )
         st.text_input(
@@ -11217,6 +11220,7 @@ def _render_settings_ai_tab() -> None:
             type="password",
             key="openai_api_key",
             on_change=_on_setting_change("openai_api_key"),
+            placeholder="sk-...",
         )
         st.selectbox(
             "Model",

@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Input Placeholders for Technical Fields
+**Learning:** Technical input fields (like API keys and URLs) often confuse users about the expected format (e.g., "Does it need http://?", "Is it the full key?").
+**Action:** Use `placeholder=` in `st.text_input` to show a concrete example of the expected value, reducing cognitive load and errors.
