@@ -1013,6 +1013,11 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index: token -> set of cluster indices
+    token_index: defaultdict[str, set[int]] = defaultdict(set)
+    # Set of indices for clusters that have no tokens
+    empty_token_clusters: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
@@ -1027,6 +1032,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 None,
             )
             if blank_index is None:
+                new_idx = len(clusters)
                 clusters.append(
                     {
                         "normalized": "",
@@ -1034,19 +1040,82 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                         "label": "Caso sin título",
                     }
                 )
-                blank_index = len(clusters) - 1
+                empty_token_clusters.add(new_idx)
+                blank_index = new_idx
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
-            cluster_tokens = cluster.get("tokens") or set()
-            cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
-            if score > best_score:
-                best_score = score
-                best_index = idx
+
+        if tokens:
+            # Optimization: Tiered search
+            # 1. Check clusters with "rare" tokens first.
+            # 2. If a high-confidence match is found (> 0.95), stop.
+            # 3. Else, expand search to clusters with "common" tokens.
+            token_counts = [(t, len(token_index[t])) for t in tokens if t in token_index]
+            token_counts.sort(key=lambda x: x[1])
+
+            threshold = 100
+            rare_tokens = [t for t, c in token_counts if c < threshold]
+            common_tokens = [t for t, c in token_counts if c >= threshold]
+
+            # Tier 1
+            candidates_tier1 = set()
+            for t in rare_tokens:
+                candidates_tier1.update(token_index[t])
+            candidates_tier1.update(empty_token_clusters)
+
+            for idx in sorted(candidates_tier1):
+                cluster = clusters[idx]
+                cluster_tokens = cluster.get("tokens") or set()
+                cluster_norm = str(cluster.get("normalized") or "")
+                score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+                if score > best_score:
+                    best_score = score
+                    best_index = idx
+
+            # Tier 2
+            if best_score < 0.95 and common_tokens:
+                candidate_counts = defaultdict(int)
+                for t in common_tokens:
+                    for idx in token_index[t]:
+                        candidate_counts[idx] += 1
+
+                for idx in candidates_tier1:
+                    candidate_counts.pop(idx, None)
+
+                query_len = len(tokens)
+                min_threshold = 0.68 if best_score < 0.68 else best_score
+
+                for idx, count in sorted(candidate_counts.items()):
+                    cluster = clusters[idx]
+                    cluster_tokens = cluster.get("tokens") or set()
+
+                    # Jaccard Pruning: max possible score is 0.6 (base=1.0) + 0.4 * jaccard
+                    cluster_len = len(cluster_tokens)
+                    union_len = query_len + cluster_len - count
+                    jaccard = count / union_len if union_len else 0.0
+
+                    if 0.6 + 0.4 * jaccard < min_threshold:
+                        continue
+
+                    cluster_norm = str(cluster.get("normalized") or "")
+                    score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+                    if score > best_score:
+                        best_score = score
+                        best_index = idx
+                        min_threshold = score
+        else:
+            # Fallback: check all clusters
+            for idx in range(len(clusters)):
+                cluster = clusters[idx]
+                cluster_tokens = cluster.get("tokens") or set()
+                cluster_norm = str(cluster.get("normalized") or "")
+                score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+                if score > best_score:
+                    best_score = score
+                    best_index = idx
 
         threshold = 0.68 if tokens else 0.8
         if best_index == -1 or best_score < threshold:
@@ -1056,6 +1125,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if label_source
                 else "Caso sin título"
             )
+            new_idx = len(clusters)
             clusters.append(
                 {
                     "normalized": normalized,
@@ -1063,10 +1133,24 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            assignments.append(new_idx)
+
+            if tokens:
+                for t in tokens:
+                    token_index[t].add(new_idx)
+            else:
+                empty_token_clusters.add(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
+
+            new_tokens_added = tokens - cluster_tokens
+            for t in new_tokens_added:
+                token_index[t].add(best_index)
+
+            if not cluster_tokens and tokens:
+                empty_token_clusters.discard(best_index)
+
             cluster_tokens.update(tokens)
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
