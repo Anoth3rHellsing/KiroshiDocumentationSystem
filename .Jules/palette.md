@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - AST for UX Verification
+**Learning:** When headless frontend testing is blocked by complex overlays (like tutorials), AST-based static analysis is a reliable alternative for verifying structural UX properties (placeholders, help text) without runtime dependencies.
+**Action:** Use `ast.NodeVisitor` to verify presence of `help=` and `placeholder=` arguments in Streamlit calls for robust, fast UX regression testing.

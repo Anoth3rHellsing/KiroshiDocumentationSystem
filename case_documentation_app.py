@@ -16399,6 +16399,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            placeholder="e.g. Scanner connection lost after update",
+            help="A short summary of the issue used for the subject line and case headers.",
         )
         version_col = details_cols[1]
         auto_text_input(
@@ -19417,6 +19419,7 @@ End with: We look forward to your reply."""
                 "Tracking type",
                 ["Dell", "FedEx", "Custom"],
                 key=tracking_type_key,
+                help="Select the vendor or method used for this shipment.",
             )
 
             st.text_input(
@@ -19506,9 +19509,18 @@ End with: We look forward to your reply."""
                     and D.service_tag
                 ):
                     st.session_state[service_tag_key] = D.service_tag
-                st.text_input("Service Tag", key=service_tag_key)
+                st.text_input(
+                    "Service Tag",
+                    key=service_tag_key,
+                    help="The 7-character alphanumeric code found on the PC chassis.",
+                    placeholder="e.g. 8X300Y1",
+                )
             elif tracking_type == "FedEx":
-                st.date_input("Expected arrival date", key=expected_key)
+                st.date_input(
+                    "Expected arrival date",
+                    key=expected_key,
+                    help="The estimated delivery date provided by FedEx tracking.",
+                )
 
             if st.button(
                 "Save and track",
