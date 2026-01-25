@@ -96,7 +96,18 @@ def update_hotkey_snapshot(
             return
 
         try:
-            session_copy = deepcopy(case_sessions[active_idx])
+            # Optimize: Only deepcopy the 'case' data needed for hotkeys.
+            # Copying the full session drags in heavy assets (screenshots, uploads)
+            # that block the main thread but are never used by the clipboard listener.
+            active_session = case_sessions[active_idx]
+            case_data = getattr(active_session, "case", None)
+
+            # Create a lightweight container satisfying getattr(session, "case")
+            class SessionSnapshot:
+                pass
+
+            session_copy = SessionSnapshot()
+            session_copy.case = deepcopy(case_data) if case_data is not None else None
         except Exception:
             logging.exception("Unable to capture case session snapshot for hotkey clipboard")
             _snapshot_state.clear()
