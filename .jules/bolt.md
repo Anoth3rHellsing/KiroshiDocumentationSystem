@@ -15,3 +15,11 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-25 - Optimization of Case Title Clustering
+**Learning:** Text clustering with `SequenceMatcher` is O(N*M). For large datasets, an Inverted Index mapping tokens to candidates reduces comparisons to O(N*k) (where k << M), yielding ~15% speedup on 3000 items with deterministic results.
+**Action:** Implemented `token_index` in `_cluster_case_titles` to limit similarity checks to relevant candidates.
+
+## 2026-01-25 - Benchmarking Monolithic Streamlit Apps
+**Learning:** Importing a Streamlit app script (`case_documentation_app.py`) for benchmarking triggers top-level execution logic (like tutorial rendering and settings persistence). This requires extensive mocking of `streamlit`, `sys.modules`, and `st.session_state` (populated with safe defaults) to prevent side effects or crashes during import.
+**Action:** Created `tests/repro_clustering_perf.py` which mocks `streamlit` components and `session_state` before importing the app module to benchmark specific functions in isolation.
