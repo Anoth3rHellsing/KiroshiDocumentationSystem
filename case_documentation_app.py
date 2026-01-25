@@ -11217,6 +11217,7 @@ def _render_settings_ai_tab() -> None:
             type="password",
             key="openai_api_key",
             on_change=_on_setting_change("openai_api_key"),
+            help="Some local servers require a dummy key (e.g. 'sk-...') or ignore this field entirely.",
         )
         st.selectbox(
             "Model",

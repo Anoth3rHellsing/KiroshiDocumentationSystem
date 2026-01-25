@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-19 - Clarifying Optional Technical Fields
+**Learning:** Users often hesitate with "optional" technical fields like API keys for local servers, unsure if "optional" means "truly not needed" or "needed but can be blank".
+**Action:** Always add a tooltip to optional configuration inputs clarifying *why* it is optional or what happens if left blank (e.g. "Some local servers require a dummy key").
