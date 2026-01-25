@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - AI Prompt Inputs Context
+**Learning:** Inputs that feed directly into AI prompts (like "Email Goal" or "User Instructions") benefit significantly from `placeholder` text that provides concrete examples of the expected phrasing (e.g., "e.g. schedule a remote session"). This guides the user to provide better context for the AI.
+**Action:** When adding inputs that will be part of an LLM prompt construction, always include a `placeholder` with a high-quality example and a `help` tooltip explaining the field's role in the prompt.

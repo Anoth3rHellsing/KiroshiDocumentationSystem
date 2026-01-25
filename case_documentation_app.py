@@ -19217,16 +19217,22 @@ End with: We look forward to your reply."""
                     "Reason for contacting the customer",
                     ext.get("reason", ""),
                     key=case_widget_key("email_advanced_request", "reason", case_idx),
+                    placeholder="e.g. they reported a scanner connection issue",
+                    help="Briefly explain the trigger for this email.",
                 )
                 ext["goal"] = st.text_input(
                     "Goal of the email",
                     ext.get("goal", ""),
                     key=case_widget_key("email_advanced_request", "goal", case_idx),
+                    placeholder="e.g. schedule a remote session to troubleshoot",
+                    help="Define the primary outcome you want from this interaction.",
                 )
                 ext["customer_need"] = st.text_input(
                     "What do we need from the customer?",
                     ext.get("customer_need", ""),
                     key=case_widget_key("email_advanced_request", "customer_need", case_idx),
+                    placeholder="e.g. 3 potential time slots for a callback",
+                    help="List specific information or actions required from the user.",
                 )
                 intro = build_email_intro(D)
                 reason = ext.get("reason", "").strip() or "(reason for the outreach)"
@@ -19278,6 +19284,8 @@ End with: We look forward to your reply."""
                     ext.get("custom_user_prompt", ""),
                     height=140,
                     key=email_tab_key("custom_user_prompt"),
+                    placeholder="e.g. Write a polite email explaining that the logs indicate a USB cable failure...",
+                    help="Provide specific instructions for the AI to draft the email.",
                 )
                 case_context = build_case_data_block(D)
                 st.text_area(
