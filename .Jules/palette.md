@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-19 - Contextual Help for Hardware Identifiers
+**Learning:** Generic input labels like "Service Tag" are often insufficient for users who interact with hardware infrequently. Providing specific location hints (e.g., "back of the device") and format examples (e.g., "7 alphanumeric characters") directly in the UI reduces cognitive load and validation errors.
+**Action:** Always pair vendor-specific ID fields with a tooltip explaining *where* to find the data and a placeholder showing *what* it looks like.

@@ -19417,6 +19417,7 @@ End with: We look forward to your reply."""
                 "Tracking type",
                 ["Dell", "FedEx", "Custom"],
                 key=tracking_type_key,
+                help="Select the vendor or method for tracking this case.",
             )
 
             st.text_input(
@@ -19506,9 +19507,18 @@ End with: We look forward to your reply."""
                     and D.service_tag
                 ):
                     st.session_state[service_tag_key] = D.service_tag
-                st.text_input("Service Tag", key=service_tag_key)
+                st.text_input(
+                    "Service Tag",
+                    key=service_tag_key,
+                    help="7-character alphanumeric code found on the back of the device.",
+                    placeholder="e.g. 8X9Y1Z2",
+                )
             elif tracking_type == "FedEx":
-                st.date_input("Expected arrival date", key=expected_key)
+                st.date_input(
+                    "Expected arrival date",
+                    key=expected_key,
+                    help="The estimated delivery date provided by FedEx.",
+                )
 
             if st.button(
                 "Save and track",
