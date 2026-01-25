@@ -15,3 +15,11 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-25 - Clustering Performance & Synthetic Data
+**Learning:** Inverted Index optimization for clustering () can degrade to O(N²) performance if tested with synthetic data having a small vocabulary (e.g., 20 words for 2000 titles), due to massive collisions (dense postings lists).
+**Action:** Always ensure synthetic benchmarks use a vocabulary size comparable to the dataset size (e.g., 1000+ words for 5000 items) to reflect real-world sparse distributions and verify optimizations correctly.
+
+## 2026-01-25 - Clustering Performance & Synthetic Data
+**Learning:** Inverted Index optimization for clustering (`_cluster_case_titles`) can degrade to O(N²) performance if tested with synthetic data having a small vocabulary (e.g., 20 words for 2000 titles), due to massive collisions (dense postings lists).
+**Action:** Always ensure synthetic benchmarks use a vocabulary size comparable to the dataset size (e.g., 1000+ words for 5000 items) to reflect real-world sparse distributions and verify optimizations correctly.
