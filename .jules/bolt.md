@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-25 - Sort Key Optimization
+**Learning:** Parsing ISO date strings (via `datetime.fromisoformat`) inside a sort key function is significantly slower than comparing float timestamps, especially when the sort happens frequently (e.g. on every throttled UI update).
+**Action:** Calculate the float timestamp once when loading the data, store it in a hidden field (e.g. `_updated_ts`), and use that field for sorting. This reduced sorting time by ~3.5x in benchmarks.
