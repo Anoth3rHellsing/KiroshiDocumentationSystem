@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-23 - AST for UI Validation
+**Learning:** Validating UI properties like placeholders and help text is often neglected in unit tests because of the overhead of rendering components. Static analysis (AST) can cheaply enforce design system rules without runtime mocks.
+**Action:** Use AST-based tests to ensure critical inputs always include `help` and `placeholder` attributes.
