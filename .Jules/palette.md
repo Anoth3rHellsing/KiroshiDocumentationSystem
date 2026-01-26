@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2026-01-26 - Placeholder and Help Text Importance
+**Learning:** Critical identification fields (like Service Tags or Reseller Case IDs) benefit significantly from placeholders that demonstrate the expected format (e.g., 'e.g. 8X3K22'), reducing cognitive load and validation errors.
+**Action:** Always audit ID/Code inputs for `placeholder` examples and `help` tooltips explaining the source of the ID, especially in specialized workflows like Tracking or 2nd Line Support.

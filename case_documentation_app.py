@@ -16349,6 +16349,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 "Reseller case # (Straumann / Patterson)",
                 default_value,
                 key=reseller_key,
+                help="Enter the partner's case number for reference.",
+                placeholder="e.g. CAS-123456-A1B2C3",
             )
             if merged_value != D.straumann or merged_value != D.patterson:
                 D.straumann = merged_value
@@ -19506,9 +19508,18 @@ End with: We look forward to your reply."""
                     and D.service_tag
                 ):
                     st.session_state[service_tag_key] = D.service_tag
-                st.text_input("Service Tag", key=service_tag_key)
+                st.text_input(
+                    "Service Tag",
+                    key=service_tag_key,
+                    help="Enter the 7-character Dell Service Tag (e.g. 8X3K22).",
+                    placeholder="e.g. 8X3K22",
+                )
             elif tracking_type == "FedEx":
-                st.date_input("Expected arrival date", key=expected_key)
+                st.date_input(
+                    "Expected arrival date",
+                    key=expected_key,
+                    help="The estimated delivery date provided by the courier.",
+                )
 
             if st.button(
                 "Save and track",

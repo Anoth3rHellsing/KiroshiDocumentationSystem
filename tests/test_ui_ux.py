@@ -61,10 +61,79 @@ def test_buttons_have_tooltips():
 
     assert not missing_tooltips, f"The following buttons are missing tooltips in at least one instance: {missing_tooltips}"
 
+def test_tracking_inputs_ux():
+    """
+    Static analysis to ensure Tracking Tab inputs have 'help' and 'placeholder' defined.
+    """
+    if not os.path.exists(APP_PATH):
+        pytest.skip(f"{APP_PATH} not found")
+
+    with open(APP_PATH, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+
+    targets = {
+        "Service Tag": {"required_args": ["help", "placeholder"], "func_names": ["text_input"]},
+        "Expected arrival date": {"required_args": ["help"], "func_names": ["date_input"]},
+        "Reseller case # (Straumann / Patterson)": {"required_args": ["help", "placeholder"], "func_names": ["text_input"]}
+    }
+
+    results = {
+        label: {arg: False for arg in reqs["required_args"]}
+        for label, reqs in targets.items()
+    }
+
+    class InputVisitor(ast.NodeVisitor):
+        def visit_Call(self, node):
+            func_name = None
+            if isinstance(node.func, ast.Attribute):
+                func_name = node.func.attr
+            elif isinstance(node.func, ast.Name):
+                func_name = node.func.id
+
+            if not func_name:
+                return
+
+            label = None
+            if node.args:
+                arg0 = node.args[0]
+                if isinstance(arg0, ast.Constant):
+                    label = arg0.value
+                elif hasattr(ast, "Str") and isinstance(arg0, ast.Str):
+                    label = arg0.s
+
+            if not label:
+                for kw in node.keywords:
+                    if kw.arg == "label":
+                        if isinstance(kw.value, ast.Constant):
+                            label = kw.value.value
+                        elif hasattr(ast, "Str") and isinstance(kw.value, ast.Str):
+                            label = kw.value.s
+
+            if label in targets:
+                target_config = targets[label]
+                if func_name in target_config["func_names"]:
+                    for kw in node.keywords:
+                        if kw.arg in results[label]:
+                            results[label][kw.arg] = True
+
+            self.generic_visit(node)
+
+    InputVisitor().visit(tree)
+
+    failures = []
+    for label, checks in results.items():
+        missing = [arg for arg, found in checks.items() if not found]
+        if missing:
+            failures.append(f"'{label}' is missing: {', '.join(missing)}")
+
+    assert not failures, f"UX Validation Failed:\n" + "\n".join(failures)
+
 if __name__ == "__main__":
     try:
         test_buttons_have_tooltips()
         print("All target buttons have tooltips!")
+        test_tracking_inputs_ux()
+        print("All tracking inputs have required UX attributes!")
     except AssertionError as e:
         print(f"Test failed: {e}")
     except Exception as e:

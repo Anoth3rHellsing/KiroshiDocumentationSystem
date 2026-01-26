@@ -8,3 +8,5 @@ JavaSTools/dist/
 JavaSTools/build/
 .env
 temp_benchmark_data/
+streamlit.log
+streamlit_out.log
