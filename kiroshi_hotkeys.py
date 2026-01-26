@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import copy
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
@@ -96,7 +97,23 @@ def update_hotkey_snapshot(
             return
 
         try:
-            session_copy = deepcopy(case_sessions[active_idx])
+            # We must not hold references to large data structures (like file
+            # uploads or screenshots) in the hotkey snapshot, as deep copying
+            # them on every render frame causes massive performance penalties.
+            # Perform a shallow copy of the session container, then explicitly
+            # clear the heavy fields that are irrelevant for the clipboard hotkeys.
+            session_copy = copy.copy(case_sessions[active_idx])
+            session_copy.uploads = []
+            session_copy.log_uploads = []
+            session_copy.screenshots = []
+            session_copy.attachments_index = {}
+
+            # The 'case' object (CaseData) itself is mutable and modified by the
+            # UI thread, so we MUST deep copy it to ensure thread safety for the
+            # listener thread. CaseData is composed mostly of strings and is
+            # lightweight enough for this to be efficient.
+            if hasattr(session_copy, "case"):
+                session_copy.case = deepcopy(session_copy.case)
         except Exception:
             logging.exception("Unable to capture case session snapshot for hotkey clipboard")
             _snapshot_state.clear()

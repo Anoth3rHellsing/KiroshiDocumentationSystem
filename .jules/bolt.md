@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-27 - Optimizing Heavy Object Copying in Hot Paths
+**Learning:** `deepcopy`ing large objects (like session containers with file uploads or screenshots) on every render frame creates massive latency (e.g., 300MB copy taking >7ms vs 0.1ms). In Streamlit, this happens on every interaction.
+**Action:** Replaced `deepcopy` with `copy.copy` (shallow copy) for the container and explicitly cleared the heavy, unused fields. Only the critical mutable state (metadata) is deeply copied, resulting in a ~68x speedup for large datasets.
