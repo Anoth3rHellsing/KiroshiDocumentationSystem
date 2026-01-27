@@ -11039,6 +11039,7 @@ def _render_settings_workspace_tab() -> None:
         key="attachments_directory",
         on_change=_on_setting_change("attachments_directory"),
         help=attachments_help,
+        placeholder="e.g. C:/Users/Name/Documents/Kiroshi or /home/user/kiroshi",
     )
     requested_root = _resolve_configured_attachments_directory()
     attachments_root, attachments_error = _ensure_case_attachments_root()
@@ -11186,13 +11187,15 @@ def _render_settings_ai_tab() -> None:
             type="password",
             key="openai_api_key",
             on_change=_on_setting_change("openai_api_key"),
-            help="Your API key from OpenAI platform."
+            help="Your API key from OpenAI platform.",
+            placeholder="sk-proj-...",
         )
         st.text_input(
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The endpoint URL for the API (default: https://api.openai.com/v1)."
+            help="The endpoint URL for the API (default: https://api.openai.com/v1).",
+            placeholder="https://api.openai.com/v1",
         )
 
         # Ensure default model is selected if current selection is invalid
@@ -11210,13 +11213,16 @@ def _render_settings_ai_tab() -> None:
             "AI Base URL",
             key="ai_base_url",
             on_change=_on_setting_change("ai_base_url"),
-            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio)."
+            help="The local server endpoint (e.g., http://localhost:1234/v1 for LM Studio).",
+            placeholder="http://localhost:1234/v1",
         )
         st.text_input(
             "API Key (optional)",
             type="password",
             key="openai_api_key",
             on_change=_on_setting_change("openai_api_key"),
+            help="Some local servers like LM Studio may require a dummy key.",
+            placeholder="sk-...",
         )
         st.selectbox(
             "Model",
