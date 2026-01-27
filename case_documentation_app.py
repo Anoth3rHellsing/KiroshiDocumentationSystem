@@ -16399,6 +16399,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            placeholder="e.g. Scanner connection failed after update",
+            help="A short summary of the issue used in email subjects and the dashboard.",
         )
         version_col = details_cols[1]
         auto_text_input(
@@ -16524,12 +16526,20 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            container=notes_col,
+            placeholder="e.g. Dr. Smith or Jane Doe",
+            help="The name of the person you are speaking with.",
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
             height=desc_height,
             container=notes_col,
+            placeholder="e.g. User reports 'Scanner not found' error when clicking scan button...",
+            help="Detailed notes from the initial conversation.",
         )
 
         contact_header = "Contact details"

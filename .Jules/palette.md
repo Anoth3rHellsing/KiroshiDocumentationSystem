@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Input Guidance via AST Analysis
+**Learning:** Missing placeholders and help tooltips on critical inputs (like case description) significantly hamper new user onboarding. Static analysis via `ast` is an effective way to enforce UX standards (like mandatory `help` attributes) in Python codebases where runtime UI testing is expensive.
+**Action:** Implement `ast`-based linting rules for `st.text_input` wrappers to ensure all new fields include user guidance by default.
