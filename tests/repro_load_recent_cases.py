@@ -30,8 +30,12 @@ sys.modules["reportlab.platypus"] = MagicMock()
 sys.modules["reportlab.graphics.shapes"] = MagicMock()
 sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
 
-# Mock st.cache_data to do nothing (passthrough)
+# Mock st.cache_data to handle both @decorator and @decorator()
 def cache_data_mock(*args, **kwargs):
+    # Check if called as @decorator (args[0] is function)
+    if len(args) == 1 and callable(args[0]) and not kwargs:
+        return args[0]
+    # Check if called as @decorator(...)
     def decorator(func):
         return func
     return decorator
@@ -96,11 +100,10 @@ class TestLoadRecentCasesPerformance(unittest.TestCase):
 
             # Reset the cache in case it was used
             if hasattr(case_documentation_app, "_recent_cases_cache"):
-                case_documentation_app._recent_cases_cache = None
-
-            # Force uncached behavior to test raw performance
-            # Actually, the function calls _load_recent_cases_from_disk_cached
-            # But we mocked st.cache_data to be a passthrough, so it will execute every time.
+                # Clear the cache function's cache if possible, but here we just want to ensure
+                # subsequent calls use the logic.
+                # Actually, the mock is passthrough, so it runs every time.
+                pass
 
             start_time = time.perf_counter()
             # Run it multiple times to simulate re-renders
@@ -112,6 +115,38 @@ class TestLoadRecentCasesPerformance(unittest.TestCase):
             print(f"100 calls to load_recent_cases took {duration:.2f}ms")
 
             self.assertEqual(len(data), 100)
+
+    def test_update_recent_cases_redundant_write(self):
+        # Verify that update_recent_cases does NOT write if data is unchanged
+        with patch("case_documentation_app.RECENT_CASES_PATH") as mock_path, \
+             patch("case_documentation_app.Path") as mock_path_cls:
+
+            existing_cases = [
+                {"case_id": "CASE-1", "path": "/tmp/case_1.json", "last_modified": "2023-01-01T12:00:00"},
+                {"case_id": "CASE-2", "path": "/tmp/case_2.json", "last_modified": "2023-01-01T11:00:00"},
+            ]
+            mock_path.exists.return_value = True
+            mock_path.read_text.return_value = json.dumps(existing_cases)
+            mock_path.stat.return_value.st_mtime = 1000.0
+
+            # Mock Path("/tmp/case_1.json")
+            mock_case_path = MagicMock()
+            mock_path_cls.return_value = mock_case_path
+            mock_case_path.exists.return_value = True
+            # Simulate that the file content implies same last_modified
+            mock_case_path.read_text.return_value = json.dumps({"last_modified": "2023-01-01T12:00:00"})
+
+            # Action: Update the most recent case with same data (simulate redundant load)
+            # Use 'case_data' to explicitly pass the timestamp to avoid file read inside update_recent_cases
+            # case_documentation_app.update_recent_cases("CASE-1", "/tmp/case_1.json", case_data={"last_modified": "2023-01-01T12:00:00"})
+
+            # Actually, let's test the path where it infers from disk or passed data
+            case_documentation_app.update_recent_cases("CASE-1", "/tmp/case_1.json", case_data={"last_modified": "2023-01-01T12:00:00"})
+
+            # Assert
+            # After optimization: It should NOT write because data is identical
+            mock_path.write_text.assert_not_called()
+            print("Write skipped as expected (optimized behavior)")
 
 if __name__ == "__main__":
     unittest.main()

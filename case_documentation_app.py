@@ -8913,7 +8913,8 @@ def load_recent_cases() -> list:
 def update_recent_cases(
     case_id: str, path: str, case_data: Mapping[str, object] | None = None
 ) -> None:
-    recents = [c for c in load_recent_cases() if c.get("path") != path]
+    existing = load_recent_cases()
+    recents = [c for c in existing if c.get("path") != path]
     last_modified = ""
     try:
         case_path = Path(path)
@@ -8935,6 +8936,13 @@ def update_recent_cases(
         last_modified = ""
     recents.insert(0, {"case_id": case_id, "path": path, "last_modified": last_modified})
     recents = recents[:10]
+
+    # Optimization: Avoid writing if the list hasn't changed.
+    # This prevents updating the file's mtime, which avoids invalidating caches
+    # that depend on it (like _load_tracked_cases_worker).
+    if recents == existing:
+        return
+
     RECENT_CASES_PATH.write_text(json.dumps(recents, indent=2), encoding="utf-8")
     try:
         cache = _get_recent_cases_cache()
