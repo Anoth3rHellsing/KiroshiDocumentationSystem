@@ -8542,6 +8542,14 @@ def autosave(case: CaseData | None = None):
     payload = autosave_payload(case)
     serialized_payload, payload_hash = _serialize_autosave_payload(payload)
 
+    # Check session state for persistence across reruns
+    try:
+        if st.session_state.get("_last_autosave_hash") == payload_hash:
+            return
+        st.session_state["_last_autosave_hash"] = payload_hash
+    except (AttributeError, KeyError):
+        pass
+
     with _autosave_lock:
         global _last_autosave_hash, _last_autosave_timestamp
 
