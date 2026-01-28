@@ -995,16 +995,28 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str],
+    tokens_b: set[str],
+    norm_a: str,
+    norm_b: str,
+    threshold: float = 0.0,
 ) -> float:
-    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
-        return 0.0
+    jaccard = 0.0
+    has_tokens = bool(tokens_a and tokens_b)
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
-    if tokens_a and tokens_b:
+    if has_tokens:
+        if tokens_a.isdisjoint(tokens_b):
+            return 0.0
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
         jaccard = (intersection / union) if union else 0.0
+
+        if 0.6 + 0.4 * jaccard < threshold:
+            return 0.0
+
+    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+
+    if has_tokens:
         return 0.6 * base + 0.4 * jaccard
     return base
 
@@ -1013,20 +1025,21 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    token_map: dict[str, set[int]] = defaultdict(set)
+    clusters_without_tokens: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
         if not normalized and not tokens:
-            blank_index = next(
-                (
-                    idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
-                ),
-                None,
-            )
-            if blank_index is None:
+            blank_index = -1
+            for idx in clusters_without_tokens:
+                if not clusters[idx].get("normalized"):
+                    blank_index = idx
+                    break
+
+            if blank_index == -1:
                 clusters.append(
                     {
                         "normalized": "",
@@ -1035,22 +1048,44 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                clusters_without_tokens.add(blank_index)
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        candidates = set()
+        for token in tokens:
+            candidates.update(token_map.get(token, []))
+        candidates.update(clusters_without_tokens)
+
+        if not tokens:
+            candidate_indices = range(len(clusters))
+        else:
+            candidate_indices = candidates  # type: ignore
+
+        current_threshold = 0.68 if tokens else 0.8
+
+        for idx in candidate_indices:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
+            target = max(current_threshold, best_score)
+            score = _title_similarity_score(
+                tokens, cluster_tokens, normalized, cluster_norm, target
+            )
+
             if score > best_score:
                 best_score = score
                 best_index = idx
 
-        threshold = 0.68 if tokens else 0.8
+        threshold = current_threshold
         if best_index == -1 or best_score < threshold:
-            label_source = title if isinstance(title, str) and title.strip() else normalized
+            label_source = (
+                title if isinstance(title, str) and title.strip() else normalized
+            )
             label = (
                 _summarize_text(label_source, width=80)
                 if label_source
@@ -1063,11 +1098,26 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_index = len(clusters) - 1
+            if tokens:
+                for token in tokens:
+                    token_map[token].add(new_index)
+            else:
+                clusters_without_tokens.add(new_index)
+            assignments.append(new_index)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
-            cluster_tokens.update(tokens)
+
+            if not cluster_tokens and tokens:
+                if best_index in clusters_without_tokens:
+                    clusters_without_tokens.remove(best_index)
+
+            for token in tokens:
+                if token not in cluster_tokens:
+                    cluster_tokens.add(token)
+                    token_map[token].add(best_index)
+
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)
@@ -1075,7 +1125,10 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     cluster["label"] = candidate_label
             assignments.append(best_index)
 
-    label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
+    label_map = {
+        idx: str(cluster.get("label") or "Caso sin título")
+        for idx, cluster in enumerate(clusters)
+    }
     return assignments, label_map
 
 

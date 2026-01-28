@@ -28,6 +28,18 @@ sys.modules["reportlab.lib.styles"] = MagicMock()
 sys.modules["reportlab.platypus"] = MagicMock()
 sys.modules["reportlab.graphics.shapes"] = MagicMock()
 sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
+sys.modules["requests"] = MagicMock()
+sys.modules["urllib3"] = MagicMock()
+sys.modules["kiroshi_chat"] = MagicMock()
+sys.modules["kiroshi_local_ai"] = MagicMock()
+sys.modules["kiroshi_cloud_sync"] = MagicMock()
+sys.modules["kiroshi_video"] = MagicMock()
+sys.modules["kiroshi_hotkeys"] = MagicMock()
+sys.modules["pyautogui"] = MagicMock()
+sys.modules["tkinter"] = MagicMock()
+sys.modules["PIL"] = MagicMock()
+sys.modules["pytesseract"] = MagicMock()
+sys.modules["mss"] = MagicMock()
 
 def cache_data_mock(*args, **kwargs):
     def decorator(func):
