@@ -16349,6 +16349,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
                 "Reseller case # (Straumann / Patterson)",
                 default_value,
                 key=reseller_key,
+                help="Enter the Straumann or Patterson ticket number if applicable.",
+                placeholder="e.g. CAS-12345",
             )
             if merged_value != D.straumann or merged_value != D.patterson:
                 D.straumann = merged_value
@@ -16380,18 +16382,21 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "company_name",
             container=name_cols[0],
             help="The full legal name of the clinic or lab.",
+            placeholder="e.g. Smile Design Clinic",
         )
         auto_text_input(
             "Subscription ID",
             "subscription_id",
             container=name_cols[1],
             help="The unique **Dongle ID** or **Subscription ID** identifying the customer license.",
+            placeholder="e.g. 1234567890",
         )
         auto_text_input(
             "Case ID",
             "case_id",
             container=name_cols[2],
             help="The CRM ticket number (e.g. CS-0012345) for this incident.",
+            placeholder="e.g. CS-123456",
         )
 
         details_cols = card.columns((2, 1))
@@ -16399,6 +16404,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            help="A short summary of the reported issue.",
+            placeholder="Describe the issue...",
         )
         version_col = details_cols[1]
         auto_text_input(
