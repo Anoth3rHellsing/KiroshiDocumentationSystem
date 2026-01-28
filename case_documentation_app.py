@@ -18818,6 +18818,8 @@ List each question and provide any known answer beneath it, ready for the custom
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_fedex_tracking", "agent_name", case_idx),
+                    placeholder="e.g. Alex Johnson",
+                    help="Your name as it should appear in the email signature.",
                 )
                 ext["device_type"] = st.text_input(
                     "Device type (scanner or Move+)",
@@ -18860,6 +18862,8 @@ Wishing you the best again!"""
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_replacement_dispatch", "agent_name", case_idx),
+                    placeholder="e.g. Alex Johnson",
+                    help="Your name as it should appear in the email signature.",
                 )
                 device_options = ["TRIOS", "Pod", "Spare item"]
                 prev_choice = ext.get("replacement_device_type", device_options[0])
@@ -18898,6 +18902,8 @@ Wishing you the best again!"""
                         key=case_widget_key(
                             "email_replacement_dispatch", "spare_item", case_idx
                         ),
+                        placeholder="e.g. Power Supply Unit",
+                        help="Description of the spare part being sent.",
                     )
                     ext["spare_item_name"] = spare_item_name
                     toggle_default = ext.get("spare_return_required")
@@ -18923,6 +18929,8 @@ Wishing you the best again!"""
                     key=case_widget_key(
                         "email_replacement_dispatch", "serial_number", case_idx
                     ),
+                    placeholder="e.g. s12345678",
+                    help="The serial number of the faulty unit that the customer needs to return.",
                 )
                 intro = build_email_intro(D)
                 agent = ext["agent_name"] or "(Agent Name)"
@@ -19017,6 +19025,8 @@ Wishing you the best again!"""
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_replacement_wired", "agent_name", case_idx),
+                    placeholder="e.g. Alex Johnson",
+                    help="Your name as it should appear in the email signature.",
                 )
                 ext["fedex_pickup_link"] = st.text_input(
                     "FedEx pickup link",
@@ -19072,6 +19082,8 @@ Wishing you the best again!"""
                     "Agent name",
                     ext.get("agent_name", ""),
                     key=case_widget_key("email_replacement_move", "agent_name", case_idx),
+                    placeholder="e.g. Alex Johnson",
+                    help="Your name as it should appear in the email signature.",
                 )
                 customer = D.caller_name or "(Caller Name)"
                 company = D.company_name or "(Company Name)"
