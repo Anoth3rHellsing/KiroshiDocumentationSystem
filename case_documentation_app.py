@@ -9097,16 +9097,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             # Create a snapshot for return to avoid iteration issues if modified elsewhere
             snapshot = list(cache_obj.data.values())
 
-        # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
-            try:
-                return datetime.fromisoformat(str(t)).timestamp()
-            except ValueError:
-                return 0.0
-
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=lambda x: x.get("_updated_ts", 0.0), reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9241,8 +9233,14 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     or ""
                 )
 
+                try:
+                    _ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                except ValueError:
+                    _ts = 0.0
+
                 processed = {
                     # Standard list fields
+                    "_updated_ts": _ts,  # Pre-calculated timestamp for O(1) sort comparisons
                     "case_id": case_id,
                     "company": company,
                     "description": description,
@@ -9283,15 +9281,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     # 3. Collect valid results
     # Sort by updated time (descending) to match expected "recent" behavior
-    def _parse_time(t):
-        if not t: return 0.0
-        try:
-            return datetime.fromisoformat(str(t)).timestamp()
-        except ValueError:
-            return 0.0
-
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    valid_items.sort(key=lambda x: x.get("_updated_ts", 0.0), reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
