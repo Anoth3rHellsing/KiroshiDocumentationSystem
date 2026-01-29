@@ -8456,14 +8456,18 @@ _init_state("survey_link", D.survey_link)
 
 # Button to clear all case data and reset form
 AUTOSAVE_THROTTLE_SECONDS = 0.75
-_last_autosave_hash: str | None = None
-_last_autosave_timestamp: float = 0.0
-_pending_autosave: tuple[str, str, dict] | None = None
-_pending_autosave_timer: threading.Timer | None = None
-_autosave_lock = threading.RLock()
-_autosave_cached_payload: dict[str, Any] | None = None
-_autosave_cached_serialized: str | None = None
-_autosave_field_fingerprints: dict[str, str] = {}
+
+
+@dataclass
+class AutosaveState:
+    last_hash: str | None = None
+    last_timestamp: float = 0.0
+    cached_payload: dict[str, Any] | None = None
+    cached_serialized: str | None = None
+    field_fingerprints: dict[str, str] = field(default_factory=dict)
+    pending_payload: tuple[str, str, dict] | None = None
+    pending_timer: threading.Timer | None = None
+    lock: threading.RLock = field(default_factory=threading.RLock)
 
 
 def autosave_payload(case: CaseData | None = None) -> dict:
@@ -8496,13 +8500,13 @@ def _compact_json_dumps(value: Any) -> str:
     )
 
 
-def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
-    global _autosave_cached_payload, _autosave_cached_serialized
-
+def _serialize_autosave_payload(
+    payload: dict, state: AutosaveState
+) -> tuple[str, str]:
     case_payload: dict[str, Any] = payload.get("case", {})
     previous_case: dict[str, Any] | None = None
-    if _autosave_cached_payload:
-        previous_case = _autosave_cached_payload.get("case")
+    if state.cached_payload:
+        previous_case = state.cached_payload.get("case")
 
     known_keys = set(case_payload.keys())
     if previous_case:
@@ -8515,83 +8519,84 @@ def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
     }
 
     for field in dirty_fields:
-        _autosave_field_fingerprints[field] = hashlib.blake2s(
+        state.field_fingerprints[field] = hashlib.blake2s(
             _compact_json_dumps(case_payload.get(field)).encode("utf-8")
         ).hexdigest()
 
     checksum = hashlib.blake2s()
-    for field_name in sorted(_autosave_field_fingerprints):
+    for field_name in sorted(state.field_fingerprints):
         checksum.update(field_name.encode("utf-8"))
-        checksum.update(_autosave_field_fingerprints[field_name].encode("utf-8"))
+        checksum.update(state.field_fingerprints[field_name].encode("utf-8"))
 
     payload_hash = checksum.hexdigest()
 
-    _autosave_cached_payload = payload
+    state.cached_payload = payload
 
-    if not dirty_fields and _autosave_cached_serialized:
-        return _autosave_cached_serialized, payload_hash
+    if not dirty_fields and state.cached_serialized:
+        return state.cached_serialized, payload_hash
 
     serialized_payload = _compact_json_dumps(payload)
-    _autosave_cached_serialized = serialized_payload
+    state.cached_serialized = serialized_payload
     return serialized_payload, payload_hash
 
 
 def autosave(case: CaseData | None = None):
-    global _pending_autosave, _pending_autosave_timer
+    # Ensure AutosaveState exists in session state
+    if "autosave_state" not in st.session_state:
+        st.session_state.autosave_state = AutosaveState()
+    state: AutosaveState = st.session_state.autosave_state
 
     payload = autosave_payload(case)
-    serialized_payload, payload_hash = _serialize_autosave_payload(payload)
+    serialized_payload, payload_hash = _serialize_autosave_payload(payload, state)
 
-    with _autosave_lock:
-        global _last_autosave_hash, _last_autosave_timestamp
-
-        if payload_hash == _last_autosave_hash:
+    with state.lock:
+        if payload_hash == state.last_hash:
             return
 
         now = time.monotonic()
-        elapsed = now - _last_autosave_timestamp
+        elapsed = now - state.last_timestamp
 
         if elapsed < AUTOSAVE_THROTTLE_SECONDS:
-            _pending_autosave = (serialized_payload, payload_hash, payload)
-            if _pending_autosave_timer is None:
+            state.pending_payload = (serialized_payload, payload_hash, payload)
+            if state.pending_timer is None:
                 delay = max(AUTOSAVE_THROTTLE_SECONDS - elapsed, 0.05)
-                _pending_autosave_timer = threading.Timer(delay, _flush_pending_autosave)
-                _pending_autosave_timer.daemon = True
-                _pending_autosave_timer.start()
+                state.pending_timer = threading.Timer(
+                    delay, _flush_pending_autosave, args=[state]
+                )
+                state.pending_timer.daemon = True
+                state.pending_timer.start()
             return
 
-        _pending_autosave = None
-        if _pending_autosave_timer:
-            _pending_autosave_timer.cancel()
-            _pending_autosave_timer = None
+        state.pending_payload = None
+        if state.pending_timer:
+            state.pending_timer.cancel()
+            state.pending_timer = None
 
-        _write_autosave(serialized_payload, payload_hash, payload)
+        _write_autosave(serialized_payload, payload_hash, payload, state)
 
 
-def _flush_pending_autosave() -> None:
-    global _pending_autosave, _pending_autosave_timer
-
-    with _autosave_lock:
-        if not _pending_autosave:
-            _pending_autosave_timer = None
+def _flush_pending_autosave(state: AutosaveState) -> None:
+    with state.lock:
+        if not state.pending_payload:
+            state.pending_timer = None
             return
 
-        serialized_payload, payload_hash, payload = _pending_autosave
-        _pending_autosave = None
-        _pending_autosave_timer = None
+        serialized_payload, payload_hash, payload = state.pending_payload
+        state.pending_payload = None
+        state.pending_timer = None
 
-        _write_autosave(serialized_payload, payload_hash, payload)
+        _write_autosave(serialized_payload, payload_hash, payload, state)
 
 
-def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -> None:
-    global _last_autosave_hash, _last_autosave_timestamp
-
+def _write_autosave(
+    serialized_payload: str, payload_hash: str, payload: dict, state: AutosaveState
+) -> None:
     case_id_value = _extract_case_id(payload)
     autosave_path = _autosave_path(case_id_value)
     temp_path = autosave_path.with_suffix(autosave_path.suffix + ".tmp")
 
-    with _autosave_lock:
-        existing_hash = _last_autosave_hash
+    with state.lock:
+        existing_hash = state.last_hash
         try:
             if existing_hash is None and autosave_path.exists():
                 existing_hash = hashlib.sha1(
@@ -8629,8 +8634,8 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
                             logging.debug("Streamlit warning unavailable for autosave alert")
 
         if db_saved and existing_hash == payload_hash:
-            _last_autosave_timestamp = time.monotonic()
-            _last_autosave_hash = payload_hash
+            state.last_timestamp = time.monotonic()
+            state.last_hash = payload_hash
             return
 
         try:
@@ -8652,8 +8657,8 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
                     # Reraise other OS errors immediately
                     raise
 
-            _last_autosave_timestamp = time.monotonic()
-            _last_autosave_hash = payload_hash
+            state.last_timestamp = time.monotonic()
+            state.last_hash = payload_hash
         except Exception as exc:
             logging.exception("Failed to persist autosave to %s", autosave_path)
             try:
@@ -8661,11 +8666,13 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
                     temp_path.unlink()
             except Exception as cleanup_exc:  # pragma: no cover - best-effort cleanup
                 logging.debug(
-                    "Unable to remove temporary autosave file %s: %s", temp_path, cleanup_exc
+                    "Unable to remove temporary autosave file %s: %s",
+                    temp_path,
+                    cleanup_exc,
                 )
 
             if existing_hash:
-                _last_autosave_hash = existing_hash
+                state.last_hash = existing_hash
             return
 
 
