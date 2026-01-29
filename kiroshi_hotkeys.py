@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import dataclass
 from functools import partial
 from typing import Iterable, Mapping, Sequence
@@ -96,7 +96,28 @@ def update_hotkey_snapshot(
             return
 
         try:
-            session_copy = deepcopy(case_sessions[active_idx])
+            # We use a shallow copy for the container and then deep-copy only
+            # the fields required for the hotkey listener (case metadata), while
+            # explicitly clearing heavy fields like uploads and screenshots.
+            # This avoids duplicating megabytes of binary data on every autosave.
+            original_session = case_sessions[active_idx]
+            session_copy = copy(original_session)
+
+            if hasattr(original_session, "case"):
+                session_copy.case = deepcopy(original_session.case)
+            if hasattr(original_session, "milestones"):
+                session_copy.milestones = deepcopy(original_session.milestones)
+            if hasattr(original_session, "attachments_index"):
+                session_copy.attachments_index = deepcopy(original_session.attachments_index)
+
+            # Clear heavy assets not needed for clipboard operations
+            if hasattr(session_copy, "uploads"):
+                session_copy.uploads = []
+            if hasattr(session_copy, "log_uploads"):
+                session_copy.log_uploads = []
+            if hasattr(session_copy, "screenshots"):
+                session_copy.screenshots = []
+
         except Exception:
             logging.exception("Unable to capture case session snapshot for hotkey clipboard")
             _snapshot_state.clear()
