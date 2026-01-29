@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import dataclass
 from functools import partial
 from typing import Iterable, Mapping, Sequence
@@ -96,7 +96,20 @@ def update_hotkey_snapshot(
             return
 
         try:
-            session_copy = deepcopy(case_sessions[active_idx])
+            # Optimized copy: shallow copy container, deep copy data, strip heavy assets
+            original = case_sessions[active_idx]
+            session_copy = copy(original)
+            # Essential data for table generation
+            if hasattr(original, "case"):
+                session_copy.case = deepcopy(original.case)
+            if hasattr(original, "milestones"):
+                session_copy.milestones = deepcopy(original.milestones)
+            if hasattr(original, "attachments_index"):
+                session_copy.attachments_index = deepcopy(original.attachments_index)
+            # Strip heavy assets not needed for hotkeys
+            session_copy.uploads = []
+            session_copy.log_uploads = []
+            session_copy.screenshots = []
         except Exception:
             logging.exception("Unable to capture case session snapshot for hotkey clipboard")
             _snapshot_state.clear()
