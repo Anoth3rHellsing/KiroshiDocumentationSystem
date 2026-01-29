@@ -9585,7 +9585,7 @@ def _load_sprint_state_worker(mtime: float) -> SprintState:
             ]
         return SprintState(**data)
     except Exception:
-        return SprintState()
+        return SprintState(date=TODAY_STR)
 
 
 def load_sprint_state() -> SprintState:
@@ -16380,18 +16380,21 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "company_name",
             container=name_cols[0],
             help="The full legal name of the clinic or lab.",
+            placeholder="e.g. Smile Design Clinic",
         )
         auto_text_input(
             "Subscription ID",
             "subscription_id",
             container=name_cols[1],
             help="The unique **Dongle ID** or **Subscription ID** identifying the customer license.",
+            placeholder="e.g. 12345-67890",
         )
         auto_text_input(
             "Case ID",
             "case_id",
             container=name_cols[2],
             help="The CRM ticket number (e.g. CS-0012345) for this incident.",
+            placeholder="e.g. CS-0012345",
         )
 
         details_cols = card.columns((2, 1))
@@ -16399,6 +16402,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            help="One-line summary for the dashboard (e.g. 'Scanner connection error').",
+            placeholder="e.g. Scanner not connecting",
         )
         version_col = details_cols[1]
         auto_text_input(
@@ -16499,15 +16504,22 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
             "description",
             height=desc_height,
             container=description_col,
+            placeholder="Detailed breakdown of the issue...",
         )
 
-        auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
+        auto_text_input(
+            "Helpjuice link",
+            "internal_helpjuice",
+            container=notes_col,
+            placeholder="https://helpjuice.com/...",
+        )
         logs_height = 52 if compact_mode else 68
         auto_text_area(
             "Logs / screenshots",
             "internal_logs",
             height=logs_height,
             container=notes_col,
+            placeholder="Log snippets or screenshot descriptions...",
         )
 
 
@@ -16524,12 +16536,18 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            container=notes_col,
+            placeholder="e.g. Dr. John Smith",
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
             height=desc_height,
             container=notes_col,
+            placeholder="Notes from the conversation...",
         )
 
         contact_header = "Contact details"
@@ -16538,15 +16556,36 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         else:
             contact_col.subheader(contact_header)
         first_row = contact_col.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-        auto_text_input("Phone number", "phone_number", container=first_row[1])
-        auto_text_input("Customer email", "email", container=contact_col)
+        auto_text_input(
+            "Dongle number",
+            "dongle_number",
+            container=first_row[0],
+            placeholder="e.g. 123456789",
+        )
+        auto_text_input(
+            "Phone number",
+            "phone_number",
+            container=first_row[1],
+            placeholder="e.g. +1 555-0123",
+        )
+        auto_text_input(
+            "Customer email",
+            "email",
+            container=contact_col,
+            placeholder="e.g. doctor@clinic.com",
+        )
         second_row = contact_col.columns(2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer ID",
+            "teamviewer_id",
+            container=second_row[0],
+            placeholder="e.g. 1 234 567 890",
+        )
         auto_text_input(
             "TeamViewer password",
             "teamviewer_password",
             container=second_row[1],
+            placeholder="e.g. a1b2c3",
         )
 
 
@@ -16562,12 +16601,23 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
 
         conclusion_cols = card.columns(2)
         conclusion_left, conclusion_right = conclusion_cols
-        auto_text_input("Root cause", "root_cause", container=conclusion_left)
-        auto_text_input("Solution", "solution", container=conclusion_right)
+        auto_text_input(
+            "Root cause",
+            "root_cause",
+            container=conclusion_left,
+            placeholder="e.g. USB cable failure",
+        )
+        auto_text_input(
+            "Solution",
+            "solution",
+            container=conclusion_right,
+            placeholder="e.g. Replaced cable",
+        )
         auto_text_input(
             "Customer satisfaction survey URL",
             "survey_link",
             container=conclusion_right,
+            placeholder="https://...",
         )
         auto_tracking_text_input(
             "CRM case link",
