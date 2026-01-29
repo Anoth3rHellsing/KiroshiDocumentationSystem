@@ -9,6 +9,6 @@
     "baselines:encode": "node tests/e2e/tools/encode-baselines.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.44.1"
+    "@playwright/test": "^1.58.0"
   }
 }
