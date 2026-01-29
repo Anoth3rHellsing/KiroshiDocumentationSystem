@@ -9833,7 +9833,20 @@ def format_last_modified(value) -> str:
 
 def list_saved_cases(source_data: list[dict[str, object]] | None = None) -> list:
     """Retrieve all saved cases using the optimized global cache."""
-    all_cases = source_data if source_data is not None else _refresh_and_get_cases()
+    throttle = None
+    if source_data is None:
+        throttle = _get_refresh_throttle()
+        # Ensure we have the latest data; this updates the throttle object if a scan occurs
+        all_cases = _refresh_and_get_cases()
+
+        # Optimization: If the underlying data hasn't changed (based on timestamp),
+        # return the previously computed result to avoid O(N) transformation overhead.
+        cache_key = "_list_saved_cases_cache"
+        cached = st.session_state.get(cache_key)
+        if cached and cached.get("ts") == throttle.last_run:
+            return cached["data"]
+    else:
+        all_cases = source_data
 
     # We need to adapt the format to match what _list_saved_cases_worker used to return
     # The cache returns a superset, but fields like 'updated' might be strings there.
@@ -9897,6 +9910,12 @@ def list_saved_cases(source_data: list[dict[str, object]] | None = None) -> list
             "description": case.get("description"),
         }
         formatted_entries.append(entry)
+
+    if source_data is None and throttle:
+        st.session_state["_list_saved_cases_cache"] = {
+            "ts": throttle.last_run,
+            "data": formatted_entries,
+        }
 
     return formatted_entries
 
