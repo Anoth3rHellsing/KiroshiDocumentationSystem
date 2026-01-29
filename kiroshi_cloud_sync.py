@@ -53,8 +53,12 @@ class AgentBlockedError(CloudError):
     """Raised when an agent attempts to upload while suspended."""
 
 
+class CloudSetupRequiredError(CloudError):
+    """Raised when the cloud configuration is missing and manual setup is required."""
+
+
 DEFAULT_USERNAME = "admin"
-DEFAULT_PASSWORD = "admin123!"
+DEFAULT_PASSWORD = None  # Deprecated; explicit setup is now required
 DEFAULT_OVERLAY_PROVIDER = "Tailscale, ZeroTier, or WireGuard"
 DEFAULT_OVERLAY_INSTRUCTIONS = """
 1. **Install the overlay agent** – deploy a mesh VPN such as
@@ -257,6 +261,9 @@ def _synchronise_default_flag(config: dict[str, Any]) -> bool:
     except Exception:  # pragma: no cover - configuration corruption guard
         return False
 
+    if not DEFAULT_PASSWORD:
+        return False
+
     expected_default = _hash_password(DEFAULT_PASSWORD, salt)
     using_defaults = (
         config.get("username") == DEFAULT_USERNAME
@@ -318,30 +325,32 @@ def _upgrade_config(config: dict[str, Any], path: Path) -> dict[str, Any]:
     return config
 
 
-def _initialize_default_config(path: Path) -> dict[str, Any]:
+def setup_cloud_config(username: str, password: str) -> dict[str, Any]:
+    """Initialize the Kiroshi Cloud configuration with the provided credentials."""
+    _ensure_directories()
     salt_password = os.urandom(16)
     salt_encryption = os.urandom(16)
     instance_id = str(uuid.uuid4())
     now = _utc_timestamp()
     config = {
         "version": CONFIG_VERSION,
-        "username": DEFAULT_USERNAME,
+        "username": username.strip(),
         "password_salt": base64.urlsafe_b64encode(salt_password).decode("utf-8"),
-        "password_hash": _hash_password(DEFAULT_PASSWORD, salt_password),
+        "password_hash": _hash_password(password, salt_password),
         "encryption_salt": base64.urlsafe_b64encode(salt_encryption).decode("utf-8"),
         "instance_id": instance_id,
         "created_at": now,
         "updated_at": now,
-        "uses_default_credentials": True,
+        "uses_default_credentials": False,
         "overlay_provider": DEFAULT_OVERLAY_PROVIDER,
         "overlay_instructions": DEFAULT_OVERLAY_INSTRUCTIONS.strip(),
     }
-    _write_json(path, config)
+    _write_json(CLOUD_CONFIG_PATH, config)
     return config
 
 
 def load_cloud_config(create_if_missing: bool = True) -> dict[str, Any]:
-    """Load the persistent cloud configuration, creating a default one if needed."""
+    """Load the persistent cloud configuration."""
 
     _ensure_directories()
     try:
@@ -354,10 +363,13 @@ def load_cloud_config(create_if_missing: bool = True) -> dict[str, Any]:
         except json.JSONDecodeError as exc:  # pragma: no cover - defensive guard
             raise CloudError(f"Invalid cloud configuration file: {exc}") from exc
         return _upgrade_config(config, CLOUD_CONFIG_PATH)
-    if not create_if_missing:
-        raise CloudError("Kiroshi Cloud configuration is missing.")
-    config = _initialize_default_config(CLOUD_CONFIG_PATH)
-    return _upgrade_config(config, CLOUD_CONFIG_PATH)
+
+    # Behavior change: instead of creating insecure defaults, we now require
+    # the caller to handle setup explicitly if the configuration is missing.
+    if create_if_missing:
+        raise CloudSetupRequiredError("Kiroshi Cloud configuration is missing.")
+
+    raise CloudError("Kiroshi Cloud configuration is missing.")
 
 
 def _decode_salt(encoded: str) -> bytes:
@@ -1125,6 +1137,7 @@ __all__ = [
     "AgentBlockedError",
     "AuthenticationError",
     "CloudError",
+    "CloudSetupRequiredError",
     "CloudSession",
     "cloud_share_status",
     "CLOUD_DEVICES_PATH",
@@ -1135,6 +1148,7 @@ __all__ = [
     "DEFAULT_OVERLAY_PROVIDER",
     "ensure_cloud_share",
     "add_device",
+    "setup_cloud_config",
     "dataset_counts_to_frame",
     "decode_device_token",
     "generate_device_token",

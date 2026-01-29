@@ -1,0 +1,4 @@
+## 2025-05-25 - [Insecure Default Credentials]
+**Vulnerability:** The `kiroshi_cloud_sync` library contained a hardcoded default password ("admin123!") which was used to automatically initialize the cloud configuration file if missing. This meant any fresh installation had known, insecure administrative credentials.
+**Learning:** Hardcoded defaults for "ease of use" often become permanent security holes because users rarely rotate them immediately. The application's `_synchronise_default_flag` logic depended on comparing against this hardcoded hash, complicating its removal.
+**Prevention:** Do not ship default passwords in code. Require explicit initialization/setup steps where the user must define their own credentials before the application becomes usable. Use `CloudSetupRequiredError` patterns to block operation until configuration is valid.

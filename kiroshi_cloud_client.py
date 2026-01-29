@@ -14,8 +14,8 @@ from kiroshi_cloud_sync import (
     AgentBlockedError,
     AuthenticationError,
     CloudError,
+    CloudSetupRequiredError,
     CloudSession,
-    DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
     cloud_share_status,
     overlay_guidance,
@@ -26,6 +26,7 @@ from kiroshi_cloud_sync import (
     load_local_ai_dataset,
     open_cloud_session,
     save_local_ai_dataset,
+    setup_cloud_config,
     summarize_dataset,
     update_device_status,
     record_device_seen,
@@ -114,6 +115,36 @@ def _validate_ip(value: str) -> bool:
     return True
 
 
+def _render_setup_wizard() -> None:
+    st.markdown("### First-run Setup")
+    st.caption(
+        "Welcome to Kiroshi Cloud Control Tower. Please configure the initial "
+        "administrator credentials to secure the encrypted database."
+    )
+    with st.form("setup-cloud"):
+        username = st.text_input("Administrator username", value="admin")
+        password = st.text_input(
+            "Administrator password",
+            type="password",
+            help="Choose a strong password. This key will encrypt all cloud data.",
+        )
+        confirm = st.text_input("Confirm password", type="password")
+        submitted = st.form_submit_button("Initialize Kiroshi Cloud", type="primary")
+
+    if submitted:
+        if not username.strip() or not password:
+            st.error("Username and password are required.")
+        elif password != confirm:
+            st.error("Passwords do not match.")
+        else:
+            try:
+                setup_cloud_config(username.strip(), password)
+                st.success("Configuration initialized! Please log in.")
+                st.rerun()
+            except CloudError as exc:
+                st.error(f"Failed to initialize cloud configuration: {exc}")
+
+
 def _render_login() -> None:
     st.title("Kiroshi Control Tower")
     st.caption(
@@ -128,7 +159,15 @@ def _render_login() -> None:
         st.error(share_status["message"])
         st.stop()
 
-    config = load_cloud_config()
+    try:
+        config = load_cloud_config(create_if_missing=True)
+    except CloudSetupRequiredError:
+        _render_setup_wizard()
+        return
+    except CloudError as exc:
+        st.error(f"Unable to access cloud configuration: {exc}")
+        st.stop()
+
     if config.get("uses_default_credentials"):
         st.warning(
             "The cloud instance is still using the default credentials. Update them in the "
@@ -141,10 +180,6 @@ def _render_login() -> None:
         submitted = st.form_submit_button("Connect to Kiroshi Cloud", type="primary")
 
     if not submitted:
-        st.info(
-            "Default credentials: **%s / %s**.\n\nChange them immediately after the first login."
-            % (DEFAULT_USERNAME, DEFAULT_PASSWORD)
-        )
         return
 
     try:
