@@ -19,3 +19,11 @@
 ## 2026-01-30 - Global Re-computation in Streamlit
 **Learning:** Streamlit re-executes the entire script on every interaction. Functions called at the top-level (like `determine_active_theme`) run on every render. Even lightweight calculations (like holiday dates) accumulate latency.
 **Action:** Use `@lru_cache` (for pure functions) or `@st.cache_data` for any computation called in the main execution path, even if it seems cheap.
+
+## 2026-01-30 - E2E Testing Infrastructure
+**Learning:** CI pipelines running Playwright may fail immediately if the configuration points to non-existent directories or files (like ), even if no tests are selected.
+**Action:** Ensure the  directory and any referenced setup files exist, even if empty, to satisfy the test runner's initialization phase. Added a sanity test to guarantee at least one test case is discoverable.
+
+## 2026-01-30 - E2E Testing Infrastructure
+**Learning:** CI pipelines running Playwright may fail immediately if the configuration points to non-existent directories or files (like 'global-setup.ts'), even if no tests are selected.
+**Action:** Ensure the 'tests/e2e' directory and any referenced setup files exist, even if empty, to satisfy the test runner's initialization phase. Added a sanity test to guarantee at least one test case is discoverable.
