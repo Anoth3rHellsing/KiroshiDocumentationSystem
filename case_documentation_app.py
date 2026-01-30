@@ -718,6 +718,9 @@ TITLE_SIMILARITY_STOPWORDS = {
     "need",
 }
 
+TITLE_SIM_WEIGHT_BASE = 0.6
+TITLE_SIM_WEIGHT_JACCARD = 0.4
+
 
 _REPORT_CATEGORY_HINTS: dict[str, dict[str, object]] = {
     "3Shape Unite / Login": {
@@ -1005,7 +1008,7 @@ def _title_similarity_score(
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
         jaccard = (intersection / union) if union else 0.0
-        return 0.6 * base + 0.4 * jaccard
+        return TITLE_SIM_WEIGHT_BASE * base + TITLE_SIM_WEIGHT_JACCARD * jaccard
     return base
 
 
@@ -1013,16 +1016,23 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Optimization: Inverted index to speed up lookups (O(1) instead of O(N))
+    # token -> set of cluster indices
+    token_map: dict[str, set[int]] = defaultdict(set)
+    # Clusters that have no tokens (so they can't be found via token_map)
+    clusters_without_tokens: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
         if not normalized and not tokens:
+            # Handle truly blank titles
             blank_index = next(
                 (
                     idx
-                    for idx, cluster in enumerate(clusters)
-                    if not cluster.get("tokens") and not cluster.get("normalized")
+                    for idx in clusters_without_tokens
+                    if not clusters[idx].get("normalized")
                 ),
                 None,
             )
@@ -1035,20 +1045,74 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                clusters_without_tokens.add(blank_index)
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        # Optimization: Only check relevant clusters
+        if tokens:
+            candidates: set[int] = set()
+            for token in tokens:
+                candidates.update(token_map.get(token, set()))
+            # Also check clusters with no tokens (rare, but might match via string distance)
+            candidates.update(clusters_without_tokens)
+            search_indices = sorted(candidates)
+        else:
+            # If current title has no tokens, we must check everything
+            # (or at least everything in clusters_without_tokens + everything else?
+            #  If I have no tokens, I am disjoint from everything with tokens,
+            #  so _title_similarity_score is 0 unless I match against something with no tokens too?)
+            # Actually _title_similarity_score returns 0 if *both* have tokens and are disjoint.
+            # If one has no tokens, it proceeds to string matching.
+            # So we effectively need to scan all if we have no tokens.
+            search_indices = range(len(clusters))
+
+        # Fallback to full scan if candidate set is excessively large (overhead of set ops)
+        # though usually inverted index is faster.
+        if len(search_indices) > len(clusters) * 0.5 and len(clusters) > 100:
+             search_indices = range(len(clusters))
+
+        threshold = 0.68 if tokens else 0.8
+
+        # Optimize SequenceMatcher by caching the first sequence (normalized)
+        matcher = SequenceMatcher(None, normalized, "")
+
+        for idx in search_indices:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
+            if tokens and cluster_tokens:
+                # Jaccard pruning: if token overlap is too low, string similarity cannot save it
+                intersection = len(tokens & cluster_tokens)
+                if not intersection:
+                    continue
+                union = len(tokens | cluster_tokens)
+                jaccard = intersection / union
+
+                # Maximum possible score (assuming base string similarity is 1.0)
+                if TITLE_SIM_WEIGHT_BASE + TITLE_SIM_WEIGHT_JACCARD * jaccard < threshold:
+                    continue
+
+                if normalized or cluster_norm:
+                    matcher.set_seq2(cluster_norm)
+                    if TITLE_SIM_WEIGHT_BASE * matcher.quick_ratio() + TITLE_SIM_WEIGHT_JACCARD * jaccard < threshold:
+                        continue
+                    base = matcher.ratio()
+                else:
+                    base = 0.0
+
+                score = TITLE_SIM_WEIGHT_BASE * base + TITLE_SIM_WEIGHT_JACCARD * jaccard
+            else:
+                # Fallback for cases where one side has no tokens (uses fresh matcher)
+                score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
             if score > best_score:
                 best_score = score
                 best_index = idx
-
-        threshold = 0.68 if tokens else 0.8
         if best_index == -1 or best_score < threshold:
             label_source = title if isinstance(title, str) and title.strip() else normalized
             label = (
@@ -1063,7 +1127,14 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            assignments.append(new_idx)
+
+            if tokens:
+                for t in tokens:
+                    token_map[t].add(new_idx)
+            else:
+                clusters_without_tokens.add(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
@@ -1074,6 +1145,12 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
             assignments.append(best_index)
+
+            if tokens:
+                for t in tokens:
+                    token_map[t].add(best_index)
+                if best_index in clusters_without_tokens:
+                    clusters_without_tokens.remove(best_index)
 
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
     return assignments, label_map

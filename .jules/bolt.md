@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2026-01-30 - Optimized Clustering with Inverted Index and Pruning
+**Learning:** Optimizing O(N^2) text clustering requires more than just an inverted index if tokens are common. Combining an inverted index (to limit candidates) with Jaccard index pruning (to skip expensive string distance calculations) yields significant speedups.
+**Action:** When clustering text, use `quick_ratio()` and Jaccard similarity as upper-bound guards before invoking full O(N*M) `SequenceMatcher.ratio()`. Cache `SequenceMatcher` instances with `set_seq2` to avoid re-processing the query string.
