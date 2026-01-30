@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-30 - Global Re-computation in Streamlit
+**Learning:** Streamlit re-executes the entire script on every interaction. Functions called at the top-level (like `determine_active_theme`) run on every render. Even lightweight calculations (like holiday dates) accumulate latency.
+**Action:** Use `@lru_cache` (for pure functions) or `@st.cache_data` for any computation called in the main execution path, even if it seems cheap.
