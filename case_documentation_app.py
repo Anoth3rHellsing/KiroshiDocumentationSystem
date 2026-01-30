@@ -2053,43 +2053,51 @@ def _candidate_log_directories() -> list[Path]:
     return candidates
 
 
-LOG_DIR: Path | None = None
-log_path: Path | None = None
-log_handlers: list[logging.Handler]
-for candidate in _candidate_log_directories():
-    try:
-        candidate.mkdir(parents=True, exist_ok=True)
-        prospective_log_path = candidate / LOG_FILE
-        with open(prospective_log_path, "a", encoding="utf-8"):
-            pass
-    except OSError:
-        # Cannot create the directory or open the log file here (likely permissions).
-        continue
-    LOG_DIR = candidate
-    log_path = prospective_log_path
-    break
+@st.cache_resource
+def _configure_logging() -> tuple[Path | None, Path | None]:
+    """Configure the application logger and return the active log path."""
+    selected_log_dir: Path | None = None
+    selected_log_path: Path | None = None
+    handlers: list[logging.Handler]
 
-if log_path is not None:
-    try:
-        log_handlers = [
-            RotatingFileHandler(
-                log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
-            ),
-            logging.StreamHandler(),
-        ]
-    except OSError:
-        log_path = None
-        log_handlers = [logging.StreamHandler()]
-else:
-    log_path = None
-    log_handlers = [logging.StreamHandler()]
+    for candidate in _candidate_log_directories():
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            prospective = candidate / LOG_FILE
+            with open(prospective, "a", encoding="utf-8"):
+                pass
+        except OSError:
+            # Cannot create the directory or open the log file here (likely permissions).
+            continue
+        selected_log_dir = candidate
+        selected_log_path = prospective
+        break
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
-    handlers=log_handlers,
-)
-logging.captureWarnings(True)
+    if selected_log_path is not None:
+        try:
+            handlers = [
+                RotatingFileHandler(
+                    selected_log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+                ),
+                logging.StreamHandler(),
+            ]
+        except OSError:
+            selected_log_path = None
+            handlers = [logging.StreamHandler()]
+    else:
+        selected_log_path = None
+        handlers = [logging.StreamHandler()]
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
+        handlers=handlers,
+    )
+    logging.captureWarnings(True)
+    return selected_log_dir, selected_log_path
+
+
+LOG_DIR, log_path = _configure_logging()
 
 
 def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
@@ -4666,7 +4674,9 @@ st.set_page_config(
     page_icon=str(KIROSHI_LOGO_PATH),
 )
 
-_check_installation_status()
+if not st.session_state.get("_installation_verified"):
+    _check_installation_status()
+    st.session_state["_installation_verified"] = True
 
 # Ensure the persisted appearance preference is restored before we compute the
 # active theme. Otherwise a fresh session would briefly fall back to the default
