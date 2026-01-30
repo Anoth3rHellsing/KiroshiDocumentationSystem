@@ -16399,6 +16399,8 @@ def render_case_header_section(container, case_idx: int, compact_mode: bool) -> 
             "Brief description",
             "brief_description",
             container=details_cols[0],
+            placeholder="e.g. Cannot login to Unite",
+            help="A short summary of the issue (e.g. 'Scanner not connecting', 'Login failed').",
         )
         version_col = details_cols[1]
         auto_text_input(
@@ -16499,15 +16501,25 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
             "description",
             height=desc_height,
             container=description_col,
+            placeholder="Describe the issue in detail (What, When, Where).",
+            help="Detailed breakdown of the customer's problem.",
         )
 
-        auto_text_input("Helpjuice link", "internal_helpjuice", container=notes_col)
+        auto_text_input(
+            "Helpjuice link",
+            "internal_helpjuice",
+            container=notes_col,
+            placeholder="e.g. https://helpjuice.com/...",
+            help="Link to the relevant internal knowledge base article.",
+        )
         logs_height = 52 if compact_mode else 68
         auto_text_area(
             "Logs / screenshots",
             "internal_logs",
             height=logs_height,
             container=notes_col,
+            placeholder="Paste paths to logs or screenshots here.",
+            help="Locations of gathered evidence (logs, screenshots, videos).",
         )
 
 
@@ -16524,12 +16536,20 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            container=notes_col,
+            placeholder="e.g. Dr. John Smith",
+            help="Name of the person you are speaking with.",
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
             height=desc_height,
             container=notes_col,
+            placeholder="Notes from the live conversation...",
+            help="Quick notes taken during the call.",
         )
 
         contact_header = "Contact details"
@@ -16538,15 +16558,41 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         else:
             contact_col.subheader(contact_header)
         first_row = contact_col.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-        auto_text_input("Phone number", "phone_number", container=first_row[1])
-        auto_text_input("Customer email", "email", container=contact_col)
+        auto_text_input(
+            "Dongle number",
+            "dongle_number",
+            container=first_row[0],
+            placeholder="e.g. 12345678",
+            help="License dongle number.",
+        )
+        auto_text_input(
+            "Phone number",
+            "phone_number",
+            container=first_row[1],
+            placeholder="e.g. +1 555-0123",
+            help="Direct callback number.",
+        )
+        auto_text_input(
+            "Customer email",
+            "email",
+            container=contact_col,
+            placeholder="e.g. doctor@clinic.com",
+            help="Email address for follow-up and surveys.",
+        )
         second_row = contact_col.columns(2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer ID",
+            "teamviewer_id",
+            container=second_row[0],
+            placeholder="e.g. 1 234 567 890",
+            help="Remote session ID.",
+        )
         auto_text_input(
             "TeamViewer password",
             "teamviewer_password",
             container=second_row[1],
+            placeholder="e.g. a1b2c3d4",
+            help="Remote session password.",
         )
 
 
@@ -16562,12 +16608,26 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
 
         conclusion_cols = card.columns(2)
         conclusion_left, conclusion_right = conclusion_cols
-        auto_text_input("Root cause", "root_cause", container=conclusion_left)
-        auto_text_input("Solution", "solution", container=conclusion_right)
+        auto_text_input(
+            "Root cause",
+            "root_cause",
+            container=conclusion_left,
+            placeholder="e.g. Outdated drivers, network firewall...",
+            help="What caused the issue?",
+        )
+        auto_text_input(
+            "Solution",
+            "solution",
+            container=conclusion_right,
+            placeholder="e.g. Updated drivers, configured firewall...",
+            help="Steps taken to resolve the issue.",
+        )
         auto_text_input(
             "Customer satisfaction survey URL",
             "survey_link",
             container=conclusion_right,
+            placeholder="e.g. https://surveys.3shape.com/...",
+            help="Link to the feedback survey sent to the customer.",
         )
         auto_tracking_text_input(
             "CRM case link",
