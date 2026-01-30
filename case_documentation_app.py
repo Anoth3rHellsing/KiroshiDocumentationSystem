@@ -3031,8 +3031,9 @@ def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
     raise ValueError("Invalid weekday for month")
 
 
-def compute_us_holidays(year: int) -> list[tuple[date, str]]:
-    holidays: list[tuple[date, str]] = [
+@lru_cache(maxsize=32)
+def _compute_us_holidays_cached(year: int) -> tuple[tuple[date, str], ...]:
+    return (
         (date(year, 1, 1), "New Year's Day"),
         (date(year, 2, 8), "Day of Liberty"),
         (_nth_weekday_of_month(year, 1, calendar.MONDAY, 3), "Martin Luther King Jr. Day"),
@@ -3045,8 +3046,11 @@ def compute_us_holidays(year: int) -> list[tuple[date, str]]:
         (date(year, 11, 11), "Veterans Day"),
         (_nth_weekday_of_month(year, 11, calendar.THURSDAY, 4), "Thanksgiving Day"),
         (date(year, 12, 25), "Christmas Day"),
-    ]
-    return holidays
+    )
+
+
+def compute_us_holidays(year: int) -> list[tuple[date, str]]:
+    return list(_compute_us_holidays_cached(year))
 
 
 def _is_within_period(target: date, start_tuple: tuple[int, int], end_tuple: tuple[int, int]) -> bool:
