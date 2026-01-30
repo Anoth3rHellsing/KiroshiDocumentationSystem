@@ -2188,8 +2188,12 @@ def _launch_installer_and_relaunch() -> None:
 def _check_installation_status() -> None:
     """Ensure the Windows bundle was deployed through the official installer."""
 
+    if st.session_state.get("_installation_verified"):
+        return
+
     if os.name != "nt":
         _initialize_storage_paths()
+        st.session_state["_installation_verified"] = True
         return
 
     program_data_missing = not PROGRAM_DATA_DIR.exists() or not PROGRAM_DATA_SENTINEL.exists()
@@ -2203,6 +2207,7 @@ def _check_installation_status() -> None:
 
     if not missing_locations:
         _initialize_storage_paths()
+        st.session_state["_installation_verified"] = True
         return
 
     st.error(
