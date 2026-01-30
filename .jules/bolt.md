@@ -27,3 +27,11 @@
 ## 2026-01-30 - E2E Testing Infrastructure
 **Learning:** CI pipelines running Playwright may fail immediately if the configuration points to non-existent directories or files (like 'global-setup.ts'), even if no tests are selected.
 **Action:** Ensure the 'tests/e2e' directory and any referenced setup files exist, even if empty, to satisfy the test runner's initialization phase. Added a sanity test to guarantee at least one test case is discoverable.
+
+## 2026-01-30 - GitHub Actions Artifact Quota
+**Learning:** CI pipelines may fail with "Artifact storage quota has been hit" if  is run repeatedly on large projects or when the repository's storage limit is reached.
+**Action:** Temporarily disable artifact uploads in CI configuration () by commenting out the relevant steps or adding a conditional check that evaluates to false (e.g., ) to unblock the pipeline until storage is cleared or quota is increased.
+
+## 2026-01-30 - GitHub Actions Artifact Quota
+**Learning:** CI pipelines may fail with "Artifact storage quota has been hit" if actions/upload-artifact is run repeatedly.
+**Action:** Temporarily disable artifact uploads in CI configuration (.github/workflows/*.yml) by commenting out the relevant steps or adding a conditional check that evaluates to false (e.g., if: false) to unblock the pipeline until storage is cleared or quota is increased.
