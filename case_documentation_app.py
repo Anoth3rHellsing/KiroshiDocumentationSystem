@@ -1077,8 +1077,9 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         threshold = 0.68 if tokens else 0.8
 
-        # Optimize SequenceMatcher by caching the first sequence (normalized)
-        matcher = SequenceMatcher(None, normalized, "")
+        # Optimize SequenceMatcher by caching the second sequence (normalized target)
+        # SequenceMatcher caches analysis of the second sequence (b), so we keep 'normalized' as b.
+        matcher = SequenceMatcher(None, "", normalized)
 
         for idx in search_indices:
             cluster = clusters[idx]
@@ -1098,7 +1099,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     continue
 
                 if normalized or cluster_norm:
-                    matcher.set_seq2(cluster_norm)
+                    matcher.set_seq1(cluster_norm)
                     if TITLE_SIM_WEIGHT_BASE * matcher.quick_ratio() + TITLE_SIM_WEIGHT_JACCARD * jaccard < threshold:
                         continue
                     base = matcher.ratio()
