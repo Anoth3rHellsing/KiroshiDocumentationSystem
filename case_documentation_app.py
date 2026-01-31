@@ -2221,7 +2221,7 @@ def _check_installation_status() -> None:
         """
     ))
 
-    if st.button("Run Kiroshi Installer", type="primary"):
+    if st.button("Run Kiroshi Installer", type="primary", help="Launch the installer script to fix missing data directories"):
         _launch_installer_and_relaunch()
 
     st.info(
@@ -5555,20 +5555,21 @@ def render_onboarding_tutorial() -> None:
                 furthest_idx = step_idx
             max_allowed = max(step_idx, furthest_idx)
             slider_options = list(range(max_allowed + 1))
-            jump_selection = st.select_slider(
-                "Navigate to a step",
-                options=slider_options,
-                value=step_idx,
-                format_func=_format_step_label,
-                key="tutorial_step_selector",
-            )
+            if len(slider_options) > 1:
+                jump_selection = st.select_slider(
+                    "Navigate to a step",
+                    options=slider_options,
+                    value=step_idx,
+                    format_func=_format_step_label,
+                    key="tutorial_step_selector",
+                )
+                if jump_selection != step_idx:
+                    st.session_state.tutorial_step = int(jump_selection)
+                    st.rerun()
             if len(slider_options) < total_steps:
                 st.caption(
                     "Complete the current content to unlock the remaining tutorial steps."
                 )
-            if jump_selection != step_idx:
-                st.session_state.tutorial_step = int(jump_selection)
-                st.rerun()
         description = step.get("description")
         if isinstance(description, str):
             st.markdown(description)
@@ -5657,10 +5658,10 @@ def render_onboarding_tutorial() -> None:
 
         nav_cols = st.columns([1.2, 1, 1, 1])
         with nav_cols[0]:
-            if st.button("Skip tutorial", key=f"tutorial_skip_{step_idx}"):
+            if st.button("Skip tutorial", key=f"tutorial_skip_{step_idx}", help="Exit the tutorial immediately and go to the dashboard"):
                 _mark_tutorial_completion("skipped")
         with nav_cols[1]:
-            if st.button("Back", disabled=step_idx == 0, key=f"tutorial_back_{step_idx}"):
+            if st.button("Back", disabled=step_idx == 0, key=f"tutorial_back_{step_idx}", help="Return to the previous step"):
                 st.session_state.tutorial_step = max(0, step_idx - 1)
                 st.rerun()
         with nav_cols[2]:
@@ -5672,7 +5673,7 @@ def render_onboarding_tutorial() -> None:
             )
         next_label = "Finish" if step_idx == total_steps - 1 else "Next"
         with nav_cols[3]:
-            if st.button(next_label, disabled=not can_proceed, key=f"tutorial_next_{step_idx}"):
+            if st.button(next_label, disabled=not can_proceed, key=f"tutorial_next_{step_idx}", help="Proceed to the next step"):
                 if step_idx == total_steps - 1:
                     _mark_tutorial_completion("completed")
                 else:
@@ -9585,7 +9586,7 @@ def _load_sprint_state_worker(mtime: float) -> SprintState:
             ]
         return SprintState(**data)
     except Exception:
-        return SprintState()
+        return SprintState(date=TODAY_STR)
 
 
 def load_sprint_state() -> SprintState:
@@ -11634,7 +11635,7 @@ def _render_settings_cloud_tab() -> None:
                         st.error(f"No se pudo abrir la instancia de Kiroshi Cloud: {exc}")
                     return None
 
-                if st.button("Validar conexión", key=global_widget_key("cloud_validate")):
+                if st.button("Validar conexión", key=global_widget_key("cloud_validate"), help="Check if the cloud credentials are valid and the server is reachable"):
                     session = _obtain_cloud_session()
                     if session:
                         selected_agents = [
