@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-31 - Mocking Dependencies in Monolithic Scripts
+**Learning:** When testing monolithic scripts (like `case_documentation_app.py`) that perform top-level imports of heavy libraries (`requests`, `cryptography`, `pyperclip`), unit tests must mock *all* transitive dependencies in `sys.modules` before importing the script. Missing mocks cause `ModuleNotFoundError` during the import phase, blocking test execution.
+**Action:** Explicitly mock `requests`, `urllib3`, `cryptography` (and submodules), `pyperclip`, and `pynput` in `sys.modules` within test setups (`repro_load_tracked_cases.py`, `verify_load_tracked_cases.py`) to enable successful import and testing of the target logic.
