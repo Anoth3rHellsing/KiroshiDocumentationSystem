@@ -18649,10 +18649,14 @@ def render_case_ui(case_idx: int):
                             f"""
                             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                                 <button onclick=\"copyTitle{copy_suffix}()\"
+                                        title=\"Copy title for {escape(title_text)}\"
+                                        aria-label=\"Copy title for {escape(title_text)}\"
                                         style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                                     Copy title
                                 </button>
                                 <button onclick=\"copyTable{copy_suffix}()\"
+                                        title=\"Copy content for {escape(title_text)}\"
+                                        aria-label=\"Copy content for {escape(title_text)}\"
                                         style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                                     Copy table
                                 </button>
@@ -20040,10 +20044,14 @@ End with: We look forward to your reply."""
                 f"""
                 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                     <button onclick=\"copyTitle{copy_suffix_hr}()\"
+                            title=\"Copy title for {escape(title_text_hr)}\"
+                            aria-label=\"Copy title for {escape(title_text_hr)}\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix_hr}()\"
+                            title=\"Copy content for {escape(title_text_hr)}\"
+                            aria-label=\"Copy content for {escape(title_text_hr)}\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy table
                     </button>
@@ -20307,9 +20315,9 @@ End with: We look forward to your reply."""
     {grid_html}
   </div>
   <div class='remote-hub-actions'>
-    <button onclick=\"copyRemotePayload(credentialsPayload, 'Credentials copied')\">Copy credentials</button>
-    <button onclick=\"copyRemotePayload(notesPayload, 'Notes copied')\">Copy live notes</button>
-    <button onclick=\"copyRemotePayload(timelinePayload, 'Timeline copied')\">Copy timeline</button>
+    <button onclick=\"copyRemotePayload(credentialsPayload, 'Credentials copied')\" title=\"Copy credentials to clipboard\" aria-label=\"Copy credentials\">Copy credentials</button>
+    <button onclick=\"copyRemotePayload(notesPayload, 'Notes copied')\" title=\"Copy live notes to clipboard\" aria-label=\"Copy live notes\">Copy live notes</button>
+    <button onclick=\"copyRemotePayload(timelinePayload, 'Timeline copied')\" title=\"Copy timeline to clipboard\" aria-label=\"Copy timeline\">Copy timeline</button>
   </div>
   <div id='remote-action-feedback' style='font-size:0.75rem;margin-top:0.35rem;'></div>
   <div class='remote-hub-note-preview'>{note_preview_html}</div>
@@ -20481,10 +20489,14 @@ End with: We look forward to your reply."""
                 f"""
                 <div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;\">
                     <button onclick=\"copyTitle{copy_suffix}()\"
+                            title=\"Copy title for {escape(title_text)}\"
+                            aria-label=\"Copy title for {escape(title_text)}\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix}()\"
+                            title=\"Copy content for {escape(title_text)}\"
+                            aria-label=\"Copy content for {escape(title_text)}\"
                             style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
                         Copy table
                     </button>
