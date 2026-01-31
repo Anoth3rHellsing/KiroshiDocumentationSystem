@@ -1013,6 +1013,11 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index: token -> set of cluster indices
+    token_map: dict[str, set[int]] = defaultdict(set)
+    # Set of cluster indices that have NO tokens (candidates for any title via SequenceMatcher)
+    no_token_clusters: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
@@ -1035,12 +1040,32 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     }
                 )
                 blank_index = len(clusters) - 1
+                no_token_clusters.add(blank_index)
             assignments.append(blank_index)
             continue
 
+        # Optimization: Filter candidates using inverted index
+        if tokens:
+            # Start with clusters that have no tokens (always candidates via string match)
+            candidates = set(no_token_clusters)
+            # Add clusters sharing at least one token
+            for token in tokens:
+                if token in token_map:
+                    candidates.update(token_map[token])
+
+            # Heuristic: if candidates > 50% of total, scan all (faster than set overhead + sort)
+            if len(candidates) > len(clusters) * 0.5:
+                check_indices = range(len(clusters))
+            else:
+                check_indices = sorted(candidates)
+        else:
+            # No tokens in current title? Must check everything (fallback)
+            check_indices = range(len(clusters))
+
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+        for idx in check_indices:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1063,7 +1088,14 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            new_idx = len(clusters) - 1
+            assignments.append(new_idx)
+
+            if tokens:
+                for t in tokens:
+                    token_map[t].add(new_idx)
+            else:
+                no_token_clusters.add(new_idx)
         else:
             cluster = clusters[best_index]
             cluster_tokens = cluster.setdefault("tokens", set())
@@ -1074,6 +1106,12 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
             assignments.append(best_index)
+
+            if tokens:
+                if best_index in no_token_clusters:
+                    no_token_clusters.remove(best_index)
+                for t in tokens:
+                    token_map[t].add(best_index)
 
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
     return assignments, label_map
