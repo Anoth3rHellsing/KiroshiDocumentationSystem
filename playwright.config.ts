@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -6,7 +7,7 @@ export default defineConfig({
   expect: {
     timeout: 60_000,
   },
-  globalSetup: './tests/e2e/global-setup.ts',
+  globalSetup: path.resolve('./tests/e2e/global-setup.ts'),
   snapshotPathTemplate: '{testDir}/baselines/{projectName}/{arg}{ext}',
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
