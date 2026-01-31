@@ -15,14 +15,14 @@ from kiroshi_cloud_sync import (
     AuthenticationError,
     CloudError,
     CloudSession,
-    DEFAULT_PASSWORD,
-    DEFAULT_USERNAME,
+    CloudSetupRequiredError,
     cloud_share_status,
     overlay_guidance,
     add_device,
     dataset_counts_to_frame,
     generate_device_token,
     load_cloud_config,
+    setup_cloud_config,
     load_local_ai_dataset,
     open_cloud_session,
     save_local_ai_dataset,
@@ -114,6 +114,38 @@ def _validate_ip(value: str) -> bool:
     return True
 
 
+def _render_setup_wizard() -> None:
+    st.title("Welcome to Kiroshi Control Tower")
+    st.markdown(
+        """
+        It looks like this is the first time you are running Kiroshi Cloud on this server.
+        Please create an administrator account to secure the cloud database.
+        """
+    )
+
+    with st.form("setup-wizard"):
+        username = st.text_input("Administrator username", value="admin")
+        password = st.text_input("Administrator password", type="password")
+        confirm = st.text_input("Confirm password", type="password")
+        submitted = st.form_submit_button("Initialize Kiroshi Cloud", type="primary")
+
+    if submitted:
+        if not username.strip():
+            st.error("Username is required.")
+        elif not password:
+            st.error("Password is required.")
+        elif password != confirm:
+            st.error("Passwords do not match.")
+        else:
+            try:
+                setup_cloud_config(username.strip(), password)
+            except CloudError as exc:
+                st.error(f"Setup failed: {exc}")
+            else:
+                st.success("Configuration created! Please sign in with your new credentials.")
+                st.rerun()
+
+
 def _render_login() -> None:
     st.title("Kiroshi Control Tower")
     st.caption(
@@ -128,23 +160,27 @@ def _render_login() -> None:
         st.error(share_status["message"])
         st.stop()
 
-    config = load_cloud_config()
+    try:
+        config = load_cloud_config()
+    except CloudSetupRequiredError:
+        _render_setup_wizard()
+        return
+    except CloudError as exc:
+        st.error(f"Configuration error: {exc}")
+        return
+
     if config.get("uses_default_credentials"):
         st.warning(
-            "The cloud instance is still using the default credentials. Update them in the "
+            "The cloud instance is using default credentials (legacy). Update them in the "
             "Security tab after logging in."
         )
 
     with st.form("cloud-login"):
-        username = st.text_input("Cloud username", value=config.get("username", DEFAULT_USERNAME))
+        username = st.text_input("Cloud username", value=config.get("username", ""))
         password = st.text_input("Cloud password", type="password")
         submitted = st.form_submit_button("Connect to Kiroshi Cloud", type="primary")
 
     if not submitted:
-        st.info(
-            "Default credentials: **%s / %s**.\n\nChange them immediately after the first login."
-            % (DEFAULT_USERNAME, DEFAULT_PASSWORD)
-        )
         return
 
     try:
@@ -762,4 +798,3 @@ if st.session_state.cloud_session is None:
     _render_login()
 else:
     _render_authenticated()
-
