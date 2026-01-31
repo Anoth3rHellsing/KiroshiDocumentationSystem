@@ -1,9 +1,4 @@
 import { defineConfig, devices } from '@playwright/test';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -11,7 +6,7 @@ export default defineConfig({
   expect: {
     timeout: 60_000,
   },
-  globalSetup: path.join(__dirname, 'tests/e2e/global-setup.ts'),
+  globalSetup: './tests/e2e/global-setup.ts',
   snapshotPathTemplate: '{testDir}/baselines/{projectName}/{arg}{ext}',
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
