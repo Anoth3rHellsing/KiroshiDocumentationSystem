@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-01-31 - Hotkey Snapshot Deepcopy Optimization
+**Learning:** Storing deep copies of large session state objects (containing file buffers) for background threads can cause massive performance degradation on the main thread if the copy happens synchronously on every interaction.
+**Action:** Optimized `update_hotkey_snapshot` to only deepcopy the lightweight `CaseData` text fields (required by the consumer) instead of the entire `CaseSession` object (which includes heavy `uploads`), reducing the operation cost from O(N) to O(1) relative to attachment size.

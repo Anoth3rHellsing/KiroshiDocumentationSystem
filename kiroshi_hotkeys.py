@@ -8,6 +8,7 @@ import time
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
+from types import SimpleNamespace
 from typing import Iterable, Mapping, Sequence
 
 import pyperclip
@@ -96,7 +97,17 @@ def update_hotkey_snapshot(
             return
 
         try:
-            session_copy = deepcopy(case_sessions[active_idx])
+            session = case_sessions[active_idx]
+            case_data = getattr(session, "case", None)
+            if case_data is None:
+                # If the session object doesn't have a case attribute, treat it as empty.
+                logging.warning("Active case session snapshot missing case data")
+                _snapshot_state.clear()
+                return
+
+            # Bolt Optimization: Avoid deepcopying the entire session (which contains heavy
+            # attachments). Only deepcopy the case data required for hotkey logic.
+            session_copy = SimpleNamespace(case=deepcopy(case_data))
         except Exception:
             logging.exception("Unable to capture case session snapshot for hotkey clipboard")
             _snapshot_state.clear()
