@@ -2221,7 +2221,11 @@ def _check_installation_status() -> None:
         """
     ))
 
-    if st.button("Run Kiroshi Installer", type="primary"):
+    if st.button(
+        "Run Kiroshi Installer",
+        type="primary",
+        help="Launch the installer script to fix missing data directories and restart the application.",
+    ):
         _launch_installer_and_relaunch()
 
     st.info(

@@ -20,7 +20,8 @@ def test_buttons_have_tooltips():
         "Save and track",
         "Close case & stop tracking",
         "Save",
-        "Load"
+        "Load",
+        "Run Kiroshi Installer"
     }
 
     # Store whether we found *at least one* instance of the button with a tooltip
