@@ -3032,7 +3032,7 @@ def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
 
 
 @lru_cache
-def compute_us_holidays(year: int) -> tuple[tuple[date, str], ...]:
+def _compute_us_holidays_cached(year: int) -> tuple[tuple[date, str], ...]:
     holidays: list[tuple[date, str]] = [
         (date(year, 1, 1), "New Year's Day"),
         (date(year, 2, 8), "Day of Liberty"),
@@ -3048,6 +3048,10 @@ def compute_us_holidays(year: int) -> tuple[tuple[date, str], ...]:
         (date(year, 12, 25), "Christmas Day"),
     ]
     return tuple(holidays)
+
+
+def compute_us_holidays(year: int) -> list[tuple[date, str]]:
+    return list(_compute_us_holidays_cached(year))
 
 
 def _is_within_period(target: date, start_tuple: tuple[int, int], end_tuple: tuple[int, int]) -> bool:
