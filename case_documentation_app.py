@@ -203,6 +203,8 @@ DEFAULT_OPENAI_API_KEY = os.environ.get(
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
 DEFAULT_AI_MODE = "Cloud"
+DEBUG_USERNAME = os.environ.get("KIROSHI_DEBUG_USERNAME", "admin")
+DEBUG_PASSWORD = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
 LOG_FILE = "app.log"
 
 ERROR_DIALOG_MESSAGES = [
@@ -13137,7 +13139,7 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            if user == DEBUG_USERNAME and pw == DEBUG_PASSWORD:
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
