@@ -16874,7 +16874,8 @@ def render_autohotkey_panel(cat_map: Mapping[str, object], case_idx: int) -> Non
             </script>
             <button onclick="copyKiroshiHotkeys();"
                     style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
-                    title="Copy the live hotkeys to the clipboard">
+                    title="Copy the live hotkeys to the clipboard"
+                    aria-label="Copy the live hotkeys to the clipboard">
                 Copy hotkeys to clipboard
             </button>
             <div id='kiroshi-hotkeys-feedback'></div>
@@ -18649,11 +18650,15 @@ def render_case_ui(case_idx: int):
                             f"""
                             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                                 <button onclick=\"copyTitle{copy_suffix}()\"
-                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\"
+                                        title=\"Copy the table title to clipboard\"
+                                        aria-label=\"Copy the table title to clipboard\">
                                     Copy title
                                 </button>
                                 <button onclick=\"copyTable{copy_suffix}()\"
-                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                        style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\"
+                                        title=\"Copy the table content to clipboard\"
+                                        aria-label=\"Copy the table content to clipboard\">
                                     Copy table
                                 </button>
                                 <span id=\"feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
@@ -19736,7 +19741,9 @@ End with: We look forward to your reply."""
                     f"""
                     <div style=\"display:flex;gap:0.5rem;align-items:center;\">
                         <button onclick=\"copyDellTable{copy_suffix}()\"
-                                style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                                style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\"
+                                title=\"Copy Dell escalation table to clipboard\"
+                                aria-label=\"Copy Dell escalation table to clipboard\">
                             Copy Dell table
                         </button>
                         <span id=\"dell-feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
@@ -19896,7 +19903,9 @@ End with: We look forward to your reply."""
                     }}
                     </script>
                     <button onclick="copyThirdLineEscalation{case_idx}()"
-                            style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;">
+                            style="margin-top:0.5rem;padding:0.4rem 0.75rem;border-radius:0.4rem;"
+                            title="Copy the escalation message to clipboard"
+                            aria-label="Copy the escalation message to clipboard">
                         Copy escalation message
                     </button>
                     <div id="third-line-copy-feedback-{case_idx}" style="font-size:0.8rem;margin-top:0.35rem;"></div>
@@ -20040,11 +20049,15 @@ End with: We look forward to your reply."""
                 f"""
                 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;">
                     <button onclick=\"copyTitle{copy_suffix_hr}()\"
-                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\"
+                            title=\"Copy the table title to clipboard\"
+                            aria-label=\"Copy the table title to clipboard\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix_hr}()\"
-                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\"
+                            title=\"Copy the table content to clipboard\"
+                            aria-label=\"Copy the table content to clipboard\">
                         Copy table
                     </button>
                     <span id=\"feedback-{copy_suffix_hr}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>
@@ -20307,9 +20320,9 @@ End with: We look forward to your reply."""
     {grid_html}
   </div>
   <div class='remote-hub-actions'>
-    <button onclick=\"copyRemotePayload(credentialsPayload, 'Credentials copied')\">Copy credentials</button>
-    <button onclick=\"copyRemotePayload(notesPayload, 'Notes copied')\">Copy live notes</button>
-    <button onclick=\"copyRemotePayload(timelinePayload, 'Timeline copied')\">Copy timeline</button>
+    <button onclick=\"copyRemotePayload(credentialsPayload, 'Credentials copied')\" title=\"Copy credentials to clipboard\" aria-label=\"Copy credentials to clipboard\">Copy credentials</button>
+    <button onclick=\"copyRemotePayload(notesPayload, 'Notes copied')\" title=\"Copy live notes to clipboard\" aria-label=\"Copy live notes to clipboard\">Copy live notes</button>
+    <button onclick=\"copyRemotePayload(timelinePayload, 'Timeline copied')\" title=\"Copy timeline to clipboard\" aria-label=\"Copy timeline to clipboard\">Copy timeline</button>
   </div>
   <div id='remote-action-feedback' style='font-size:0.75rem;margin-top:0.35rem;'></div>
   <div class='remote-hub-note-preview'>{note_preview_html}</div>
@@ -20481,11 +20494,15 @@ End with: We look forward to your reply."""
                 f"""
                 <div style=\"display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.35rem;\">
                     <button onclick=\"copyTitle{copy_suffix}()\"
-                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\"
+                            title=\"Copy the table title to clipboard\"
+                            aria-label=\"Copy the table title to clipboard\">
                         Copy title
                     </button>
                     <button onclick=\"copyTable{copy_suffix}()\"
-                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\">
+                            style=\"padding:0.35rem 0.75rem;border-radius:0.4rem;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;\"
+                            title=\"Copy the table content to clipboard\"
+                            aria-label=\"Copy the table content to clipboard\">
                         Copy table
                     </button>
                     <span id=\"feedback-{copy_suffix}\" style=\"font-size:0.75rem;color:#4CAF50;\"></span>

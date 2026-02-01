@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Accessibility in Custom HTML Components
+**Learning:** `components.html` injects raw HTML into an iframe, bypassing Streamlit's native widget accessibility features. These elements require manual `title` and `aria-label` attributes to be accessible.
+**Action:** When using `components.html` for interactive elements (like buttons), always manually add `title="..."` and `aria-label="..."` to the HTML tags.
