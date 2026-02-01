@@ -220,12 +220,15 @@ def _collect_recent_logs(max_bytes: int = 65536) -> str:
     if isinstance(synthetic_payload, str) and synthetic_payload:
         return synthetic_payload
 
-    log_path = Path(LOG_FILE)
-    if not log_path.exists():
+    # Access global log_path if initialized, else fall back to default
+    configured_log_path = globals().get("log_path")
+    target_path = configured_log_path if configured_log_path else Path(LOG_FILE)
+
+    if not target_path.exists():
         return "Log file not found."
 
     try:
-        with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+        with target_path.open("r", encoding="utf-8", errors="replace") as handle:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
             start = max(size - max_bytes, 0)
@@ -234,7 +237,7 @@ def _collect_recent_logs(max_bytes: int = 65536) -> str:
                 handle.readline()
             return handle.read().strip()
     except OSError as exc:
-        logging.error("Unable to read log file %s: %s", log_path, exc)
+        logging.error("Unable to read log file %s: %s", target_path, exc)
         return f"Unable to read logs: {exc}"
 
 PRIORITY_OPTIONS = ["Low", "Normal", "High", "On Time", "Escalation"]
@@ -2053,43 +2056,51 @@ def _candidate_log_directories() -> list[Path]:
     return candidates
 
 
-LOG_DIR: Path | None = None
-log_path: Path | None = None
-log_handlers: list[logging.Handler]
-for candidate in _candidate_log_directories():
-    try:
-        candidate.mkdir(parents=True, exist_ok=True)
-        prospective_log_path = candidate / LOG_FILE
-        with open(prospective_log_path, "a", encoding="utf-8"):
-            pass
-    except OSError:
-        # Cannot create the directory or open the log file here (likely permissions).
-        continue
-    LOG_DIR = candidate
-    log_path = prospective_log_path
-    break
+@st.cache_resource(ttl=None)
+def _configure_logging() -> tuple[Path | None, Path | None]:
+    """Initialize logging handlers once per session to avoid IO on every run."""
+    LOG_DIR: Path | None = None
+    log_path: Path | None = None
+    log_handlers: list[logging.Handler]
 
-if log_path is not None:
-    try:
-        log_handlers = [
-            RotatingFileHandler(
-                log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
-            ),
-            logging.StreamHandler(),
-        ]
-    except OSError:
+    for candidate in _candidate_log_directories():
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            prospective_log_path = candidate / LOG_FILE
+            with open(prospective_log_path, "a", encoding="utf-8"):
+                pass
+        except OSError:
+            # Cannot create the directory or open the log file here (likely permissions).
+            continue
+        LOG_DIR = candidate
+        log_path = prospective_log_path
+        break
+
+    if log_path is not None:
+        try:
+            log_handlers = [
+                RotatingFileHandler(
+                    log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+                ),
+                logging.StreamHandler(),
+            ]
+        except OSError:
+            log_path = None
+            log_handlers = [logging.StreamHandler()]
+    else:
         log_path = None
         log_handlers = [logging.StreamHandler()]
-else:
-    log_path = None
-    log_handlers = [logging.StreamHandler()]
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
-    handlers=log_handlers,
-)
-logging.captureWarnings(True)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
+        handlers=log_handlers,
+    )
+    logging.captureWarnings(True)
+    return LOG_DIR, log_path
+
+
+LOG_DIR, log_path = _configure_logging()
 
 
 def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
