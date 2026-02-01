@@ -220,7 +220,9 @@ def _collect_recent_logs(max_bytes: int = 65536) -> str:
     if isinstance(synthetic_payload, str) and synthetic_payload:
         return synthetic_payload
 
-    log_path = Path(LOG_FILE)
+    configured_path = _setup_logging()
+    log_path = configured_path if configured_path else Path(LOG_FILE)
+
     if not log_path.exists():
         return "Log file not found."
 
@@ -2053,43 +2055,55 @@ def _candidate_log_directories() -> list[Path]:
     return candidates
 
 
-LOG_DIR: Path | None = None
-log_path: Path | None = None
-log_handlers: list[logging.Handler]
-for candidate in _candidate_log_directories():
-    try:
-        candidate.mkdir(parents=True, exist_ok=True)
-        prospective_log_path = candidate / LOG_FILE
-        with open(prospective_log_path, "a", encoding="utf-8"):
-            pass
-    except OSError:
-        # Cannot create the directory or open the log file here (likely permissions).
-        continue
-    LOG_DIR = candidate
-    log_path = prospective_log_path
-    break
+@st.cache_resource
+def _setup_logging() -> Path | None:
+    """Initialize logging configuration once per session to avoid repeated I/O."""
+    log_path: Path | None = None
+    log_handlers: list[logging.Handler]
+    for candidate in _candidate_log_directories():
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            prospective_log_path = candidate / LOG_FILE
+            with open(prospective_log_path, "a", encoding="utf-8"):
+                pass
+        except OSError:
+            # Cannot create the directory or open the log file here (likely permissions).
+            continue
+        log_path = prospective_log_path
+        break
 
-if log_path is not None:
-    try:
-        log_handlers = [
-            RotatingFileHandler(
-                log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
-            ),
-            logging.StreamHandler(),
-        ]
-    except OSError:
+    if log_path is not None:
+        try:
+            log_handlers = [
+                RotatingFileHandler(
+                    log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+                ),
+                logging.StreamHandler(),
+            ]
+        except OSError:
+            log_path = None
+            log_handlers = [logging.StreamHandler()]
+    else:
         log_path = None
         log_handlers = [logging.StreamHandler()]
-else:
-    log_path = None
-    log_handlers = [logging.StreamHandler()]
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
-    handlers=log_handlers,
-)
-logging.captureWarnings(True)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
+        handlers=log_handlers,
+    )
+    logging.captureWarnings(True)
+
+    if log_path:
+        logging.info("Logging initialized; writing to %s", log_path)
+    else:
+        logging.info("Logging initialized; using stdout only (log directory unavailable)")
+
+    return log_path
+
+
+log_path = _setup_logging()
+LOG_DIR: Path | None = log_path.parent if log_path else None
 
 
 def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
