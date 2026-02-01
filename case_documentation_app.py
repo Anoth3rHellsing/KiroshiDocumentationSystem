@@ -252,7 +252,6 @@ else:
     PROGRAM_DATA_DIR = Path.home() / "Kiroshi Documentation"
     DATABASE_DIR = Path.home() / "KiroshiDatabase"
 
-DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
 PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
 
 PDF_FONT_REGULAR_NAME = "Helvetica"
@@ -2188,12 +2187,16 @@ def _launch_installer_and_relaunch() -> None:
 def _check_installation_status() -> None:
     """Ensure the Windows bundle was deployed through the official installer."""
 
+    if st.session_state.get("_installation_checked"):
+        return
+
     if os.name != "nt":
         _initialize_storage_paths()
+        st.session_state["_installation_checked"] = True
         return
 
     program_data_missing = not PROGRAM_DATA_DIR.exists() or not PROGRAM_DATA_SENTINEL.exists()
-    program_files_missing = not DATABASE_DIR_PREEXISTED
+    program_files_missing = not DATABASE_DIR.exists()
 
     missing_locations: list[tuple[str, Path]] = []
     if program_data_missing:
@@ -2203,6 +2206,7 @@ def _check_installation_status() -> None:
 
     if not missing_locations:
         _initialize_storage_paths()
+        st.session_state["_installation_checked"] = True
         return
 
     st.error(

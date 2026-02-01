@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-02-01 - Optimizing Streamlit Initialization Checks
+**Learning:** Functions that verify environment state (like `_check_installation_status`) which run at the top level are executed on every single Streamlit interaction. Even fast syscalls like `exists()` or `mkdir(exist_ok=True)` add up to latency when performed repeatedly.
+**Action:** Guarded initialization logic with `st.session_state` flags to ensure it only executes once per user session, eliminating redundant filesystem operations on subsequent re-runs.
