@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:e2e": "playwright test",
-    "test:e2e:update": "playwright test --update-snapshots",
+    "test:e2e": "npx playwright test",
+    "test:e2e:update": "npx playwright test --update-snapshots",
     "baselines:encode": "node tests/e2e/tools/encode-baselines.mjs"
   },
   "devDependencies": {
