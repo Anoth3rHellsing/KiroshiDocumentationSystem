@@ -3031,7 +3031,11 @@ def _last_weekday_of_month(year: int, month: int, weekday_index: int) -> date:
     raise ValueError("Invalid weekday for month")
 
 
-def compute_us_holidays(year: int) -> list[tuple[date, str]]:
+@st.cache_data
+def compute_us_holidays(year: int) -> tuple[tuple[date, str], ...]:
+    """Return an immutable tuple of US holidays for the given year, cached to optimize re-runs."""
+    # To maintain API compatibility with list.extend() callers (which accept any iterable),
+    # returning a tuple is safe and more efficient for st.cache_data than a list.
     holidays: list[tuple[date, str]] = [
         (date(year, 1, 1), "New Year's Day"),
         (date(year, 2, 8), "Day of Liberty"),
@@ -3046,7 +3050,7 @@ def compute_us_holidays(year: int) -> list[tuple[date, str]]:
         (_nth_weekday_of_month(year, 11, calendar.THURSDAY, 4), "Thanksgiving Day"),
         (date(year, 12, 25), "Christmas Day"),
     ]
-    return holidays
+    return tuple(holidays)
 
 
 def _is_within_period(target: date, start_tuple: tuple[int, int], end_tuple: tuple[int, int]) -> bool:
