@@ -1,0 +1,9 @@
+
+import { FullConfig } from '@playwright/test';
+
+async function globalSetup(config: FullConfig) {
+  console.log('Global setup running...');
+  // No specific setup required for now
+}
+
+export default globalSetup;
