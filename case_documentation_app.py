@@ -20,6 +20,7 @@ from datetime import datetime, date, timedelta, timezone, time as datetime_time
 from copy import deepcopy
 import logging
 import time
+import secrets
 from pathlib import Path
 import hashlib
 import re
@@ -199,9 +200,11 @@ AUTOSAVE_DIR = Path("autosaves")
 _AUTOSAVE_SESSION_ID = uuid.uuid4().hex
 DEFAULT_OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
-    "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",
+    "",
 )
 DEFAULT_AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1")
+DEBUG_USERNAME = os.environ.get("KIROSHI_DEBUG_USERNAME", "admin")
+DEBUG_PASSWORD = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
 DEFAULT_AI_MODE = "Cloud"
 LOG_FILE = "app.log"
 
@@ -13137,7 +13140,7 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            if secrets.compare_digest(user, DEBUG_USERNAME) and secrets.compare_digest(pw, DEBUG_PASSWORD):
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
