@@ -8539,6 +8539,9 @@ def _serialize_autosave_payload(payload: dict) -> tuple[str, str]:
 def autosave(case: CaseData | None = None):
     global _pending_autosave, _pending_autosave_timer
 
+    # Capture context in main thread
+    db_save_enabled = st.session_state.get("autosave_to_database", False)
+
     payload = autosave_payload(case)
     serialized_payload, payload_hash = _serialize_autosave_payload(payload)
 
@@ -8551,39 +8554,71 @@ def autosave(case: CaseData | None = None):
         now = time.monotonic()
         elapsed = now - _last_autosave_timestamp
 
-        if elapsed < AUTOSAVE_THROTTLE_SECONDS:
-            _pending_autosave = (serialized_payload, payload_hash, payload)
-            if _pending_autosave_timer is None:
-                delay = max(AUTOSAVE_THROTTLE_SECONDS - elapsed, 0.05)
-                _pending_autosave_timer = threading.Timer(delay, _flush_pending_autosave)
-                _pending_autosave_timer.daemon = True
-                _pending_autosave_timer.start()
+        # If DB save is enabled, maintain legacy synchronous behavior to ensure
+        # Streamlit context (st.session_state) is available.
+        if db_save_enabled:
+            if elapsed < AUTOSAVE_THROTTLE_SECONDS:
+                _pending_autosave = (serialized_payload, payload_hash, payload, True)
+                if _pending_autosave_timer is None:
+                    delay = max(AUTOSAVE_THROTTLE_SECONDS - elapsed, 0.05)
+                    _pending_autosave_timer = threading.Timer(
+                        delay, _flush_pending_autosave
+                    )
+                    _pending_autosave_timer.daemon = True
+                    _pending_autosave_timer.start()
+                return
+
+            _pending_autosave = None
+            if _pending_autosave_timer:
+                _pending_autosave_timer.cancel()
+                _pending_autosave_timer = None
+
+            _write_autosave(
+                serialized_payload, payload_hash, payload, db_save_enabled=True
+            )
             return
 
-        _pending_autosave = None
+        # Optimization: When DB save is disabled (default), always offload file I/O
+        # to a background thread to prevent blocking the main render loop.
+        _pending_autosave = (serialized_payload, payload_hash, payload, False)
+
+        delay = 0.0
+        if elapsed < AUTOSAVE_THROTTLE_SECONDS:
+            delay = max(AUTOSAVE_THROTTLE_SECONDS - elapsed, 0.05)
+
         if _pending_autosave_timer:
             _pending_autosave_timer.cancel()
-            _pending_autosave_timer = None
 
-        _write_autosave(serialized_payload, payload_hash, payload)
+        _pending_autosave_timer = threading.Timer(delay, _flush_pending_autosave)
+        _pending_autosave_timer.daemon = True
+        _pending_autosave_timer.start()
 
 
 def _flush_pending_autosave() -> None:
     global _pending_autosave, _pending_autosave_timer
 
+    args = None
     with _autosave_lock:
         if not _pending_autosave:
             _pending_autosave_timer = None
             return
 
-        serialized_payload, payload_hash, payload = _pending_autosave
+        args = _pending_autosave
         _pending_autosave = None
         _pending_autosave_timer = None
 
-        _write_autosave(serialized_payload, payload_hash, payload)
+    if args:
+        # serialized_payload, payload_hash, payload, db_save_enabled = args
+        # Note: _write_autosave must handle the expanded args
+        _write_autosave(*args)
 
 
-def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -> None:
+def _write_autosave(
+    serialized_payload: str,
+    payload_hash: str,
+    payload: dict,
+    db_save_enabled: bool = False,
+) -> None:
     global _last_autosave_hash, _last_autosave_timestamp
 
     case_id_value = _extract_case_id(payload)
@@ -8591,6 +8626,10 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
     temp_path = autosave_path.with_suffix(autosave_path.suffix + ".tmp")
 
     with _autosave_lock:
+        if payload_hash == _last_autosave_hash:
+            _last_autosave_timestamp = time.monotonic()
+            return
+
         existing_hash = _last_autosave_hash
         try:
             if existing_hash is None and autosave_path.exists():
@@ -8600,38 +8639,38 @@ def _write_autosave(serialized_payload: str, payload_hash: str, payload: dict) -
         except Exception as exc:
             logging.debug("Unable to hash existing autosave file: %s", exc)
 
-        db_saved = False
-        if st.session_state.get("autosave_to_database"):
-            case_obj = st.session_state.get("case")
-            case_cls = globals().get("CaseData")
-            if (
-                case_cls
-                and isinstance(case_obj, case_cls)
-                and "save_case_to_database" in globals()
-            ):
-                case_id_value = getattr(case_obj, "case_id", "")
-                if isinstance(case_id_value, str) and case_id_value.strip():
-                    try:
-                        save_case_to_database(case_obj, notify=False)
-                        db_saved = True
-                    except Exception as exc:  # pragma: no cover - streamlit runtime specific
-                        logging.warning(
-                            "Failed to autosave case %s to database: %s",
-                            case_id_value,
-                            exc,
-                        )
-                        try:
-                            st.warning(
-                                "Autosave could not write to the shared database. "
-                                "Check connectivity or permissions before relying on the backup."
-                            )
-                        except Exception:  # pragma: no cover - Streamlit unavailable during tests
-                            logging.debug("Streamlit warning unavailable for autosave alert")
-
-        if db_saved and existing_hash == payload_hash:
+        if existing_hash == payload_hash:
             _last_autosave_timestamp = time.monotonic()
             _last_autosave_hash = payload_hash
             return
+
+    db_saved = False
+    if db_save_enabled:
+        case_obj = st.session_state.get("case")
+        case_cls = globals().get("CaseData")
+        if (
+            case_cls
+            and isinstance(case_obj, case_cls)
+            and "save_case_to_database" in globals()
+        ):
+            case_id_value = getattr(case_obj, "case_id", "")
+            if isinstance(case_id_value, str) and case_id_value.strip():
+                try:
+                    save_case_to_database(case_obj, notify=False)
+                    db_saved = True
+                except Exception as exc:  # pragma: no cover - streamlit runtime specific
+                    logging.warning(
+                        "Failed to autosave case %s to database: %s",
+                        case_id_value,
+                        exc,
+                    )
+                    try:
+                        st.warning(
+                            "Autosave could not write to the shared database. "
+                            "Check connectivity or permissions before relying on the backup."
+                        )
+                    except Exception:  # pragma: no cover - Streamlit unavailable during tests
+                        logging.debug("Streamlit warning unavailable for autosave alert")
 
         try:
             with temp_path.open("w", encoding="utf-8") as f:
