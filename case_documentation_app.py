@@ -9076,6 +9076,24 @@ def _get_refresh_throttle() -> _RefreshThrottle:
     return _RefreshThrottle()
 
 
+def _get_case_updated_ts(item: dict[str, object]) -> float:
+    """Return the float timestamp for sorting, lazily migrating if needed."""
+    ts = item.get("_updated_ts")
+    if isinstance(ts, float):
+        return ts
+    # Fallback / Lazy migration
+    try:
+        raw = item.get("updated")
+        if not raw:
+            ts = 0.0
+        else:
+            ts = datetime.fromisoformat(str(raw)).timestamp()
+    except ValueError:
+        ts = 0.0
+    item["_updated_ts"] = ts
+    return ts
+
+
 def _refresh_and_get_cases() -> list[dict[str, object]]:
     """Scan directories, incrementally update cache, and return all valid cases.
 
@@ -9098,15 +9116,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             snapshot = list(cache_obj.data.values())
 
         # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
-            try:
-                return datetime.fromisoformat(str(t)).timestamp()
-            except ValueError:
-                return 0.0
-
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=_get_case_updated_ts, reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9241,9 +9252,18 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     or ""
                 )
 
+                # Pre-calculate timestamp for sorting optimization
+                _updated_ts = 0.0
+                if last_modified:
+                    try:
+                        _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except ValueError:
+                        pass
+
                 processed = {
                     # Standard list fields
                     "case_id": case_id,
+                    "_updated_ts": _updated_ts,
                     "company": company,
                     "description": description,
                     "tags": tags,
@@ -9283,15 +9303,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     # 3. Collect valid results
     # Sort by updated time (descending) to match expected "recent" behavior
-    def _parse_time(t):
-        if not t: return 0.0
-        try:
-            return datetime.fromisoformat(str(t)).timestamp()
-        except ValueError:
-            return 0.0
-
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    valid_items.sort(key=_get_case_updated_ts, reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
