@@ -5555,13 +5555,16 @@ def render_onboarding_tutorial() -> None:
                 furthest_idx = step_idx
             max_allowed = max(step_idx, furthest_idx)
             slider_options = list(range(max_allowed + 1))
-            jump_selection = st.select_slider(
-                "Navigate to a step",
-                options=slider_options,
-                value=step_idx,
-                format_func=_format_step_label,
-                key="tutorial_step_selector",
-            )
+            if len(slider_options) > 1:
+                jump_selection = st.select_slider(
+                    "Navigate to a step",
+                    options=slider_options,
+                    value=step_idx,
+                    format_func=_format_step_label,
+                    key="tutorial_step_selector",
+                )
+            else:
+                jump_selection = step_idx
             if len(slider_options) < total_steps:
                 st.caption(
                     "Complete the current content to unlock the remaining tutorial steps."
@@ -16524,12 +16527,20 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            container=notes_col,
+            placeholder="e.g. John Doe",
+            help="The full name of the person reporting the issue.",
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
             height=desc_height,
             container=notes_col,
+            placeholder="Briefly describe the customer's initial report...",
+            help="A summary of the problem as described by the caller.",
         )
 
         contact_header = "Contact details"
@@ -16538,15 +16549,41 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         else:
             contact_col.subheader(contact_header)
         first_row = contact_col.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-        auto_text_input("Phone number", "phone_number", container=first_row[1])
-        auto_text_input("Customer email", "email", container=contact_col)
+        auto_text_input(
+            "Dongle number",
+            "dongle_number",
+            container=first_row[0],
+            placeholder="e.g. 12345678",
+            help="The 3Shape dongle number associated with the installation.",
+        )
+        auto_text_input(
+            "Phone number",
+            "phone_number",
+            container=first_row[1],
+            placeholder="e.g. +1 555-0199",
+            help="Best contact number for follow-up.",
+        )
+        auto_text_input(
+            "Customer email",
+            "email",
+            container=contact_col,
+            placeholder="e.g. contact@clinic.com",
+            help="Primary email address for case updates.",
+        )
         second_row = contact_col.columns(2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer ID",
+            "teamviewer_id",
+            container=second_row[0],
+            placeholder="e.g. 1 234 567 890",
+            help="Remote session ID.",
+        )
         auto_text_input(
             "TeamViewer password",
             "teamviewer_password",
             container=second_row[1],
+            placeholder="e.g. a1b2c3d4",
+            help="Session password (if applicable).",
         )
 
 
