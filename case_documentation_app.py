@@ -16524,12 +16524,20 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         layout_cols = card.columns((3, 2))
         notes_col, contact_col = layout_cols
 
-        auto_text_input("Caller name", "caller_name", container=notes_col)
+        auto_text_input(
+            "Caller name",
+            "caller_name",
+            container=notes_col,
+            placeholder="e.g. John Doe",
+            help="The name of the person calling.",
+        )
         auto_text_area(
             "Caller issue description",
             "phone_description",
             height=desc_height,
             container=notes_col,
+            placeholder="Describe the issue...",
+            help="Detailed description of the problem.",
         )
 
         contact_header = "Contact details"
@@ -16538,15 +16546,41 @@ def render_phonecall_section(container, compact_mode: bool) -> None:
         else:
             contact_col.subheader(contact_header)
         first_row = contact_col.columns(2)
-        auto_text_input("Dongle number", "dongle_number", container=first_row[0])
-        auto_text_input("Phone number", "phone_number", container=first_row[1])
-        auto_text_input("Customer email", "email", container=contact_col)
+        auto_text_input(
+            "Dongle number",
+            "dongle_number",
+            container=first_row[0],
+            placeholder="e.g. 123456789",
+            help="The license dongle number.",
+        )
+        auto_text_input(
+            "Phone number",
+            "phone_number",
+            container=first_row[1],
+            placeholder="e.g. +1 555-0199",
+            help="Best contact number.",
+        )
+        auto_text_input(
+            "Customer email",
+            "email",
+            container=contact_col,
+            placeholder="e.g. user@example.com",
+            help="Email for follow-up.",
+        )
         second_row = contact_col.columns(2)
-        auto_text_input("TeamViewer ID", "teamviewer_id", container=second_row[0])
+        auto_text_input(
+            "TeamViewer ID",
+            "teamviewer_id",
+            container=second_row[0],
+            placeholder="e.g. 123 456 789",
+            help="Remote session ID.",
+        )
         auto_text_input(
             "TeamViewer password",
             "teamviewer_password",
             container=second_row[1],
+            placeholder="e.g. a1b2c3",
+            help="Remote session password.",
         )
 
 
