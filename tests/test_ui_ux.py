@@ -20,7 +20,9 @@ def test_buttons_have_tooltips():
         "Save and track",
         "Close case & stop tracking",
         "Save",
-        "Load"
+        "Load",
+        "Skip tutorial",
+        "Back"
     }
 
     # Store whether we found *at least one* instance of the button with a tooltip
@@ -35,8 +37,6 @@ def test_buttons_have_tooltips():
                 if node.args:
                     if isinstance(node.args[0], ast.Constant): # python 3.8+
                         label = node.args[0].value
-                    elif hasattr(ast, "Str") and isinstance(node.args[0], ast.Str): # older python
-                        label = node.args[0].s
 
                 # Check kwargs if label not in args
                 if not label:
@@ -44,8 +44,6 @@ def test_buttons_have_tooltips():
                         if kw.arg == "label":
                             if isinstance(kw.value, ast.Constant):
                                 label = kw.value.value
-                            elif hasattr(ast, "Str") and isinstance(kw.value, ast.Str):
-                                label = kw.value.s
 
                 if label in target_buttons:
                     has_help = any(kw.arg == "help" for kw in node.keywords)
