@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Navigation Context
+**Learning:** In multi-step wizards (like tutorials), "Next" and "Back" buttons are ambiguous without context. Users hesitate to click if they don't know what happens next.
+**Action:** Use the `help` parameter to provide "look-ahead" context (e.g., "Proceed to dashboard" instead of just "Finish") to reduce friction.

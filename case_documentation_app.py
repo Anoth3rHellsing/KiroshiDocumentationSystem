@@ -5657,10 +5657,19 @@ def render_onboarding_tutorial() -> None:
 
         nav_cols = st.columns([1.2, 1, 1, 1])
         with nav_cols[0]:
-            if st.button("Skip tutorial", key=f"tutorial_skip_{step_idx}"):
+            if st.button(
+                "Skip tutorial",
+                key=f"tutorial_skip_{step_idx}",
+                help="Dismiss the tutorial and go straight to the dashboard.",
+            ):
                 _mark_tutorial_completion("skipped")
         with nav_cols[1]:
-            if st.button("Back", disabled=step_idx == 0, key=f"tutorial_back_{step_idx}"):
+            if st.button(
+                "Back",
+                disabled=step_idx == 0,
+                key=f"tutorial_back_{step_idx}",
+                help="Return to the previous step.",
+            ):
                 st.session_state.tutorial_step = max(0, step_idx - 1)
                 st.rerun()
         with nav_cols[2]:
@@ -5672,7 +5681,12 @@ def render_onboarding_tutorial() -> None:
             )
         next_label = "Finish" if step_idx == total_steps - 1 else "Next"
         with nav_cols[3]:
-            if st.button(next_label, disabled=not can_proceed, key=f"tutorial_next_{step_idx}"):
+            if st.button(
+                next_label,
+                disabled=not can_proceed,
+                key=f"tutorial_next_{step_idx}",
+                help="Proceed to the next step.",
+            ):
                 if step_idx == total_steps - 1:
                     _mark_tutorial_completion("completed")
                 else:
@@ -11244,7 +11258,11 @@ def _render_settings_ai_tab() -> None:
         st.caption(f"Status: {'✅ Ready' if is_downloaded else '❌ Not Downloaded'}")
 
         if not is_downloaded:
-            if st.button(f"Download {model_config['name']}", key=global_widget_key("download_model")):
+            if st.button(
+                f"Download {model_config['name']}",
+                key=global_widget_key("download_model"),
+                help="Download the model files to your local machine (may require significant disk space).",
+            ):
                 with st.spinner(f"Downloading {model_config['name']}... This may take a while."):
                     try:
                         download_model(profile)
@@ -11634,7 +11652,11 @@ def _render_settings_cloud_tab() -> None:
                         st.error(f"No se pudo abrir la instancia de Kiroshi Cloud: {exc}")
                     return None
 
-                if st.button("Validar conexión", key=global_widget_key("cloud_validate")):
+                if st.button(
+                    "Validar conexión",
+                    key=global_widget_key("cloud_validate"),
+                    help="Verify credentials and connectivity to the Kiroshi Cloud service.",
+                ):
                     session = _obtain_cloud_session()
                     if session:
                         selected_agents = [
@@ -11778,7 +11800,9 @@ def _render_settings_updates_tab() -> None:
 
     update_status_obj = st.session_state.get("update_status")
     update_check_clicked = st.button(
-        "Check for updates", key=global_widget_key("update_check")
+        "Check for updates",
+        key=global_widget_key("update_check"),
+        help="Poll the remote repository for a newer version of Kiroshi.",
     )
     if update_check_clicked:
         st.session_state.update_apply_feedback = None
@@ -11820,6 +11844,7 @@ def _render_settings_updates_tab() -> None:
                 if st.button(
                     "Download and apply update",
                     key=global_widget_key("update_apply"),
+                    help="Overwrite the local installation with the latest files from GitHub.",
                 ):
                     with case_loading_overlay("Applying the latest update package…"):
                         try:
