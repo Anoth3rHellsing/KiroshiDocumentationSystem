@@ -1013,6 +1013,12 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    # Inverted index: token -> list of cluster indices.
+    # This optimization reduces comparisons by only checking clusters that share tokens.
+    token_map: dict[str, list[int]] = defaultdict(list)
+    # Set of indices for clusters with NO tokens (must be checked against all).
+    no_token_cluster_indices: set[int] = set()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
@@ -1027,6 +1033,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 None,
             )
             if blank_index is None:
+                new_idx = len(clusters)
                 clusters.append(
                     {
                         "normalized": "",
@@ -1034,13 +1041,28 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                         "label": "Caso sin título",
                     }
                 )
-                blank_index = len(clusters) - 1
+                no_token_cluster_indices.add(new_idx)
+                blank_index = new_idx
             assignments.append(blank_index)
             continue
 
         best_index = -1
         best_score = 0.0
-        for idx, cluster in enumerate(clusters):
+
+        candidates = set()
+        if tokens:
+            for t in tokens:
+                if t in token_map:
+                    candidates.update(token_map[t])
+            candidates.update(no_token_cluster_indices)
+        else:
+            candidates = range(len(clusters))
+
+        # Sort candidates to ensure deterministic order (matching original 0..N loop order)
+        sorted_candidates = sorted(list(candidates))
+
+        for idx in sorted_candidates:
+            cluster = clusters[idx]
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
@@ -1056,6 +1078,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if label_source
                 else "Caso sin título"
             )
+            new_idx = len(clusters)
             clusters.append(
                 {
                     "normalized": normalized,
@@ -1063,9 +1086,17 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                     "label": label,
                 }
             )
-            assignments.append(len(clusters) - 1)
+            assignments.append(new_idx)
+
+            if tokens:
+                for t in tokens:
+                    token_map[t].append(new_idx)
+            else:
+                no_token_cluster_indices.add(new_idx)
         else:
             cluster = clusters[best_index]
+            old_tokens = cluster.get("tokens", set()).copy()
+
             cluster_tokens = cluster.setdefault("tokens", set())
             cluster_tokens.update(tokens)
             cluster["normalized"] = cluster.get("normalized") or normalized
@@ -1074,6 +1105,15 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 if len(candidate_label) > len(str(cluster.get("label") or "")):
                     cluster["label"] = candidate_label
             assignments.append(best_index)
+
+            new_tokens = tokens - old_tokens
+            for t in new_tokens:
+                token_map[t].append(best_index)
+
+            # If the cluster previously had no tokens but now does, remove it from the fallback set
+            if not old_tokens and tokens:
+                if best_index in no_token_cluster_indices:
+                    no_token_cluster_indices.remove(best_index)
 
     label_map = {idx: str(cluster.get("label") or "Caso sin título") for idx, cluster in enumerate(clusters)}
     return assignments, label_map
