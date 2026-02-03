@@ -9089,6 +9089,19 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     cache_obj = _get_global_case_cache()
 
+    # Helper for sorting cases by timestamp with lazy migration support
+    def _get_sort_key(item: dict[str, object]) -> float:
+        ts = item.get("_updated_ts")
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        # Legacy entry: calculate, store, and return
+        try:
+            ts = datetime.fromisoformat(str(item.get("updated"))).timestamp()
+        except (ValueError, TypeError):
+            ts = 0.0
+        item["_updated_ts"] = ts
+        return ts
+
     # Simple throttle: if scanned < 2s ago, return current snapshot
     # This prevents hammering filesystem on rapid re-renders
     now = time.time()
@@ -9097,16 +9110,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             # Create a snapshot for return to avoid iteration issues if modified elsewhere
             snapshot = list(cache_obj.data.values())
 
-        # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
-            try:
-                return datetime.fromisoformat(str(t)).timestamp()
-            except ValueError:
-                return 0.0
-
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=_get_sort_key, reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9201,12 +9206,18 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         tags.append(label)
 
                 last_modified = data.get("last_modified")
+                _updated_ts = 0.0
+
                 if not last_modified:
-                    last_modified = (
-                        datetime.fromtimestamp(mtime)
-                        .replace(microsecond=0)
-                        .isoformat()
-                    )
+                    # Optimize: avoid parsing if we just created the timestamp
+                    dt_mtime = datetime.fromtimestamp(mtime).replace(microsecond=0)
+                    last_modified = dt_mtime.isoformat()
+                    _updated_ts = dt_mtime.timestamp()
+                else:
+                    try:
+                        _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except (ValueError, TypeError):
+                        pass
 
                 version = data.get("kiroshi_version")
                 version_label = f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}"
@@ -9248,6 +9259,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": _updated_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
@@ -9283,15 +9295,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     # 3. Collect valid results
     # Sort by updated time (descending) to match expected "recent" behavior
-    def _parse_time(t):
-        if not t: return 0.0
-        try:
-            return datetime.fromisoformat(str(t)).timestamp()
-        except ValueError:
-            return 0.0
-
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    valid_items.sort(key=_get_sort_key, reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
