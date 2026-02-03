@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-03 - Optimization of Title Clustering with Inverted Index
+**Learning:** O(N*C) string similarity checks (using `SequenceMatcher`) dominate the runtime of clustering algorithms when the dataset grows. Even with a Jaccard-based weighted score, checking every item against every cluster is inefficient if most are disjoint.
+**Action:** Implemented an inverted index (`token -> set[cluster_idx]`) to restrict expensive comparisons only to candidate clusters that share at least one token. Added a mathematical pruning check `(0.6 + 0.4 * jaccard) < threshold` to skip `SequenceMatcher` entirely when the maximum theoretical score is insufficient. Benchmarking showed a ~3x speedup on 2000 items.
