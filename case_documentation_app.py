@@ -995,17 +995,37 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str],
+    tokens_b: set[str],
+    norm_a: str,
+    norm_b: str,
+    threshold: float = 0.0,
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
-        return 0.0
+        # If tokens are completely disjoint, the maximum possible score is strictly
+        # determined by the string similarity component (weighted at 0.6). If the
+        # required threshold exceeds 0.6, we can return 0 immediately without
+        # incurring the cost of SequenceMatcher.
+        if threshold > 0.6:
+            return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
         jaccard = (intersection / union) if union else 0.0
+
+        # Branch-and-bound optimization: the maximum possible score for this pair
+        # is 0.6 * 1.0 (perfect string match) + 0.4 * jaccard. If this upper bound
+        # is less than the current best score (or threshold), we can skip the
+        # expensive string similarity calculation entirely.
+        max_possible_score = 0.6 + 0.4 * jaccard
+        if max_possible_score < threshold:
+            return 0.0
+
+        base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
         return 0.6 * base + 0.4 * jaccard
+
+    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     return base
 
 
@@ -1040,16 +1060,24 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         best_index = -1
         best_score = 0.0
+        item_threshold = 0.68 if tokens else 0.8
+
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
+            # We only care about this cluster if it can beat the current best match
+            # AND meet the minimum threshold requirement.
+            pruning_threshold = max(item_threshold, best_score)
+
+            score = _title_similarity_score(
+                tokens, cluster_tokens, normalized, cluster_norm, threshold=pruning_threshold
+            )
             if score > best_score:
                 best_score = score
                 best_index = idx
 
-        threshold = 0.68 if tokens else 0.8
-        if best_index == -1 or best_score < threshold:
+        if best_index == -1 or best_score < item_threshold:
             label_source = title if isinstance(title, str) and title.strip() else normalized
             label = (
                 _summarize_text(label_source, width=80)
