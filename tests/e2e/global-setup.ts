@@ -1,9 +1,9 @@
-import { test as setup, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { FullConfig } from '@playwright/test';
 
-setup('create settings file', async () => {
+async function globalSetup(config: FullConfig) {
   const databaseDir = path.join(os.homedir(), 'KiroshiDatabase');
   if (!fs.existsSync(databaseDir)) {
     fs.mkdirSync(databaseDir, { recursive: true });
@@ -19,4 +19,6 @@ setup('create settings file', async () => {
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   console.log(`Created settings file at ${settingsPath}`);
-});
+}
+
+export default globalSetup;
