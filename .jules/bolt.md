@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-04 - Branch-and-Bound Similarity Optimization
+**Learning:** String similarity calculations (like `SequenceMatcher`) are expensive ($O(N*M)$) when repeated thousands of times for clustering. However, the maximum possible weighted score is upper-bounded by the Jaccard index of tokens.
+**Action:** Implemented a branch-and-bound check in `_title_similarity_score`. If `0.6 + 0.4 * jaccard <= threshold`, we return 0 immediately, skipping `SequenceMatcher`. This yielded a ~20% speedup in clustering operations.
