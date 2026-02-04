@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-04 - Streamlit Caching Trap
+**Learning:** Using `@lru_cache` on functions defined in the main Streamlit script is ineffective because the script is re-executed from top to bottom on every interaction, recreating the function and its cache.
+**Action:** Use `@st.cache_data` (or `@st.cache_resource`) for memoization in Streamlit apps to ensure the cache persists across reruns.
