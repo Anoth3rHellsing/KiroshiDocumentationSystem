@@ -19,3 +19,7 @@
 ## 2026-02-04 - Streamlit Caching Trap
 **Learning:** Using `@lru_cache` on functions defined in the main Streamlit script is ineffective because the script is re-executed from top to bottom on every interaction, recreating the function and its cache.
 **Action:** Use `@st.cache_data` (or `@st.cache_resource`) for memoization in Streamlit apps to ensure the cache persists across reruns.
+
+## 2026-02-04 - E2E Testing Prerequisites
+**Learning:** E2E tests (like Playwright) require specific infrastructure (e.g., `tests/e2e/global-setup.ts`, `sanity.spec.ts`) to exist. If the CI expects them but they are missing, the build will fail even if the application code is correct.
+**Action:** When working on tasks that might trigger full CI suites (like performance optimizations), ensure the test environment is healthy or restore missing test files before submitting.
