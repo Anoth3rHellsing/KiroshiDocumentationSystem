@@ -2221,7 +2221,11 @@ def _check_installation_status() -> None:
         """
     ))
 
-    if st.button("Run Kiroshi Installer", type="primary"):
+    if st.button(
+        "Run Kiroshi Installer",
+        type="primary",
+        help="Launch the setup wizard to fix missing installation files",
+    ):
         _launch_installer_and_relaunch()
 
     st.info(
@@ -19612,7 +19616,12 @@ End with: We look forward to your reply."""
             st.caption(
                 "Capture the Dell-specific diagnostics and clinic contact details required for vendor escalations."
             )
-            auto_text_input("Issue start date", "dell_issue_start_date")
+            auto_text_input(
+                "Issue start date",
+                "dell_issue_start_date",
+                placeholder="e.g. 2024-05-20",
+                help="When did the issue first occur?",
+            )
 
             st.markdown("##### PC diagnostics & setup")
             diag_col1, diag_col2 = st.columns(2)
@@ -19620,21 +19629,29 @@ End with: We look forward to your reply."""
                 "Dell Command Updates status",
                 "dell_command_updates_status",
                 container=diag_col1,
+                placeholder="e.g. All critical updates installed",
+                help="Status of drivers/BIOS updates via Dell Command Update.",
             )
             auto_text_input(
                 "Power Options setup",
                 "dell_power_options_setup",
                 container=diag_col2,
+                placeholder="e.g. High Performance",
+                help="Ensure the power plan is optimized for performance.",
             )
             auto_text_input(
                 "Dell Optimizer setup",
                 "dell_optimizer_setup",
                 container=diag_col1,
+                placeholder="e.g. Optimized / Disabled",
+                help="Configuration of Dell Optimizer network/audio settings.",
             )
             auto_text_input(
                 "Intel Processor Power Management Utility installed?",
                 "dell_intel_ppm_installed",
                 container=diag_col2,
+                placeholder="Yes / No",
+                help="Is the specific power management utility installed?",
             )
 
             st.markdown("##### Performance & drivers")
