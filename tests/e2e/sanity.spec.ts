@@ -16,6 +16,7 @@ test.describe('Kiroshi App Sanity Check', () => {
     await expect(page.getByRole('tab', { name: 'Report' })).toBeVisible();
 
     // Verify Dashboard title is rendered
-    await expect(page.locator('div.dashboard-title')).toHaveText('Dashboard');
+    // Use .first() or a more specific locator because 'dashboard-title' class is reused
+    await expect(page.locator('div.dashboard-title').filter({ hasText: /^Dashboard$/ })).toBeVisible();
   });
 });
