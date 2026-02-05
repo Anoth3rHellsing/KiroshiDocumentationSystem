@@ -29,11 +29,33 @@ sys.modules["reportlab.lib.styles"] = MagicMock()
 sys.modules["reportlab.platypus"] = MagicMock()
 sys.modules["reportlab.graphics.shapes"] = MagicMock()
 sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
+sys.modules["requests"] = MagicMock()
+sys.modules["urllib3"] = MagicMock()
+sys.modules["cryptography"] = MagicMock()
+sys.modules["cryptography.fernet"] = MagicMock()
+sys.modules["cryptography.hazmat"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives.kdf"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives.kdf.pbkdf2"] = MagicMock()
+sys.modules["pyautogui"] = MagicMock()
+sys.modules["PIL"] = MagicMock()
+sys.modules["mss"] = MagicMock()
+sys.modules["pytesseract"] = MagicMock()
+sys.modules["tkinter"] = MagicMock()
+sys.modules["pyperclip"] = MagicMock()
+sys.modules["pynput"] = MagicMock()
+
+# Set __deepcopy__ on all mocked modules to avoid recursion
+for name, mod in sys.modules.items():
+    if isinstance(mod, MagicMock):
+        mod.__deepcopy__ = lambda memo: mod
 
 # Mock st.cache_data to do nothing (passthrough)
-def cache_data_mock(*args, **kwargs):
-    def decorator(func):
+def cache_data_mock(func=None, **kwargs):
+    if func is not None and callable(func):
         return func
+    def decorator(f):
+        return f
     return decorator
 
 st_mock.cache_data = cache_data_mock
