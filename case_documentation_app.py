@@ -19620,21 +19620,29 @@ End with: We look forward to your reply."""
                 "Dell Command Updates status",
                 "dell_command_updates_status",
                 container=diag_col1,
+                placeholder="e.g. Fully updated / Pending updates",
+                help="State if Dell Command Update shows pending drivers or BIOS updates.",
             )
             auto_text_input(
                 "Power Options setup",
                 "dell_power_options_setup",
                 container=diag_col2,
+                placeholder="e.g. High Performance",
+                help="Current Windows power plan active on the machine.",
             )
             auto_text_input(
                 "Dell Optimizer setup",
                 "dell_optimizer_setup",
                 container=diag_col1,
+                placeholder="e.g. Optimized / Not installed",
+                help="Status of Dell Optimizer software settings.",
             )
             auto_text_input(
                 "Intel Processor Power Management Utility installed?",
                 "dell_intel_ppm_installed",
                 container=diag_col2,
+                placeholder="Yes / No",
+                help="Is the Intel Processor Power Management utility present?",
             )
 
             st.markdown("##### Performance & drivers")
@@ -19643,21 +19651,26 @@ End with: We look forward to your reply."""
                 "CPU Speed / Is CPU throttling?",
                 "dell_cpu_speed_or_throttling",
                 container=perf_col1,
+                placeholder="e.g. 4.2GHz (Stable)",
+                help="Observed CPU clock speeds during load.",
             )
             auto_text_input(
                 "GPU Usage % (Integrated)",
                 "dell_gpu_usage_integrated",
                 container=perf_col2,
+                placeholder="e.g. 15%",
             )
             auto_text_input(
                 "GPU Usage % (Dedicated)",
                 "dell_gpu_usage_dedicated",
                 container=perf_col1,
+                placeholder="e.g. 95%",
             )
             auto_text_input(
                 "CPU Utilization %",
                 "dell_cpu_utilization",
                 container=perf_col2,
+                placeholder="e.g. 40%",
             )
             auto_text_area(
                 "Benchmark used and results",
