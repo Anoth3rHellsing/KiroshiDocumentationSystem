@@ -32,6 +32,10 @@ sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
 
 # Mock st.cache_data to do nothing (passthrough)
 def cache_data_mock(*args, **kwargs):
+    # Check if called as @st.cache_data (without parentheses)
+    if len(args) == 1 and callable(args[0]):
+        return args[0]
+    # Called as @st.cache_data(...)
     def decorator(func):
         return func
     return decorator

@@ -1009,6 +1009,7 @@ def _title_similarity_score(
     return base
 
 
+@st.cache_data(show_spinner=False, max_entries=128)
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
