@@ -15,3 +15,11 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-05 - Branch-and-Bound Pruning for Similarity
+**Learning:** Optimizing hybrid similarity scores (e.g. weighted sum of Jaccard and SequenceMatcher) can be achieved by calculating the cheaper metric first and checking if the theoretical maximum score beats the current best match threshold.
+**Action:** Implemented branch-and-bound pruning in `_title_similarity_score` which skips expensive O(NM) string matching when set-based upper bounds prove a match is impossible.
+
+## 2026-02-05 - AST-Based Micro-Benchmarking
+**Learning:** Benchmarking individual functions in monolithic Streamlit apps is difficult due to top-level side effects on import.
+**Action:** Used `ast` module to extract specific functions and constants into an isolated execution context for precise performance measurement without triggering app startup logic.
