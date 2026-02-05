@@ -19620,21 +19620,29 @@ End with: We look forward to your reply."""
                 "Dell Command Updates status",
                 "dell_command_updates_status",
                 container=diag_col1,
+                placeholder="e.g. All updates installed",
+                help="Indicate if Dell Command Update was run and if all updates were applied.",
             )
             auto_text_input(
                 "Power Options setup",
                 "dell_power_options_setup",
                 container=diag_col2,
+                placeholder="e.g. High Performance / Balanced",
+                help="Specify the active power plan in Windows settings.",
             )
             auto_text_input(
                 "Dell Optimizer setup",
                 "dell_optimizer_setup",
                 container=diag_col1,
+                placeholder="e.g. Optimized for Performance",
+                help="Note the current configuration of Dell Optimizer software.",
             )
             auto_text_input(
                 "Intel Processor Power Management Utility installed?",
                 "dell_intel_ppm_installed",
                 container=diag_col2,
+                placeholder="e.g. Yes / No",
+                help="Confirm if the Intel PPM utility is present on the system.",
             )
 
             st.markdown("##### Performance & drivers")
@@ -19643,37 +19651,51 @@ End with: We look forward to your reply."""
                 "CPU Speed / Is CPU throttling?",
                 "dell_cpu_speed_or_throttling",
                 container=perf_col1,
+                placeholder="e.g. 4.2 GHz / No throttling observed",
+                help="Record the CPU clock speed and any signs of thermal throttling.",
             )
             auto_text_input(
                 "GPU Usage % (Integrated)",
                 "dell_gpu_usage_integrated",
                 container=perf_col2,
+                placeholder="e.g. 15% (Intel UHD)",
+                help="Enter the load percentage for the integrated graphics card during testing.",
             )
             auto_text_input(
                 "GPU Usage % (Dedicated)",
                 "dell_gpu_usage_dedicated",
                 container=perf_col1,
+                placeholder="e.g. 85% (NVIDIA RTX 4070)",
+                help="Enter the load percentage for the dedicated graphics card during testing.",
             )
             auto_text_input(
                 "CPU Utilization %",
                 "dell_cpu_utilization",
                 container=perf_col2,
+                placeholder="e.g. 45%",
+                help="Enter the overall CPU load percentage during testing.",
             )
             auto_text_area(
                 "Benchmark used and results",
                 "dell_benchmark_results",
                 container=perf_col1,
                 height=100,
+                placeholder="e.g. FurMark score: 7500 / 3DMark: 12000",
+                help="List the benchmarking tools used and the scores or results obtained.",
             )
             auto_text_area(
                 "Which GPU driver versions were tested?",
                 "dell_gpu_driver_versions",
                 container=perf_col2,
                 height=100,
+                placeholder="e.g. NVIDIA 536.23, then rolled back to 531.41",
+                help="Log all GPU driver versions that were tested during troubleshooting.",
             )
             auto_text_input(
                 "Can it launch simulation on Ultra Resolution? (If needed)",
                 "dell_ultra_resolution_support",
+                placeholder="e.g. Yes / No / N/A",
+                help="Verify if the system can handle simulation at Ultra Resolution settings.",
             )
 
             st.markdown("##### Diagnostics")
@@ -19683,16 +19705,22 @@ End with: We look forward to your reply."""
                 "dell_reliability_monitor_results",
                 container=diag_notes_col1,
                 height=120,
+                placeholder="e.g. Critical errors found in kernel-power / App crashes",
+                help="Summarize key findings from Windows Reliability Monitor and Event Viewer logs.",
             )
             auto_text_area(
                 "Dell Diagnosis test results (ePSA tests included)",
                 "dell_diagnostics_results",
                 container=diag_notes_col2,
                 height=120,
+                placeholder="e.g. ePSA passed / Error code 2000-0142",
+                help="Provide the results of Dell's built-in ePSA hardware diagnostics.",
             )
             auto_text_input(
                 "Has Windows been reimaged?",
                 "dell_windows_reimaged",
+                placeholder="e.g. Yes (Clean install) / No",
+                help="State whether the operating system has been reinstalled or reimaged.",
             )
 
             st.markdown("##### Clinic contact information")
