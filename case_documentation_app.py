@@ -247,10 +247,12 @@ CASE_DEX_URL_TEMPLATE = os.environ.get(
 
 if os.name == "nt":
     PROGRAM_DATA_DIR = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Kiroshi Documentation"
-    DATABASE_DIR = Path("C:/ProgramFiles/KiroshiDatabase")
+    _base_db = Path("C:/ProgramFiles/KiroshiDatabase")
 else:
     PROGRAM_DATA_DIR = Path.home() / "Kiroshi Documentation"
-    DATABASE_DIR = Path.home() / "KiroshiDatabase"
+    _base_db = Path.home() / "KiroshiDatabase"
+
+DATABASE_DIR = Path(os.environ.get("KIROSHI_DATABASE_DIR", str(_base_db)))
 
 DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
 PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
@@ -1009,7 +1011,7 @@ def _title_similarity_score(
         union = len(tokens_a | tokens_b)
         jaccard = (intersection / union) if union else 0.0
 
-        if 0.6 + 0.4 * jaccard <= min_score:
+        if 0.6 + 0.4 * jaccard < min_score:
             return 0.0
 
         base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
