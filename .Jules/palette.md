@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-23 - Contextual Guidance in Streamlit Wrappers
+**Learning:** Wrapper functions for Streamlit inputs (e.g., `auto_text_input`) that pass `**kwargs` are powerful because they allow easy injection of UX improvements like `placeholder` and `help` without refactoring the core wrapper logic.
+**Action:** When working with custom input wrappers, verify they pass `**kwargs` and immediately leverage `help` and `placeholder` to provide context for complex fields (like escalation codes).

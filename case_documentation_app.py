@@ -19612,7 +19612,12 @@ End with: We look forward to your reply."""
             st.caption(
                 "Capture the Dell-specific diagnostics and clinic contact details required for vendor escalations."
             )
-            auto_text_input("Issue start date", "dell_issue_start_date")
+            auto_text_input(
+                "Issue start date",
+                "dell_issue_start_date",
+                help="Date when the issue was first observed.",
+                placeholder="e.g. YYYY-MM-DD",
+            )
 
             st.markdown("##### PC diagnostics & setup")
             diag_col1, diag_col2 = st.columns(2)
@@ -19620,21 +19625,29 @@ End with: We look forward to your reply."""
                 "Dell Command Updates status",
                 "dell_command_updates_status",
                 container=diag_col1,
+                help="Status of driver updates via Dell Command Update.",
+                placeholder="e.g. Fully updated / Pending updates",
             )
             auto_text_input(
                 "Power Options setup",
                 "dell_power_options_setup",
                 container=diag_col2,
+                help="Current Windows power plan setting.",
+                placeholder="e.g. High Performance / Balanced",
             )
             auto_text_input(
                 "Dell Optimizer setup",
                 "dell_optimizer_setup",
                 container=diag_col1,
+                help="Status of Dell Optimizer software.",
+                placeholder="e.g. Installed / Removed",
             )
             auto_text_input(
                 "Intel Processor Power Management Utility installed?",
                 "dell_intel_ppm_installed",
                 container=diag_col2,
+                help="Check if Intel PPM utility is present.",
+                placeholder="e.g. Yes / No",
             )
 
             st.markdown("##### Performance & drivers")
@@ -19643,37 +19656,51 @@ End with: We look forward to your reply."""
                 "CPU Speed / Is CPU throttling?",
                 "dell_cpu_speed_or_throttling",
                 container=perf_col1,
+                help="Current CPU clock speed and throttling status.",
+                placeholder="e.g. 3.5GHz / No throttling",
             )
             auto_text_input(
                 "GPU Usage % (Integrated)",
                 "dell_gpu_usage_integrated",
                 container=perf_col2,
+                help="Usage percentage of the integrated GPU under load.",
+                placeholder="e.g. 10%",
             )
             auto_text_input(
                 "GPU Usage % (Dedicated)",
                 "dell_gpu_usage_dedicated",
                 container=perf_col1,
+                help="Usage percentage of the dedicated GPU under load.",
+                placeholder="e.g. 85%",
             )
             auto_text_input(
                 "CPU Utilization %",
                 "dell_cpu_utilization",
                 container=perf_col2,
+                help="Total CPU utilization percentage under load.",
+                placeholder="e.g. 45%",
             )
             auto_text_area(
                 "Benchmark used and results",
                 "dell_benchmark_results",
                 container=perf_col1,
                 height=100,
+                help="Details of performance tests run (e.g. FurMark, Prime95).",
+                placeholder="e.g. FurMark score 1200, max temp 75C",
             )
             auto_text_area(
                 "Which GPU driver versions were tested?",
                 "dell_gpu_driver_versions",
                 container=perf_col2,
                 height=100,
+                help="List of GPU drivers installed/tested during troubleshooting.",
+                placeholder="e.g. NVIDIA 536.23, 531.18",
             )
             auto_text_input(
                 "Can it launch simulation on Ultra Resolution? (If needed)",
                 "dell_ultra_resolution_support",
+                help="Confirm if the system can handle Ultra Resolution simulation.",
+                placeholder="e.g. Yes / No / Not tested",
             )
 
             st.markdown("##### Diagnostics")
@@ -19683,41 +19710,89 @@ End with: We look forward to your reply."""
                 "dell_reliability_monitor_results",
                 container=diag_notes_col1,
                 height=120,
+                help="Summary of critical errors or warnings found in system logs.",
+                placeholder="e.g. Frequent app crashes, disk errors...",
             )
             auto_text_area(
                 "Dell Diagnosis test results (ePSA tests included)",
                 "dell_diagnostics_results",
                 container=diag_notes_col2,
                 height=120,
+                help="Outcome of Dell hardware diagnostics (F12 boot menu).",
+                placeholder="e.g. All tests passed / Error code 2000-0142",
             )
             auto_text_input(
                 "Has Windows been reimaged?",
                 "dell_windows_reimaged",
+                help="Indicate if a fresh Windows installation was performed.",
+                placeholder="e.g. Yes / No",
             )
 
             st.markdown("##### Clinic contact information")
             clinic_col1, clinic_col2 = st.columns(2)
-            auto_text_input("Clinic name", "clinic_name", container=clinic_col1)
+            auto_text_input(
+                "Clinic name",
+                "clinic_name",
+                container=clinic_col1,
+                help="Name of the clinic receiving the replacement.",
+                placeholder="e.g. Bright Smile Dental",
+            )
             auto_text_input(
                 "Full name of person responsible for receiving the equipment",
                 "clinic_contact_name",
                 container=clinic_col2,
+                help="Contact person for the shipment.",
+                placeholder="e.g. Dr. John Doe",
             )
             auto_text_input(
                 "Phone number",
                 "clinic_contact_phone",
                 container=clinic_col1,
+                help="Primary contact number.",
+                placeholder="e.g. +1 555-0199",
             )
             auto_text_input(
                 "Email address",
                 "clinic_contact_email",
                 container=clinic_col2,
+                help="Contact email for shipping updates.",
+                placeholder="e.g. contact@example.com",
             )
-            auto_text_input("Address 1", "clinic_address_line_1", container=clinic_col1)
-            auto_text_input("Address 2 (Suite, etc.)", "clinic_address_line_2", container=clinic_col2)
-            auto_text_input("City", "clinic_city", container=clinic_col1)
-            auto_text_input("State", "clinic_state", container=clinic_col2)
-            auto_text_input("Zip Code", "clinic_postal_code", container=clinic_col1)
+            auto_text_input(
+                "Address 1",
+                "clinic_address_line_1",
+                container=clinic_col1,
+                help="Street address.",
+                placeholder="e.g. 123 Main St",
+            )
+            auto_text_input(
+                "Address 2 (Suite, etc.)",
+                "clinic_address_line_2",
+                container=clinic_col2,
+                help="Apartment, suite, unit, etc. (optional).",
+                placeholder="e.g. Suite 400",
+            )
+            auto_text_input(
+                "City",
+                "clinic_city",
+                container=clinic_col1,
+                help="City.",
+                placeholder="e.g. New York",
+            )
+            auto_text_input(
+                "State",
+                "clinic_state",
+                container=clinic_col2,
+                help="State or province.",
+                placeholder="e.g. NY",
+            )
+            auto_text_input(
+                "Zip Code",
+                "clinic_postal_code",
+                container=clinic_col1,
+                help="Postal code.",
+                placeholder="e.g. 10001",
+            )
 
             st.markdown("##### Dell escalation table preview")
             dell_table = dell_escalation_dataframe(D)
