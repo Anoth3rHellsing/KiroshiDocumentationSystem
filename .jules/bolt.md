@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-27 - Streamlit Logging Initialization
+**Learning:** Top-level logging setup code (directory creation, file opening) in Streamlit scripts runs on every user interaction, causing unnecessary I/O.
+**Action:** Encapsulate logging configuration in a function decorated with `@st.cache_resource` to ensure it runs only once per session.

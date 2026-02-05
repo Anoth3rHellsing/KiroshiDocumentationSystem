@@ -2053,43 +2053,52 @@ def _candidate_log_directories() -> list[Path]:
     return candidates
 
 
-LOG_DIR: Path | None = None
-log_path: Path | None = None
-log_handlers: list[logging.Handler]
-for candidate in _candidate_log_directories():
-    try:
-        candidate.mkdir(parents=True, exist_ok=True)
-        prospective_log_path = candidate / LOG_FILE
-        with open(prospective_log_path, "a", encoding="utf-8"):
-            pass
-    except OSError:
-        # Cannot create the directory or open the log file here (likely permissions).
-        continue
-    LOG_DIR = candidate
-    log_path = prospective_log_path
-    break
+@st.cache_resource
+def _configure_logging() -> tuple[Path | None, Path | None]:
+    """Configure logging once per session to avoid redundant I/O."""
+    candidate_dir: Path | None = None
+    final_log_path: Path | None = None
 
-if log_path is not None:
-    try:
-        log_handlers = [
-            RotatingFileHandler(
-                log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
-            ),
-            logging.StreamHandler(),
-        ]
-    except OSError:
-        log_path = None
-        log_handlers = [logging.StreamHandler()]
-else:
-    log_path = None
-    log_handlers = [logging.StreamHandler()]
+    for candidate in _candidate_log_directories():
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            prospective = candidate / LOG_FILE
+            with open(prospective, "a", encoding="utf-8"):
+                pass
+        except OSError:
+            # Cannot create the directory or open the log file here (likely permissions).
+            continue
+        candidate_dir = candidate
+        final_log_path = prospective
+        break
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
-    handlers=log_handlers,
-)
-logging.captureWarnings(True)
+    handlers: list[logging.Handler]
+    if final_log_path is not None:
+        try:
+            handlers = [
+                RotatingFileHandler(
+                    final_log_path, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+                ),
+                logging.StreamHandler(),
+            ]
+        except OSError:
+            final_log_path = None
+            handlers = [logging.StreamHandler()]
+    else:
+        final_log_path = None
+        handlers = [logging.StreamHandler()]
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
+        handlers=handlers,
+    )
+    logging.captureWarnings(True)
+
+    return candidate_dir, final_log_path
+
+
+LOG_DIR, log_path = _configure_logging()
 
 
 def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
