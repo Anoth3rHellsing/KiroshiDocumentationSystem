@@ -1099,6 +1099,23 @@ def _coerce_int(value: object, default: int = 0) -> int:
         return default
 
 
+@lru_cache(maxsize=4096)
+def _get_report_token_scores(token: str) -> dict[str, int]:
+    """Return a map of categories to score increments for a given token.
+
+    This function caches the expensive prefix matching logic (O(N) where N is the number of
+    category prefixes) so it only runs once per unique token.
+    """
+    scores: dict[str, int] = {}
+    for label, hints in _REPORT_CATEGORY_HINTS.items():
+        token_prefixes = hints.get("tokens")
+        if isinstance(token_prefixes, (list, tuple, set)):
+            for prefix in token_prefixes:
+                if isinstance(prefix, str) and prefix and token.startswith(prefix):
+                    scores[label] = scores.get(label, 0) + 1
+    return scores
+
+
 def _infer_report_category(
     row: Mapping[str, object], tokens: list[str]
 ) -> str | None:
@@ -1121,16 +1138,13 @@ def _infer_report_category(
             for term in category_terms:
                 if isinstance(term, str) and term and term in category_blob:
                     score += 4
-        token_prefixes = hints.get("tokens")
-        if isinstance(token_prefixes, (list, tuple, set)):
-            for prefix in token_prefixes:
-                if not isinstance(prefix, str) or not prefix:
-                    continue
-                for token, count in token_counter.items():
-                    if token == prefix or token.startswith(prefix):
-                        score += count
         if score:
             scores[label] = score
+
+    for token, count in token_counter.items():
+        token_scores = _get_report_token_scores(token)
+        for label, score_inc in token_scores.items():
+            scores[label] = scores.get(label, 0) + (score_inc * count)
 
     if not scores:
         return None
@@ -1144,6 +1158,23 @@ def _infer_report_category(
     if best_score >= threshold:
         return best_label
     return None
+
+
+@lru_cache(maxsize=4096)
+def _get_structured_token_scores(token: str) -> dict[str, int]:
+    """Return a map of structured categories to score increments for a given token.
+
+    Caches the prefix matching logic to avoid repetitive O(N) loops during row processing.
+    """
+    scores: dict[str, int] = {}
+    for label, hints in _STRUCTURED_CATEGORY_HINTS.items():
+        token_prefixes = hints.get("tokens")
+        if token_prefixes:
+            for prefix in token_prefixes:
+                prefix_norm = _normalize_text_field(prefix)
+                if prefix_norm and token.startswith(prefix_norm):
+                    scores[label] = scores.get(label, 0) + 1
+    return scores
 
 
 def _infer_structured_category(
@@ -1200,20 +1231,16 @@ def _infer_structured_category(
                     continue
                 if scanner_norm == candidate_norm or scanner_norm.startswith(candidate_norm):
                     score += 6
-        token_prefixes = hints.get("tokens")
-        if token_prefixes:
-            for prefix in token_prefixes:
-                prefix_norm = _normalize_text_field(prefix)
-                if not prefix_norm:
-                    continue
-                for token in token_set:
-                    if token.startswith(prefix_norm):
-                        score += 1
         threshold = _coerce_int(hints.get("recurrence_threshold"), 0)
         if threshold and recurrence_count >= threshold:
             score += 2
         if score:
             structured_scores[label] = score
+
+    for token in token_set:
+        token_scores = _get_structured_token_scores(token)
+        for label, score_inc in token_scores.items():
+            structured_scores[label] = structured_scores.get(label, 0) + score_inc
 
     if not structured_scores:
         return None
