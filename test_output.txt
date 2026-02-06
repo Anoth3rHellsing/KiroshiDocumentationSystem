@@ -1,0 +1,42 @@
+
+> kiroshi-documentation-system@1.8.0-rc.1 test:e2e
+> playwright test
+
+Global setup: tutorial_completed set to true in /home/jules/KiroshiDatabase/settings.json
+
+Running 1 test using 1 worker
+
+  ✘  1 [chromium] › tests/e2e/sanity.spec.ts:4:1 › App loads and dashboard is visible (1.1m)
+
+
+  1) [chromium] › tests/e2e/sanity.spec.ts:4:1 › App loads and dashboard is visible ────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveTitle[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Expected pattern: [32m/Kiroshi Documentation/[39m
+    Received string:  [31m"Kiroshi 1.8 Release Candidate 1"[39m
+    Timeout: 60000ms
+
+    Call log:
+    [2m  - Expect "toHaveTitle" with timeout 60000ms[22m
+    [2m    63 × unexpected value "Kiroshi 1.8 Release Candidate 1"[22m
+
+
+      12 |
+      13 |   // Verify the page title to ensure we are in the right app
+    > 14 |   await expect(page).toHaveTitle(/Kiroshi Documentation/);
+         |                      ^
+      15 |
+      16 |   // Check for the "Add Case" button as a sign that the sidebar or main navigation is loaded
+      17 |   const addCaseBtn = page.getByRole('button', { name: 'Add Case' });
+        at /app/tests/e2e/sanity.spec.ts:14:22
+
+    Error Context: test-results/sanity-App-loads-and-dashboard-is-visible-chromium/error-context.md
+
+  1 failed
+    [chromium] › tests/e2e/sanity.spec.ts:4:1 › App loads and dashboard is visible ─────────────────
+
+To open last HTML report run:
+[36m[39m
+[36m  npx playwright show-report[39m
+[36m[39m
