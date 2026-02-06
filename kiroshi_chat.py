@@ -623,7 +623,10 @@ def main():
             value=st.session_state.get("ai_base_url", "http://localhost:8000/v1"),
         )
         api_key = st.text_input(
-            "API Key (optional)", type="password", key="openai_api_key"
+            "API Key (optional)",
+            type="password",
+            key="openai_api_key",
+            help="Some local models do not require authentication.",
         )
     else:
         st.session_state.ai_base_url = ""
@@ -663,9 +666,21 @@ def main():
                     st.markdown(reply)
                 save_memory(st.session_state.kiroshi_chat_history)
 
-    if st.button("Clear memory", help="Permanently delete conversation history"):
-        st.session_state.kiroshi_chat_history = []
-        save_memory([])
+    if st.session_state.get("confirm_clear_memory"):
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.warning("Permanently delete conversation history? This cannot be undone.")
+        with col2:
+            if st.button("Yes, clear history", type="primary"):
+                st.session_state.kiroshi_chat_history = []
+                save_memory([])
+                st.session_state.confirm_clear_memory = False
+                st.rerun()
+            if st.button("Cancel"):
+                st.session_state.confirm_clear_memory = False
+                st.rerun()
+    elif st.button("Clear memory", help="Permanently delete conversation history"):
+        st.session_state.confirm_clear_memory = True
         st.rerun()
 
 

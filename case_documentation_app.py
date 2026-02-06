@@ -11217,6 +11217,7 @@ def _render_settings_ai_tab() -> None:
             type="password",
             key="openai_api_key",
             on_change=_on_setting_change("openai_api_key"),
+            help="Some local servers (like LM Studio) do not require an API key.",
         )
         st.selectbox(
             "Model",
@@ -11778,7 +11779,9 @@ def _render_settings_updates_tab() -> None:
 
     update_status_obj = st.session_state.get("update_status")
     update_check_clicked = st.button(
-        "Check for updates", key=global_widget_key("update_check")
+        "Check for updates",
+        key=global_widget_key("update_check"),
+        help="Query GitHub for the latest release and patch notes.",
     )
     if update_check_clicked:
         st.session_state.update_apply_feedback = None
