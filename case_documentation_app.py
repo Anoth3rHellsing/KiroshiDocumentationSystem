@@ -5657,10 +5657,19 @@ def render_onboarding_tutorial() -> None:
 
         nav_cols = st.columns([1.2, 1, 1, 1])
         with nav_cols[0]:
-            if st.button("Skip tutorial", key=f"tutorial_skip_{step_idx}"):
+            if st.button(
+                "Skip tutorial",
+                key=f"tutorial_skip_{step_idx}",
+                help="Exit the tutorial and go straight to the Dashboard.",
+            ):
                 _mark_tutorial_completion("skipped")
         with nav_cols[1]:
-            if st.button("Back", disabled=step_idx == 0, key=f"tutorial_back_{step_idx}"):
+            if st.button(
+                "Back",
+                disabled=step_idx == 0,
+                key=f"tutorial_back_{step_idx}",
+                help="Return to the previous step.",
+            ):
                 st.session_state.tutorial_step = max(0, step_idx - 1)
                 st.rerun()
         with nav_cols[2]:
@@ -5671,8 +5680,18 @@ def render_onboarding_tutorial() -> None:
                 unsafe_allow_html=True,
             )
         next_label = "Finish" if step_idx == total_steps - 1 else "Next"
+        next_help = (
+            "Complete the tutorial."
+            if step_idx == total_steps - 1
+            else "Advance to the next step."
+        )
         with nav_cols[3]:
-            if st.button(next_label, disabled=not can_proceed, key=f"tutorial_next_{step_idx}"):
+            if st.button(
+                next_label,
+                disabled=not can_proceed,
+                key=f"tutorial_next_{step_idx}",
+                help=next_help,
+            ):
                 if step_idx == total_steps - 1:
                     _mark_tutorial_completion("completed")
                 else:
