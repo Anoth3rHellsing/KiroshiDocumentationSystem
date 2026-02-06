@@ -247,10 +247,14 @@ CASE_DEX_URL_TEMPLATE = os.environ.get(
 
 if os.name == "nt":
     PROGRAM_DATA_DIR = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Kiroshi Documentation"
-    DATABASE_DIR = Path("C:/ProgramFiles/KiroshiDatabase")
+    DATABASE_DIR = Path(
+        os.environ.get("KIROSHI_DATABASE_DIR", "C:/ProgramFiles/KiroshiDatabase")
+    )
 else:
     PROGRAM_DATA_DIR = Path.home() / "Kiroshi Documentation"
-    DATABASE_DIR = Path.home() / "KiroshiDatabase"
+    DATABASE_DIR = Path(
+        os.environ.get("KIROSHI_DATABASE_DIR", str(Path.home() / "KiroshiDatabase"))
+    )
 
 DATABASE_DIR_PREEXISTED = DATABASE_DIR.exists()
 PROGRAM_DATA_SENTINEL = PROGRAM_DATA_DIR / "case_documentation_app.py"
