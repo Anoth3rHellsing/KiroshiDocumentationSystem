@@ -9052,7 +9052,7 @@ def _coerce_case_mapping(data: object) -> dict | None:
     return None
 
 
-class _CaseCache:
+class _CaseCacheV2:
     def __init__(self):
         self.lock = threading.Lock()
         self.data: dict[str, tuple[float, dict[str, object] | None]] = {}
@@ -9060,9 +9060,9 @@ class _CaseCache:
 
 
 @st.cache_resource
-def _get_global_case_cache() -> _CaseCache:
+def _get_global_case_cache() -> _CaseCacheV2:
     """Return a persistent thread-safe cache for case file content."""
-    return _CaseCache()
+    return _CaseCacheV2()
 
 
 @dataclass
@@ -9097,16 +9097,9 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             # Create a snapshot for return to avoid iteration issues if modified elsewhere
             snapshot = list(cache_obj.data.values())
 
-        # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
-            try:
-                return datetime.fromisoformat(str(t)).timestamp()
-            except ValueError:
-                return 0.0
-
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        # Use pre-calculated timestamp for O(1) key access during sort
+        valid_items_snapshot.sort(key=lambda x: x.get("_updated_ts", 0.0), reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9201,12 +9194,16 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         tags.append(label)
 
                 last_modified = data.get("last_modified")
+                last_modified_ts = 0.0
                 if not last_modified:
-                    last_modified = (
-                        datetime.fromtimestamp(mtime)
-                        .replace(microsecond=0)
-                        .isoformat()
-                    )
+                    dt = datetime.fromtimestamp(mtime).replace(microsecond=0)
+                    last_modified = dt.isoformat()
+                    last_modified_ts = dt.timestamp()
+                else:
+                    try:
+                        last_modified_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except ValueError:
+                        last_modified_ts = 0.0
 
                 version = data.get("kiroshi_version")
                 version_label = f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}"
@@ -9248,6 +9245,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": last_modified_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
