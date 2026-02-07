@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-24 - Clustering Optimization via Branch-and-Bound
+**Learning:** Text clustering loops ((N \cdot C)$) can be significantly sped up by using a cheap similarity metric (Jaccard) to calculate an upper bound for the expensive metric (SequenceMatcher). If the upper bound is less than the current best score, the expensive calculation is skipped.
+**Action:** Implemented Jaccard-based branch-and-bound in `_title_similarity_score` and added an early exit for near-perfect matches in `_cluster_case_titles`. Benchmarking showed ~20% improvement on repetitive datasets. Validated using `ast`-based extraction to benchmark internal logic without triggering Streamlit side effects.
