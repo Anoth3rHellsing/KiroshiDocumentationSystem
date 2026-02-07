@@ -12,5 +12,6 @@ test('sanity check', async ({ page }) => {
   await expect(page.getByRole('tab', { name: 'Dashboard' })).toBeVisible();
 
   // Verify main content is loaded
-  await expect(page.getByText('Tracked Cases')).toBeVisible();
+  // Use exact match to avoid matching "No tracked cases to visualize yet."
+  await expect(page.getByText('Tracked Cases', { exact: true })).toBeVisible();
 });
