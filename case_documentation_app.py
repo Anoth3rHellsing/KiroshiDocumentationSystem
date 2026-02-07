@@ -12281,6 +12281,7 @@ def show_incident_report_modal() -> None:
             if capture_cols[0].button(
                 "Capture region",
                 key=global_widget_key("incident_capture"),
+                help="Select a specific area of the screen to include in the report.",
             ):
                 shot_label = (shot_name or "").strip()
                 safe_name = shot_label or f"incident_{int(time.time())}"
@@ -12293,6 +12294,7 @@ def show_incident_report_modal() -> None:
             if capture_cols[1].button(
                 "Use full screenshot",
                 key=global_widget_key("incident_full_capture"),
+                help="Capture the entire screen content for the report.",
             ):
                 shot_label = (shot_name or "").strip()
                 safe_name = shot_label or f"incident_{int(time.time())}"
@@ -12335,7 +12337,11 @@ def show_incident_report_modal() -> None:
                 if isinstance(candidate_case, CaseData):
                     case_data = candidate_case
 
-        if st.button("Generate PDF", key=global_widget_key("incident_generate_pdf")):
+        if st.button(
+            "Generate PDF",
+            key=global_widget_key("incident_generate_pdf"),
+            help="Compile logs, system context, and your notes into a downloadable PDF report.",
+        ):
             logs = _collect_recent_logs()
             case_snapshot = _case_metadata_snapshot(case_idx_int)
             try:
@@ -12352,7 +12358,11 @@ def show_incident_report_modal() -> None:
                 st.session_state.incident_reporter_pdf = pdf_bytes
                 st.success("Incident PDF generated. Download below.")
 
-        if st.button("Create Helpjuice guide", key=global_widget_key("incident_helpjuice")):
+        if st.button(
+            "Create Helpjuice guide",
+            key=global_widget_key("incident_helpjuice"),
+            help="Generate a structured Markdown outline for a Helpjuice article based on this incident.",
+        ):
             logs = _collect_recent_logs()
             matches = st.session_state.get("ai_learning_matches") or []
             manual_docs = st.session_state.get("manual_docs") or []
@@ -12398,7 +12408,11 @@ def show_incident_report_modal() -> None:
                 key=global_widget_key("incident_helpjuice_download"),
             )
 
-        if st.button("Close", key=global_widget_key("incident_close")):
+        if st.button(
+            "Close",
+            key=global_widget_key("incident_close"),
+            help="Dismiss the incident reporter modal.",
+        ):
             st.session_state.reporter_open = False
             st.session_state.incident_reporter_pdf = None
             st.session_state.incident_reporter_capture_error = None
