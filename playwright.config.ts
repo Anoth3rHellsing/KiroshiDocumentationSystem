@@ -14,6 +14,12 @@ export default defineConfig({
     ['list'],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
   ],
+  webServer: {
+    command: 'streamlit run case_documentation_app.py --server.port 8501 --server.headless true',
+    url: 'http://127.0.0.1:8501',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
+  },
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8501',
     trace: 'on-first-retry',

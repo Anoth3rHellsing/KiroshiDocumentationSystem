@@ -9596,7 +9596,7 @@ def _load_sprint_state_worker(mtime: float) -> SprintState:
             ]
         return SprintState(**data)
     except Exception:
-        return SprintState()
+        return SprintState(date=datetime.now().date().isoformat())
 
 
 def load_sprint_state() -> SprintState:
