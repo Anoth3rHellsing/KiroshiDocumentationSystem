@@ -17,7 +17,7 @@ export default defineConfig({
   webServer: {
     command: 'streamlit run case_documentation_app.py --server.port 8501 --server.headless true',
     url: 'http://127.0.0.1:8501',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
     timeout: 120 * 1000,
   },
   use: {
