@@ -19550,14 +19550,35 @@ End with: We look forward to your reply."""
                     ensure_tracking_session_defaults(case_idx, D.tracking)
                     st.session_state.track_case = True
                     st.success("Tracking information saved.")
-            if st.button(
+            close_tracking_key = tracking_tab_key("close_tracking")
+            confirm_tracking_key = tracking_tab_key("confirm_close_tracking")
+
+            if st.session_state.get(confirm_tracking_key):
+                st.warning("Stop tracking this case? It will be removed from the dashboard.")
+                col_conf_yes, col_conf_no = st.columns(2)
+                if col_conf_yes.button(
+                    "Yes, stop tracking",
+                    key=tracking_tab_key("close_tracking_yes"),
+                    help="Confirm and stop tracking",
+                ):
+                    D.tracking.active = False
+                    save_case_to_database(D, notify=False)
+                    st.session_state.track_case = False
+                    st.session_state[confirm_tracking_key] = False
+                    st.rerun()
+                if col_conf_no.button(
+                    "Cancel",
+                    key=tracking_tab_key("close_tracking_no"),
+                    help="Cancel action",
+                ):
+                    st.session_state[confirm_tracking_key] = False
+                    st.rerun()
+            elif st.button(
                 "Close case & stop tracking",
-                key=tracking_tab_key("close_tracking"),
+                key=close_tracking_key,
                 help="Remove this case from the Dashboard tracking list and save changes",
             ):
-                D.tracking.active = False
-                save_case_to_database(D, notify=False)
-                st.session_state.track_case = False
+                st.session_state[confirm_tracking_key] = True
                 st.rerun()
 
 
