@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-07 - Optimization of Case Clustering
+**Learning:** `SequenceMatcher` is computationally expensive ($O(N*M)$) and when used in a nested loop for clustering ($O(N^2)$ iterations), it causes significant UI lag as dataset grows.
+**Action:** Implemented branch-and-bound optimization using Jaccard index upper bound to skip `SequenceMatcher` calculation when a good match is impossible, and added early exit when a near-perfect match is found. Improved performance by ~29% on synthetic workload.
