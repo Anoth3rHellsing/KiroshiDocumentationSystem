@@ -9330,19 +9330,8 @@ def _filter_tracked_cases(all_cases: list) -> list:
     return tracked
 
 
-@st.cache_data(ttl=None, max_entries=1)
-def _load_tracked_cases_worker(signature: str) -> list:
-    """Load tracked cases from the global case list, cached by signature."""
-    # The signature is derived from directory state to invalidate the cache
-    all_cases = _refresh_and_get_cases()
-    return _filter_tracked_cases(all_cases)
-
-
-def load_tracked_cases(source_data: list | None = None) -> list:
-    if source_data is not None:
-        return _filter_tracked_cases(source_data)
-
-    # Compute a lightweight signature of the directory state
+def _calculate_directory_signature() -> str:
+    """Calculate a lightweight signature of the directory state for caching."""
     # We use the mtime of the TrackedCases directory and Utilities/recent_cases.json
     # as a proxy for 'something relevant might have changed'.
     # Note: Directory mtime only changes on file add/remove/rename, not content change.
@@ -9362,12 +9351,36 @@ def load_tracked_cases(source_data: list | None = None) -> list:
             if last_save:
                 parts.append(str(last_save))
 
-        signature = hashlib.md5("".join(parts).encode("utf-8")).hexdigest()
+        return hashlib.md5("".join(parts).encode("utf-8")).hexdigest()
     except Exception:
         # Fallback to current time to force refresh if signature computation fails
-        signature = str(time.time())
+        return str(time.time())
 
-    return _load_tracked_cases_worker(signature)
+
+@st.cache_data(ttl=None, max_entries=1)
+def _load_all_cases_worker(signature: str) -> list[dict[str, object]]:
+    """Load all cases, cached until the directory signature changes."""
+    return _refresh_and_get_cases()
+
+
+def load_all_cases() -> list[dict[str, object]]:
+    """Load the full case list with smart caching for dashboard performance."""
+    signature = _calculate_directory_signature()
+    return _load_all_cases_worker(signature)
+
+
+@st.cache_data(ttl=None, max_entries=1)
+def _load_tracked_cases_worker(signature: str) -> list:
+    """Load tracked cases from the global case list, cached by signature."""
+    # The signature is derived from directory state to invalidate the cache
+    all_cases = _refresh_and_get_cases()
+    return _filter_tracked_cases(all_cases)
+
+
+def load_tracked_cases(source_data: list | None = None) -> list:
+    if source_data is not None:
+        return _filter_tracked_cases(source_data)
+    return _load_tracked_cases_worker(_calculate_directory_signature())
 
 
 def update_tracked_case_file(
@@ -10794,7 +10807,7 @@ def render_dashboard() -> None:
         st.session_state.dashboard_load_notice = None
 
     # Fetch all cases once to avoid redundant directory scanning in child components
-    all_cases = _refresh_and_get_cases()
+    all_cases = load_all_cases()
 
     tracked_cases = load_tracked_cases(source_data=all_cases)
     charts_col, main_col = st.columns([1.1, 2.4])

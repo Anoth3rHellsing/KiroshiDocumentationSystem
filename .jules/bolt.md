@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-08 - Smart Caching for File Scans
+**Learning:** In Streamlit, direct filesystem scanning (like `os.scandir` on thousands of files) inside the main render loop causes significant latency. `st.cache_data` can wrap these operations if a lightweight "signature" (e.g., mtime of a master index file like `recent_cases.json`) can reliably proxy for directory state changes.
+**Action:** Implemented `_calculate_directory_signature` to drive `load_all_cases`, reducing dashboard render time from O(N) file scan to O(1) cache lookup for read-heavy workloads.
