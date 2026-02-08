@@ -1,7 +1,14 @@
 
 import ast
 import os
-import pytest
+try:
+    import pytest
+except ImportError:
+    class MockPytest:
+        def skip(self, msg):
+            print(f"SKIPPING: {msg}")
+            exit(0)
+    pytest = MockPytest()
 
 APP_PATH = "case_documentation_app.py"
 
