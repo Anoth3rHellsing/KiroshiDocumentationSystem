@@ -15,3 +15,9 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-08 - Clustering Logic Optimization
+**Learning:** The `_cluster_case_titles` function performed an O(N*C) scan where every new title was compared against every existing cluster, even if a perfect match was already found. For large datasets or duplicates, this was inefficient.
+**Action:** Implemented two optimizations:
+1. Added branch-and-bound to `_title_similarity_score` using a cheap Jaccard index check to skip expensive `SequenceMatcher` calls.
+2. Added an early exit to `_cluster_case_titles` to stop searching once a near-perfect match (>0.99) is found.
