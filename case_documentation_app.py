@@ -2221,7 +2221,11 @@ def _check_installation_status() -> None:
         """
     ))
 
-    if st.button("Run Kiroshi Installer", type="primary"):
+    if st.button(
+        "Run Kiroshi Installer",
+        type="primary",
+        help="Launches the installer to fix missing dependencies and folders.",
+    ):
         _launch_installer_and_relaunch()
 
     st.info(
@@ -11634,7 +11638,11 @@ def _render_settings_cloud_tab() -> None:
                         st.error(f"No se pudo abrir la instancia de Kiroshi Cloud: {exc}")
                     return None
 
-                if st.button("Validar conexión", key=global_widget_key("cloud_validate")):
+                if st.button(
+                    "Validar conexión",
+                    key=global_widget_key("cloud_validate"),
+                    help="Verifica la conectividad y las credenciales del agente",
+                ):
                     session = _obtain_cloud_session()
                     if session:
                         selected_agents = [
