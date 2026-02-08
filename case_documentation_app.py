@@ -9098,15 +9098,21 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             snapshot = list(cache_obj.data.values())
 
         # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
+        # Optimized: use pre-calculated float timestamp if available
+        def _parse_time_snapshot(item):
+            ts = item.get("_updated_ts")
+            if ts is not None:
+                return ts
+            t = item.get("updated")
+            if not t:
+                return 0.0
             try:
                 return datetime.fromisoformat(str(t)).timestamp()
             except ValueError:
                 return 0.0
 
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=_parse_time_snapshot, reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9201,12 +9207,17 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         tags.append(label)
 
                 last_modified = data.get("last_modified")
+                updated_ts = 0.0
+                if last_modified:
+                    try:
+                        updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except ValueError:
+                        pass
+
                 if not last_modified:
-                    last_modified = (
-                        datetime.fromtimestamp(mtime)
-                        .replace(microsecond=0)
-                        .isoformat()
-                    )
+                    dt = datetime.fromtimestamp(mtime).replace(microsecond=0)
+                    last_modified = dt.isoformat()
+                    updated_ts = dt.timestamp()
 
                 version = data.get("kiroshi_version")
                 version_label = f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}"
@@ -9248,6 +9259,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": updated_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
@@ -9283,15 +9295,20 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     # 3. Collect valid results
     # Sort by updated time (descending) to match expected "recent" behavior
-    def _parse_time(t):
-        if not t: return 0.0
+    def _parse_time(item):
+        ts = item.get("_updated_ts")
+        if ts is not None:
+            return ts
+        t = item.get("updated")
+        if not t:
+            return 0.0
         try:
             return datetime.fromisoformat(str(t)).timestamp()
         except ValueError:
             return 0.0
 
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    valid_items.sort(key=_parse_time, reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
