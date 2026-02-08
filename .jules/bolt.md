@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-08 - Caching Static Storage Initialization
+**Learning:** Initializing static storage paths (mkdirs) in the main script body of a Streamlit app causes redundant system calls on every interaction (rerun).
+**Action:** Move static directory creation to a dedicated function decorated with `@st.cache_resource` to ensure it runs only once per server session, reducing I/O overhead.

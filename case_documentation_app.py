@@ -405,8 +405,9 @@ def _ensure_case_attachments_root() -> tuple[Path, OSError | None]:
         return CASE_ATTACHMENTS_ROOT, exc
 
 
-def _initialize_storage_paths() -> None:
-    """Ensure user-writable directories exist after installation is verified."""
+@st.cache_resource
+def _ensure_static_storage_paths() -> None:
+    """Ensure static application directories exist (cached globally)."""
 
     DATABASE_DIR.mkdir(parents=True, exist_ok=True)
     UTILITIES_DIR.mkdir(parents=True, exist_ok=True)
@@ -414,6 +415,12 @@ def _initialize_storage_paths() -> None:
     if not RECENT_CASES_PATH.exists():
         RECENT_CASES_PATH.write_text("[]", encoding="utf-8")
     TRACKED_CASES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _initialize_storage_paths() -> None:
+    """Ensure user-writable directories exist after installation is verified."""
+
+    _ensure_static_storage_paths()
     _ensure_case_attachments_root()
 
 APP_ROOT = Path(__file__).resolve().parent
