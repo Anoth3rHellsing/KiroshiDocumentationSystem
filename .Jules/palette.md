@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Streamlit Column Layouts
+**Learning:** Placing full-width elements (like warnings) inside `st.columns` can cause misalignment with other column content.
+**Action:** Place wide alerts or instructions outside `st.columns` blocks, using the columns only for the buttons or inputs that need side-by-side positioning.
