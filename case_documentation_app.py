@@ -9613,10 +9613,7 @@ def get_tracked_cases_for_sprint() -> list[dict[str, object]]:
 @st.cache_data(ttl=None, max_entries=100)
 def _load_full_case_data_worker(path: str, mtime: float) -> dict[str, object]:
     """Worker for load_full_case_data, cached by modification time."""
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def load_full_case_data(path: str) -> dict[str, object]:
@@ -9625,9 +9622,9 @@ def load_full_case_data(path: str) -> dict[str, object]:
         return {}
     try:
         mtime = p.stat().st_mtime
-    except OSError:
+        return _load_full_case_data_worker(path, mtime)
+    except Exception:
         return {}
-    return _load_full_case_data_worker(path, mtime)
 
 
 def update_case_fields(path: str, fields: dict[str, object]) -> None:
@@ -15047,7 +15044,12 @@ def _apply_case_payload(
 def load_case_from_path(path: str) -> None:
     try:
         with loading_indicator():
-            raw_data = json.loads(Path(path).read_text(encoding="utf-8"))
+            p = Path(path)
+            if not p.exists():
+                raise FileNotFoundError(f"File not found: {path}")
+            mtime = p.stat().st_mtime
+            raw_data = _load_full_case_data_worker(path, mtime)
+
             attachments_data: Mapping[str, Iterable[Mapping[str, object]]] | Mapping[str, object] | None = {}
             if isinstance(raw_data, Mapping):
                 attachments_data = raw_data.get("attachments")

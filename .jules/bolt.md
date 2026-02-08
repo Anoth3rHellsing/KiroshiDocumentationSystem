@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-08 - Streamlit Cache Strategy for Active vs. Bulk Operations
+**Learning:** `load_case_from_path` (loading a single active case) was performing direct I/O, missing the `@st.cache_data` benefit used elsewhere. However, bulk operations like dashboard scanning (`_refresh_and_get_cases`) intentionally avoid the LRU cache to prevent thrashing.
+**Action:** Optimized `load_case_from_path` to reuse the cached `_load_full_case_data_worker`, but kept exception propagation enabled to preserve error reporting for the active user session.
