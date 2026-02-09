@@ -8,3 +8,6 @@ JavaSTools/dist/
 JavaSTools/build/
 .env
 temp_benchmark_data/
+playwright-report/
+test-results/
+streamlit.log
