@@ -11634,7 +11634,11 @@ def _render_settings_cloud_tab() -> None:
                         st.error(f"No se pudo abrir la instancia de Kiroshi Cloud: {exc}")
                     return None
 
-                if st.button("Validar conexión", key=global_widget_key("cloud_validate")):
+                if st.button(
+                    "Validar conexión",
+                    key=global_widget_key("cloud_validate"),
+                    help="Verifica las credenciales y el estado de la conexión con Kiroshi Cloud",
+                ):
                     session = _obtain_cloud_session()
                     if session:
                         selected_agents = [
