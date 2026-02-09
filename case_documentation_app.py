@@ -9141,13 +9141,15 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
     # if we actually have work to do.
     paths_to_process = []
 
+    deleted_paths = set()
     with cache_obj.lock:
         cache = cache_obj.data
         cached_paths = set(cache.keys())
         current_paths = set(current_files.keys())
 
         # Remove deleted files
-        for p in cached_paths - current_paths:
+        deleted_paths = cached_paths - current_paths
+        for p in deleted_paths:
             del cache[p]
 
         # Check for updates or new files
@@ -9155,6 +9157,12 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             cached_entry = cache.get(path)
             if cached_entry is None or cached_entry[0] != mtime:
                 paths_to_process.append((path, mtime))
+
+    if not paths_to_process and not deleted_paths:
+        with cache_obj.lock:
+            cache_obj.last_scan_ts = time.time()
+        throttle.last_run = time.time()
+        return list(throttle.data)
 
     # If no files need updating, we can skip the heavy setup logic entirely.
     context = {}
