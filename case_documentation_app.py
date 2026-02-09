@@ -9098,15 +9098,9 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             snapshot = list(cache_obj.data.values())
 
         # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
-            try:
-                return datetime.fromisoformat(str(t)).timestamp()
-            except ValueError:
-                return 0.0
-
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        # Use pre-calculated timestamp if available (which avoids expensive parsing)
+        valid_items_snapshot.sort(key=lambda x: x.get("_updated_ts", 0.0), reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9241,6 +9235,14 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     or ""
                 )
 
+                # Calculate _updated_ts once for efficient sorting
+                _updated_ts = 0.0
+                try:
+                    if last_modified:
+                        _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                except ValueError:
+                    pass
+
                 processed = {
                     # Standard list fields
                     "case_id": case_id,
@@ -9248,6 +9250,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": _updated_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
@@ -9283,15 +9286,9 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     # 3. Collect valid results
     # Sort by updated time (descending) to match expected "recent" behavior
-    def _parse_time(t):
-        if not t: return 0.0
-        try:
-            return datetime.fromisoformat(str(t)).timestamp()
-        except ValueError:
-            return 0.0
-
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    # Use pre-calculated timestamp if available (which avoids expensive parsing)
+    valid_items.sort(key=lambda x: x.get("_updated_ts", 0.0), reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
