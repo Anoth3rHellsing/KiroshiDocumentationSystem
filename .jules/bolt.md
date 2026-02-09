@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-09 - Sort Optimization in case_documentation_app.py
+**Learning:** `datetime.fromisoformat` is relatively slow when called repeatedly in a sort key lambda for thousands of items.
+**Action:** Pre-calculate the timestamp as a float during data loading/processing and store it in the dictionary (e.g., `_updated_ts`). Use this float for sorting to avoid parsing overhead on every render/sort.

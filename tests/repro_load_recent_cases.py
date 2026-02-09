@@ -29,9 +29,18 @@ sys.modules["reportlab.lib.styles"] = MagicMock()
 sys.modules["reportlab.platypus"] = MagicMock()
 sys.modules["reportlab.graphics.shapes"] = MagicMock()
 sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
+sys.modules["requests"] = MagicMock()
+sys.modules["urllib3"] = MagicMock()
+sys.modules["kiroshi_cloud_sync"] = MagicMock()
+sys.modules["kiroshi_chat"] = MagicMock()
+sys.modules["kiroshi_local_ai"] = MagicMock()
+sys.modules["kiroshi_video"] = MagicMock()
+sys.modules["kiroshi_hotkeys"] = MagicMock()
 
 # Mock st.cache_data to do nothing (passthrough)
 def cache_data_mock(*args, **kwargs):
+    if len(args) == 1 and callable(args[0]):
+        return args[0]
     def decorator(func):
         return func
     return decorator
