@@ -8,5 +8,3 @@ JavaSTools/dist/
 JavaSTools/build/
 .env
 temp_benchmark_data/
-*.png
-*.log
