@@ -155,11 +155,16 @@ from kiroshi_cloud_sync import (
 from kiroshi_video import optimize_video
 from kiroshi_hotkeys import ensure_hotkey_listener, update_hotkey_snapshot
 
+# SECURITY: Verify SSL certificates by default to prevent MITM attacks.
+# Set KIROSHI_INSECURE_SKIP_VERIFY=true to disable if absolutely necessary (e.g. corporate proxies).
+VERIFY_SSL = os.environ.get("KIROSHI_INSECURE_SKIP_VERIFY", "false").lower() != "true"
+
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
 # warnings and certificate verification for outbound requests so the
 # ChatGPT API and GitHub update checks can still be reached.
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+if not VERIFY_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 @contextmanager
@@ -1379,7 +1384,7 @@ def _discover_default_branch(repo: str) -> str | None:
             api_url,
             headers=headers,
             timeout=UPDATE_CHECK_TIMEOUT,
-            verify=False,
+            verify=VERIFY_SSL,
         )
         response.raise_for_status()
     except requests.HTTPError as exc:
@@ -1455,7 +1460,7 @@ def _discover_remote_app_paths(repo: str, branch: str) -> Iterable[str]:
             api_url,
             headers=headers,
             timeout=UPDATE_CHECK_TIMEOUT,
-            verify=False,
+            verify=VERIFY_SSL,
         )
         response.raise_for_status()
     except requests.HTTPError as exc:
@@ -1496,7 +1501,7 @@ def _ensure_update_branch_accessible(repo: str, branch: str) -> None:
             api_url,
             headers=headers,
             timeout=UPDATE_CHECK_TIMEOUT,
-            verify=False,
+            verify=VERIFY_SSL,
         )
     except requests.RequestException as exc:  # pragma: no cover - network errors
         logging.debug(
@@ -1585,7 +1590,7 @@ def _download_remote_app_source(repo: str, branch: str, path: str) -> str:
             headers=_build_github_headers(),
             params={"ref": branch},
             timeout=UPDATE_CHECK_TIMEOUT,
-            verify=False,
+            verify=VERIFY_SSL,
         )
         response.raise_for_status()
         payload = response.json()
@@ -1607,7 +1612,7 @@ def _download_remote_app_source(repo: str, branch: str, path: str) -> str:
                     download_url,
                     headers=download_headers,
                     timeout=UPDATE_CHECK_TIMEOUT,
-                    verify=False,
+                    verify=VERIFY_SSL,
                 )
                 response.raise_for_status()
                 return response.text
@@ -1616,7 +1621,7 @@ def _download_remote_app_source(repo: str, branch: str, path: str) -> str:
         )
 
     raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
-    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=False)
+    response = requests.get(raw_url, timeout=UPDATE_CHECK_TIMEOUT, verify=VERIFY_SSL)
     response.raise_for_status()
     return response.text
 
@@ -1668,7 +1673,7 @@ def _fetch_latest_commit_info(repo: str, branch: str) -> dict[str, str | None]:
         api_url,
         headers=headers,
         timeout=UPDATE_CHECK_TIMEOUT,
-        verify=False,
+        verify=VERIFY_SSL,
     )
     response.raise_for_status()
     payload = response.json()
@@ -1730,7 +1735,7 @@ def apply_github_update(repo: str, branch: str) -> Path:
             download_url,
             stream=True,
             timeout=UPDATE_CHECK_TIMEOUT,
-            verify=False,
+            verify=VERIFY_SSL,
         ) as response:
             response.raise_for_status()
             with archive_path.open("wb") as fh:
@@ -15186,7 +15191,7 @@ def request_case_dex(case_id: str) -> bytes:
 
     url = CASE_DEX_URL_TEMPLATE.format(case_id=case_id)
     logging.info("Requesting Case Dex from %s", url)
-    response = requests.get(url, verify=False, timeout=30)
+    response = requests.get(url, verify=VERIFY_SSL, timeout=30)
     response.raise_for_status()
     return response.content
 
