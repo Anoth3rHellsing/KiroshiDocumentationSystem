@@ -124,36 +124,6 @@ try:  # mss offers a headless-friendly screen capture fallback
 except Exception:  # pragma: no cover - optional dependency
     mss = None
     MSS_AVAILABLE = False
-from kiroshi_chat import (
-    load_memory,
-    save_memory,
-    query_kiroshi,
-    SYSTEM_PROMPT,
-    load_manual_docs,
-    save_manual_docs,
-    search_manual_docs,
-    get_assistant_notes,
-    set_assistant_notes,
-    build_assistant_memory_prompt,
-    build_system_prompt,
-)
-from kiroshi_local_ai import (
-    check_model_exists,
-    download_model,
-    MODELS
-)
-from kiroshi_cloud_sync import (
-    AgentBlockedError as CloudAgentBlockedError,
-    AuthenticationError as CloudAuthenticationError,
-    CloudError as KiroshiCloudError,
-    cloud_share_status,
-    open_cloud_session as open_kiroshi_cloud_session,
-    summarize_dataset as summarize_cloud_dataset,
-    decode_device_token,
-    overlay_guidance,
-)
-from kiroshi_video import optimize_video
-from kiroshi_hotkeys import ensure_hotkey_listener, update_hotkey_snapshot
 
 # Some corporate networks perform SSL interception with a self-signed
 # certificate, which breaks standard certificate validation.  Disable
@@ -193,6 +163,49 @@ def _require_reportlab_charts() -> None:
 
 
 VERSION = "1.8 Release Candidate 1"
+
+# Local logo assets from repository
+ASSETS_DIR = Path(__file__).parent
+KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
+KIROSHI_CHAT_LOGO_PATH = KIROSHI_LOGO_PATH
+
+# ─────────────────────────── CONFIG ────────────────────────────
+st.set_page_config(
+    page_title=f"Kiroshi {VERSION}",
+    layout="wide",
+    page_icon=str(KIROSHI_LOGO_PATH),
+)
+
+from kiroshi_chat import (
+    load_memory,
+    save_memory,
+    query_kiroshi,
+    SYSTEM_PROMPT,
+    load_manual_docs,
+    save_manual_docs,
+    search_manual_docs,
+    get_assistant_notes,
+    set_assistant_notes,
+    build_assistant_memory_prompt,
+    build_system_prompt,
+)
+from kiroshi_local_ai import (
+    check_model_exists,
+    download_model,
+    MODELS
+)
+from kiroshi_cloud_sync import (
+    AgentBlockedError as CloudAgentBlockedError,
+    AuthenticationError as CloudAuthenticationError,
+    CloudError as KiroshiCloudError,
+    cloud_share_status,
+    open_cloud_session as open_kiroshi_cloud_session,
+    summarize_dataset as summarize_cloud_dataset,
+    decode_device_token,
+    overlay_guidance,
+)
+from kiroshi_video import optimize_video
+from kiroshi_hotkeys import ensure_hotkey_listener, update_hotkey_snapshot
 TODAY_STR = datetime.now().strftime("%d%m%Y")
 AUTOSAVE_FILE = "autosave.json"
 AUTOSAVE_DIR = Path("autosaves")
@@ -2296,10 +2309,6 @@ def invoke_gpt(
     return reply
 
 
-# Local logo assets from repository
-ASSETS_DIR = Path(__file__).parent
-KIROSHI_LOGO_PATH = ASSETS_DIR / "Kiroshi_Logo.png"
-KIROSHI_CHAT_LOGO_PATH = KIROSHI_LOGO_PATH
 
 KIROSHI_QUIPS_GENERAL = [
     "Good morning! Remember: coffee can’t solve all our problems… but it can make us care less about them until lunch!",
@@ -4660,11 +4669,6 @@ def get_session_state_snapshot():
     return {str(key): make_json_safe(val) for key, val in st.session_state.items()}
 
 # ─────────────────────────── CONFIG ────────────────────────────
-st.set_page_config(
-    page_title=f"Kiroshi {VERSION}",
-    layout="wide",
-    page_icon=str(KIROSHI_LOGO_PATH),
-)
 
 _check_installation_status()
 

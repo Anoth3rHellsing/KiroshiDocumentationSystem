@@ -34,6 +34,10 @@ sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
 def cache_data_mock(*args, **kwargs):
     def decorator(func):
         return func
+
+    if len(args) == 1 and callable(args[0]):
+        return args[0]
+
     return decorator
 
 st_mock.cache_data = cache_data_mock
