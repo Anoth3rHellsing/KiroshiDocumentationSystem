@@ -16475,7 +16475,11 @@ def render_description_and_internal_notes(container, compact_mode: bool) -> None
         else:
             ft_case_ref = ""
 
-        if description_col.button("Insert into Additional Info", key=widget_key("ft_insert", CURRENT_CASE_IDX)):
+        if description_col.button(
+            "Insert into Additional Info",
+            key=widget_key("ft_insert", CURRENT_CASE_IDX),
+            help="Appends a standard recurrence note to the 'Additional details' field.",
+        ):
             to_append = ""
             if ft_choice == "Yes":
                 to_append = "This is the first time this issue happens."
@@ -16599,7 +16603,11 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
         else:
             av_name = ""
 
-        if av_col.button("Insert", key=widget_key("av_insert", CURRENT_CASE_IDX)):
+        if av_col.button(
+            "Insert",
+            key=widget_key("av_insert", CURRENT_CASE_IDX),
+            help="Logs the antivirus status to the 'Additional details' field.",
+        ):
             av_text = ""
             if av_choice == "Yes":
                 name_str = av_name.strip() or "[Name]"
@@ -16626,7 +16634,11 @@ def render_conclusion_and_additional(container, compact_mode: bool) -> None:
             horizontal=True,
             key=fw_key,
         )
-        if fw_col.button("Insert", key=widget_key("fw_insert", CURRENT_CASE_IDX)):
+        if fw_col.button(
+            "Insert",
+            key=widget_key("fw_insert", CURRENT_CASE_IDX),
+            help="Logs the firewall status to the 'Additional details' field.",
+        ):
             fw_text = ""
             if fw_choice == "Yes":
                 fw_text = "Firewalls are ON"

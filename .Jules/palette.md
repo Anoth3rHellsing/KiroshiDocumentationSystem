@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-24 - Tooltips on Action Buttons
+**Learning:** Buttons labeled with generic actions like "Insert" or "Add" must have a tooltip explaining the specific side-effect (e.g., "Appends text to field X") to prevent user confusion.
+**Action:** Always add a `help=` parameter to action buttons that modify other fields.
