@@ -551,6 +551,32 @@ def query_kiroshi(user_message, history, api_key, model, base_url=None):
     raise RuntimeError(f"API Error {response.status_code}: {response.text}")
 
 
+def render_clear_memory_button():
+    """Render a button to clear chat memory with a confirmation dialog."""
+    if "confirm_clear_memory" not in st.session_state:
+        st.session_state.confirm_clear_memory = False
+
+    if st.button("Clear memory", help="Permanently delete conversation history"):
+        st.session_state.confirm_clear_memory = True
+        st.rerun()
+
+    if st.session_state.confirm_clear_memory:
+        st.warning(
+            "Are you sure you want to delete all conversation history? This cannot be undone."
+        )
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Yes, delete it", type="primary"):
+                st.session_state.kiroshi_chat_history = []
+                save_memory([])
+                st.session_state.confirm_clear_memory = False
+                st.rerun()
+        with col2:
+            if st.button("Cancel"):
+                st.session_state.confirm_clear_memory = False
+                st.rerun()
+
+
 def main():
     configure_page()
     st.image(str(KIROSHI_CHAT_LOGO_PATH), width=120)
@@ -663,10 +689,7 @@ def main():
                     st.markdown(reply)
                 save_memory(st.session_state.kiroshi_chat_history)
 
-    if st.button("Clear memory", help="Permanently delete conversation history"):
-        st.session_state.kiroshi_chat_history = []
-        save_memory([])
-        st.rerun()
+    render_clear_memory_button()
 
 
 if __name__ == "__main__":
