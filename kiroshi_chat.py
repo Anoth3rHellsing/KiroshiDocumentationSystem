@@ -9,7 +9,11 @@ from pathlib import Path
 from kiroshi_local_ai import generate_response
 
 # Disable SSL warnings for corporate environments with interception proxies
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Only if explicitly requested via environment variable.
+VERIFY_SSL = os.environ.get("KIROSHI_INSECURE_SKIP_VERIFY", "false").lower() != "true"
+
+if not VERIFY_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Asset paths used by the Streamlit UI.  They are defined at import time so
 # other modules can reference them, but the actual page configuration is
@@ -543,7 +547,7 @@ def query_kiroshi(user_message, history, api_key, model, base_url=None):
         headers=headers,
         json={"model": model, "messages": messages, "temperature": 1},
         timeout=120,
-        verify=False,
+        verify=VERIFY_SSL,
     )
     if response.status_code == 200:
         data = response.json()
