@@ -13,7 +13,7 @@ import copy
 st_mock = MagicMock()
 # Mock session_state as a MagicMock to allow attribute access
 st_mock.session_state = MagicMock()
-# Ensure dictionary-like behavior for session_state if needed
+# Ensure dictionary-like behavior for session_state if needed (though app uses attribute access mostly)
 st_mock.session_state.__getitem__ = MagicMock(return_value=None)
 st_mock.session_state.get = MagicMock(return_value=None)
 
@@ -30,14 +30,42 @@ sys.modules["reportlab.platypus"] = MagicMock()
 sys.modules["reportlab.graphics.shapes"] = MagicMock()
 sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
 
-# Mock st.cache_data to do nothing (passthrough)
-def cache_data_mock(*args, **kwargs):
-    def decorator(func):
-        return func
-    return decorator
+# Additional mocks required
+sys.modules["requests"] = MagicMock()
+sys.modules["urllib3"] = MagicMock()
+sys.modules["cryptography"] = MagicMock()
+sys.modules["cryptography.hazmat"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives.kdf"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives.kdf.pbkdf2"] = MagicMock()
+sys.modules["cryptography.hazmat.backends"] = MagicMock()
+sys.modules["pyperclip"] = MagicMock()
+sys.modules["pynput"] = MagicMock()
+sys.modules["kiroshi_chat"] = MagicMock()
+sys.modules["kiroshi_local_ai"] = MagicMock()
+sys.modules["kiroshi_cloud_sync"] = MagicMock()
+sys.modules["kiroshi_video"] = MagicMock()
+sys.modules["kiroshi_hotkeys"] = MagicMock()
+sys.modules["pyautogui"] = MagicMock()
+sys.modules["PIL"] = MagicMock()
+sys.modules["mss"] = MagicMock()
+sys.modules["pytesseract"] = MagicMock()
+sys.modules["tkinter"] = MagicMock()
 
-st_mock.cache_data = cache_data_mock
-st_mock.cache_resource = cache_data_mock
+
+# Robust mock for st.cache_data/cache_resource
+def cache_mock(func_or_ttl=None, **kwargs):
+    if callable(func_or_ttl):
+        # Called as @st.cache_resource
+        return func_or_ttl
+    else:
+        # Called as @st.cache_resource(...)
+        def decorator(func):
+            return func
+        return decorator
+
+st_mock.cache_data = cache_mock
+st_mock.cache_resource = cache_mock
 st_mock.error = MagicMock()
 
 # Define StreamlitAPIException
@@ -77,41 +105,28 @@ import case_documentation_app
 
 class TestLoadRecentCasesPerformance(unittest.TestCase):
     def test_load_recent_cases_performance(self):
-        # Create a temporary file for recent cases
-        with patch("case_documentation_app.RECENT_CASES_PATH") as mock_path:
-            # Create a large list of recent cases
-            num_cases = 100
-            recent_cases = []
-            for i in range(num_cases):
-                recent_cases.append({
-                    "case_id": f"CASE-{i}",
-                    "path": f"/tmp/case_{i}.json",
-                    "last_modified": "2023-01-01T00:00:00"
-                })
+        # Mock recent cases data (list of dicts)
+        mock_recent_cases = [{
+            "case_id": f"CASE-{i}",
+            "path": f"/tmp/case_{i}.json",
+            "last_modified": "2023-01-01T00:00:00"
+        } for i in range(5000)]
 
-            mock_path.exists.return_value = True
-            # Simulate read_text cost slightly
-            mock_path.read_text.return_value = json.dumps(recent_cases)
-            mock_path.stat.return_value.st_mtime = 123456789.0
+        # Mock RECENT_CASES_PATH
+        mock_path = MagicMock()
+        mock_path.read_text.return_value = json.dumps(mock_recent_cases)
+        mock_path.exists.return_value = True
+        mock_path.stat.return_value.st_mtime = 123456.0
 
-            # Reset the cache in case it was used
-            if hasattr(case_documentation_app, "_recent_cases_cache"):
-                case_documentation_app._recent_cases_cache = None
+        with patch("case_documentation_app.RECENT_CASES_PATH", mock_path):
+             start_time = time.perf_counter()
+             recent = case_documentation_app.load_recent_cases()
+             end_time = time.perf_counter()
 
-            # Force uncached behavior to test raw performance
-            # Actually, the function calls _load_recent_cases_from_disk_cached
-            # But we mocked st.cache_data to be a passthrough, so it will execute every time.
+             duration = (end_time - start_time) * 1000 # ms
+             print(f"load_recent_cases took {duration:.2f}ms for {len(mock_recent_cases)} cases")
 
-            start_time = time.perf_counter()
-            # Run it multiple times to simulate re-renders
-            for _ in range(100):
-                data = case_documentation_app.load_recent_cases()
-            end_time = time.perf_counter()
-
-            duration = (end_time - start_time) * 1000 # ms
-            print(f"100 calls to load_recent_cases took {duration:.2f}ms")
-
-            self.assertEqual(len(data), 100)
+             self.assertEqual(len(recent), 5000)
 
 if __name__ == "__main__":
     unittest.main()

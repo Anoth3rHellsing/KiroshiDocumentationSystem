@@ -30,14 +30,42 @@ sys.modules["reportlab.platypus"] = MagicMock()
 sys.modules["reportlab.graphics.shapes"] = MagicMock()
 sys.modules["reportlab.graphics.widgets.markers"] = MagicMock()
 
-# Mock st.cache_data to do nothing (passthrough)
-def cache_data_mock(*args, **kwargs):
-    def decorator(func):
-        return func
-    return decorator
+# Additional mocks required
+sys.modules["requests"] = MagicMock()
+sys.modules["urllib3"] = MagicMock()
+sys.modules["cryptography"] = MagicMock()
+sys.modules["cryptography.hazmat"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives.kdf"] = MagicMock()
+sys.modules["cryptography.hazmat.primitives.kdf.pbkdf2"] = MagicMock()
+sys.modules["cryptography.hazmat.backends"] = MagicMock()
+sys.modules["pyperclip"] = MagicMock()
+sys.modules["pynput"] = MagicMock()
+sys.modules["kiroshi_chat"] = MagicMock()
+sys.modules["kiroshi_local_ai"] = MagicMock()
+sys.modules["kiroshi_cloud_sync"] = MagicMock()
+sys.modules["kiroshi_video"] = MagicMock()
+sys.modules["kiroshi_hotkeys"] = MagicMock()
+sys.modules["pyautogui"] = MagicMock()
+sys.modules["PIL"] = MagicMock()
+sys.modules["mss"] = MagicMock()
+sys.modules["pytesseract"] = MagicMock()
+sys.modules["tkinter"] = MagicMock()
 
-st_mock.cache_data = cache_data_mock
-st_mock.cache_resource = cache_data_mock
+
+# Robust mock for st.cache_data/cache_resource
+def cache_mock(func_or_ttl=None, **kwargs):
+    if callable(func_or_ttl):
+        # Called as @st.cache_resource
+        return func_or_ttl
+    else:
+        # Called as @st.cache_resource(...)
+        def decorator(func):
+            return func
+        return decorator
+
+st_mock.cache_data = cache_mock
+st_mock.cache_resource = cache_mock
 st_mock.error = MagicMock()
 
 # Define StreamlitAPIException
