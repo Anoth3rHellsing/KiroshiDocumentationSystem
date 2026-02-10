@@ -9098,7 +9098,13 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             snapshot = list(cache_obj.data.values())
 
         # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
+        def _get_sort_key_snapshot(x: dict) -> float:
+            # Bolt Optimization: Use pre-calculated timestamp if available
+            ts = x.get("_updated_ts")
+            if isinstance(ts, (int, float)):
+                return float(ts)
+            # Fallback for legacy cache entries
+            t = x.get("updated")
             if not t: return 0.0
             try:
                 return datetime.fromisoformat(str(t)).timestamp()
@@ -9106,7 +9112,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                 return 0.0
 
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        valid_items_snapshot.sort(key=_get_sort_key_snapshot, reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9208,6 +9214,12 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         .isoformat()
                     )
 
+                # Bolt Optimization: Pre-calculate timestamp to avoid O(N) parsing during sort
+                try:
+                    updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                except ValueError:
+                    updated_ts = float(mtime)
+
                 version = data.get("kiroshi_version")
                 version_label = f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}"
                 if is_legacy_payload:
@@ -9248,6 +9260,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": updated_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
@@ -9283,7 +9296,13 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     # 3. Collect valid results
     # Sort by updated time (descending) to match expected "recent" behavior
-    def _parse_time(t):
+    def _get_sort_key(x: dict) -> float:
+        # Bolt Optimization: Use pre-calculated timestamp if available
+        ts = x.get("_updated_ts")
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        # Fallback for legacy cache entries
+        t = x.get("updated")
         if not t: return 0.0
         try:
             return datetime.fromisoformat(str(t)).timestamp()
@@ -9291,7 +9310,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             return 0.0
 
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    valid_items.sort(key=_get_sort_key, reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
