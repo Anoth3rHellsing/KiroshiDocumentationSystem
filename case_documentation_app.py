@@ -9106,7 +9106,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                 return 0.0
 
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+        # Optimization: use pre-calculated timestamp if available
+        valid_items_snapshot.sort(key=lambda x: x.get("_updated_ts") or _parse_time_snapshot(x.get("updated")), reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9241,6 +9242,14 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     or ""
                 )
 
+                # Pre-calculate timestamp for sorting optimization
+                _updated_ts = 0.0
+                if last_modified:
+                    try:
+                        _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except ValueError:
+                        pass
+
                 processed = {
                     # Standard list fields
                     "case_id": case_id,
@@ -9248,6 +9257,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "description": description,
                     "tags": tags,
                     "updated": last_modified,
+                    "_updated_ts": _updated_ts,
                     "last_modified": last_modified, # For compatibility
                     "kiroshi_version": version,
                     "version_label": version_label,
@@ -9291,7 +9301,8 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             return 0.0
 
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+    # Optimization: use pre-calculated timestamp if available
+    valid_items.sort(key=lambda x: x.get("_updated_ts") or _parse_time(x.get("updated")), reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
