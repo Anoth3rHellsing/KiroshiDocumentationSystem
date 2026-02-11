@@ -26,6 +26,7 @@ import re
 import base64
 import binascii
 import random
+import secrets
 import subprocess
 import sys
 import math
@@ -13058,6 +13059,11 @@ def render_smart_aid_panel() -> None:
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
+        if st.session_state.get("debug_default_creds_warning"):
+            st.warning(
+                "Using default debug credentials! Set KIROSHI_DEBUG_USER and "
+                "KIROSHI_DEBUG_PASSWORD environment variables for security."
+            )
         st.info("AI Configuration has been moved to Settings > AI & Knowledge.")
 
         st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
@@ -13137,8 +13143,19 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            debug_user_target = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+            debug_pass_target = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
+
+            user_ok = secrets.compare_digest(user, debug_user_target)
+            pass_ok = secrets.compare_digest(pw, debug_pass_target)
+
+            if user_ok and pass_ok:
                 st.session_state.debug_auth = True
+                if debug_user_target == "admin" and debug_pass_target == "admin":
+                    st.session_state.debug_default_creds_warning = True
+                else:
+                    st.session_state.debug_default_creds_warning = False
+                st.rerun()
             else:
                 st.error("Invalid credentials")
 
