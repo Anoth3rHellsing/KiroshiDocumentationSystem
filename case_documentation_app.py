@@ -13,6 +13,7 @@ import json
 import os
 import zipfile
 import shutil
+import secrets
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict, fields, field, is_dataclass
@@ -13137,7 +13138,17 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            env_user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+            env_pass = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
+
+            if env_user == "admin" and env_pass == "admin":
+                st.warning(
+                    "Warning: Using default debug credentials. Configure KIROSHI_DEBUG_USER and KIROSHI_DEBUG_PASSWORD environment variables to secure this panel."
+                )
+
+            if secrets.compare_digest(user, env_user) and secrets.compare_digest(
+                pw, env_pass
+            ):
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
