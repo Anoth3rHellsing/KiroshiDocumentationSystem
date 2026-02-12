@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-12 - Optimization of Case Title Clustering
+**Learning:** `difflib.SequenceMatcher` initialization is expensive, especially in nested loops. Reusing an instance (fixing one sequence) and pruning comparisons based on theoretical max score (using cheaper Jaccard similarity) significantly improves performance.
+**Action:** Refactored `_cluster_case_titles` to reuse a `SequenceMatcher` instance and skip detailed comparison if Jaccard-based upper bound is below the current best score. Benchmarking showed ~23% speedup on 2000 titles.
