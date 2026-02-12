@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-02-11 - Optimizing String Similarity in Loops
+**Learning:** In hot loops involving string comparisons (`SequenceMatcher`), pruning candidates using cheaper heuristics (like Jaccard index on tokens) before calculating the expensive metric can yield significant speedups (30%+).
+**Action:** When optimizing similarity search, check if a cheaper upper-bound metric can be computed first to skip expensive detailed comparisons. Also, hoisting invariant threshold calculations out of loops helps.
