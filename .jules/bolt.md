@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - Optimization of String Similarity Scoring
+**Learning:** `difflib.SequenceMatcher` in Python is notoriously slow to instantiate because it builds internal matching caches when initialized with strings. Instantiating a new `SequenceMatcher` inside a hot loop (like O(N^2) text clustering algorithms) creates a massive performance bottleneck.
+**Action:** Instead of calling `SequenceMatcher(None, str_a, str_b)` inside the loop, instantiate a single `matcher = SequenceMatcher()` outside the loop and use `matcher.set_seq1()` and `matcher.set_seq2()` to reuse the instance, which avoids redundant cache initialization overhead and speeds up string similarity algorithms significantly.
