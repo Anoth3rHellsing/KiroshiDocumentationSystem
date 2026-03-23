@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2026-03-23 - [Optimized startswith]
+**Learning:** `str.startswith()` in Python accepts a tuple of strings, which is implemented in C and runs significantly faster than looping through individual prefix strings in Python.
+**Action:** When matching a string against multiple possible prefixes, filter valid strings to a list once, and swap the token loop and prefixes loop to avoid redundant `isinstance` and string checks. Note that `startswith` natively taking a tuple does not match the semantic weighting logic of "multiple matching prefixes" that exists in legacy code.
