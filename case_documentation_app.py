@@ -13137,8 +13137,19 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            expected_user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+            expected_pw = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
+
+            import secrets
+            if secrets.compare_digest(user, expected_user) and secrets.compare_digest(pw, expected_pw):
+                if expected_user == "admin" and expected_pw == "admin":
+                    st.warning("Warning: Default debug credentials are in use. Set KIROSHI_DEBUG_USER and KIROSHI_DEBUG_PASSWORD.")
+                else:
+                    st.success("Authenticated.")
                 st.session_state.debug_auth = True
+                import time
+                time.sleep(1.5)
+                st.rerun()
             else:
                 st.error("Invalid credentials")
 
