@@ -1123,12 +1123,13 @@ def _infer_report_category(
                     score += 4
         token_prefixes = hints.get("tokens")
         if isinstance(token_prefixes, (list, tuple, set)):
-            for prefix in token_prefixes:
-                if not isinstance(prefix, str) or not prefix:
-                    continue
-                for token, count in token_counter.items():
+            for token, count in token_counter.items():
+                for prefix in token_prefixes:
+                    if not isinstance(prefix, str) or not prefix:
+                        continue
                     if token == prefix or token.startswith(prefix):
                         score += count
+                        break
         if score:
             scores[label] = score
 
