@@ -13137,21 +13137,14 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            expected_user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
-            expected_pw = os.environ.get("KIROSHI_DEBUG_PASSWORD", "admin")
+            expected_user = os.environ.get("KIROSHI_DEBUG_USER")
+            expected_pw = os.environ.get("KIROSHI_DEBUG_PASSWORD")
 
             import secrets
-            if secrets.compare_digest(user, expected_user) and secrets.compare_digest(pw, expected_pw):
-                if expected_user == "admin" and expected_pw == "admin":
-                    st.warning("Warning: Default debug credentials are in use. Set KIROSHI_DEBUG_USER and KIROSHI_DEBUG_PASSWORD.")
-                else:
-                    st.success("Authenticated.")
+            if expected_user and expected_pw and secrets.compare_digest(user, expected_user) and secrets.compare_digest(pw, expected_pw):
                 st.session_state.debug_auth = True
-                import time
-                time.sleep(1.5)
-                st.rerun()
             else:
-                st.error("Invalid credentials")
+                st.error("Invalid credentials or missing environment configuration")
 
 
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
