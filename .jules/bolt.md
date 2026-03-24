@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-03-24 - Optimization of SequenceMatcher in nested loops
+**Learning:** `difflib.SequenceMatcher` performs significant internal caching (like index creation) when its `b` sequence is set (which is implicitly set when initializing `SequenceMatcher(a, b)`). In a nested loop where the outer sequence is constant and the inner sequence changes, instantiating a new `SequenceMatcher` or resetting `b` causes redundant, expensive setup (O(N^2) overhead).
+**Action:** When comparing a single string against many in a loop, instantiate `SequenceMatcher` once outside the loop, call `matcher.set_seq2(outer_string)` (since `set_seq2` is the expensive cache-building step), and only update the inner string using `matcher.set_seq1(inner_string)` during iteration.

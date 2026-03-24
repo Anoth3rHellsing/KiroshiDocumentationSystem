@@ -995,12 +995,22 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str, matcher: SequenceMatcher | None = None
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if norm_a or norm_b:
+        if matcher is not None:
+            # ⚡ Bolt: By using a pre-configured SequenceMatcher where seq2 is already set,
+            # we avoid recalculating seq2's internal cache, yielding a significant speedup.
+            matcher.set_seq1(norm_b)
+            base = matcher.ratio()
+        else:
+            base = SequenceMatcher(None, norm_a, norm_b).ratio()
+    else:
+        base = 0.0
+
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
@@ -1040,13 +1050,23 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         best_index = -1
         best_score = 0.0
+
+        # ⚡ Bolt: Instantiate one SequenceMatcher per title and cache its normalized text
+        # in seq2. SequenceMatcher is asymmetric in setup time; caching seq2 avoids
+        # O(N^2) parsing overhead in the inner loop.
+        matcher = SequenceMatcher()
+        matcher.set_seq2(normalized)
+
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm, matcher)
             if score > best_score:
                 best_score = score
                 best_index = idx
+                # ⚡ Bolt: Early exit if we find an almost exact match to save CPU cycles.
+                if best_score > 0.99:
+                    break
 
         threshold = 0.68 if tokens else 0.8
         if best_index == -1 or best_score < threshold:
