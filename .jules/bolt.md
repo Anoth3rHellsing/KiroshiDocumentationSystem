@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-03-24 - Optimization of Title Clustering
+**Learning:** Re-instantiating `SequenceMatcher` within deeply nested O(N^2) loops causes significant overhead. Setting the sequence invariant (the one we compare against) using `set_seq2()` is critical because it caches the indices; setting it via `set_seq1()` merely stores a reference.
+**Action:** Share a single `SequenceMatcher` instance and use `set_seq2` on the loop-invariant string and `set_seq1` on the loop-variant string inside `case_documentation_app.py` clustering functions. Added early loop exits when a near-perfect match is found to short-circuit unnecessary sequence comparisons.
