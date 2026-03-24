@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - SequenceMatcher Initialization Overhead in Loops
+**Learning:** Re-instantiating `SequenceMatcher` and assigning both sequence fields via `SequenceMatcher(None, a, b)` in an inner loop imposes heavy computational overhead, primarily due to `set_seq2()` repeatedly hashing sequence pairs.
+**Action:** Move instantiation outside the loop. Use `set_seq2()` to assign the outer loop's string (since it remains invariant during the inner loop pass), and apply `set_seq1()` within the inner loop for the comparison string, allowing performance gains in N×M comparisons.
