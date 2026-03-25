@@ -995,12 +995,17 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str, matcher: SequenceMatcher | None = None
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if matcher is not None:
+        matcher.set_seq1(norm_a)
+        base = matcher.ratio()
+    else:
+        base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
@@ -1012,6 +1017,11 @@ def _title_similarity_score(
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+
+    # ⚡ Bolt: Reuse a single SequenceMatcher instance across all title comparisons.
+    # We cache the current title as sequence 'b' and swap out cluster titles as 'a'
+    # in the inner loop. This saves instantiating the matcher repeatedly.
+    matcher = SequenceMatcher()
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
@@ -1040,13 +1050,19 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
         best_index = -1
         best_score = 0.0
+
+        matcher.set_seq2(normalized)
+
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            score = _title_similarity_score(cluster_tokens, tokens, cluster_norm, normalized, matcher)
             if score > best_score:
                 best_score = score
                 best_index = idx
+                # ⚡ Bolt: Early exit if we find an almost perfect match.
+                if best_score > 0.99:
+                    break
 
         threshold = 0.68 if tokens else 0.8
         if best_index == -1 or best_score < threshold:
