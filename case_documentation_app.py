@@ -995,12 +995,19 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str, matcher: SequenceMatcher | None = None
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if not norm_a and not norm_b:
+        base = 0.0
+    elif matcher is not None:
+        matcher.set_seq1(norm_a)
+        base = matcher.ratio()
+    else:
+        base = SequenceMatcher(None, norm_a, norm_b).ratio()
+
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
@@ -1012,10 +1019,13 @@ def _title_similarity_score(
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+    matcher = SequenceMatcher()
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
+
+        matcher.set_seq2(normalized)
 
         if not normalized and not tokens:
             blank_index = next(
@@ -1043,7 +1053,9 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            score = _title_similarity_score(
+                cluster_tokens, tokens, cluster_norm, normalized, matcher
+            )
             if score > best_score:
                 best_score = score
                 best_index = idx

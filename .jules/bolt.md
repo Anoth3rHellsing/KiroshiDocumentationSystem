@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - Optimization of SequenceMatcher
+**Learning:** Instantiating `difflib.SequenceMatcher` inside tight inner loops is slow due to internal caching arrays and setup overhead. Reusing a single `SequenceMatcher` instance and setting the loop-invariant outer string using `set_seq2()` and the loop-variant inner string with `set_seq1()` significantly improves execution speed. This is because `set_seq2()` computes and caches expensive sequence indices, whereas `set_seq1()` merely stores a reference.
+**Action:** Implemented caching in `_cluster_case_titles`, observing speed improvements for clustering sequences.
