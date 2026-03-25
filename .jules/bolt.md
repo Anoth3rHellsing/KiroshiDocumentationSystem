@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - O(N log N) isoformat string parsing bottleneck
+**Learning:** Using string parsing methods like `datetime.fromisoformat()` repeatedly within a `list.sort(key=...)` loop introduces severe performance overhead. While string date manipulation is acceptable once per object, it becomes a major bottleneck when executed iteratively on the same objects during the O(N log N) sorting phase.
+**Action:** Pre-calculate and cache the float representation of the timestamp (e.g. `_updated_ts`) at object creation or cache generation time. Use this pre-calculated float directly as the sort key to completely bypass parsing logic during sorting.
