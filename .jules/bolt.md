@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - Sorting Overhead in Streamlit State
+**Learning:** Parsing date strings into timestamps using `datetime.fromisoformat()` within a `list.sort(key=...)` loop causes severe performance overhead (O(N) parses) in Python.
+**Action:** Cache a float representation (like `_updated_ts`) at object creation time or prior to sorting to avoid this bottleneck, which speeds up array sorts significantly for data displayed on the dashboard.
