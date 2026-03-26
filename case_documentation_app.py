@@ -2144,7 +2144,7 @@ def _relaunch_application() -> None:
                 close_fds=True,
             )
     except Exception as exc:  # pragma: no cover - user environment dependent
-        st.warning(f"Automatic relaunch failed: {exc}")
+        st.warning(f"Automatic relaunch failed: {exc}", icon="⚠️")
     else:
         if os.name == "nt" and getattr(sys, "frozen", False):
             os._exit(0)
@@ -2161,7 +2161,7 @@ def _launch_installer_and_relaunch() -> None:
         )
         return
 
-    st.info("Launching the Kiroshi Installer. Accept the administrator prompt to continue.")
+    st.info("Launching the Kiroshi Installer. Accept the administrator prompt to continue.", icon="💡")
     creation_flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
     try:
         completed = subprocess.run(
@@ -5590,10 +5590,10 @@ def render_onboarding_tutorial() -> None:
                     elif selection == interaction.get("answer"):
                         st.success(interaction.get("success", "Correct."))
                     else:
-                        st.warning(interaction.get("failure", "Give it another try."))
+                        st.warning(interaction.get("failure", "Give it another try."), icon="⚠️")
                         can_proceed = False
                 else:
-                    st.info(prompt)
+                    st.info(prompt, icon="💡")
             elif itype == "checkbox_group":
                 items = interaction.get("items") or []
                 if items:
@@ -5615,7 +5615,7 @@ def render_onboarding_tutorial() -> None:
                 elif value.strip().upper() == str(interaction.get("answer", "")).upper():
                     st.success(interaction.get("success", "All set!"))
                 else:
-                    st.warning(interaction.get("failure", "Double-check the confirmation word."))
+                    st.warning(interaction.get("failure", "Double-check the confirmation word."), icon="⚠️")
                     can_proceed = False
 
         if step_idx == total_steps - 1:
@@ -5651,7 +5651,7 @@ def render_onboarding_tutorial() -> None:
 
             identity_ready = bool(first_value and last_value)
             if not identity_ready:
-                st.warning("Please provide both your first and last name to finish the tour.")
+                st.warning("Please provide both your first and last name to finish the tour.", icon="⚠️")
 
         can_proceed = can_proceed and identity_ready
 
@@ -5871,7 +5871,7 @@ if today.day == 20:
         if hasattr(st, "toast"):
             st.toast(payday_message)
         else:
-            st.info(payday_message)
+            st.info(payday_message, icon="💡")
         st.session_state.payday_last_notified = today_key
 
 if not st.session_state.tutorial_completed and not st.session_state.show_tutorial:
@@ -6689,14 +6689,14 @@ class ScreenshotService:
             return
 
         if not error:
-            st.warning("Screenshot capture is unavailable in this environment.")
+            st.warning("Screenshot capture is unavailable in this environment.", icon="⚠️")
             return
 
         message = error.strip()
         if "cancel" in message.lower():
-            st.info("Screenshot capture cancelled.")
+            st.info("Screenshot capture cancelled.", icon="💡")
         elif "environment" in message.lower():
-            st.warning(message)
+            st.warning(message, icon="⚠️")
         else:
             st.error(message)
 
@@ -7071,7 +7071,7 @@ def _handle_incident_screenshot_result(
 
     st.session_state.incident_reporter_capture_error = error
     try:
-        st.warning(error)
+        st.warning(error, icon="⚠️")
     except Exception:  # pragma: no cover - Streamlit unavailable during tests
         logging.warning("Incident reporter warning: %s", error)
 
@@ -7299,7 +7299,7 @@ def _trigger_milestone_alert(case_idx: int, milestone_id: str) -> None:
     if hasattr(st, "toast"):
         st.toast(message)
     else:
-        st.warning(message)
+        st.warning(message, icon="⚠️")
 
 
 def _auto_track_case_for_documentation(session: CaseSession, case_idx: int) -> None:
@@ -8694,7 +8694,7 @@ def persist_case_attachments(case_id: str) -> dict[str, list[dict[str, str]]]:
         base_dir = get_case_attachments_dir(case_id)
     except Exception as exc:
         logging.exception("Unable to prepare attachments directory for %s", case_id)
-        st.warning(f"Unable to persist attachments: {exc}")
+        st.warning(f"Unable to persist attachments: {exc}", icon="⚠️")
         return attachments_index
 
     screenshots_state = get_active_screenshots()
@@ -8857,7 +8857,7 @@ def create_case_autosave_snapshot(case_id: str) -> Path | None:
         return backup_path
     except Exception as exc:
         logging.exception("Failed to create autosave snapshot for %s", case_id)
-        st.warning(f"Unable to create autosave backup: {exc}")
+        st.warning(f"Unable to create autosave backup: {exc}", icon="⚠️")
         return None
 
 
@@ -9998,7 +9998,7 @@ def render_tracked_cases_dashboard(
     key_namespace: str = "tracked",
 ) -> None:
     if not cases:
-        st.info("No cases are currently being tracked.")
+        st.info("No cases are currently being tracked.", icon="💡")
         return
     filtered_cases = cases
     query = search_query.strip().lower()
@@ -10016,7 +10016,7 @@ def render_tracked_cases_dashboard(
             if any(query in field.lower() for field in haystack if field):
                 filtered_cases.append(case)
     if not filtered_cases:
-        st.info("No tracked cases match your search.")
+        st.info("No tracked cases match your search.", icon="💡")
         return
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     sorted_cases = sorted(
@@ -10110,7 +10110,7 @@ def render_tracked_cases_dashboard(
 
         last_modified_display = format_last_modified(case.get("last_modified"))
         if reminder_due and warning_text and show_notifications:
-            st.warning(warning_text)
+            st.warning(warning_text, icon="⚠️")
         summary = " ".join(
             part
             for part in [
@@ -10340,7 +10340,7 @@ def render_sprint_tab() -> None:
                 _start_day_logic(today_date)
                 st.rerun()
         else:
-            st.info(f"Sprint Active for {st.session_state.sprint_state.date}")
+            st.info(f"Sprint Active for {st.session_state.sprint_state.date}", icon="💡")
 
     with col2:
         if st.session_state.sprint_state.is_active:
@@ -10349,7 +10349,7 @@ def render_sprint_tab() -> None:
             st.write("")  # Spacer
 
     if not st.session_state.sprint_state.is_active:
-        st.info("Start your day to see tasks and AI insights.")
+        st.info("Start your day to see tasks and AI insights.", icon="💡")
         return
 
     # 2. Progress
@@ -10384,7 +10384,7 @@ def render_sprint_tab() -> None:
             st.rerun()
 
     if not tasks:
-        st.info("No tasks for today.")
+        st.info("No tasks for today.", icon="💡")
     else:
         # Sort: Escalated first, then by priority
         # We need to ensure types are sortable (bool is int, so fine)
@@ -10400,7 +10400,7 @@ def render_sprint_tab() -> None:
                 with col_info:
                     st.write(f"**Priority:** {task.priority}")
                     if task.ai_suggestion:
-                        st.info(f"🤖 **AI Suggestion:** {task.ai_suggestion}")
+                        st.info(f"🤖 **AI Suggestion:** {task.ai_suggestion}", icon="💡")
                     if task.ai_time_estimate:
                         st.caption(f"Estimated Time: {task.ai_time_estimate}")
 
@@ -10477,7 +10477,7 @@ def render_sprint_tab() -> None:
 def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
     saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        st.info("No saved cases found in your database.", icon="💡")
         return
     st.caption("Preview of your most recent saved cases. Use the Saved Cases tab for the full index.")
     preview = saved_cases[:5]
@@ -10517,7 +10517,7 @@ def render_saved_cases_page() -> None:
     )
     saved_cases = list_saved_cases()
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        st.info("No saved cases found in your database.", icon="💡")
         return
 
     saved_df = pd.DataFrame(saved_cases)
@@ -10790,7 +10790,7 @@ def render_dashboard() -> None:
         )
     notice_idx = st.session_state.get("dashboard_load_notice")
     if notice_idx is not None:
-        st.info(f"Loaded case into Case tab {notice_idx + 1}.")
+        st.info(f"Loaded case into Case tab {notice_idx + 1}.", icon="💡")
         st.session_state.dashboard_load_notice = None
 
     # Fetch all cases once to avoid redundant directory scanning in child components
@@ -11226,7 +11226,7 @@ def _render_settings_ai_tab() -> None:
             help="Select the model identifier expected by your local server."
         )
     elif st.session_state.ai_mode == "Local (Native)":
-        st.info("Runs entirely on your machine using internal libraries. No external apps or internet required.")
+        st.info("Runs entirely on your machine using internal libraries. No external apps or internet required.", icon="💡")
         st.radio(
             "Performance Profile",
             ["speed", "quality"],
@@ -11415,7 +11415,7 @@ def _render_settings_ai_tab() -> None:
                         "No se pudo fusionar el conocimiento importado. Verifica el archivo compartido."
                     )
             elif imported_payload is not None:
-                st.warning("El archivo seleccionado no contiene un formato válido de Educate.")
+                st.warning("El archivo seleccionado no contiene un formato válido de Educate.", icon="⚠️")
 
     if ai_dataset:
         case_count = ai_dataset.get("case_count", 0)
@@ -11448,7 +11448,7 @@ def _render_settings_cloud_tab() -> None:
         "Sincroniza la base de Educate con la nube cifrada de Kiroshi para compartir conocimiento entre sedes remotas."
     )
     if not st.session_state.ai_educate_enabled:
-        st.info("Activa AI Educate para habilitar la sincronización con Kiroshi Cloud.")
+        st.info("Activa AI Educate para habilitar la sincronización con Kiroshi Cloud.", icon="💡")
         return
 
     cloud_enabled = st.toggle(
@@ -11526,11 +11526,11 @@ def _render_settings_cloud_tab() -> None:
             if level == "success":
                 st.success(formatted)
             elif level == "warning":
-                st.warning(formatted)
+                st.warning(formatted, icon="⚠️")
             elif level == "error":
                 st.error(formatted)
             else:
-                st.info(formatted)
+                st.info(formatted, icon="💡")
 
     status = st.session_state.get("kiroshi_cloud_status")
     if isinstance(status, tuple) and len(status) == 2:
@@ -11538,7 +11538,7 @@ def _render_settings_cloud_tab() -> None:
         if level == "success":
             st.success(message)
         elif level == "warning":
-            st.warning(message)
+            st.warning(message, icon="⚠️")
         else:
             share_status = cloud_share_status()
             if not share_status["available"]:
@@ -11612,7 +11612,7 @@ def _render_settings_cloud_tab() -> None:
                     if level == "success":
                         st.success(message)
                     elif level == "warning":
-                        st.warning(message)
+                        st.warning(message, icon="⚠️")
                     else:
                         st.error(message)
 
@@ -11620,7 +11620,7 @@ def _render_settings_cloud_tab() -> None:
                     user = st.session_state.kiroshi_cloud_username.strip()
                     password_value = st.session_state.kiroshi_cloud_password
                     if not user or not password_value:
-                        st.warning("Ingresa usuario y contraseña para conectarte al cloud.")
+                        st.warning("Ingresa usuario y contraseña para conectarte al cloud.", icon="⚠️")
                         return None
                     try:
                         return open_kiroshi_cloud_session(user, password_value)
@@ -11673,7 +11673,7 @@ def _render_settings_cloud_tab() -> None:
                         if session:
                             dataset_to_push = ensure_ai_learning_dataset()
                             if not dataset_to_push:
-                                st.warning("Genera la base de Educate antes de sincronizar.")
+                                st.warning("Genera la base de Educate antes de sincronizar.", icon="⚠️")
                             else:
                                 try:
                                     session.save_ai_dataset(dataset_to_push)
@@ -11772,7 +11772,7 @@ def _render_settings_updates_tab() -> None:
         if level == "success":
             st.success(message)
         elif level == "warning":
-            st.warning(message)
+            st.warning(message, icon="⚠️")
         else:
             st.error(message)
 
@@ -11892,11 +11892,11 @@ def render_settings_panel() -> None:
 def render_report_panel() -> None:
     st.subheader("AI Educate Report")
     if not st.session_state.ai_educate_enabled:
-        st.info("Activa AI Educate desde Settings para generar reportes.")
+        st.info("Activa AI Educate desde Settings para generar reportes.", icon="💡")
         return
     dataset = ensure_ai_learning_dataset()
     if not dataset:
-        st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
+        st.info("Aún no hay suficientes casos guardados para generar estadísticas.", icon="💡")
         return
     cached_insights = st.session_state.get("ai_educate_report_cache")
     dataset_case_total = dataset.get("case_count") if isinstance(dataset, Mapping) else None
@@ -11911,7 +11911,7 @@ def render_report_panel() -> None:
         if insights:
             st.session_state.ai_educate_report_cache = insights
     if not insights:
-        st.info("Aún no hay suficientes casos guardados para generar estadísticas.")
+        st.info("Aún no hay suficientes casos guardados para generar estadísticas.", icon="💡")
         return
 
     view_order = ["30d", "all_time"]
@@ -12087,7 +12087,7 @@ def render_report_panel() -> None:
             if bug_report:
                 st.success("Bug Detector completó el análisis.")
             else:
-                st.info("No se detectaron bugs ni patrones recurrentes en los casos analizados.")
+                st.info("No se detectaron bugs ni patrones recurrentes en los casos analizados.", icon="💡")
     bug_report = st.session_state.get("ai_bug_report")
     if bug_report:
         st.markdown("### Resultados de Bug Detector")
@@ -12276,7 +12276,7 @@ def show_incident_report_modal() -> None:
             )
             capture_error = st.session_state.get("incident_reporter_capture_error")
             if capture_error:
-                st.warning(capture_error)
+                st.warning(capture_error, icon="⚠️")
             capture_cols = st.columns([1, 1, 1])
             if capture_cols[0].button(
                 "Capture region",
@@ -12898,7 +12898,7 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
     if send_clicked:
         message = (user_prompt or "").strip()
         if not message:
-            st.warning("Type a message before sending.")
+            st.warning("Type a message before sending.", icon="⚠️")
         elif _chat_ready_global():
             tone_directive = build_kiroshi_tone_directive()
             prompt_payload = (
@@ -12913,13 +12913,13 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
     if educate_clicked:
         message = (user_prompt or "").strip()
         if not message:
-            st.warning("Ask a question before using Answer with Educate.")
+            st.warning("Ask a question before using Answer with Educate.", icon="⚠️")
         elif not st.session_state.get("ai_educate_enabled", False):
-            st.warning("Enable AI Educate in Settings to unlock this button.")
+            st.warning("Enable AI Educate in Settings to unlock this button.", icon="⚠️")
         else:
             dataset = ensure_ai_learning_dataset()
             if not dataset:
-                st.warning("No AI Educate dataset available. Generate one from the Educate panel first.")
+                st.warning("No AI Educate dataset available. Generate one from the Educate panel first.", icon="⚠️")
             else:
                 matches = find_relevant_learning_cases(case_obj or CaseData(), dataset, max_results=6)
                 summary_payload = {
@@ -13052,13 +13052,13 @@ def render_smart_aid_panel() -> None:
             st.markdown("#### Unified memory preview")
             st.code(memory_preview, language="markdown")
     else:
-        st.info("No supervisor feedback saved yet. Add a calibration above to prime Smart Aid.")
+        st.info("No supervisor feedback saved yet. Add a calibration above to prime Smart Aid.", icon="💡")
 
 
 def render_debug_panel() -> None:
     if st.session_state.debug_auth:
         st.subheader("Debug")
-        st.info("AI Configuration has been moved to Settings > AI & Knowledge.")
+        st.info("AI Configuration has been moved to Settings > AI & Knowledge.", icon="💡")
 
         st.selectbox("Personality mode", ["utility", "coffee"], key="personality_mode")
         st.text_area("Allowed categories block", key="taxonomy_block", height=150)
@@ -13076,7 +13076,7 @@ def render_debug_panel() -> None:
         st.subheader("Case debug tools")
         sessions = getattr(st.session_state, "case_sessions", None)
         if not isinstance(sessions, Sequence) or not sessions:
-            st.info("Create or load a case to access case-specific debug utilities.")
+            st.info("Create or load a case to access case-specific debug utilities.", icon="💡")
         else:
             fallback_default = 0
             if len(sessions) > 1:
@@ -17122,7 +17122,7 @@ def render_case_attachments_panel(
     screenshots = get_active_screenshots()
 
     if not (uploads or log_uploads or screenshots):
-        st.info("No evidence queued yet. Capture a screenshot or upload supporting files to begin.")
+        st.info("No evidence queued yet. Capture a screenshot or upload supporting files to begin.", icon="💡")
     else:
         if uploads:
             st.markdown("###### Uploaded files")
@@ -17283,7 +17283,7 @@ def render_case_attachments_panel(
         if download_clicked:
             saved_path = persist_evidence_bundle_zip(case.case_id or "case", archive_name, archive_bytes)
             if saved_path:
-                st.info(f"Saved a copy to {saved_path}")
+                st.info(f"Saved a copy to {saved_path}", icon="💡")
 
 
 CASE_TAB_SLUGS = {
@@ -17558,28 +17558,39 @@ def render_case_ui(case_idx: int):
                 help="Persist current case data to disk",
             ):
                 save_case_to_database(D)
-            if st.button(
+            clear_confirm_key = case_tab_key("clear_all_confirm")
+            if st.session_state.get(clear_confirm_key):
+                st.warning("Are you sure? This will erase all inputs.", icon="⚠️")
+                col_y, col_n = st.columns(2)
+                if col_y.button("Yes, clear it", key=case_tab_key("clear_all_yes"), type="primary", help="Erase all data and reset the case tab"):
+                    logging.info("Clear all button clicked")
+                    with case_loading_overlay("Cycling the workspace back to zero…"):
+                        time.sleep(2)
+                        backup_path = None
+                        if D.case_id:
+                            backup_path = create_case_autosave_snapshot(D.case_id)
+                        if os.path.exists(AUTOSAVE_FILE):
+                            try:
+                                os.remove(AUTOSAVE_FILE)
+                            except OSError:
+                                pass
+                        clear_case_state(case_idx)
+                        if backup_path is not None:
+                            st.session_state["autosave_notice"] = (
+                                f"Case autosaved to {backup_path.name}"
+                            )
+                        st.session_state[clear_confirm_key] = False
+                    st.rerun()
+                if col_n.button("Cancel", key=case_tab_key("clear_all_no"), help="Cancel clearing the form"):
+                    st.session_state[clear_confirm_key] = False
+                    st.rerun()
+            elif st.button(
                 "Clear all",
                 key=case_tab_key("clear_all_button"),
                 width="stretch",
                 help="Reset all fields in this case to their default state",
             ):
-                logging.info("Clear all button clicked")
-                with case_loading_overlay("Cycling the workspace back to zero…"):
-                    time.sleep(2)
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    clear_case_state(case_idx)
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
+                st.session_state[clear_confirm_key] = True
                 st.rerun()
             if st.session_state.track_case:
                 st.button(
@@ -18419,7 +18430,7 @@ def render_case_ui(case_idx: int):
             )
 
             if not ordered_groups:
-                st.warning("No email templates are available. Contact an administrator to restore them.")
+                st.warning("No email templates are available. Contact an administrator to restore them.", icon="⚠️")
                 email_type = st.session_state[email_widget_key]
                 st.session_state.email_type = email_type
             else:
@@ -18450,7 +18461,7 @@ def render_case_ui(case_idx: int):
                 group_templates = template_groups.get(selected_group, [])
                 template_values = [t["value"] for t in group_templates]
                 if not template_values:
-                    st.info("No email templates available in this category.")
+                    st.info("No email templates available in this category.", icon="💡")
                     email_type = st.session_state[email_widget_key]
                     st.session_state.email_type = email_type
                 else:
@@ -20375,11 +20386,11 @@ End with: We look forward to your reply."""
             confirm_key = remote_tab_key("notes_clear_confirm")
             if st.session_state.get(confirm_key):
                 cols[2].warning("Are you sure?")
-                if cols[2].button("Yes, clear", key=remote_tab_key("notes_clear_yes")):
+                if cols[2].button("Yes, clear", key=remote_tab_key("notes_clear_yes"), help="Permanently delete the session notes"):
                     st.session_state[notes_key] = ""
                     st.session_state[confirm_key] = False
                     st.rerun()
-                if cols[2].button("Cancel", key=remote_tab_key("notes_clear_no")):
+                if cols[2].button("Cancel", key=remote_tab_key("notes_clear_no"), help="Keep current session notes"):
                     st.session_state[confirm_key] = False
                     st.rerun()
             elif cols[2].button(
@@ -20406,7 +20417,7 @@ End with: We look forward to your reply."""
                     unsafe_allow_html=True,
                 )
             else:
-                st.info("Timeline will populate once remote notes are captured.")
+                st.info("Timeline will populate once remote notes are captured.", icon="💡")
 
             st.markdown("#### Raw session payload")
             st.json(asdict(primary_session))
@@ -20639,7 +20650,7 @@ End with: We look forward to your reply."""
         st.subheader("Recent cases")
         recent_cases = load_recent_cases()
         if not recent_cases:
-            st.info("No recent cases found. Your history will appear here once you load or save a case.")
+            st.info("No recent cases found. Your history will appear here once you load or save a case.", icon="💡")
         for idx, case in enumerate(recent_cases):
             info_col, btn_col = st.columns([3, 1])
             last_modified_display = format_last_modified(case.get("last_modified"))

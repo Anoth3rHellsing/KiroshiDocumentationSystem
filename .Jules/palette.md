@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-23 - Empty States Formatting
+**Learning:** `st.info` and `st.warning` lack visual distinctiveness and user engagement when rendered purely as text boxes, especially when used for empty states.
+**Action:** Append the `icon=` parameter with a suitable emoji (like 💡 for info or ⚠️ for warning) to all `st.info()` and `st.warning()` calls to enhance visibility and structure.
