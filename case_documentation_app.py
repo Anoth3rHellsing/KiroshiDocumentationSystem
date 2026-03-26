@@ -994,24 +994,19 @@ def _title_similarity_tokens(title: object) -> set[str]:
     }
 
 
-def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
-) -> float:
-    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
-        return 0.0
-
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
-    if tokens_a and tokens_b:
-        intersection = len(tokens_a & tokens_b)
-        union = len(tokens_a | tokens_b)
-        jaccard = (intersection / union) if union else 0.0
-        return 0.6 * base + 0.4 * jaccard
-    return base
-
-
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+
+    # ⚡ Bolt Optimization: Reuse SequenceMatcher and memoize ratio calculation.
+    matcher = SequenceMatcher()
+
+    @lru_cache(maxsize=4096)
+    def get_ratio(norm_a: str, norm_b: str) -> float:
+        if not norm_a and not norm_b:
+            return 0.0
+        matcher.set_seqs(norm_a, norm_b)
+        return matcher.ratio()
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
@@ -1043,7 +1038,16 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            base = get_ratio(cluster_norm, normalized)
+
+            if cluster_tokens and tokens:
+                intersection = len(cluster_tokens & tokens)
+                union = len(cluster_tokens | tokens)
+                jaccard = (intersection / union) if union else 0.0
+                score = 0.6 * base + 0.4 * jaccard
+            else:
+                score = base
+
             if score > best_score:
                 best_score = score
                 best_index = idx
