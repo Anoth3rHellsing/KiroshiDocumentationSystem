@@ -13146,6 +13146,11 @@ def render_debug_panel() -> None:
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
     if cases is None:
         cases = load_tracked_cases()
+
+    # ⚡ Bolt Optimization:
+    # The `cases` list is already sorted descending by modification time
+    # (via `_refresh_and_get_cases`). We eliminate O(N) stat() calls and
+    # O(N log N) sorting by simply yielding the first 20 existing files.
     files: list[Path] = []
     for entry in cases:
         path_value = entry.get("path") if isinstance(entry, Mapping) else None
@@ -13154,8 +13159,9 @@ def recent_tracked_files(cases: list | None = None) -> list[Path]:
         candidate = Path(path_value)
         if candidate.exists():
             files.append(candidate)
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[:20]
+            if len(files) >= 20:
+                break
+    return files
 
 
 def _summarize_text(text: str, width: int = 200) -> str:

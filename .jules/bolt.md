@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - Leveraging Pre-Sorted Cache in Streamlit
+**Learning:** Functions that need to display top elements based on modification time (like recent cases lists) often mistakenly re-query the filesystem (`stat()`) and perform an `O(N log N)` sort on every render, even when the underlying data source (like the global tracked case list) is already cached and sorted `O(1)` descending by `_refresh_and_get_cases`.
+**Action:** Replace `O(N)` loop `stat()` calls and sorting with an `O(K)` short-circuit break loop (where `K` is the limit of items needed), preserving the pre-sorted order from the cache to drastically improve performance on datasets with many files.
