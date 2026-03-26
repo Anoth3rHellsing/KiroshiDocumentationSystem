@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-03-26 - SequenceMatcher object creation optimization
+**Learning:** Instantiating `SequenceMatcher` inside tight nested loops leads to significant performance overhead. Although Python's `SequenceMatcher` takes time to build its internal structures, creating a single instance outside the loop and updating its sequences using `set_seq1()` and `set_seq2()` avoids this repeated allocation and setup overhead.
+**Action:** Always reuse a `SequenceMatcher` instance with `set_seq1` and `set_seq2` when performing comparisons in loops. Specifically, set the loop-invariant string using `set_seq2()` unconditionally in the outer loop, and the variant string using `set_seq1()` in the inner loop.

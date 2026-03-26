@@ -995,12 +995,18 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str, matcher: SequenceMatcher | None = None
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if not (norm_a or norm_b):
+        base = 0.0
+    elif matcher is not None:
+        matcher.set_seq1(norm_b)
+        base = matcher.ratio()
+    else:
+        base = SequenceMatcher(None, norm_a, norm_b).ratio()
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
@@ -1010,11 +1016,18 @@ def _title_similarity_score(
 
 
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
+    """
+    ⚡ Bolt: [performance improvement]
+    Optimized sequence matching by reusing a single SequenceMatcher instance.
+    This avoids repeated object allocation and setup overhead in the inner loop.
+    """
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
+    matcher = SequenceMatcher(None)
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
+        matcher.set_seq2(normalized)
         tokens = _title_similarity_tokens(title)
 
         if not normalized and not tokens:
@@ -1043,7 +1056,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm, matcher)
             if score > best_score:
                 best_score = score
                 best_index = idx
