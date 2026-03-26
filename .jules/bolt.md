@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-15 - [SequenceMatcher Optimization in _cluster_case_titles]
+**Learning:** Instantiating `SequenceMatcher(None, a, b)` in a nested loop is a significant performance bottleneck because it rebuilds internal matching blocks on every iteration. This codebase previously created a new instance for every pair of strings compared in `_cluster_case_titles`.
+**Action:** When calculating similarity ratios in nested loops, initialize a single `SequenceMatcher` instance outside the loop. In the outer loop, set the loop-invariant string with `matcher.set_seq2(b)` unconditionally. In the inner loop, define an `@lru_cache`-memoized helper function that sets the loop-variant string with `matcher.set_seq1(a)` and returns `matcher.ratio()`. This prevents state leakage and caches repeated comparisons while dramatically improving execution speed.
