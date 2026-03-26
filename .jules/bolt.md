@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2023-10-25 - Datetime parsing overhead in hot loops
+**Learning:** Python's `datetime.fromisoformat()` is relatively slow, and calling it repeatedly inside a sort lambda (like `list.sort(key=...)`) causes significant performance bottlenecks for large datasets. While `list.sort` caches the key internally, iterating over $N$ items to parse dates introduces $O(N)$ string parsing overhead every time the sort runs.
+**Action:** Cache the parsed Unix timestamp as a float (`_updated_ts`) inside the dictionary at creation/load time to completely bypass the ISO string parsing overhead during subsequent sorting passes.

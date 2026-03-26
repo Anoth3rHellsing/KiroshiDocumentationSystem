@@ -9098,15 +9098,22 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
             snapshot = list(cache_obj.data.values())
 
         # We must still perform the sorting logic for the snapshot
-        def _parse_time_snapshot(t):
-            if not t: return 0.0
-            try:
-                return datetime.fromisoformat(str(t)).timestamp()
-            except ValueError:
-                return 0.0
-
         valid_items_snapshot = [item for _, item in snapshot if item is not None]
-        valid_items_snapshot.sort(key=lambda x: _parse_time_snapshot(x.get("updated")), reverse=True)
+
+        # ⚡ Bolt: Pre-compute float timestamps to avoid parsing ISO strings
+        # inside the sort lambda, caching O(N) work across multiple invocations
+        for item in valid_items_snapshot:
+            if "_updated_ts" not in item:
+                t = item.get("updated")
+                if not t:
+                    item["_updated_ts"] = 0.0
+                else:
+                    try:
+                        item["_updated_ts"] = datetime.fromisoformat(str(t)).timestamp()
+                    except ValueError:
+                        item["_updated_ts"] = 0.0
+
+        valid_items_snapshot.sort(key=lambda x: x.get("_updated_ts", 0.0), reverse=True)
         return valid_items_snapshot
 
     directories = [DATABASE_DIR, TRACKED_CASES_DIR]
@@ -9201,12 +9208,19 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                         tags.append(label)
 
                 last_modified = data.get("last_modified")
+                _updated_ts = 0.0
                 if not last_modified:
                     last_modified = (
                         datetime.fromtimestamp(mtime)
                         .replace(microsecond=0)
                         .isoformat()
                     )
+                    _updated_ts = float(mtime)
+                else:
+                    try:
+                        _updated_ts = datetime.fromisoformat(str(last_modified)).timestamp()
+                    except ValueError:
+                        pass
 
                 version = data.get("kiroshi_version")
                 version_label = f"Kiroshi {version}" if version else f"Pre Kiroshi {VERSION}"
@@ -9249,6 +9263,7 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
                     "tags": tags,
                     "updated": last_modified,
                     "last_modified": last_modified, # For compatibility
+                    "_updated_ts": _updated_ts,
                     "kiroshi_version": version,
                     "version_label": version_label,
                     "is_legacy": is_legacy_payload,
@@ -9283,15 +9298,22 @@ def _refresh_and_get_cases() -> list[dict[str, object]]:
 
     # 3. Collect valid results
     # Sort by updated time (descending) to match expected "recent" behavior
-    def _parse_time(t):
-        if not t: return 0.0
-        try:
-            return datetime.fromisoformat(str(t)).timestamp()
-        except ValueError:
-            return 0.0
-
     valid_items = [item for _, item in snapshot if item is not None]
-    valid_items.sort(key=lambda x: _parse_time(x.get("updated")), reverse=True)
+
+    # ⚡ Bolt: Cache parsed timestamps on dict creation to bypass expensive
+    # datetime.fromisoformat() calls across multiple invocations
+    for item in valid_items:
+        if "_updated_ts" not in item:
+            t = item.get("updated")
+            if not t:
+                item["_updated_ts"] = 0.0
+            else:
+                try:
+                    item["_updated_ts"] = datetime.fromisoformat(str(t)).timestamp()
+                except ValueError:
+                    item["_updated_ts"] = 0.0
+
+    valid_items.sort(key=lambda x: x.get("_updated_ts", 0.0), reverse=True)
 
     # Update throttle cache
     throttle.data = valid_items
