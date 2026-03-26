@@ -1038,15 +1038,18 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            base = get_ratio(cluster_norm, normalized)
 
-            if cluster_tokens and tokens:
-                intersection = len(cluster_tokens & tokens)
-                union = len(cluster_tokens | tokens)
-                jaccard = (intersection / union) if union else 0.0
-                score = 0.6 * base + 0.4 * jaccard
+            if cluster_tokens and tokens and cluster_tokens.isdisjoint(tokens):
+                score = 0.0
             else:
-                score = base
+                base = get_ratio(cluster_norm, normalized)
+                if cluster_tokens and tokens:
+                    intersection = len(cluster_tokens & tokens)
+                    union = len(cluster_tokens | tokens)
+                    jaccard = (intersection / union) if union else 0.0
+                    score = 0.6 * base + 0.4 * jaccard
+                else:
+                    score = base
 
             if score > best_score:
                 best_score = score
