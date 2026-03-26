@@ -13148,14 +13148,17 @@ def recent_tracked_files(cases: list | None = None) -> list[Path]:
         cases = load_tracked_cases()
     files: list[Path] = []
     for entry in cases:
+        if len(files) >= 20:
+            break
         path_value = entry.get("path") if isinstance(entry, Mapping) else None
         if not path_value:
             continue
         candidate = Path(path_value)
         if candidate.exists():
             files.append(candidate)
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[:20]
+    # The input list is already pre-sorted by updated timestamp.
+    # We avoid O(N) stat() calls and an additional O(N log N) re-sort by slicing the top 20 items.
+    return files
 
 
 def _summarize_text(text: str, width: int = 200) -> str:
