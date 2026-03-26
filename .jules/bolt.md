@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-22 - Avoid Redundant Sorting
+**Learning:** Functions operating on data coming from a cached, already-sorted source (like `_refresh_and_get_cases`) often blindly re-sort that data and perform O(N) evaluations.
+**Action:** When a function like `recent_tracked_files` needs a top-K slice of elements, and the input list is known to be pre-sorted by the same criteria, we can replace O(N log N) sorting and O(N) I/O stat calls with a simple loop that breaks early after collecting K valid elements. This transforms processing time from O(N log N) to O(K) and provides massive speedups for large datasets.
