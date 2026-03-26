@@ -9,3 +9,5 @@ JavaSTools/build/
 .env
 temp_benchmark_data/
 streamlit.log
+playwright-report/
+test-results/
