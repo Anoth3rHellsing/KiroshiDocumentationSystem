@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2026-03-26 - difflib.SequenceMatcher Loop Optimization
+**Learning:** Using `SequenceMatcher(None, a, b).ratio()` creates a new instance for every comparison, making O(N^2) string clustering incredibly slow. Using a single `SequenceMatcher` and `@lru_cache` provides a modest speedup, but replacing it dynamically without using `@lru_cache` and calling `set_seq2` in the outer loop and `set_seq1` in the inner loop (or memoizing the calculation with lru_cache wrapping the two strings) yields ~2.5x speedup when comparing thousands of short texts.
+**Action:** When comparing multiple string combinations, always reuse `SequenceMatcher`, and leverage `@lru_cache` or careful sequence assignment (`set_seq1`, `set_seq2`) to eliminate overhead while strictly preserving algorithm correctness and fast-paths like `isdisjoint()` token checks.

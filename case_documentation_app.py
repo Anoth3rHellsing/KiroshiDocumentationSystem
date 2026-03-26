@@ -994,28 +994,24 @@ def _title_similarity_tokens(title: object) -> set[str]:
     }
 
 
-def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
-) -> float:
-    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
-        return 0.0
-
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
-    if tokens_a and tokens_b:
-        intersection = len(tokens_a & tokens_b)
-        union = len(tokens_a | tokens_b)
-        jaccard = (intersection / union) if union else 0.0
-        return 0.6 * base + 0.4 * jaccard
-    return base
-
-
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    matcher = SequenceMatcher()
+
+    # ⚡ Bolt: Cache string similarity comparisons using a single SequenceMatcher instance.
+    # Setting seq2 in the outer loop caches the expensive __chain_b lookup internally.
+    @lru_cache(maxsize=4096)
+    def _cached_ratio(norm_a: str, norm_b: str) -> float:
+        matcher.set_seq1(norm_a)
+        matcher.set_seq2(norm_b)
+        return matcher.ratio()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
+        matcher.set_seq2(normalized)
 
         if not normalized and not tokens:
             blank_index = next(
@@ -1043,7 +1039,19 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
+            if tokens and cluster_tokens and tokens.isdisjoint(cluster_tokens):
+                score = 0.0
+            else:
+                base = _cached_ratio(cluster_norm, normalized) if (cluster_norm or normalized) else 0.0
+                if tokens and cluster_tokens:
+                    intersection = len(tokens & cluster_tokens)
+                    union = len(tokens | cluster_tokens)
+                    jaccard = (intersection / union) if union else 0.0
+                    score = 0.6 * base + 0.4 * jaccard
+                else:
+                    score = base
+
             if score > best_score:
                 best_score = score
                 best_index = idx
