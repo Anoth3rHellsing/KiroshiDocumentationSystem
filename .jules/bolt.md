@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-03-26 - Eliminating Redundant File System Stats
+**Learning:** Performing synchronous `Path.stat()` calls in a loop inside a UI rendering path (like `recent_tracked_files`) is an anti-pattern. If the underlying data structure (like the JSON-backed case list) is already pre-sorted and caches timestamps (`_updated_ts`), the entire $O(N)$ disk I/O cost and $O(N \log N)$ re-sort can be skipped by simply slicing the pre-sorted array.
+**Action:** Replaced the full array `stat()` and sort with an $O(K)$ iteration that breaks early.
