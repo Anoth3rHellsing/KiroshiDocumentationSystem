@@ -42,7 +42,7 @@ Coverage is actively tracked and the project receives daily updates.
 - **Kiroshi chat tools** – "Verify" reviews case data for missing details; a separate chat interface offers persistent memory,
   gentle reassurance when you're overwhelmed, and humorous escalation quips. Toggle Sarcasm Mode in Settings when you want the
   assistant to lean into extra wit.
-- **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by an `admin`/`admin` login.
+- **Debug tab** – internal diagnostics with a log viewer (last 100 lines) protected by a configurable `KIROSHI_DEBUG_PASSWORD` login (default username `admin`).
 - **Corporate theme** – default light mode with 3Shape Red accents; switch to dark mode from the Streamlit settings for extended
   sessions.
 

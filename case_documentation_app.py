@@ -26,6 +26,7 @@ import re
 import base64
 import binascii
 import random
+import secrets
 import subprocess
 import sys
 import math
@@ -13137,7 +13138,13 @@ def render_debug_panel() -> None:
             "Password", type="password", key=global_widget_key("debug_pass")
         )
         if st.button("Login", key=global_widget_key("debug_login")):
-            if user == "admin" and pw == "admin":
+            # Prevent hardcoded backdoor, use secure env vars
+            debug_user = os.environ.get("KIROSHI_DEBUG_USER", "admin")
+            debug_pass = os.environ.get("KIROSHI_DEBUG_PASSWORD")
+
+            if not debug_pass:
+                st.error("Debug login disabled. Set KIROSHI_DEBUG_PASSWORD environment variable to enable.")
+            elif secrets.compare_digest(user, debug_user) and secrets.compare_digest(pw, debug_pass):
                 st.session_state.debug_auth = True
             else:
                 st.error("Invalid credentials")
