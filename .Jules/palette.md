@@ -15,3 +15,8 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-03-05 - Add clear memory confirmation
+
+**Learning:** Destructive actions in Streamlit applications should prompt for confirmation instead of instantly performing data deletion to prevent accidental data loss. A common pattern uses `st.session_state` flags (e.g., `confirm_clear_memory`) to conditionally render "Yes" or "Cancel" buttons.
+**Action:** Implemented the confirmation prompt for "Clear memory" in `kiroshi_chat.py` utilizing the session state pattern and inline buttons to gracefully ask the user before deleting data.
