@@ -13144,18 +13144,24 @@ def render_debug_panel() -> None:
 
 
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
+    """Return up to 20 recently tracked files.
+
+    Optimized to leverage the pre-sorted cases list (descending by updated time)
+    to eliminate redundant O(N log N) re-sorts and O(N) stat() system calls.
+    """
     if cases is None:
         cases = load_tracked_cases()
     files: list[Path] = []
     for entry in cases:
+        if len(files) >= 20:
+            break
         path_value = entry.get("path") if isinstance(entry, Mapping) else None
         if not path_value:
             continue
         candidate = Path(path_value)
         if candidate.exists():
             files.append(candidate)
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[:20]
+    return files
 
 
 def _summarize_text(text: str, width: int = 200) -> str:
