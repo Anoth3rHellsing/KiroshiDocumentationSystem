@@ -13159,13 +13159,21 @@ def recent_tracked_files(cases: list | None = None) -> list[Path]:
 
 
 def _summarize_text(text: str, width: int = 200) -> str:
+    """Return a shortened version of the text using custom slicing for better performance."""
     if not text:
         return ""
     cleaned = " ".join(text.split())
-    try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
-    except Exception:
-        return cleaned[:width]
+    if len(cleaned) <= width:
+        return cleaned
+
+    target_width = width - 1  # len("…")
+    if target_width < 0:
+        return "…"
+
+    idx = cleaned.rfind(' ', 0, target_width + 1)
+    if idx == -1:
+        return "…"
+    return cleaned[:idx] + "…"
 
 
 def _extract_keywords(*texts: str) -> list[str]:
