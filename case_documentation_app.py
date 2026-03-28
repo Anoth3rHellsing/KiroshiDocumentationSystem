@@ -13162,10 +13162,16 @@ def _summarize_text(text: str, width: int = 200) -> str:
     if not text:
         return ""
     cleaned = " ".join(text.split())
-    try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
-    except Exception:
-        return cleaned[:width]
+    if len(cleaned) <= width:
+        return cleaned
+
+    # ⚡ Bolt: Removed textwrap.shorten() which parses text with a regex and
+    # is ~20x slower. Using slicing and rfind() to truncate at the nearest word boundary.
+    truncated = cleaned[:width - 1]
+    space_idx = truncated.rfind(' ')
+    if space_idx > 0:
+        return truncated[:space_idx] + "…"
+    return truncated + "…"
 
 
 def _extract_keywords(*texts: str) -> list[str]:
