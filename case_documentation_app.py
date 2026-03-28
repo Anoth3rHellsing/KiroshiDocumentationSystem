@@ -13163,7 +13163,23 @@ def _summarize_text(text: str, width: int = 200) -> str:
         return ""
     cleaned = " ".join(text.split())
     try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
+        placeholder = "…"
+        if len(placeholder) > width:
+            return cleaned[:width]
+
+        if len(cleaned) <= width:
+            return cleaned
+
+        target_len = width - len(placeholder)
+
+        if cleaned[target_len] == ' ':
+            return cleaned[:target_len].rstrip() + placeholder
+
+        last_space = cleaned.rfind(' ', 0, target_len)
+        if last_space == -1:
+            return placeholder
+
+        return cleaned[:last_space].rstrip() + placeholder
     except Exception:
         return cleaned[:width]
 
