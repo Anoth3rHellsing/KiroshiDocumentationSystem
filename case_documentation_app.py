@@ -13162,10 +13162,23 @@ def _summarize_text(text: str, width: int = 200) -> str:
     if not text:
         return ""
     cleaned = " ".join(text.split())
-    try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
-    except Exception:
-        return cleaned[:width]
+    if len(cleaned) <= width:
+        return cleaned
+
+    # Avoid the expensive regex in textwrap.shorten
+    target_width = width - 1
+    if target_width <= 0:
+        return "…"
+
+    truncated = cleaned[:width]
+    if truncated[-1] == " ":
+        return truncated[:-1] + "…"
+
+    last_space = truncated[:-1].rfind(" ")
+    if last_space > 0:
+        return truncated[:last_space] + "…"
+
+    return cleaned[:target_width] + "…"
 
 
 def _extract_keywords(*texts: str) -> list[str]:
