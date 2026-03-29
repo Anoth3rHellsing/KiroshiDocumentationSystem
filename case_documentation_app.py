@@ -38,7 +38,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import lru_cache, partial
 from typing import Any, Dict, List, Literal
 from html import escape
-import textwrap
 import inspect
 import traceback
 
@@ -13159,13 +13158,25 @@ def recent_tracked_files(cases: list | None = None) -> list[Path]:
 
 
 def _summarize_text(text: str, width: int = 200) -> str:
+    """Returns a shortened version of the text, avoiding slow textwrap.shorten."""
     if not text:
         return ""
     cleaned = " ".join(text.split())
-    try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
-    except Exception:
-        return cleaned[:width]
+    if len(cleaned) <= width:
+        return cleaned
+
+    target_width = width - 1
+    if target_width <= 0:
+        return "…"
+
+    if cleaned[target_width] == ' ':
+        return cleaned[:target_width] + "…"
+
+    truncated = cleaned[:target_width]
+    last_space = truncated.rfind(' ')
+    if last_space > 0:
+        return truncated[:last_space] + "…"
+    return truncated + "…"
 
 
 def _extract_keywords(*texts: str) -> list[str]:
