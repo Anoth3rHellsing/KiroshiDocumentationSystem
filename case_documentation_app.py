@@ -13166,11 +13166,11 @@ def _summarize_text(text: str, width: int = 200) -> str:
     # to eliminate regex overhead (~20x faster)
     if len(cleaned) <= width:
         return cleaned
-    truncated = cleaned[:width - 1]
+    truncated = cleaned[:width]
     last_space = truncated.rfind(' ')
     if last_space > 0:
         return truncated[:last_space] + "…"
-    return truncated + "…"
+    return cleaned[:width - 1] + "…"
 
 
 def _extract_keywords(*texts: str) -> list[str]:
