@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2025-05-22 - SequenceMatcher in nested loops
+**Learning:** Re-instantiating `difflib.SequenceMatcher` in nested loops is a significant bottleneck. Reusing a single instance and setting the strings via `set_seq1()` and `set_seq2()` avoids internal array allocation overhead. Combined with an `@lru_cache(maxsize=4096)`, this transforms O(N^2) redundant ratio calculations into O(1) cache lookups.
+**Action:** When performing `N x N` sequence matchings, always re-use a single `SequenceMatcher` instance, pass it via closures, and apply `lru_cache` to the `ratio()` call. Ensure `set_seq2()` is invoked in the outer loop and `set_seq1()` in the inner loop to reset state correctly.

@@ -995,12 +995,12 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str, ratio_calc: Callable[[], float]
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    base = ratio_calc() if (norm_a or norm_b) else 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
@@ -1013,9 +1013,21 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
     clusters: list[dict[str, object]] = []
     assignments: list[int] = []
 
+    matcher = SequenceMatcher()
+
+    @lru_cache(maxsize=4096)
+    def cached_ratio(a: str, b: str) -> float:
+        matcher.set_seq1(a)
+        matcher.set_seq2(b)
+        return matcher.ratio()
+
     for title in titles:
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
+
+        matcher.set_seq2(normalized)
+
+        matcher.set_seq2(normalized)
 
         if not normalized and not tokens:
             blank_index = next(
@@ -1043,7 +1055,12 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         for idx, cluster in enumerate(clusters):
             cluster_tokens = cluster.get("tokens") or set()
             cluster_norm = str(cluster.get("normalized") or "")
-            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
+
+            def ratio_calc() -> float:
+                k1, k2 = (cluster_norm, normalized) if cluster_norm < normalized else (normalized, cluster_norm)
+                return cached_ratio(k1, k2)
+
+            score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm, ratio_calc)
             if score > best_score:
                 best_score = score
                 best_index = idx
