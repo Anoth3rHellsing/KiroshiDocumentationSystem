@@ -35,7 +35,7 @@ jobs:
 
       - name: Start Streamlit server
         run: |
-          streamlit run case_documentation_app.py --server.headless true --server.port 8501 > streamlit.log 2>&1 &
+          PYTHONPATH=. python -m streamlit run case_documentation_app.py --server.headless true --server.port 8501 > streamlit.log 2>&1 &
           for i in {1..40}; do
             if curl -sSf http://127.0.0.1:8501 >/dev/null; then
               exit 0
