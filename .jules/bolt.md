@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-03-31 - textwrap.shorten bottleneck
+**Learning:** The standard library `textwrap.shorten` uses complex internal regex parsing, making it unexpectedly slow for repetitive text truncation inside loops.
+**Action:** Replace `textwrap.shorten` with native string slicing and `rfind(' ')` along with appropriate edge-case handling (like `width <= 0`) to drastically reduce overhead while maintaining identical behavior.
