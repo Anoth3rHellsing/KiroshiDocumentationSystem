@@ -13146,16 +13146,20 @@ def render_debug_panel() -> None:
 def recent_tracked_files(cases: list | None = None) -> list[Path]:
     if cases is None:
         cases = load_tracked_cases()
-    files: list[Path] = []
+
+    # Cache mtime during existence check to prevent redundant stat syscalls during sort
+    files_with_mtime: list[tuple[Path, float]] = []
     for entry in cases:
         path_value = entry.get("path") if isinstance(entry, Mapping) else None
         if not path_value:
             continue
-        candidate = Path(path_value)
-        if candidate.exists():
-            files.append(candidate)
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[:20]
+        try:
+            mtime = os.stat(path_value).st_mtime
+            files_with_mtime.append((Path(path_value), mtime))
+        except OSError:
+            pass
+    files_with_mtime.sort(key=lambda item: item[1], reverse=True)
+    return [p for p, _ in files_with_mtime[:20]]
 
 
 def _summarize_text(text: str, width: int = 200) -> str:

@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-05-24 - Optimizing File Checks while Maintaining Correctness
+**Learning:** Removing an O(N log N) sort from `recent_tracked_files` under the assumption that the `cases` input list is always pre-sorted caused a functional regression. The function must sort arbitrary lists properly. We can still significantly optimize the sorting by using a single `os.stat().st_mtime` to fetch the modification time while validating existence simultaneously, then caching the result in a tuple for sorting to prevent redundant O(N) `Path` instantiations and internal stat syscalls.
+**Action:** Avoid instantiating unverified paths. Use `os.stat(path).st_mtime` within a try/except block to perform existence check and metadata extraction in a single kernel call, sort the tuples, and return the first 20 valid items.
