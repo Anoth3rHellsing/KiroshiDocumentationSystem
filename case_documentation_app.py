@@ -1025,10 +1025,6 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         normalized = _normalize_title_similarity(title)
         tokens = _title_similarity_tokens(title)
 
-        matcher.set_seq2(normalized)
-
-        matcher.set_seq2(normalized)
-
         if not normalized and not tokens:
             blank_index = next(
                 (
