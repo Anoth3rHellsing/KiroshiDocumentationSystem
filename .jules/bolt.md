@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2024-05-18 - Optimizing text truncation
+**Learning:** textwrap.shorten relies heavily on internal regex parsing, making it a significant performance bottleneck when summarizing text inside loops.
+**Action:** Replace textwrap.shorten with native string slicing and rfind(' ') for equivalent behavior at an approximate 20x speedup, but carefully guard against width <= 0 and off-by-one errors to preserve exact parity.

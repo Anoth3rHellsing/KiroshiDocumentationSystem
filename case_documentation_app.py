@@ -13161,9 +13161,19 @@ def recent_tracked_files(cases: list | None = None) -> list[Path]:
 def _summarize_text(text: str, width: int = 200) -> str:
     if not text:
         return ""
+    if width <= 0:
+        return ""
     cleaned = " ".join(text.split())
+    if len(cleaned) <= width:
+        return cleaned
     try:
-        return textwrap.shorten(cleaned, width=width, placeholder="…")
+        truncated = cleaned[:width]
+        last_space = truncated.rfind(' ')
+        if last_space == -1:
+            return cleaned[:width - 1] + "…"
+        if last_space < width - 1:
+            return cleaned[:last_space] + "…"
+        return cleaned[:width - 1] + "…"
     except Exception:
         return cleaned[:width]
 
