@@ -6268,7 +6268,7 @@ class SprintTask:
 
 @dataclass
 class SprintState:
-    date: str
+    date: str = ""
     tasks: list[SprintTask] = field(default_factory=list)
     is_active: bool = False
 
@@ -10375,12 +10375,23 @@ def render_sprint_tab() -> None:
         ):
             pass
 
-        if st.button("Close Shift (Reset)", help="Archive all active cases and reset the workspace"):
-            state = st.session_state.sprint_state
-            state.is_active = False
-            save_sprint_state(state)
-            st.session_state.sprint_state = state
-            st.success("Shift closed.")
+        confirm_key = "close_shift_confirm"
+        if st.session_state.get(confirm_key):
+            st.warning("Are you sure you want to close the shift?")
+            subcol_yes, subcol_no = st.columns(2)
+            if subcol_yes.button("Yes, close", key="close_shift_yes"):
+                state = st.session_state.sprint_state
+                state.is_active = False
+                save_sprint_state(state)
+                st.session_state.sprint_state = state
+                st.session_state[confirm_key] = False
+                st.success("Shift closed.")
+                st.rerun()
+            if subcol_no.button("Cancel", key="close_shift_no"):
+                st.session_state[confirm_key] = False
+                st.rerun()
+        elif st.button("Close Shift (Reset)", help="Archive all active cases and reset the workspace"):
+            st.session_state[confirm_key] = True
             st.rerun()
 
     if not tasks:

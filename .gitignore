@@ -8,3 +8,12 @@ JavaSTools/dist/
 JavaSTools/build/
 .env
 temp_benchmark_data/
+streamlit_output.log
+patch.diff
+patch.py
+patch_ast.py
+patch_tests.py
+update_tests.py
+verify_frontend.py
+settings.json
+test_ui_ux.py
