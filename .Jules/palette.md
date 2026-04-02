@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-23 - Destructive Action Confirmation for Case Clear
+**Learning:** The "Clear all" button for a case destroys all data entered. Although we added confirmation for "Clear notes" previously, missing it on the case level "Clear all" is a more significant data loss risk.
+**Action:** Always apply the session state confirmation pattern (`if st.session_state.get(confirm_key): ... else: ...`) to any button that deletes or resets significant user data.
