@@ -9998,7 +9998,7 @@ def render_tracked_cases_dashboard(
     key_namespace: str = "tracked",
 ) -> None:
     if not cases:
-        st.info("No cases are currently being tracked.")
+        st.info("No cases are currently being tracked.", icon="📭")
         return
     filtered_cases = cases
     query = search_query.strip().lower()
@@ -10384,7 +10384,7 @@ def render_sprint_tab() -> None:
             st.rerun()
 
     if not tasks:
-        st.info("No tasks for today.")
+        st.info("No tasks for today.", icon="🎉")
     else:
         # Sort: Escalated first, then by priority
         # We need to ensure types are sortable (bool is int, so fine)
@@ -13052,7 +13052,7 @@ def render_smart_aid_panel() -> None:
             st.markdown("#### Unified memory preview")
             st.code(memory_preview, language="markdown")
     else:
-        st.info("No supervisor feedback saved yet. Add a calibration above to prime Smart Aid.")
+        st.info("No supervisor feedback saved yet. Add a calibration above to prime Smart Aid.", icon="📝")
 
 
 def render_debug_panel() -> None:
@@ -17122,7 +17122,7 @@ def render_case_attachments_panel(
     screenshots = get_active_screenshots()
 
     if not (uploads or log_uploads or screenshots):
-        st.info("No evidence queued yet. Capture a screenshot or upload supporting files to begin.")
+        st.info("No evidence queued yet. Capture a screenshot or upload supporting files to begin.", icon="📎")
     else:
         if uploads:
             st.markdown("###### Uploaded files")
@@ -20639,7 +20639,7 @@ End with: We look forward to your reply."""
         st.subheader("Recent cases")
         recent_cases = load_recent_cases()
         if not recent_cases:
-            st.info("No recent cases found. Your history will appear here once you load or save a case.")
+            st.info("No recent cases found. Your history will appear here once you load or save a case.", icon="🕰️")
         for idx, case in enumerate(recent_cases):
             info_col, btn_col = st.columns([3, 1])
             last_modified_display = format_last_modified(case.get("last_modified"))
