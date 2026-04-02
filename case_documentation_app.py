@@ -9998,7 +9998,7 @@ def render_tracked_cases_dashboard(
     key_namespace: str = "tracked",
 ) -> None:
     if not cases:
-        st.info("No cases are currently being tracked.")
+        st.info("No cases are currently being tracked.", icon="ℹ️")
         return
     filtered_cases = cases
     query = search_query.strip().lower()
@@ -10016,7 +10016,7 @@ def render_tracked_cases_dashboard(
             if any(query in field.lower() for field in haystack if field):
                 filtered_cases.append(case)
     if not filtered_cases:
-        st.info("No tracked cases match your search.")
+        st.info("No tracked cases match your search.", icon="ℹ️")
         return
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     sorted_cases = sorted(
