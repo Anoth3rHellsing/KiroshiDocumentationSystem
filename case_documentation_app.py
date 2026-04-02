@@ -9998,7 +9998,7 @@ def render_tracked_cases_dashboard(
     key_namespace: str = "tracked",
 ) -> None:
     if not cases:
-        st.info("No cases are currently being tracked.")
+        st.info("No cases are currently being tracked.", icon="ℹ️")
         return
     filtered_cases = cases
     query = search_query.strip().lower()
@@ -10016,7 +10016,7 @@ def render_tracked_cases_dashboard(
             if any(query in field.lower() for field in haystack if field):
                 filtered_cases.append(case)
     if not filtered_cases:
-        st.info("No tracked cases match your search.")
+        st.info("No tracked cases match your search.", icon="ℹ️")
         return
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     sorted_cases = sorted(
@@ -10384,7 +10384,7 @@ def render_sprint_tab() -> None:
             st.rerun()
 
     if not tasks:
-        st.info("No tasks for today.")
+        st.info("No tasks for today.", icon="ℹ️")
     else:
         # Sort: Escalated first, then by priority
         # We need to ensure types are sortable (bool is int, so fine)
@@ -10477,7 +10477,7 @@ def render_sprint_tab() -> None:
 def render_saved_cases_dashboard(source_data: list[dict[str, object]] | None = None) -> None:
     saved_cases = list_saved_cases(source_data=source_data)
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        st.info("No saved cases found in your database.", icon="ℹ️")
         return
     st.caption("Preview of your most recent saved cases. Use the Saved Cases tab for the full index.")
     preview = saved_cases[:5]
@@ -10517,7 +10517,7 @@ def render_saved_cases_page() -> None:
     )
     saved_cases = list_saved_cases()
     if not saved_cases:
-        st.info("No saved cases found in your database.")
+        st.info("No saved cases found in your database.", icon="ℹ️")
         return
 
     saved_df = pd.DataFrame(saved_cases)
@@ -20639,7 +20639,7 @@ End with: We look forward to your reply."""
         st.subheader("Recent cases")
         recent_cases = load_recent_cases()
         if not recent_cases:
-            st.info("No recent cases found. Your history will appear here once you load or save a case.")
+            st.info("No recent cases found. Your history will appear here once you load or save a case.", icon="ℹ️")
         for idx, case in enumerate(recent_cases):
             info_col, btn_col = st.columns([3, 1])
             last_modified_display = format_last_modified(case.get("last_modified"))
