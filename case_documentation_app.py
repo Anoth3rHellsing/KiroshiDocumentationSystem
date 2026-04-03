@@ -20668,7 +20668,7 @@ End with: We look forward to your reply."""
                 else:
                     load_case_from_bytes(pending["data"])
                 st.session_state.pending_load = None
-            if col_s.button("Save", key=save_tab_key("save_before_loading")):
+            if col_s.button("Save", key=save_tab_key("save_before_loading"), help="Save the current case before loading a new one"):
                 save_case_to_database(D)
 
     if show_case_chat and tab_chat is not None:
