@@ -8,3 +8,4 @@ JavaSTools/dist/
 JavaSTools/build/
 .env
 temp_benchmark_data/
+test.py\ntest2.py\nget_lines.py\nsettings.json\nstreamlit_output.log
