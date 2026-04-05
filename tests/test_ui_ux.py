@@ -23,8 +23,8 @@ def test_buttons_have_tooltips():
         "Load"
     }
 
-    # Store whether we found *at least one* instance of the button with a tooltip
-    found_buttons = {btn: False for btn in target_buttons}
+    # Store missing instances of the target buttons
+    missing_instances = []
 
     class ButtonVisitor(ast.NodeVisitor):
         def visit_Call(self, node):
@@ -33,10 +33,8 @@ def test_buttons_have_tooltips():
                 # Extract label from args or kwargs
                 label = None
                 if node.args:
-                    if isinstance(node.args[0], ast.Constant): # python 3.8+
+                    if isinstance(node.args[0], ast.Constant):
                         label = node.args[0].value
-                    elif hasattr(ast, "Str") and isinstance(node.args[0], ast.Str): # older python
-                        label = node.args[0].s
 
                 # Check kwargs if label not in args
                 if not label:
@@ -44,22 +42,18 @@ def test_buttons_have_tooltips():
                         if kw.arg == "label":
                             if isinstance(kw.value, ast.Constant):
                                 label = kw.value.value
-                            elif hasattr(ast, "Str") and isinstance(kw.value, ast.Str):
-                                label = kw.value.s
 
                 if label in target_buttons:
                     has_help = any(kw.arg == "help" for kw in node.keywords)
-                    if has_help:
-                        found_buttons[label] = True
+                    if not has_help:
+                        missing_instances.append(f"'{label}' at line {node.lineno}")
 
             self.generic_visit(node)
 
     ButtonVisitor().visit(tree)
 
     # Check findings
-    missing_tooltips = [btn for btn, found in found_buttons.items() if not found]
-
-    assert not missing_tooltips, f"The following buttons are missing tooltips in at least one instance: {missing_tooltips}"
+    assert not missing_instances, f"The following buttons are missing tooltips: {missing_instances}"
 
 if __name__ == "__main__":
     try:
