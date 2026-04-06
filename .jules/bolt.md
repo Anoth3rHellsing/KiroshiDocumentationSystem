@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2025-12-24 - Optimization of recent_tracked_files
+**Learning:** When sorting lists of files by modification time, using `lambda p: p.stat().st_mtime` as the sort key leads to redundant `stat` system calls because `st_mtime` is repeatedly queried for the same files during comparisons.
+**Action:** Cache the result of `os.stat().st_mtime` inside a tuple `(Path, float)` during the initial file discovery pass. Then sort the tuples based on the cached float to drastically minimize expensive file system calls and instantiation overhead.
