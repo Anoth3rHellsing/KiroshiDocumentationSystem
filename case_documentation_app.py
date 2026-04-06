@@ -995,10 +995,16 @@ def _title_similarity_tokens(title: object) -> set[str]:
 
 
 @lru_cache(maxsize=10000)
-def _cached_seq_matcher(a: str, b: str) -> float:
-    if a > b:
-        a, b = b, a
+def _compute_ratio_cached(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio() if (a or b) else 0.0
+
+
+def _cached_seq_matcher(a: str, b: str) -> float:
+    if not a and not b:
+        return 0.0
+    if (a or "") > (b or ""):
+        a, b = b, a
+    return _compute_ratio_cached(a, b)
 
 
 def _title_similarity_score(
