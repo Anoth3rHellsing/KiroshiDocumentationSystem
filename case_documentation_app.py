@@ -10375,13 +10375,25 @@ def render_sprint_tab() -> None:
         ):
             pass
 
-        if st.button("Close Shift (Reset)", help="Archive all active cases and reset the workspace"):
-            state = st.session_state.sprint_state
-            state.is_active = False
-            save_sprint_state(state)
-            st.session_state.sprint_state = state
-            st.success("Shift closed.")
-            st.rerun()
+        if st.session_state.get("confirm_close_shift", False):
+            col_conf, col_canc = st.columns(2)
+            with col_conf:
+                if st.button("Confirm", key="confirm_close_shift_btn", type="primary", use_container_width=True):
+                    state = st.session_state.sprint_state
+                    state.is_active = False
+                    save_sprint_state(state)
+                    st.session_state.sprint_state = state
+                    st.success("Shift closed.")
+                    st.session_state["confirm_close_shift"] = False
+                    st.rerun()
+            with col_canc:
+                if st.button("Cancel", key="cancel_close_shift_btn", use_container_width=True):
+                    st.session_state["confirm_close_shift"] = False
+                    st.rerun()
+        else:
+            if st.button("Close Shift (Reset)", help="Archive all active cases and reset the workspace"):
+                st.session_state["confirm_close_shift"] = True
+                st.rerun()
 
     if not tasks:
         st.info("No tasks for today.")
@@ -17558,29 +17570,42 @@ def render_case_ui(case_idx: int):
                 help="Persist current case data to disk",
             ):
                 save_case_to_database(D)
-            if st.button(
-                "Clear all",
-                key=case_tab_key("clear_all_button"),
-                width="stretch",
-                help="Reset all fields in this case to their default state",
-            ):
-                logging.info("Clear all button clicked")
-                with case_loading_overlay("Cycling the workspace back to zero…"):
-                    time.sleep(2)
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    clear_case_state(case_idx)
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
-                st.rerun()
+            confirm_key = case_tab_key("confirm_clear_all")
+            if st.session_state.get(confirm_key, False):
+                col_conf, col_canc = st.columns(2)
+                with col_conf:
+                    if st.button("Confirm", key=case_tab_key("clear_all_confirm"), type="primary", use_container_width=True):
+                        logging.info("Clear all button clicked")
+                        with case_loading_overlay("Cycling the workspace back to zero…"):
+                            time.sleep(2)
+                            backup_path = None
+                            if D.case_id:
+                                backup_path = create_case_autosave_snapshot(D.case_id)
+                            if os.path.exists(AUTOSAVE_FILE):
+                                try:
+                                    os.remove(AUTOSAVE_FILE)
+                                except OSError:
+                                    pass
+                            clear_case_state(case_idx)
+                            if backup_path is not None:
+                                st.session_state["autosave_notice"] = (
+                                    f"Case autosaved to {backup_path.name}"
+                                )
+                        st.session_state[confirm_key] = False
+                        st.rerun()
+                with col_canc:
+                    if st.button("Cancel", key=case_tab_key("clear_all_cancel"), use_container_width=True):
+                        st.session_state[confirm_key] = False
+                        st.rerun()
+            else:
+                if st.button(
+                    "Clear all",
+                    key=case_tab_key("clear_all_button"),
+                    width="stretch",
+                    help="Reset all fields in this case to their default state",
+                ):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
             if st.session_state.track_case:
                 st.button(
                     "Tracking enabled",

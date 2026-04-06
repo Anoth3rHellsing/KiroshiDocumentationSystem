@@ -8,3 +8,7 @@ JavaSTools/dist/
 JavaSTools/build/
 .env
 temp_benchmark_data/
+streamlit_output.log
+settings.json
+verify.py
+.pytest_cache/
