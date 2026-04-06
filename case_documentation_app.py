@@ -12674,24 +12674,47 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
         )
 
         control_cols = st.columns(2)
-        if control_cols[0].button(
+        clear_case_chat_confirm_key = chat_tab_key("clear_case_history_confirm")
+        if st.session_state.get(clear_case_chat_confirm_key):
+            control_cols[0].warning("Are you sure?")
+            if control_cols[0].button("Confirm", key=chat_tab_key("clear_case_history_yes"), use_container_width=True):
+                store = _case_chat_history_store()
+                store[_case_chat_state_key(case_idx)] = []
+                meta_store = st.session_state.get("case_chat_meta")
+                if isinstance(meta_store, dict):
+                    meta_store.pop(_case_chat_state_key(case_idx), None)
+                meta["toast"] = "Case chat reset."
+                st.session_state[clear_case_chat_confirm_key] = False
+                st.rerun()
+            if control_cols[0].button("Cancel", key=chat_tab_key("clear_case_history_no"), use_container_width=True):
+                st.session_state[clear_case_chat_confirm_key] = False
+                st.rerun()
+        elif control_cols[0].button(
             "Clear case chat history",
             key=chat_tab_key("clear_case_history"),
+            use_container_width=True,
         ):
-            store = _case_chat_history_store()
-            store[_case_chat_state_key(case_idx)] = []
-            meta_store = st.session_state.get("case_chat_meta")
-            if isinstance(meta_store, dict):
-                meta_store.pop(_case_chat_state_key(case_idx), None)
-            meta["toast"] = "Case chat reset."
+            st.session_state[clear_case_chat_confirm_key] = True
             st.rerun()
-        if control_cols[1].button(
+
+        flush_global_memory_confirm_key = chat_tab_key("flush_global_memory_confirm")
+        if st.session_state.get(flush_global_memory_confirm_key):
+            control_cols[1].warning("Are you sure?")
+            if control_cols[1].button("Confirm", key=chat_tab_key("flush_global_memory_yes"), use_container_width=True):
+                st.session_state.kiroshi_chat_history = []
+                save_memory([])
+                meta["toast"] = "Global assistant memory cleared."
+                st.session_state[flush_global_memory_confirm_key] = False
+                st.rerun()
+            if control_cols[1].button("Cancel", key=chat_tab_key("flush_global_memory_no"), use_container_width=True):
+                st.session_state[flush_global_memory_confirm_key] = False
+                st.rerun()
+        elif control_cols[1].button(
             "Flush global assistant memory",
             key=chat_tab_key("flush_global_memory"),
+            use_container_width=True,
         ):
-            st.session_state.kiroshi_chat_history = []
-            save_memory([])
-            meta["toast"] = "Global assistant memory cleared."
+            st.session_state[flush_global_memory_confirm_key] = True
             st.rerun()
 
     with st.expander("Manual Knowledge Base"):
@@ -17558,28 +17581,38 @@ def render_case_ui(case_idx: int):
                 help="Persist current case data to disk",
             ):
                 save_case_to_database(D)
-            if st.button(
+            clear_all_confirm_key = case_tab_key("clear_all_confirm")
+            if st.session_state.get(clear_all_confirm_key):
+                st.warning("Are you sure?")
+                if st.button("Confirm", key=case_tab_key("clear_all_yes"), use_container_width=True):
+                    logging.info("Clear all button clicked")
+                    with case_loading_overlay("Cycling the workspace back to zero…"):
+                        time.sleep(2)
+                        backup_path = None
+                        if D.case_id:
+                            backup_path = create_case_autosave_snapshot(D.case_id)
+                        if os.path.exists(AUTOSAVE_FILE):
+                            try:
+                                os.remove(AUTOSAVE_FILE)
+                            except OSError:
+                                pass
+                        clear_case_state(case_idx)
+                        if backup_path is not None:
+                            st.session_state["autosave_notice"] = (
+                                f"Case autosaved to {backup_path.name}"
+                            )
+                    st.session_state[clear_all_confirm_key] = False
+                    st.rerun()
+                if st.button("Cancel", key=case_tab_key("clear_all_no"), use_container_width=True):
+                    st.session_state[clear_all_confirm_key] = False
+                    st.rerun()
+            elif st.button(
                 "Clear all",
                 key=case_tab_key("clear_all_button"),
-                width="stretch",
+                use_container_width=True,
                 help="Reset all fields in this case to their default state",
             ):
-                logging.info("Clear all button clicked")
-                with case_loading_overlay("Cycling the workspace back to zero…"):
-                    time.sleep(2)
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    clear_case_state(case_idx)
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
+                st.session_state[clear_all_confirm_key] = True
                 st.rerun()
             if st.session_state.track_case:
                 st.button(
