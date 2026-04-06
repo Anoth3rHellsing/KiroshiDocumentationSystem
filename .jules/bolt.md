@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## 2025-12-24 - Redundant Disk Access in File Sorting
+**Learning:** Using `Path.exists()` to check file existence followed by `Path.stat()` during sorting results in redundant disk I/O operations (two stat syscalls per file).
+**Action:** Execute `os.stat()` once within a `try/except OSError` block, cache the `st_mtime` in a tuple `(Path, float)`, and sort the tuples to halve the number of disk accesses and avoid unnecessary Path object instantiations.
