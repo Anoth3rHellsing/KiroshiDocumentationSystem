@@ -984,18 +984,19 @@ def _normalize_title_similarity(value: object) -> str:
     return _cached_normalize_title(value)
 
 
-def _title_similarity_tokens(title: object) -> set[str]:
+def _title_similarity_tokens(title: object) -> frozenset[str]:
     if not isinstance(title, str):
-        return set()
-    return {
+        return frozenset()
+    return frozenset(
         token
         for token in _tokenize_issue_description(title)
         if token not in TITLE_SIMILARITY_STOPWORDS
-    }
+    )
 
 
-def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+@lru_cache(maxsize=4096)
+def _cached_title_similarity_score(
+    tokens_a: frozenset[str], tokens_b: frozenset[str], norm_a: str, norm_b: str
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
@@ -1007,6 +1008,16 @@ def _title_similarity_score(
         jaccard = (intersection / union) if union else 0.0
         return 0.6 * base + 0.4 * jaccard
     return base
+
+
+def _title_similarity_score(
+    tokens_a: frozenset[str], tokens_b: frozenset[str], norm_a: str, norm_b: str
+) -> float:
+    # ⚡ Bolt: Sort for cache hits to optimize SequenceMatcher overhead
+    # Sorting must happen OUTSIDE the cached function to ensure commutative cache hits.
+    if norm_a > norm_b:
+        return _cached_title_similarity_score(tokens_b, tokens_a, norm_b, norm_a)
+    return _cached_title_similarity_score(tokens_a, tokens_b, norm_a, norm_b)
 
 
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
@@ -1030,7 +1041,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
                 clusters.append(
                     {
                         "normalized": "",
-                        "tokens": set(),
+                        "tokens": frozenset(),
                         "label": "Caso sin título",
                     }
                 )
@@ -1041,7 +1052,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         best_index = -1
         best_score = 0.0
         for idx, cluster in enumerate(clusters):
-            cluster_tokens = cluster.get("tokens") or set()
+            cluster_tokens = cluster.get("tokens") or frozenset()
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
             if score > best_score:
@@ -1059,15 +1070,15 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
             clusters.append(
                 {
                     "normalized": normalized,
-                    "tokens": set(tokens),
+                    "tokens": frozenset(tokens),
                     "label": label,
                 }
             )
             assignments.append(len(clusters) - 1)
         else:
             cluster = clusters[best_index]
-            cluster_tokens = cluster.setdefault("tokens", set())
-            cluster_tokens.update(tokens)
+            cluster_tokens = cluster.setdefault("tokens", frozenset())
+            cluster["tokens"] = frozenset(cluster_tokens | tokens)
             cluster["normalized"] = cluster.get("normalized") or normalized
             if isinstance(title, str) and title.strip():
                 candidate_label = _summarize_text(title, width=80)

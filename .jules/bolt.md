@@ -15,3 +15,7 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+
+## $(date +%Y-%m-%d) - Optimize _title_similarity_score cache hits
+**Learning:** `difflib.SequenceMatcher` is a known performance bottleneck in Python. Caching its results provides significant speedups, but cache hits for commutative operations (like similarity between `A` and `B` vs `B` and `A`) are missed unless arguments are sorted. Also `set` must be converted to `frozenset` to be hashable for `@lru_cache`.
+**Action:** When using `@lru_cache` for string similarities, sort the inputs lexicographically first. Always convert sets to frozensets when they need to be passed as arguments to memoized functions.
