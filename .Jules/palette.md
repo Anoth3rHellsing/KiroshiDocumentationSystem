@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2025-05-23 - Fix Invalid Button Kwargs
+**Learning:** Streamlit buttons often use `width="stretch"` incorrectly instead of the valid `use_container_width=True` parameter, leading to layout bugs or warnings.
+**Action:** Always replace `width="stretch"` with `use_container_width=True` when working with Streamlit layout parameters.

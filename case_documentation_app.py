@@ -17554,32 +17554,44 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "Save case",
                 key=case_tab_key("quick_save"),
-                width="stretch",
+                use_container_width=True,
                 help="Persist current case data to disk",
             ):
                 save_case_to_database(D)
-            if st.button(
+
+            confirm_key = case_tab_key("clear_all_confirm")
+            if st.session_state.get(confirm_key):
+                st.warning("Are you sure you want to clear all fields?")
+                confirm_cols = st.columns(2)
+                if confirm_cols[0].button("Confirm", key=case_tab_key("clear_all_yes"), use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    logging.info("Clear all button clicked")
+                    with case_loading_overlay("Cycling the workspace back to zero…"):
+                        time.sleep(2)
+                        backup_path = None
+                        if D.case_id:
+                            backup_path = create_case_autosave_snapshot(D.case_id)
+                        if os.path.exists(AUTOSAVE_FILE):
+                            try:
+                                os.remove(AUTOSAVE_FILE)
+                            except OSError:
+                                pass
+                        clear_case_state(case_idx)
+                        if backup_path is not None:
+                            st.session_state["autosave_notice"] = (
+                                f"Case autosaved to {backup_path.name}"
+                            )
+                    st.rerun()
+                if confirm_cols[1].button("Cancel", key=case_tab_key("clear_all_no"), use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+            elif st.button(
                 "Clear all",
                 key=case_tab_key("clear_all_button"),
-                width="stretch",
+                use_container_width=True,
                 help="Reset all fields in this case to their default state",
             ):
-                logging.info("Clear all button clicked")
-                with case_loading_overlay("Cycling the workspace back to zero…"):
-                    time.sleep(2)
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    clear_case_state(case_idx)
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
+                st.session_state[confirm_key] = True
                 st.rerun()
             if st.session_state.track_case:
                 st.button(
