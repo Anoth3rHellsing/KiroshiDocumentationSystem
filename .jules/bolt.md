@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2026-04-07 - Optimization of Pairwise String Comparisons
+**Learning:** `difflib.SequenceMatcher` is a significant performance bottleneck (O(N*M)) in repetitive tasks like case title clustering.
+**Action:** When calculating similarity for combinations of titles, use `@lru_cache` and sort the input arguments lexicographically (`if a > b: a, b = b, a`) to maximize cache hit rates for unordered pairs `(a, b)` and `(b, a)`.
