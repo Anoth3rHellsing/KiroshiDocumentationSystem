@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2026-04-07 - Optimize string comparison with lru_cache
+**Learning:** Pairwise string comparisons (using difflib.SequenceMatcher or Jaccard similarity) during clustering can be a severe performance bottleneck. Using `@lru_cache` and lexicographically sorting input arguments significantly improves cache hit rates and reduces execution time.
+**Action:** Identify repetitive, expensive string similarity calculations and wrap them with `@lru_cache`. For symmetric comparisons, sort the inputs first (`if a > b: a, b = b, a`) to maximize caching.

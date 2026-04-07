@@ -994,9 +994,14 @@ def _title_similarity_tokens(title: object) -> set[str]:
     }
 
 
+@lru_cache(maxsize=1024)
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: frozenset[str], tokens_b: frozenset[str], norm_a: str, norm_b: str
 ) -> float:
+    if norm_a > norm_b:
+        norm_a, norm_b = norm_b, norm_a
+        tokens_a, tokens_b = tokens_b, tokens_a
+
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
@@ -1015,7 +1020,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
 
     for title in titles:
         normalized = _normalize_title_similarity(title)
-        tokens = _title_similarity_tokens(title)
+        tokens = frozenset(_title_similarity_tokens(title))
 
         if not normalized and not tokens:
             blank_index = next(
@@ -1041,7 +1046,7 @@ def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, st
         best_index = -1
         best_score = 0.0
         for idx, cluster in enumerate(clusters):
-            cluster_tokens = cluster.get("tokens") or set()
+            cluster_tokens = frozenset(cluster.get("tokens") or set())
             cluster_norm = str(cluster.get("normalized") or "")
             score = _title_similarity_score(tokens, cluster_tokens, normalized, cluster_norm)
             if score > best_score:
