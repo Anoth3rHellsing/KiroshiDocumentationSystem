@@ -17554,51 +17554,66 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "Save case",
                 key=case_tab_key("quick_save"),
-                width="stretch",
+                use_container_width=True,
                 help="Persist current case data to disk",
             ):
                 save_case_to_database(D)
-            if st.button(
-                "Clear all",
-                key=case_tab_key("clear_all_button"),
-                width="stretch",
-                help="Reset all fields in this case to their default state",
-            ):
-                logging.info("Clear all button clicked")
-                with case_loading_overlay("Cycling the workspace back to zero…"):
-                    time.sleep(2)
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    clear_case_state(case_idx)
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
-                st.rerun()
+
+            confirm_clear_key = case_tab_key("confirm_clear_all")
+            if st.session_state.get(confirm_clear_key, False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Confirm", key=case_tab_key("clear_all_confirm_btn"), type="primary", use_container_width=True):
+                        st.session_state[confirm_clear_key] = False
+                        logging.info("Clear all button clicked")
+                        with case_loading_overlay("Cycling the workspace back to zero…"):
+                            time.sleep(2)
+                            backup_path = None
+                            if D.case_id:
+                                backup_path = create_case_autosave_snapshot(D.case_id)
+                            if os.path.exists(AUTOSAVE_FILE):
+                                try:
+                                    os.remove(AUTOSAVE_FILE)
+                                except OSError:
+                                    pass
+                            clear_case_state(case_idx)
+                            if backup_path is not None:
+                                st.session_state["autosave_notice"] = (
+                                    f"Case autosaved to {backup_path.name}"
+                                )
+                        st.rerun()
+                with col2:
+                    if st.button("Cancel", key=case_tab_key("clear_all_cancel_btn"), use_container_width=True):
+                        st.session_state[confirm_clear_key] = False
+                        st.rerun()
+            else:
+                if st.button(
+                    "Clear all",
+                    key=case_tab_key("clear_all_button"),
+                    use_container_width=True,
+                    help="Reset all fields in this case to their default state",
+                ):
+                    st.session_state[confirm_clear_key] = True
+                    st.rerun()
+
             if st.session_state.track_case:
                 st.button(
                     "Tracking enabled",
                     disabled=True,
                     key=case_tab_key("tracking_enabled"),
-                    width="stretch",
+                    use_container_width=True,
                 )
             elif st.button(
                 "Track case",
                 key=case_tab_key("track_case_button"),
-                width="stretch",
+                use_container_width=True,
             ):
                 st.session_state.track_case = True
                 st.rerun()
             if st.button(
                 "AI Assistance",
                 key=case_tab_key("assist_button"),
-                width="stretch",
+                use_container_width=True,
             ):
                 logging.info("AI Assistance button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
