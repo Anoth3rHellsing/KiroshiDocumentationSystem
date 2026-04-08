@@ -994,13 +994,22 @@ def _title_similarity_tokens(title: object) -> set[str]:
     }
 
 
+@lru_cache(maxsize=4096)
+def _cached_sequence_matcher_ratio(a: str, b: str) -> float:
+    """Caches difflib.SequenceMatcher to avoid O(N*M) performance bottlenecks."""
+    return SequenceMatcher(None, a, b).ratio() if (a or b) else 0.0
+
+
 def _title_similarity_score(
     tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if norm_a > norm_b:
+        norm_a, norm_b = norm_b, norm_a
+
+    base = _cached_sequence_matcher_ratio(norm_a, norm_b)
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
