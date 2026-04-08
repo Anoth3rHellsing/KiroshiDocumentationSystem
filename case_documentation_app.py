@@ -994,12 +994,10 @@ def _title_similarity_tokens(title: object) -> set[str]:
     }
 
 
-def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+@lru_cache(maxsize=1024)
+def _cached_similarity_score(
+    tokens_a: frozenset[str], tokens_b: frozenset[str], norm_a: str, norm_b: str
 ) -> float:
-    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
-        return 0.0
-
     base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
@@ -1007,6 +1005,19 @@ def _title_similarity_score(
         jaccard = (intersection / union) if union else 0.0
         return 0.6 * base + 0.4 * jaccard
     return base
+
+
+def _title_similarity_score(
+    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+) -> float:
+    if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
+        return 0.0
+
+    if norm_a > norm_b:
+        norm_a, norm_b = norm_b, norm_a
+        tokens_a, tokens_b = tokens_b, tokens_a
+
+    return _cached_similarity_score(frozenset(tokens_a), frozenset(tokens_b), norm_a, norm_b)
 
 
 def _cluster_case_titles(titles: Sequence[str]) -> tuple[list[int], dict[int, str]]:
