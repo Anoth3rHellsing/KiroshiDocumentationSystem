@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2026-04-08 - Optimize Commutative SequenceMatcher with Cache
+**Learning:** When optimizing commutative operations like difflib.SequenceMatcher with @lru_cache, the lexicographical sort must occur before passing arguments to the cached function, otherwise ("A", "B") and ("B", "A") cause separate cache misses.
+**Action:** Always sort commutative inputs explicitly before the @lru_cache function call, rather than inside the cached function body itself.
