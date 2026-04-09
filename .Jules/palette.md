@@ -15,3 +15,7 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+
+## 2026-04-09 - Destructive Action Confirmation in Chat
+**Learning:** Even well-understood UX patterns like destructive action confirmation via session state (as noted on 2025-05-23) require strict structural handling in Streamlit. If the user action directly triggers a state mutation and `st.rerun()` without carefully checking whether the state already existed, it can bypass intended warning flows or cause infinite loops.
+**Action:** Always wrap destructive action flows in robust boolean state variables initialized explicitly at the start of the render cycle (`if 'confirm_key' not in st.session_state: st.session_state.confirm_key = False`), before any conditional rendering of the button itself, and ensure both positive and negative actions securely reset this state.
