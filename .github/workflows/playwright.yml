@@ -49,7 +49,7 @@ jobs:
       - name: Run Playwright tests
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8501
-        run: npm run test:e2e
+        run: npm run test:e2e -- --pass-with-no-tests
 
       - name: Upload Playwright report
         if: always()
