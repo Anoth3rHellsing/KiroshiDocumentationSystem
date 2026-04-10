@@ -12674,25 +12674,55 @@ def render_case_kiroshi_chat_panel(case_idx: int) -> None:
         )
 
         control_cols = st.columns(2)
-        if control_cols[0].button(
-            "Clear case chat history",
-            key=chat_tab_key("clear_case_history"),
-        ):
-            store = _case_chat_history_store()
-            store[_case_chat_state_key(case_idx)] = []
-            meta_store = st.session_state.get("case_chat_meta")
-            if isinstance(meta_store, dict):
-                meta_store.pop(_case_chat_state_key(case_idx), None)
-            meta["toast"] = "Case chat reset."
-            st.rerun()
-        if control_cols[1].button(
-            "Flush global assistant memory",
-            key=chat_tab_key("flush_global_memory"),
-        ):
-            st.session_state.kiroshi_chat_history = []
-            save_memory([])
-            meta["toast"] = "Global assistant memory cleared."
-            st.rerun()
+        clear_confirm_key = chat_tab_key("confirm_clear_history")
+        if clear_confirm_key not in st.session_state:
+            st.session_state[clear_confirm_key] = False
+
+        if st.session_state[clear_confirm_key]:
+            control_cols[0].warning("Are you sure?")
+            btn_cols = control_cols[0].columns(2)
+            if btn_cols[0].button("Confirm", key=chat_tab_key("clear_confirm")):
+                store = _case_chat_history_store()
+                store[_case_chat_state_key(case_idx)] = []
+                meta_store = st.session_state.get("case_chat_meta")
+                if isinstance(meta_store, dict):
+                    meta_store.pop(_case_chat_state_key(case_idx), None)
+                st.session_state[clear_confirm_key] = False
+                meta["toast"] = "Case chat reset."
+                st.rerun()
+            if btn_cols[1].button("Cancel", key=chat_tab_key("clear_cancel")):
+                st.session_state[clear_confirm_key] = False
+                st.rerun()
+        else:
+            if control_cols[0].button(
+                "Clear case chat history",
+                key=chat_tab_key("clear_case_history"),
+            ):
+                st.session_state[clear_confirm_key] = True
+                st.rerun()
+        flush_confirm_key = chat_tab_key("confirm_flush_memory")
+        if flush_confirm_key not in st.session_state:
+            st.session_state[flush_confirm_key] = False
+
+        if st.session_state[flush_confirm_key]:
+            control_cols[1].warning("Are you sure?")
+            btn_cols = control_cols[1].columns(2)
+            if btn_cols[0].button("Confirm", key=chat_tab_key("flush_confirm")):
+                st.session_state.kiroshi_chat_history = []
+                save_memory([])
+                st.session_state[flush_confirm_key] = False
+                meta["toast"] = "Global assistant memory cleared."
+                st.rerun()
+            if btn_cols[1].button("Cancel", key=chat_tab_key("flush_cancel")):
+                st.session_state[flush_confirm_key] = False
+                st.rerun()
+        else:
+            if control_cols[1].button(
+                "Flush global assistant memory",
+                key=chat_tab_key("flush_global_memory"),
+            ):
+                st.session_state[flush_confirm_key] = True
+                st.rerun()
 
     with st.expander("Manual Knowledge Base"):
         if st.session_state.manual_docs:
