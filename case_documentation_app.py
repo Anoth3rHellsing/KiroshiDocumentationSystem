@@ -994,13 +994,27 @@ def _title_similarity_tokens(title: object) -> set[str]:
     }
 
 
+# Cache expensive string similarity comparisons
+@lru_cache(maxsize=131072)
+def _cached_sequence_matcher(a: str, b: str) -> float:
+    return SequenceMatcher(None, a, b).ratio()
+
 def _title_similarity_score(
     tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if norm_a and norm_b:
+        # Lexicographically sort inputs to guarantee bidirectional pairs
+        # (A, B) and (B, A) hit the same cache key in the O(N^2) clustering loop.
+        if norm_a > norm_b:
+            base = _cached_sequence_matcher(norm_b, norm_a)
+        else:
+            base = _cached_sequence_matcher(norm_a, norm_b)
+    else:
+        base = 0.0
+
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
