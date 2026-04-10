@@ -984,23 +984,39 @@ def _normalize_title_similarity(value: object) -> str:
     return _cached_normalize_title(value)
 
 
-def _title_similarity_tokens(title: object) -> set[str]:
+def _title_similarity_tokens(title: object) -> frozenset[str]:
     if not isinstance(title, str):
-        return set()
-    return {
+        return frozenset()
+    return frozenset(
         token
         for token in _tokenize_issue_description(title)
         if token not in TITLE_SIMILARITY_STOPWORDS
-    }
+    )
+
+
+# ⚡ Bolt Optimization: SequenceMatcher is O(N*M) and a massive bottleneck in the O(N^2) clustering loop.
+# Caching the ratio calculations avoids redundant sequence comparisons.
+@lru_cache(maxsize=16384)
+def _cached_sequence_matcher_ratio(a: str, b: str) -> float:
+    return SequenceMatcher(None, a, b).ratio()
 
 
 def _title_similarity_score(
-    tokens_a: set[str], tokens_b: set[str], norm_a: str, norm_b: str
+    tokens_a: frozenset[str], tokens_b: frozenset[str], norm_a: str, norm_b: str
 ) -> float:
     if tokens_a and tokens_b and tokens_a.isdisjoint(tokens_b):
         return 0.0
 
-    base = SequenceMatcher(None, norm_a, norm_b).ratio() if (norm_a or norm_b) else 0.0
+    if norm_a or norm_b:
+        # ⚡ Bolt Optimization: Sort lexicographically before calculating to exploit commutativity.
+        # This means ratio(A, B) and ratio(B, A) hit the same cache entry, reducing calculations by ~50%.
+        if norm_a > norm_b:
+            base = _cached_sequence_matcher_ratio(norm_b, norm_a)
+        else:
+            base = _cached_sequence_matcher_ratio(norm_a, norm_b)
+    else:
+        base = 0.0
+
     if tokens_a and tokens_b:
         intersection = len(tokens_a & tokens_b)
         union = len(tokens_a | tokens_b)
