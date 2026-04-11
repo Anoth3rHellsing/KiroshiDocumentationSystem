@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2025-04-11 - Caching commutative pairwise operations
+**Learning:** In O(N^2) loops (like clustering case titles), caching pairwise string similarity (using SequenceMatcher) provides massive speedups. However, to effectively use `@lru_cache` for commutative functions (like similarity between A and B), inputs must be sorted lexicographically *before* the cache call.
+**Action:** Always sort commutative inputs before hitting `@lru_cache`, ensure immutable types (frozenset) are used for sets/lists, and use a large enough maxsize (e.g., 16384) to prevent thrashing in O(N^2) loops.
