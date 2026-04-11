@@ -17551,10 +17551,6 @@ def render_case_ui(case_idx: int):
             ai_assist_summary = st.session_state.get("ai_assist_result") or ""
             ai_autocorrect_summary = st.session_state.get("ai_autocorrect_result") or ""
 
-            confirm_clear_key = case_tab_key("confirm_clear_all")
-            if confirm_clear_key not in st.session_state:
-                st.session_state[confirm_clear_key] = False
-
             if st.button(
                 "Save case",
                 key=case_tab_key("quick_save"),
@@ -17563,11 +17559,11 @@ def render_case_ui(case_idx: int):
             ):
                 save_case_to_database(D)
 
-            if st.session_state[confirm_clear_key]:
-                st.warning("Are you sure you want to clear all fields?")
+            confirm_clear_key = case_tab_key("confirm_clear_all")
+            if st.session_state.get(confirm_clear_key, False):
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("Confirm", key=case_tab_key("confirm_clear_yes"), use_container_width=True):
+                    if st.button("Confirm", key=case_tab_key("clear_all_confirm_btn"), type="primary", use_container_width=True):
                         st.session_state[confirm_clear_key] = False
                         logging.info("Clear all button clicked")
                         with case_loading_overlay("Cycling the workspace back to zero…"):
@@ -17587,7 +17583,7 @@ def render_case_ui(case_idx: int):
                                 )
                         st.rerun()
                 with col2:
-                    if st.button("Cancel", key=case_tab_key("confirm_clear_no"), use_container_width=True):
+                    if st.button("Cancel", key=case_tab_key("clear_all_cancel_btn"), use_container_width=True):
                         st.session_state[confirm_clear_key] = False
                         st.rerun()
             else:
@@ -17599,6 +17595,7 @@ def render_case_ui(case_idx: int):
                 ):
                     st.session_state[confirm_clear_key] = True
                     st.rerun()
+
             if st.session_state.track_case:
                 st.button(
                     "Tracking enabled",
@@ -17609,14 +17606,14 @@ def render_case_ui(case_idx: int):
             elif st.button(
                 "Track case",
                 key=case_tab_key("track_case_button"),
-                width="stretch",
+                use_container_width=True,
             ):
                 st.session_state.track_case = True
                 st.rerun()
             if st.button(
                 "AI Assistance",
                 key=case_tab_key("assist_button"),
-                width="stretch",
+                use_container_width=True,
             ):
                 logging.info("AI Assistance button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
