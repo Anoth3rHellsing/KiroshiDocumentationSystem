@@ -6268,7 +6268,7 @@ class SprintTask:
 
 @dataclass
 class SprintState:
-    date: str
+    date: str = ""
     tasks: list[SprintTask] = field(default_factory=list)
     is_active: bool = False
 
