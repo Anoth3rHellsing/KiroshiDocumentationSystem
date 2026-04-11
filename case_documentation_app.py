@@ -17558,29 +17558,44 @@ def render_case_ui(case_idx: int):
                 help="Persist current case data to disk",
             ):
                 save_case_to_database(D)
-            if st.button(
-                "Clear all",
-                key=case_tab_key("clear_all_button"),
-                width="stretch",
-                help="Reset all fields in this case to their default state",
-            ):
-                logging.info("Clear all button clicked")
-                with case_loading_overlay("Cycling the workspace back to zero…"):
-                    time.sleep(2)
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    clear_case_state(case_idx)
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
-                st.rerun()
+            confirm_key = case_tab_key("clear_all_confirm")
+            if confirm_key not in st.session_state:
+                st.session_state[confirm_key] = False
+
+            if st.session_state[confirm_key]:
+                st.warning("Are you sure?")
+                c1, c2 = st.columns(2)
+                if c1.button("Confirm", key=case_tab_key("clear_all_yes"), use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    logging.info("Clear all button clicked")
+                    with case_loading_overlay("Cycling the workspace back to zero…"):
+                        time.sleep(2)
+                        backup_path = None
+                        if D.case_id:
+                            backup_path = create_case_autosave_snapshot(D.case_id)
+                        if os.path.exists(AUTOSAVE_FILE):
+                            try:
+                                os.remove(AUTOSAVE_FILE)
+                            except OSError:
+                                pass
+                        clear_case_state(case_idx)
+                        if backup_path is not None:
+                            st.session_state["autosave_notice"] = (
+                                f"Case autosaved to {backup_path.name}"
+                            )
+                    st.rerun()
+                if c2.button("Cancel", key=case_tab_key("clear_all_no"), use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+            else:
+                if st.button(
+                    "Clear all",
+                    key=case_tab_key("clear_all_button"),
+                    use_container_width=True,
+                    help="Reset all fields in this case to their default state",
+                ):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
             if st.session_state.track_case:
                 st.button(
                     "Tracking enabled",
