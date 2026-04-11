@@ -15,3 +15,6 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+## 2026-04-11 - Destructive Action Clear All Button
+**Learning:** Replaced the immediate destructive "Clear all" button in Quick Actions with a session-state-managed confirmation toggle displaying explicit "Confirm" / "Cancel" options. This applies the same destructive confirmation pattern learned from "Clear notes".
+**Action:** Always wrap highly destructive resetting operations in a confirmation dialog state using `st.columns(2)` to protect against accidental data loss.
