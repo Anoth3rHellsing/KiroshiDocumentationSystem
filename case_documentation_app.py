@@ -10638,7 +10638,7 @@ def render_saved_cases_page() -> None:
     )
     st.dataframe(
         display_df,
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -11978,7 +11978,7 @@ def render_report_panel() -> None:
             selected_counts.rename(
                 columns={"analysis_label": "Caso", "count": "Frecuencia"}
             ),
-            width="stretch",
+            use_container_width=True,
         )
         freq_chart = (
             alt.Chart(selected_counts)
@@ -12025,7 +12025,7 @@ def render_report_panel() -> None:
             recurring_df.rename(
                 columns={"analysis_label": "Caso", "count": "Recurrencias"}
             ),
-            width="stretch",
+            use_container_width=True,
         )
 
     root_cause_df = insights.get("common_root_causes")
@@ -12033,7 +12033,7 @@ def render_report_panel() -> None:
         st.markdown("### Causas raíz más comunes")
         st.dataframe(
             root_cause_df.rename(columns={"root_cause": "Causa", "count": "Casos"}),
-            width="stretch",
+            use_container_width=True,
         )
 
     scanner_df = insights.get("common_scanner_models")
@@ -12041,7 +12041,7 @@ def render_report_panel() -> None:
         st.markdown("### Modelos de escáner reportados")
         st.dataframe(
             scanner_df.rename(columns={"scanner": "Modelo", "count": "Casos"}),
-            width="stretch",
+            use_container_width=True,
         )
 
     bug_report = st.session_state.get("ai_bug_report")
@@ -12058,7 +12058,7 @@ def render_report_panel() -> None:
                 }
             )
             .head(15),
-            width="stretch",
+            use_container_width=True,
         )
 
     col_pdf, col_bug = st.columns([1, 1])
@@ -17554,51 +17554,68 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "Save case",
                 key=case_tab_key("quick_save"),
-                width="stretch",
+                use_container_width=True,
                 help="Persist current case data to disk",
             ):
                 save_case_to_database(D)
-            if st.button(
-                "Clear all",
-                key=case_tab_key("clear_all_button"),
-                width="stretch",
-                help="Reset all fields in this case to their default state",
-            ):
-                logging.info("Clear all button clicked")
-                with case_loading_overlay("Cycling the workspace back to zero…"):
-                    time.sleep(2)
-                    backup_path = None
-                    if D.case_id:
-                        backup_path = create_case_autosave_snapshot(D.case_id)
-                    if os.path.exists(AUTOSAVE_FILE):
-                        try:
-                            os.remove(AUTOSAVE_FILE)
-                        except OSError:
-                            pass
-                    clear_case_state(case_idx)
-                    if backup_path is not None:
-                        st.session_state["autosave_notice"] = (
-                            f"Case autosaved to {backup_path.name}"
-                        )
-                st.rerun()
+            confirm_key = case_tab_key("confirm_clear_all")
+            if confirm_key not in st.session_state:
+                st.session_state[confirm_key] = False
+
+            if not st.session_state[confirm_key]:
+                if st.button(
+                    "Clear all",
+                    key=case_tab_key("clear_all_button"),
+                    use_container_width=True,
+                    help="Reset all fields in this case to their default state",
+                ):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
+            else:
+                st.warning("Are you sure you want to clear all fields?")
+                col_c1, col_c2 = st.columns(2)
+                with col_c1:
+                    if st.button("Confirm", key=case_tab_key("confirm_clear_all_yes"), use_container_width=True):
+                        st.session_state[confirm_key] = False
+                        logging.info("Clear all button clicked")
+                        with case_loading_overlay("Cycling the workspace back to zero…"):
+                            time.sleep(2)
+                            backup_path = None
+                            if D.case_id:
+                                backup_path = create_case_autosave_snapshot(D.case_id)
+                            if os.path.exists(AUTOSAVE_FILE):
+                                try:
+                                    os.remove(AUTOSAVE_FILE)
+                                except OSError:
+                                    pass
+                            clear_case_state(case_idx)
+                            if backup_path is not None:
+                                st.session_state["autosave_notice"] = (
+                                    f"Case autosaved to {backup_path.name}"
+                                )
+                        st.rerun()
+                with col_c2:
+                    if st.button("Cancel", key=case_tab_key("cancel_clear_all_btn"), use_container_width=True):
+                        st.session_state[confirm_key] = False
+                        st.rerun()
             if st.session_state.track_case:
                 st.button(
                     "Tracking enabled",
                     disabled=True,
                     key=case_tab_key("tracking_enabled"),
-                    width="stretch",
+                    use_container_width=True,
                 )
             elif st.button(
                 "Track case",
                 key=case_tab_key("track_case_button"),
-                width="stretch",
+                use_container_width=True,
             ):
                 st.session_state.track_case = True
                 st.rerun()
             if st.button(
                 "AI Assistance",
                 key=case_tab_key("assist_button"),
-                width="stretch",
+                use_container_width=True,
             ):
                 logging.info("AI Assistance button clicked")
                 if not api_key and base_url.startswith("https://api.openai.com"):
@@ -17691,7 +17708,7 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "AI Autocorrection",
                 key=case_tab_key("ai_autocorrect_button"),
-                width="stretch",
+                use_container_width=True,
                 disabled=autocorrect_disabled,
                 help=autocorrect_help,
             ):
@@ -17765,7 +17782,7 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "Categorize",
                 key=case_tab_key("categorize_button"),
-                width="stretch",
+                use_container_width=True,
                 help="Analyze case text to suggest category and root cause",
             ):
                 logging.info("Categorize button clicked")
@@ -17834,7 +17851,7 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "Ask",
                 key=case_tab_key("ask_button"),
-                width="stretch",
+                use_container_width=True,
                 help="Query Kiroshi about this specific case",
             ):
                 logging.info("Ask button clicked")
@@ -17886,7 +17903,7 @@ def render_case_ui(case_idx: int):
             if st.button(
                 "QA Verify",
                 key=case_tab_key("verify_button"),
-                width="stretch",
+                use_container_width=True,
                 help="Run quality assurance checks on case documentation",
             ):
                 logging.info("QA Verify button clicked")
@@ -18037,7 +18054,7 @@ def render_case_ui(case_idx: int):
             if st.button(
                 bubble_label,
                 key=case_tab_key("quick_actions_toggle_button"),
-                width="stretch",
+                use_container_width=True,
                 help="Toggle the Quick Actions menu",
             ):
                 st.session_state[toggle_key] = not st.session_state[toggle_key]
@@ -18684,7 +18701,7 @@ def render_case_ui(case_idx: int):
                             height=80,
                         )
                         st.dataframe(
-                            category_dataframe(cat, D, cat_map), width="stretch"
+                            category_dataframe(cat, D, cat_map), use_container_width=True
                         )
                     st.markdown("---")
                 if st.session_state.categorizer_result:
@@ -19201,7 +19218,7 @@ End with: We look forward to your reply."""
                     "Update the Dell escalation section in the Escalations tab to refresh this template."
                 )
                 st.dataframe(
-                    dell_escalation_dataframe(D), width="stretch"
+                    dell_escalation_dataframe(D), use_container_width=True
                 )
                 email_text = build_dell_escalation_email(D)
                 st.text_area(
@@ -19574,7 +19591,7 @@ End with: We look forward to your reply."""
                 st.markdown("#### AX Coordinators Table")
                 st.dataframe(
                     category_dataframe("AX COORDINATORS", D, cat_map),
-                    width="stretch",
+                    use_container_width=True,
                 )
                 st.markdown("---")
 
@@ -19604,7 +19621,7 @@ End with: We look forward to your reply."""
                 st.markdown("#### Escalation 2nd line Table")
                 st.dataframe(
                     category_dataframe("ESCALATION 2ND LINE", D, cat_map),
-                    width="stretch",
+                    use_container_width=True,
                 )
 
             st.markdown("---")
@@ -19721,7 +19738,7 @@ End with: We look forward to your reply."""
 
             st.markdown("##### Dell escalation table preview")
             dell_table = dell_escalation_dataframe(D)
-            st.dataframe(dell_table, width="stretch")
+            st.dataframe(dell_table, use_container_width=True)
             copy_col, download_col = st.columns([2, 3])
             with copy_col:
                 copy_key = escalations_tab_key("dell_escalation_copy")
@@ -20075,10 +20092,10 @@ End with: We look forward to your reply."""
                 height=80,
             )
             st.dataframe(
-                category_dataframe(cat_hr, D, HW_CATEGORY_MAP), width="stretch"
+                category_dataframe(cat_hr, D, HW_CATEGORY_MAP), use_container_width=True
             )
             st.dataframe(
-                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), width="stretch"
+                category_dataframe("SCANNER HARDWARE", D, HW_CATEGORY_MAP), use_container_width=True
             )
 
 
@@ -20517,7 +20534,7 @@ End with: We look forward to your reply."""
             )
             st.dataframe(
                 category_dataframe(cat, D, cat_map),
-                width="stretch",
+                use_container_width=True,
                 key=tables_tab_key(f"df_{copy_suffix}"),
             )
 
