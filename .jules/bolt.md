@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2026-04-12 - Optimize SequenceMatcher with LRU Cache and Input Sorting
+**Learning:** `difflib.SequenceMatcher` is an O(N*M) performance bottleneck in text processing loops like case title clustering. Since comparisons are commutative, we can use `@lru_cache`. However, we MUST sort the inputs lexicographically before passing them to the cached function so that `(A, B)` and `(B, A)` result in a single cache entry, and we need a large `maxsize` (e.g., 16384) to prevent thrashing in N^2 pairwise comparisons.
+**Action:** When caching commutative pairwise text operations, sort arguments lexicographically *before* calling the cached function, and use a large enough `maxsize` to handle N^2 combinations.
