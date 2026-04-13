@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2024-04-13 - Optimize O(N^2) SequenceMatcher Similarity Calls
+**Learning:** `difflib.SequenceMatcher` is a known performance bottleneck (O(N*M)) in text processing. Caching pairwise text comparisons works exceptionally well, but only if arguments are passed deterministically. When dealing with commutative comparison operations, arguments must be sorted lexicographically *before* the function call to ensure `(A, B)` and `(B, A)` hit the exact same cache entry. In addition, unhashable arguments (like `set`) must be converted to hashable counterparts (like `tuple`) before passing them to an `@lru_cache` function.
+**Action:** When applying `@lru_cache` to commutative pairwise operations, always enforce deterministic argument ordering in the caller scope and convert all arguments to immutable, hashable types.
