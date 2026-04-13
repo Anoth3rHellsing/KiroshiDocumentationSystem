@@ -15,3 +15,6 @@
 ## 2025-05-23 - Destructive Action Confirmation
 **Learning:** Destructive actions like "Clear notes" in Streamlit require manual state management for confirmation, as `st.button` doesn't support native confirmation dialogs (unlike `window.confirm` in JS).
 **Action:** Use a session state toggle to swap the trigger button with a "Confirm/Cancel" UI within the same container to prevent accidental data loss.
+## 2026-04-13 - Shift Reset Confirmation
+**Learning:** Destructive sprint/shift reset actions should always require explicit confirmation, as accidental clicks can wipe out hours of active workspace data, causing severe frustration.
+**Action:** Implemented a two-step confirmation toggle for the "Close Shift" button to prevent accidental resets.

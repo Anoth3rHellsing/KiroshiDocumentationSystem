@@ -10375,13 +10375,29 @@ def render_sprint_tab() -> None:
         ):
             pass
 
-        if st.button("Close Shift (Reset)", help="Archive all active cases and reset the workspace"):
-            state = st.session_state.sprint_state
-            state.is_active = False
-            save_sprint_state(state)
-            st.session_state.sprint_state = state
-            st.success("Shift closed.")
-            st.rerun()
+        if 'confirm_close_shift' not in st.session_state:
+            st.session_state.confirm_close_shift = False
+
+        if not st.session_state.confirm_close_shift:
+            if st.button("Close Shift (Reset)", help="Archive all active cases and reset the workspace"):
+                st.session_state.confirm_close_shift = True
+                st.rerun()
+        else:
+            st.warning("Are you sure you want to close the shift? This will archive all active cases.")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("Yes, Close Shift", type="primary", key="confirm_shift_yes"):
+                    state = st.session_state.sprint_state
+                    state.is_active = False
+                    save_sprint_state(state)
+                    st.session_state.sprint_state = state
+                    st.session_state.confirm_close_shift = False
+                    st.success("Shift closed.")
+                    st.rerun()
+            with cc2:
+                if st.button("Cancel", key="confirm_shift_no"):
+                    st.session_state.confirm_close_shift = False
+                    st.rerun()
 
     if not tasks:
         st.info("No tasks for today.")
