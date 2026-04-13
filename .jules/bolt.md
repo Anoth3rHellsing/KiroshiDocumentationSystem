@@ -19,3 +19,7 @@
 ## 2024-04-13 - Optimizing Commutative Pairwise Operations
 **Learning:** `difflib.SequenceMatcher` is a known O(N*M) performance bottleneck. When used in O(N^2) clustering algorithms for string similarity matching (like pairwise case title comparisons), evaluating the similarity between A and B is the same as evaluating B and A. Without an optimal caching strategy, we perform redundant expensive calculations.
 **Action:** Use `@lru_cache` on the similarity scoring function, and sort the arguments lexicographically *before* calling the cached function to guarantee cache hits for symmetric comparisons. Ensure the cache size is large enough to handle O(N^2) possibilities to prevent thrashing.
+
+## 2024-04-13 - Missing Playwright E2E Setup CI Failure
+**Learning:** The GitHub Actions Playwright test suite strictly requires `tests/e2e/global-setup.ts` to exist locally. If this file is missing, the Playwright runner throws a "Cannot find module" error because `globalSetup` is configured in `playwright.config.ts`.
+**Action:** Always ensure that `tests/e2e/global-setup.ts` exists when submitting code to repositories that run `playwright test` in CI. If the file is missing locally, create a placeholder implementation to satisfy the runner without altering tracked configuration files.
