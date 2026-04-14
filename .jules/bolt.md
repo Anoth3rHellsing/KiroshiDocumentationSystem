@@ -15,3 +15,6 @@
 ## 2025-05-21 - Optimization of Recent Cases Update
 **Learning:** Redundant file reads during save/load operations can be eliminated by passing available in-memory data to utility functions.
 **Action:** Optimized `update_recent_cases` to accept an optional `case_data` argument, removing an O(1) file read/parse on every case save and load operation.
+## 2026-04-14 - Optimization of SequenceMatcher
+**Learning:** difflib.SequenceMatcher is computationally expensive. Because its .ratio() function returns symmetrical results (A vs B is the same as B vs A), simply caching it isn't fully optimal when checking permutations of pairs since (A, B) and (B, A) are treated as separate cache entries.
+**Action:** Always sort commutative string arguments lexicographically before passing them to a @lru_cache helper function to maximize cache hits and cut SequenceMatcher comparisons in half.
